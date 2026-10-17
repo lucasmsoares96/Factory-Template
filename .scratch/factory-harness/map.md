@@ -27,6 +27,7 @@ Duas specs prontas para implementar: (1) **spec do harness + Skeleton**: motor d
 - **MCP**: a Reference App expõe um servidor MCP remoto no Worker, autenticado. Suspeita do usuário: Better Auth não funciona bem no Workers e existe lib da Cloudflare para isso; verificar.
 - **Stack é negociável**: a pesquisa pode propor troca; cada troca vira decisão do usuário.
 - **Idioma**: harness, código, commits, PRs e `AGENTS.md` em inglês; mapa/tickets em português; UI da Reference App em português, sem i18n.
+- **Portabilidade de forja**: preferir sempre a opção mais simples de migrar do GitHub para outra forja (por exemplo, Forgejo). Lock-in em recurso exclusivo do GitHub só com justificativa. O usuário já tem um Forgejo auto-hospedado.
 - **Workflow dinâmico** (se for o motor): JavaScript pronto para executar, sempre com paralelismo = 1.
 
 ### Stack pedida
@@ -50,10 +51,11 @@ Duas specs prontas para implementar: (1) **spec do harness + Skeleton**: motor d
 - [Testes de integração e E2E para esta stack](issues/08-integration-and-e2e-testing.md): back com `createTestHarness()` do wrangler (o `vitest-pool-workers` está deprecated), Postgres local em container via Hyperdrive `localConnectionString` e Resend mockado por MSW. Front com Vitest Browser Mode + handlers MSW gerados pelo Kubb. E2E com Playwright na stack local. Preview, Neon e Resend reais (inbox `*.resend.app`) ficam só no smoke pós-deploy. Isolamento por dados próprios em cada teste; `testUtils()` do Better Auth. Conflito de versão: Kubb `msw ^2` × MSW para Workers `>=3`.
 - [Stack segundo a documentação oficial atual](issues/06-stack-official-docs.md): a stack continua válida, com 7 trocas propostas (T1–T7), que viram decisão em "Trocas na stack": Pages → Workers + Static Assets; um único Worker (SPA + Hono em `/api/*`); Hyperdrive + `pg`; Drizzle estável × v1 RC; shadcn com Base UI; `react-email` 6; adicionar TanStack Router. Hono + zod-openapi exigem Zod 4; Kubb v5, TanStack, Resend, pnpm e Turborepo ficam.
 - [Ambiente de preview por PR](issues/05-pr-preview-environments.md): Worker Previews (`wrangler preview --name pr-N`, ≥ 4.135, open beta), isolado e com URL estável, e não Version URLs. Branch Neon por PR (`create-branch-action@v6`) + `drizzle-kit migrate` + `DATABASE_URL` via `--secrets-file`; sem Hyperdrive no preview. Limpeza no `closed`. O input `secrets:` do `wrangler-action` grava na produção. Neon Free limita a cerca de 9 previews simultâneos. Resend redirecionado para `*.resend.app`. Reforça T1/T2 (um único Worker).
+- [Portabilidade GitHub → Forgejo](issues/14-forgejo-portability.md): migrar é viável para Forgejo próprio (v16.0.x) com runner próprio com Docker. As operações de forja ficam num adaptador REST (cerca de 20 operações mapeadas). Exclusivos do GitHub: `claude-code-action`, `gh`, `state_reason`, `queue: max`, lock por `git/refs`, draft. O `fj` 0.7.0 não sobe anexos, mas a REST do Forgejo tem endpoints de assets.
+- [Escolha do motor da Factory](issues/12-factory-engine-choice.md): Sandcastle com `noSandbox()` em `ubuntu-latest`, versão fixada, sem motor alternativo. Identidade = machine user + `FACTORY_TOKEN` (fora do processo do agente). Um adaptador de forja (só GitHub implementado; cabe no Forgejo). Prints por anexo nativo. Auth do Claude por API key ou OAuth token. E2E local dentro do job. O `claude-code-action` sai da Factory.
 
 ## Not yet specified
 
-- **Execução de cada Stage**: onde o E2E roda (contra preview? local no runner?), como a Review interna é invocada, como o estado passa de um Stage para o outro. Depende do motor.
 - **Layout do monorepo e fronteira Skeleton × Reference App**: estrutura de pacotes/apps e o que exatamente o Strip remove.
 - **Lista final de arquivos de harness**: AGENTS.md por diretório, skills próprias da stack, subagents, `.mcp.json`, settings/hooks.
 - **Bootstrap do template público**: wizard para contas, secrets, projetos Cloudflare/Neon/Resend, labels do GitHub.
@@ -66,4 +68,8 @@ Duas specs prontas para implementar: (1) **spec do harness + Skeleton**: motor d
 - Merge automático do PR pela Factory: o Merge Gate é sempre humano.
 - i18n da Reference App.
 - Implementar o harness ou a Reference App: acontece depois do mapa.
+- Suporte real a Forgejo no template: só o adaptador é projetado para caber nele ([Portabilidade GitHub → Forgejo](issues/14-forgejo-portability.md)).
+- Codeberg como forja da Factory: os Termos de Uso (desde junho de 2026) proíbem projetos majoritariamente gerados por IA, e os runners hospedados param em 10 min por job.
+- Sandbox `docker()` com rede restrita para o agente: endurecimento futuro.
+- Motor alternativo (Agent SDK, dynamic Workflow, `claude-code-action` como orquestrador): descartado em [Escolha do motor da Factory](issues/12-factory-engine-choice.md).
 - Workflow de review de PR separado (`claude-code-review.yml`): substituído pelo Review stage interno.
