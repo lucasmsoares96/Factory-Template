@@ -35,7 +35,7 @@ A ready issue that the factory will not start until every issue blocking it has 
 ### Organization (Skeleton)
 
 **Company**:
-The tenant: an organization whose Members share everything built inside it. A user can belong to several Companies and works in one at a time, the active Company.
+The tenant: an organization whose Members work inside it; what each Member sees within it depends on their role. A user can belong to several Companies and works in one at a time, the active Company.
 _Avoid_: Organization, workspace, tenant, account
 
 **Member**:
