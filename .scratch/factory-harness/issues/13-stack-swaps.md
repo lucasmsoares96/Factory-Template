@@ -18,3 +18,5 @@ Trocas propostas pela pesquisa 06 (detalhes em `../research/06-stack-official-do
 - T7: adicionar TanStack Router
 
 Também decide, a partir da pesquisa 07: (a) **plano Workers Paid** (login com senha, hash de ~121 ms de CPU) **ou login sem senha** (magic link/código por email via Resend) para caber no plano Free; (b) aceitar a combinação Better Auth (app) + `@cloudflare/workers-oauth-provider` (tokens do MCP) + `createMcpHandler` (substituindo o `McpAgent`, que está deprecated) num único Worker.
+
+Contexto de [Modelo de organização da Reference App](10-organization-model.md): a verificação de email é obrigatória e a troca de email exige verificar o novo endereço; se ficar com senha, falta decidir troca e reset de senha.
