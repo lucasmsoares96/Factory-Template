@@ -1,0 +1,69 @@
+# Map: Factory Template — harness, Skeleton e Reference App
+
+Type: wayfinder:map
+
+## Destination
+
+Duas specs prontas para implementar: (1) **spec do harness + Skeleton**: motor da Factory, Stages, agendador de Blocked Issues, preview por PR, prints no PR, testes, arquivos de harness, Strip e bootstrap; (2) **PRD da Reference App** quebrado em issues `ready-for-agent` no GitHub, liberadas só depois que o harness estiver implementado, para a própria Factory construí-las como teste de aceitação.
+
+## Notes
+
+- **Tracker deste esforço: Markdown local** (`.scratch/factory-harness/`), seguindo as convenções de `.agents/skills/setup-matt-pocock-skills/issue-tracker-local.md`. O GitHub Issues fica reservado para trabalho que a Factory executa; só o backlog final da Reference App vai para lá. `docs/agents/issue-tracker.md` continua apontando para o GitHub.
+- `.scratch/` é commitado durante o trabalho; no fim, o que tem valor duradouro vira ADR/docs em `docs/` e o `.scratch/` é apagado antes de publicar o template.
+- Achados de pesquisa: `.scratch/factory-harness/research/<NN>-<slug>.md`, com fonte primária citada em cada afirmação.
+- Vocabulário: `GLOSSARY.md` na raiz (Factory, Template, Reference App, Skeleton, Strip, Stage, Merge Gate, Escalation, Blocked Issue).
+- Skills a consultar: `grilling` + `domain-modeling` para tickets de grilling; `research` para tickets de pesquisa; `codebase-design` para fronteiras de módulo; `to-spec` e `to-tickets` no fim.
+- Toda escolha técnica deve ser checada na **documentação oficial mais recente** (outubro de 2026), registrando versão e data.
+
+### Decisões tomadas no charting
+
+- **Template público**: nada fixo no código; tudo via secrets/variáveis; precisa de bootstrap guiado.
+- **Reference App vem dentro do template** como exemplo; um comando de Strip remove-a e deixa o Skeleton verde. Skeleton = stack ponta a ponta + cadastro + criação de Company + deploy + testes. Sai no Strip: Teams, Projects, Tickets, Sprints, histórico de tempo.
+- **Portões humanos**: o humano marca a issue como pronta (`ready-for-agent`) e faz o merge (Merge Gate). Deploy automático na `main`. Preview por PR obrigatório (ainda não existe).
+- **Stages**: Exploration → Development → E2E → Review; falha em E2E ou Review volta para Development. Limite de **5 voltas**, depois Escalation (PR em draft + comentário na issue + label `ready-for-human`).
+- **Concorrência**: issues prontas rodam em paralelo, cada uma no seu branch/PR; Blocked Issues (dependência nativa do GitHub) só começam quando todos os bloqueadores forem mergeados; um agendador dispara as destravadas a cada merge.
+- **Review**: só o Review stage interno, antes de abrir o PR. O `claude-code-review.yml` atual sai.
+- **Portabilidade**: `AGENTS.md` é a fonte da verdade (Claude atual lê nativamente); instruções e skills portáveis; o motor da Factory é Claude Code.
+- **MCP**: a Reference App expõe um servidor MCP remoto no Worker, autenticado. Suspeita do usuário: Better Auth não funciona bem no Workers e existe lib da Cloudflare para isso; verificar.
+- **Stack é negociável**: a pesquisa pode propor troca; cada troca vira decisão do usuário.
+- **Idioma**: harness, código, commits, PRs e `AGENTS.md` em inglês; mapa/tickets em português; UI da Reference App em português, sem i18n.
+- **Workflow dinâmico** (se for o motor): JavaScript pronto para executar, sempre com paralelismo = 1.
+
+### Stack pedida
+
+- Frontend: TypeScript, React, shadcn/ui, Kubb, TanStack Query, TanStack Form, Cloudflare Pages
+- Backend: TypeScript, Hono, Zod, OpenAPI, Swagger UI no Hono, MCP nativo da Cloudflare, Better Auth, Cloudflare Workers
+- Banco: Neon Postgres, Drizzle
+- CI/CD: GitHub Actions com `wrangler deploy`
+- Email: Resend
+
+## Decisions so far
+
+<!-- one line per resolved ticket: [title](issues/NN-slug.md): gist -->
+
+- [Sandcastle em runner hospedado do GitHub](issues/01-sandcastle-hosted-runner.md): roda em `ubuntu-latest` com `noSandbox()` (exemplo oficial no próprio repo do Sandcastle); é biblioteca, então Stages, limite de voltas, PR e Escalation ficam por nossa conta; PR com `GITHUB_TOKEN` exige PAT/GitHub App para disparar outros workflows.
+- [Prints anexados ao PR](issues/04-screenshots-in-pr.md): branch órfão + links `blob/...?raw=true` funcionam com qualquer token e respeitam repo privado; `gh --attach` (≥ 2.99.0) só com PAT/OAuth; R2/gist vazam prints de repo privado; prints via Playwright `@evidence` contra o preview, num comentário único editado a cada volta.
+- [Dynamic workflow headless no GitHub Actions](issues/02-dynamic-workflow-headless.md): roda via `claude -p` num step (não via `claude-code-action`, que sai na primeira `result`); paralelismo 1 com `CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS=1`; disparo depende do modelo, então o job verifica no `stream-json` que o `Workflow` foi chamado; research preview, pede spike; fallback é orquestrador TS com Agent SDK.
+- [Auth no Workers e MCP remoto autenticado](issues/07-auth-on-workers-and-mcp.md): Better Auth 1.7.x funciona no Workers (problemas antigos corrigidos; um bug aberto). A "lib da Cloudflare" é `workers-oauth-provider`, que só emite tokens do MCP e complementa o Better Auth. `McpAgent` está deprecated: usar `createMcpHandler`. Hash de senha (~121 ms de CPU) estoura o plano Free, então é preciso escolher entre plano Paid e login sem senha.
+- [Gatilho por label e agendador de Blocked Issues](issues/03-trigger-and-scheduler.md): `issues: labeled` (`ready-for-agent`) + `workflow_dispatch`, concorrência por issue, guard que exige todos os bloqueadores `closed`+`completed` (lista `blocked_by`, não o summary) e cria o ref `factory/issue-N` como trava. O agendador escuta `issues: closed` e despacha via `gh workflow run` com o próprio `GITHUB_TOKEN`. O PR precisa sair por token de App (Claude App ou App própria), senão o CI espera aprovação. Push em `.github/workflows/` falha com o token da Claude App.
+- [Convenções de arquivos de harness](issues/09-harness-conventions.md): sem nenhum `CLAUDE.md` (o Claude ≥ 2.1.277 só lê `AGENTS.md` nativamente quando não existe `CLAUDE.md`). `AGENTS.md` na raiz e por pacote; skills em `.agents/skills` (Codex) e `.claude/skills` (Claude). No CI, `permissions.allow` do `.claude/settings.json` é ignorado: a allowlist vai em `settings:` ou `--allowedTools`. MCPs headless: Cloudflare Docs, Context7, shadcn, Cloudflare API (somente leitura), Neon (somente leitura). Para E2E e prints, Playwright CLI + skill em vez do MCP.
+- [Testes de integração e E2E para esta stack](issues/08-integration-and-e2e-testing.md): back com `createTestHarness()` do wrangler (o `vitest-pool-workers` está deprecated), Postgres local em container via Hyperdrive `localConnectionString` e Resend mockado por MSW. Front com Vitest Browser Mode + handlers MSW gerados pelo Kubb. E2E com Playwright na stack local. Preview, Neon e Resend reais (inbox `*.resend.app`) ficam só no smoke pós-deploy. Isolamento por dados próprios em cada teste; `testUtils()` do Better Auth. Conflito de versão: Kubb `msw ^2` × MSW para Workers `>=3`.
+- [Stack segundo a documentação oficial atual](issues/06-stack-official-docs.md): a stack continua válida, com 7 trocas propostas (T1–T7), que viram decisão em "Trocas na stack": Pages → Workers + Static Assets; um único Worker (SPA + Hono em `/api/*`); Hyperdrive + `pg`; Drizzle estável × v1 RC; shadcn com Base UI; `react-email` 6; adicionar TanStack Router. Hono + zod-openapi exigem Zod 4; Kubb v5, TanStack, Resend, pnpm e Turborepo ficam.
+- [Ambiente de preview por PR](issues/05-pr-preview-environments.md): Worker Previews (`wrangler preview --name pr-N`, ≥ 4.135, open beta), isolado e com URL estável, e não Version URLs. Branch Neon por PR (`create-branch-action@v6`) + `drizzle-kit migrate` + `DATABASE_URL` via `--secrets-file`; sem Hyperdrive no preview. Limpeza no `closed`. O input `secrets:` do `wrangler-action` grava na produção. Neon Free limita a cerca de 9 previews simultâneos. Resend redirecionado para `*.resend.app`. Reforça T1/T2 (um único Worker).
+
+## Not yet specified
+
+- **Execução de cada Stage**: onde o E2E roda (contra preview? local no runner?), como a Review interna é invocada, como o estado passa de um Stage para o outro. Depende do motor.
+- **Layout do monorepo e fronteira Skeleton × Reference App**: estrutura de pacotes/apps e o que exatamente o Strip remove.
+- **Lista final de arquivos de harness**: AGENTS.md por diretório, skills próprias da stack, subagents, `.mcp.json`, settings/hooks.
+- **Bootstrap do template público**: wizard para contas, secrets, projetos Cloudflare/Neon/Resend, labels do GitHub.
+- **Ferramentas do MCP da Reference App**: quais operações expor e com que permissões.
+- **Telas de métricas de tempo** por coluna e por responsável.
+- **Redação final das duas specs e quebra do backlog** em issues `ready-for-agent` (`to-spec`, `to-tickets`), com a ordem de liberação.
+
+## Out of scope
+
+- Merge automático do PR pela Factory: o Merge Gate é sempre humano.
+- i18n da Reference App.
+- Implementar o harness ou a Reference App: acontece depois do mapa.
+- Workflow de review de PR separado (`claude-code-review.yml`): substituído pelo Review stage interno.
