@@ -9,6 +9,8 @@ Como se modelam Company, Team, membro e papéis? Pontos a fechar: um usuário pe
 
 ## Answer
 
+> **Revisto em [Modelo de projetos, Tarefas e fluxo](11-projects-and-flow-model.md):** o Team passa a definir quais Projects Manager e Employee veem; o Manager passa a agir só nos seus Teams (põe e tira Employees deles, convida Employees já dentro de um Team seu, não remove ninguém da Company) e sai no Strip. No Skeleton ficam só Owner e Employee, e só o Owner convida e remove. Onde este texto diz "Ticket", leia "Tarefa".
+
 **Company**
 - Um usuário pode pertencer a várias Companies. A Company ativa vem da URL: `/c/<id>/...`, com um id aleatório e imutável (não é derivado do nome, então não colide nem muda ao renomear). A sessão guarda só a última Company usada, para o redirect depois do login. Duas abas podem estar em Companies diferentes.
 - O nome não precisa ser único. Qualquer usuário verificado cria Companies, sem limite.

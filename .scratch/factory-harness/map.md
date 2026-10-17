@@ -18,7 +18,7 @@ Duas specs prontas para implementar: (1) **spec do harness + Skeleton**: motor d
 ### Decisões tomadas no charting
 
 - **Template público**: nada fixo no código; tudo via secrets/variáveis; precisa de bootstrap guiado.
-- **Reference App vem dentro do template** como exemplo; um comando de Strip remove-a e deixa o Skeleton verde. Skeleton = stack ponta a ponta + cadastro + criação de Company + deploy + testes. Sai no Strip: Teams, Projects, Tickets, Sprints, histórico de tempo.
+- **Reference App vem dentro do template** como exemplo; um comando de Strip remove-a e deixa o Skeleton verde. Skeleton = stack ponta a ponta + cadastro + criação de Company + deploy + testes. Sai no Strip: Teams, Manager, Pipelines, Projects, Tarefas, Sprints, registros de tempo, anexos.
 - **Portões humanos**: o humano marca a issue como pronta (`ready-for-agent`) e faz o merge (Merge Gate). Deploy automático na `main`. Preview por PR obrigatório (ainda não existe).
 - **Stages**: Exploration → Development → E2E → Review; falha em E2E ou Review volta para Development. Limite de **5 voltas**, depois Escalation (PR em draft + comentário na issue + label `ready-for-human`).
 - **Concorrência**: issues prontas rodam em paralelo, cada uma no seu branch/PR; Blocked Issues (dependência nativa do GitHub) só começam quando todos os bloqueadores forem mergeados; um agendador dispara as destravadas a cada merge.
@@ -53,15 +53,17 @@ Duas specs prontas para implementar: (1) **spec do harness + Skeleton**: motor d
 - [Ambiente de preview por PR](issues/05-pr-preview-environments.md): Worker Previews (`wrangler preview --name pr-N`, ≥ 4.135, open beta), isolado e com URL estável, e não Version URLs. Branch Neon por PR (`create-branch-action@v6`) + `drizzle-kit migrate` + `DATABASE_URL` via `--secrets-file`; sem Hyperdrive no preview. Limpeza no `closed`. O input `secrets:` do `wrangler-action` grava na produção. Neon Free limita a cerca de 9 previews simultâneos. Resend redirecionado para `*.resend.app`. Reforça T1/T2 (um único Worker).
 - [Portabilidade GitHub → Forgejo](issues/14-forgejo-portability.md): migrar é viável para Forgejo próprio (v16.0.x) com runner próprio com Docker. As operações de forja ficam num adaptador REST (cerca de 20 operações mapeadas). Exclusivos do GitHub: `claude-code-action`, `gh`, `state_reason`, `queue: max`, lock por `git/refs`, draft. O `fj` 0.7.0 não sobe anexos, mas a REST do Forgejo tem endpoints de assets.
 - [Escolha do motor da Factory](issues/12-factory-engine-choice.md): Sandcastle com `noSandbox()` em `ubuntu-latest`, versão fixada, sem motor alternativo. Identidade = machine user + `FACTORY_TOKEN` (fora do processo do agente). Um adaptador de forja (só GitHub implementado; cabe no Forgejo). Prints por anexo nativo. Auth do Claude por API key ou OAuth token. E2E local dentro do job. O `claude-code-action` sai da Factory.
-- [Modelo de organização da Reference App](issues/10-organization-model.md): várias Companies por usuário, a ativa vem da URL (`/c/<id aleatório imutável>`). Roles da Company: um Owner (manda em tudo, transfere a posse), Manager (só entra e sai de Employees) e Employee; o Team nunca concede permissão. Convites de 7 dias presos ao email verificado. Quem sai deixa Tickets sem responsável e perde o MCP na hora. Companies, roles, convites e conta ficam no Skeleton; o Strip remove os Teams.
+- [Modelo de organização da Reference App](issues/10-organization-model.md): várias Companies por usuário, a ativa vem da URL (`/c/<id aleatório imutável>`). Roles da Company: um Owner (manda em tudo, transfere a posse) e Employee; o Manager (líder dos seus Teams) e o acesso por Team foram revistos no ticket seguinte. Convites de 7 dias presos ao email verificado. Quem sai deixa Tarefas sem responsável e perde o MCP na hora. Companies, Owner/Employee, convites e conta ficam no Skeleton; o Strip remove Teams e Manager.
+- [Modelo de projetos, Tarefas e fluxo](issues/11-projects-and-flow-model.md): "Tarefa" substitui "Ticket". Project da Company, ligado a 0..N Teams, que definem quem o vê; segue um Pipeline da Company (colunas de entrada, fila, em andamento, concluído). Um responsável por vez, só em coluna em andamento; registros de tempo por coluna, responsável e Sprint (filas incluídas, para gargalos). Sprints pendente/ativa/encerrada, encerramento manual ou automático configurável. Uma tela de Tarefas (Kanban ou lista; escopo Empresa/Team/Pessoa; filtro Scrum). Manager age só nos seus Teams. Anexos no R2.
 
 ## Not yet specified
 
-- **Layout do monorepo e fronteira Skeleton × Reference App**: estrutura de pacotes/apps e o que exatamente o Strip remove. Do lado da organização a fronteira já está fechada ([Modelo de organização da Reference App](issues/10-organization-model.md)); falta o lado de Projects/Tickets e como o código se separa.
+- **Layout do monorepo e fronteira Skeleton × Reference App**: estrutura de pacotes/apps e o que exatamente o Strip remove. A fronteira de domínio já está fechada ([Modelo de organização da Reference App](issues/10-organization-model.md) e [Modelo de projetos, Tarefas e fluxo](issues/11-projects-and-flow-model.md)); falta como o código se separa, incluindo o Manager, que existe só na Reference App.
 - **Lista final de arquivos de harness**: AGENTS.md por diretório, skills próprias da stack, subagents, `.mcp.json`, settings/hooks.
 - **Bootstrap do template público**: wizard para contas, secrets, projetos Cloudflare/Neon/Resend, labels do GitHub.
-- **Ferramentas do MCP da Reference App**: quais operações expor e com que permissões.
-- **Telas de métricas de tempo** por coluna e por responsável.
+- **R2 para anexos de Tarefas**: bucket no bootstrap, isolamento no preview por PR (bucket ou prefixo por PR, limpeza no `closed`) e o que o Strip remove.
+- **Ferramentas do MCP da Reference App**: quais operações expor; as permissões seguem a tabela de [Modelo de projetos, Tarefas e fluxo](issues/11-projects-and-flow-model.md).
+- **Telas de métricas de tempo**: layout e filtros; as definições (tempo por coluna, por responsável, nas filas, cycle time) já estão em [Modelo de projetos, Tarefas e fluxo](issues/11-projects-and-flow-model.md).
 - **Redação final das duas specs e quebra do backlog** em issues `ready-for-agent` (`to-spec`, `to-tickets`), com a ordem de liberação.
 
 ## Out of scope
@@ -74,3 +76,4 @@ Duas specs prontas para implementar: (1) **spec do harness + Skeleton**: motor d
 - Sandbox `docker()` com rede restrita para o agente: endurecimento futuro.
 - Motor alternativo (Agent SDK, dynamic Workflow, `claude-code-action` como orquestrador): descartado em [Escolha do motor da Factory](issues/12-factory-engine-choice.md).
 - Workflow de review de PR separado (`claude-code-review.yml`): substituído pelo Review stage interno.
+- Na Reference App: trocar o Pipeline de um Project, arquivar Project, menções e notificações em comentários, integração de PR com a forja (só links). Decidido em [Modelo de projetos, Tarefas e fluxo](issues/11-projects-and-flow-model.md).
