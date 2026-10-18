@@ -26,14 +26,18 @@ _Avoid_: Boilerplate, base app
 Removing the Reference App from a copy of the template, leaving only the Skeleton, still green.
 
 **Stage**:
-One step of the factory's work on an issue: Exploration, Development, E2E, or Review. A failing E2E or Review stage sends the work back to Development.
+One step of the factory's work on an issue: Development, Review, or E2E. A failing E2E stage sends the work back to Development; Review fixes what it finds itself and never sends the work back.
 _Avoid_: Phase, step
+
+**Triage**:
+The read-only pass that decides whether an issue can be built by the factory as written, and at which seams it will be tested.
+_Avoid_: Exploration, explore
 
 **Merge Gate**:
 The point where a human reviews and merges the factory's pull request; the factory never merges its own work.
 
 **Escalation**:
-What the factory does when an issue fails E2E or Review five times: opens a draft pull request with its progress, explains the failure on the issue, and hands it to a human.
+What the factory does when an issue fails E2E five times, runs out of time, or needs a human decision: opens a draft pull request with its progress, explains the failure on the issue, and hands it to a human.
 _Avoid_: Failure, abort
 
 **Blocked Issue**:

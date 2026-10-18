@@ -16,3 +16,7 @@ Novidade de 2026: um PR criado com `GITHUB_TOKEN` gera runs que exigem aprovaç�
 `claude-code-action@v1` (= v1.0.252, 2026-10-16) tem só dois modos, `tag` e `agent`, auto-detectados pela presença de `prompt`. A autenticação aceita API key, OAuth (1 ano, preso à pessoa) ou WIF. O token da App vem por OIDC (`id-token: write`) e cobre contents, PRs e issues. O PR só é aberto se o prompt pedir e `gh pr create` for liberado. O run despachado tem actor `github-actions[bot]`, então exige `allowed_bots: "github-actions[bot]"`.
 
 [pesquisa](../research/03-trigger-and-scheduler.md)
+
+## Revisão
+
+A trava por criação do ref `factory/issue-N` foi substituída pela troca de label (`ready-for-agent` → `in-progress`), porque depois de uma Escalation o branch continua existindo e o retry nunca rodaria. Decidido em [Contrato de cada Stage e do loop](15-stage-contracts.md).

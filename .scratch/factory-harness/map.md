@@ -20,7 +20,7 @@ Duas specs prontas para implementar: (1) **spec do harness + Skeleton**: motor d
 - **Template público**: nada fixo no código; tudo via secrets/variáveis; precisa de bootstrap guiado.
 - **Reference App vem dentro do template** como exemplo; um comando de Strip remove-a e deixa o Skeleton verde. Skeleton = stack ponta a ponta + cadastro + criação de Company + deploy + testes. Sai no Strip: Teams, Manager, Pipelines, Projects, Tarefas, Sprints, registros de tempo, anexos.
 - **Portões humanos**: o humano marca a issue como pronta (`ready-for-agent`) e faz o merge (Merge Gate). Deploy automático na `main`. Preview por PR obrigatório (ainda não existe).
-- **Stages**: Exploration → Development → E2E → Review; falha em E2E ou Review volta para Development. Limite de **5 voltas**, depois Escalation (PR em draft + comentário na issue + label `ready-for-human`).
+- **Stages**: Development → Review → E2E; a Review corrige em vez de reprovar, e só a falha no E2E volta para Development. Limite de **5 voltas**, depois Escalation (PR em draft + comentário na issue + label `ready-for-human`). Revisto em [Contrato de cada Stage e do loop](issues/15-stage-contracts.md).
 - **Concorrência**: issues prontas rodam em paralelo, cada uma no seu branch/PR; Blocked Issues (dependência nativa do GitHub) só começam quando todos os bloqueadores forem mergeados; um agendador dispara as destravadas a cada merge.
 - **Review**: só o Review stage interno, antes de abrir o PR. O `claude-code-review.yml` atual sai.
 - **Portabilidade**: `AGENTS.md` é a fonte da verdade (Claude atual lê nativamente); instruções e skills portáveis; o motor da Factory é Claude Code.
@@ -59,6 +59,8 @@ Duas specs prontas para implementar: (1) **spec do harness + Skeleton**: motor d
 
 - [Trocas na stack](issues/13-stack-swaps.md): um único Worker (SPA + Hono em `/api/*` e `/mcp`), sem Pages; `pg` + Drizzle direto no Neon em todo lugar, sem Hyperdrive (teto de 100k queries/dia); Drizzle v1 RC fixa; shadcn com Base UI; TanStack Router; `react-email` 6 → `html`. Login com email e senha no Workers Free, com reset e troca de senha. MCP: Better Auth + `workers-oauth-provider` + `createMcpHandler`, com CIMD, DCR e `legacy: "stateless"`. Nova restrição: stack 100% gratuita.
 - [Kubb + MSW 3](issues/18-kubb-msw3.md): MSW 3.0.x em todo o workspace. O código gerado pelo Kubb 5.1 (`http` de `'msw'` + `Response`) roda no MSW 3, que mantém os exports da raiz até o v4. O peer `msw ^2` (opcional, issue kubb-labs/plugins#1049 aberta) é silenciado com `peerDependencyRules.allowedVersions`. O fixture do Browser Mode precisa de `scope: 'file'`, porque um `worker.start()` repetido agora lança exceção, e o worker é servido por `msw({ mode: 'worker-only' })`.
+
+- [Contrato de cada Stage e do loop](issues/15-stage-contracts.md): padrão do Matt. Seams chegam prontos (Testing Decisions da spec ou Triage `factory-explore`, que vira `ready-for-agent` sozinha no `easy-call`); a Exploration sai. Cada tentativa é Development (`tdd` nos seams) → Review (corrige, não reprova) → E2E (`pnpm factory:verify`, o mesmo do CI). Sessão nova sempre, Opus em tudo. Trava pela label `in-progress`; retry recomeça da `main`. PR em draft → review `COMMENT` → `ready`. Comentários no PR de quem tem `write`+ são tratados (Address/Decline/Defer).
 
 ## Not yet specified
 
