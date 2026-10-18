@@ -29,7 +29,7 @@ Herdado de [Modelo de organização da Reference App](10-organization-model.md):
 
 **Manager** (revê o [Modelo de organização da Reference App](10-organization-model.md))
 - Continua sendo uma role da Company, mas só age nos Teams de que faz parte.
-- Sai no Strip. No Skeleton ficam apenas Owner e Employee, e só o Owner convida e remove pessoas.
+- Sai no Strip. No Skeleton ficam apenas Owner e Employee, e só o Owner convida e remove pessoas. **Revisto em [Layout do monorepo e fronteira do Strip](21-monorepo-layout-and-strip.md):** o Manager fica no Skeleton, com os direitos de um Employee; no Skeleton só o Owner convida e remove.
 
 | Ação | Owner | Manager | Employee |
 |---|---|---|---|

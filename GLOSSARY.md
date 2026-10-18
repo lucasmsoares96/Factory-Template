@@ -50,12 +50,16 @@ The tenant: an organization whose Members work inside it; what each Member sees 
 _Avoid_: Organization, workspace, tenant, account
 
 **Member**:
-A user's membership in one Company, carrying exactly one role: Owner or Employee (the Reference App adds Manager).
+A user's membership in one Company, carrying exactly one role: Owner, Manager, or Employee.
 _Avoid_: User (when the Company relationship is meant), membership
 
 **Owner**:
 The role of the single Member who holds a Company and has the final say over it.
 _Avoid_: Admin, creator
+
+**Manager**:
+The role of a Member who leads the Teams they belong to: runs those Teams' people and Projects, and nothing beyond them. Where there are no Teams, a Manager has exactly an Employee's rights.
+_Avoid_: Admin, lead, team lead
 
 **Employee**:
 The default role of a Member: works inside the Company without administering it.
@@ -70,10 +74,6 @@ _Avoid_: Invite link
 **Team**:
 A flat, named group of Members within a Company, with no roles of its own. A Member can be in any number of Teams, or none. Managers and Employees see only the Projects linked to one of their Teams.
 _Avoid_: Group, squad, department
-
-**Manager**:
-The role of a Member who leads the Teams they belong to: runs those Teams' people and Projects, and nothing beyond them.
-_Avoid_: Admin, lead, team lead
 
 **Project**:
 A body of work owned by a Company, following one Pipeline. A Project can be linked to any number of Teams, and a Team to any number of Projects.

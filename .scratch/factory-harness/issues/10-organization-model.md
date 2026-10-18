@@ -9,6 +9,8 @@ Como se modelam Company, Team, membro e papéis? Pontos a fechar: um usuário pe
 
 ## Answer
 
+> **Revisto em [Layout do monorepo e fronteira do Strip](21-monorepo-layout-and-strip.md):** o Manager fica no Skeleton como role sem poderes além dos de um Employee (sem Teams); o Strip não o remove.
+>
 > **Revisto em [Modelo de projetos, Tarefas e fluxo](11-projects-and-flow-model.md):** o Team passa a definir quais Projects Manager e Employee veem; o Manager passa a agir só nos seus Teams (põe e tira Employees deles, convida Employees já dentro de um Team seu, não remove ninguém da Company) e sai no Strip. No Skeleton ficam só Owner e Employee, e só o Owner convida e remove. Onde este texto diz "Ticket", leia "Tarefa".
 
 **Company**
