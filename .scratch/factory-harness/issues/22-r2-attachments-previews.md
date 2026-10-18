@@ -17,6 +17,8 @@ Conclua com uma recomendação concreta para a spec (binding, isolamento no prev
 
 ## Answer
 
+> **Revisto em [Skeleton primeiro, Reference App em repo privado](27-skeleton-first-private-app.md):** os anexos são da Reference App, que foi para um repo privado. Esta decisão vale lá, não no Skeleton.
+
 - **Isolamento: um bucket de preview compartilhado + prefixo `pr-N/` por `--var`.**
   - `previews.r2_buckets` liga o bucket por `bucket_name`, e "two Previews sharing the same `bucket_name` share objects". Não há provisionamento automático por Preview, como existe para DO.
   - O `wrangler preview` (4.151.1) não tem flag para trocar binding. Um bucket por PR exigiria gerar config por PR, o que fura o "sempre `--config` da `main`" da decisão 19.

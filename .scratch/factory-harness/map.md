@@ -1,24 +1,24 @@
-# Map: Factory Template — harness, Skeleton e Reference App
+# Map: Factory Template — harness e Skeleton
 
 Type: wayfinder:map
 
 ## Destination
 
-Duas specs prontas para implementar: (1) **spec do harness + Skeleton**: motor da Factory, Stages, agendador de Blocked Issues, preview por PR, prints no PR, testes, arquivos de harness, Strip e bootstrap; (2) **PRD da Reference App** quebrado em issues `ready-for-agent` no GitHub, liberadas só depois que o harness estiver implementado, para a própria Factory construí-las como teste de aceitação.
+A **spec do harness + Skeleton** pronta para implementar (motor da Factory, Stages, agendador de Blocked Issues, preview por PR, prints no PR, testes, arquivos de harness e bootstrap), quebrada em duas partes: a base que o usuário implementa à mão (harness, `platform/`, `factory:verify`, deploy e preview) e as issues `ready-for-agent` do resto do Skeleton (cadastro, conta, Companies, convites), que a própria Factory constrói como teste de aceitação. Tudo no repo público. A Reference App é um esforço separado, num repo privado ([Skeleton primeiro, Reference App em repo privado](issues/27-skeleton-first-private-app.md)).
 
 ## Notes
 
-- **Tracker deste esforço: Markdown local** (`.scratch/factory-harness/`), seguindo as convenções de `.agents/skills/setup-matt-pocock-skills/issue-tracker-local.md`. O GitHub Issues fica reservado para trabalho que a Factory executa; só o backlog final da Reference App vai para lá. `docs/agents/issue-tracker.md` continua apontando para o GitHub.
+- **Tracker deste esforço: Markdown local** (`.scratch/factory-harness/`), seguindo as convenções de `.agents/skills/setup-matt-pocock-skills/issue-tracker-local.md`. O GitHub Issues fica reservado para trabalho que a Factory executa; só o backlog do Skeleton vai para lá. `docs/agents/issue-tracker.md` continua apontando para o GitHub.
 - `.scratch/` é commitado durante o trabalho; no fim, o que tem valor duradouro vira ADR/docs em `docs/` e o `.scratch/` é apagado antes de publicar o template.
 - Achados de pesquisa: `.scratch/factory-harness/research/<NN>-<slug>.md`, com fonte primária citada em cada afirmação.
-- Vocabulário: `GLOSSARY.md` na raiz (Factory, Template, Reference App, Skeleton, Strip, Stage, Merge Gate, Escalation, Blocked Issue).
+- Vocabulário: `GLOSSARY.md` na raiz (Factory, Template, Reference App, Skeleton, Stage, Merge Gate, Escalation, Blocked Issue).
 - Skills a consultar: `grilling` + `domain-modeling` para tickets de grilling; `research` para tickets de pesquisa; `codebase-design` para fronteiras de módulo; `to-spec` e `to-tickets` no fim.
 - Toda escolha técnica deve ser checada na **documentação oficial mais recente** (outubro de 2026), registrando versão e data.
 
 ### Decisões tomadas no charting
 
 - **Template público**: nada fixo no código; tudo via secrets/variáveis; precisa de bootstrap guiado.
-- **Reference App vem dentro do template** como exemplo; um comando de Strip remove-a e deixa o Skeleton verde. Skeleton = stack ponta a ponta + cadastro + criação de Company + deploy + testes. Sai no Strip: Teams, os poderes do Manager (a role fica), Pipelines, Projects, Tarefas, Sprints, registros de tempo, anexos.
+- **Reference App vem dentro do template** _(revisto em [Skeleton primeiro, Reference App em repo privado](issues/27-skeleton-first-private-app.md): ela vai para um repo privado e o Strip sai)_ como exemplo; um comando de Strip remove-a e deixa o Skeleton verde. Skeleton = stack ponta a ponta + cadastro + criação de Company + deploy + testes. Sai no Strip: Teams, os poderes do Manager (a role fica), Pipelines, Projects, Tarefas, Sprints, registros de tempo, anexos.
 - **Portões humanos**: o humano marca a issue como pronta (`ready-for-agent`) e faz o merge (Merge Gate). Deploy automático na `main`. Preview por PR obrigatório (ainda não existe).
 - **Stages**: Development → Review → E2E; a Review corrige em vez de reprovar, e só a falha no E2E volta para Development. Limite de **5 voltas**, depois Escalation (PR em draft + comentário na issue + label `ready-for-human`). Revisto em [Contrato de cada Stage e do loop](issues/15-stage-contracts.md).
 - **Concorrência**: issues prontas rodam em paralelo, cada uma no seu branch/PR; Blocked Issues (dependência nativa do GitHub) só começam quando todos os bloqueadores forem mergeados; um agendador dispara as destravadas a cada merge.
@@ -67,13 +67,17 @@ Duas specs prontas para implementar: (1) **spec do harness + Skeleton**: motor d
 - [Medir o hash de senha num Durable Object no Free](issues/20-do-password-hash-cpu.md): funciona. Medido na conta (plano Free comprovado pela API): 74 requests, todas `ok`, sem `exceededCpu`. O DO gastou 58–173 ms por hash e até 843 ms numa invocação; o Worker da frente, 0–1 ms. O mesmo objeto serializa, o que confirma o pool de 16 nomes. O desenho de [Segurança do CI do PR com código da Factory](issues/19-pr-ci-security.md) fica como está.
 - [R2 para anexos de Tarefas no Free e no preview por PR](issues/22-r2-attachments-previews.md): bucket `<app>-attachments` na produção e `<app>-attachments-preview` no bloco `previews`, com prefixo `pr-N/` por `wrangler preview --var R2_PREFIX:pr-N/`. O isolamento é cooperativo, porque o bloco não cria bucket por Preview. Limpeza no `closed` por lifecycle rule do prefixo, mais TTL de 30 dias. Upload com o corpo cru pelo Worker (`Content-Length`, até 10 MiB), miniatura gerada no navegador. O R2 não tem teto de gasto, e a ativação provavelmente exige cartão; a app limita a cota a ~8 GB.
 - [Layout do monorepo e fronteira do Strip](issues/21-monorepo-layout-and-strip.md): workspace com só `app/` e `.factory/` (Turborepo fica). Tudo é feature em `app/src/features/`, a Reference App toda em `features/reference/`, e o resto em `platform/`. Os pontos de contato são `reference.ts` e `routes.reference.ts` (rotas por `physical()`). A Reference App aponta para a Skeleton, nunca o contrário, com lint de imports. O Manager fica na Skeleton com direitos de Employee. `pnpm strip` roda uma vez antes do primeiro deploy, regenera uma migration inicial só, se apaga e roda o `verify`; o job `strip-check` testa em todo PR. Kubb fora do git, `routeTree.gen.ts` commitado.
+- [Skeleton primeiro, Reference App em repo privado](issues/27-skeleton-first-private-app.md): o repo público tem só Factory + Skeleton, e a Reference App vai para um repo privado que puxa o Skeleton como `upstream`. O Strip sai, e a convenção `features/<app>/` + lint de imports fica para apps sobre o Skeleton. O usuário implementa o harness e a base; a Factory constrói cadastro, conta, Companies e convites como teste de aceitação. MCP da Reference App, métricas e R2 saem deste mapa.
+- [Puxar o Skeleton upstream num produto privado](issues/28-upstream-skeleton-sync.md): no Drizzle 1.0.0-rc.4, `git merge upstream/main` com migrations intercaladas funciona (snapshots em grafo, sem `DROP`), e o `drizzle-kit check` pega os dois lados mexendo na mesma coluna. O que escapa é rename ou drop no Skeleton de tabela que o produto usa, então o Skeleton só acrescenta schema entre majors e nunca altera migration publicada. `pnpm sync-upstream` faz o merge, regenera `routeTree.gen.ts` e lockfile, roda o `check` e exige `no_changes` num banco vazio e num banco no estado anterior. Pasta única de migrations e `routeTree.gen.ts` commitado ficam.
 
 ## Not yet specified
 
-- **Redação final das duas specs e quebra do backlog** em issues `ready-for-agent` (`to-spec`, `to-tickets`), com a ordem de liberação. A spec do Skeleton inclui o login com DOs `PasswordHasher` e `RateLimiter` (confirmado no Free em [Medir o hash de senha num Durable Object no Free](issues/20-do-password-hash-cpu.md)) e o outbox de email do preview ([Segurança do CI do PR com código da Factory](issues/19-pr-ci-security.md)).
+- **Redação final da spec e quebra do backlog** em issues `ready-for-agent` (`to-spec`, `to-tickets`), com a ordem de liberação e a linha entre o que o usuário implementa e o que a Factory constrói. A spec do Skeleton inclui o login com DOs `PasswordHasher` e `RateLimiter` (confirmado no Free em [Medir o hash de senha num Durable Object no Free](issues/20-do-password-hash-cpu.md)) e o outbox de email do preview ([Segurança do CI do PR com código da Factory](issues/19-pr-ci-security.md)).
 
 ## Out of scope
 
+- Reference App (PRD, backlog, [Telas de métricas de tempo](issues/24-time-metrics-screens.md), tools do MCP além do Skeleton, anexos no R2): esforço separado, no repo privado ([Skeleton primeiro, Reference App em repo privado](issues/27-skeleton-first-private-app.md)).
+- Strip e o job `strip-check`: sem função depois que a Reference App saiu do template.
 - Merge automático do PR pela Factory: o Merge Gate é sempre humano.
 - i18n da Reference App.
 - Implementar o harness ou a Reference App: acontece depois do mapa.

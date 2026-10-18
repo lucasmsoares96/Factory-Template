@@ -1,7 +1,7 @@
 # Telas de métricas de tempo
 
 Type: prototype
-Status: open
+Status: out-of-scope
 
 ## Question
 

@@ -11,19 +11,16 @@ The harness that takes a ready issue and, without human intervention, produces a
 _Avoid_: Pipeline, bot
 
 **Template**:
-This repository, meant to be copied to start a new product that the factory builds.
+This repository: the Factory and the Skeleton, meant to be copied to start a new product that the factory builds.
 _Avoid_: Boilerplate, starter
 
 **Reference App**:
-The example project-management application shipped inside the template to show the factory and the stack working; meant to be removed or adapted by whoever uses the template. Built by the factory itself, as its acceptance test.
+The first product built on the Skeleton, a project-management application kept in its own repository, outside the template.
 _Avoid_: Demo, sample app
 
 **Skeleton**:
-The part of the template that stays after the Reference App is stripped: the stack wired end to end, with sign-up, Company creation, deploy and tests working.
+The application base shipped with the template: the stack wired end to end, with sign-up, Company creation, deploy and tests working. Every product, the Reference App included, is built on top of it. Built by the factory itself, as its acceptance test.
 _Avoid_: Boilerplate, base app
-
-**Strip**:
-Removing the Reference App from a copy of the template, leaving only the Skeleton, still green.
 
 **Stage**:
 One step of the factory's work on an issue: Development, Review, or E2E. A failing E2E stage sends the work back to Development; Review fixes what it finds itself and never sends the work back.
@@ -50,16 +47,12 @@ The tenant: an organization whose Members work inside it; what each Member sees 
 _Avoid_: Organization, workspace, tenant, account
 
 **Member**:
-A user's membership in one Company, carrying exactly one role: Owner, Manager, or Employee.
+A user's membership in one Company, carrying exactly one role: Owner or Employee. A product built on the Skeleton may add roles of its own, such as the Reference App's Manager.
 _Avoid_: User (when the Company relationship is meant), membership
 
 **Owner**:
 The role of the single Member who holds a Company and has the final say over it.
 _Avoid_: Admin, creator
-
-**Manager**:
-The role of a Member who leads the Teams they belong to: runs those Teams' people and Projects, and nothing beyond them. Where there are no Teams, a Manager has exactly an Employee's rights.
-_Avoid_: Admin, lead, team lead
 
 **Employee**:
 The default role of a Member: works inside the Company without administering it.
@@ -70,6 +63,10 @@ A pending, expiring offer, sent by email, for a specific address to join a Compa
 _Avoid_: Invite link
 
 ### Reference App
+
+**Manager**:
+The role of a Member who leads the Teams they belong to: runs those Teams' people and Projects, and nothing beyond them.
+_Avoid_: Admin, lead, team lead
 
 **Team**:
 A flat, named group of Members within a Company, with no roles of its own. A Member can be in any number of Teams, or none. Managers and Employees see only the Projects linked to one of their Teams.

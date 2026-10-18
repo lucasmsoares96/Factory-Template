@@ -21,7 +21,7 @@ Como o código do template se organiza em pacotes e diretórios, e como o Strip 
 - **Quando o Strip roda**: uma vez só, numa cópia recém-criada do template, antes do bootstrap e do primeiro deploy, e sem volta. Tirar a Reference App de um produto em produção é trabalho manual, com uma migration própria.
 - **Garantia de que o Skeleton continua verde**: um job no CI do repositório do template, em todo PR (os da Factory incluídos), roda o Strip numa cópia e depois o `pnpm factory:verify`. O próprio Strip apaga esse job e o comando.
 - **Código gerado**: o cliente Kubb e o OpenAPI não vão para o git. O `pnpm generate` importa o app, chama `app.getOpenAPI31Document()` e roda o Kubb antes do typecheck e dos testes. O `routeTree.gen.ts` é commitado, como manda o FAQ do TanStack Router.
-- **Fatos**: o Drizzle v1 RC (`1.0.0-rc.4`) grava uma pasta por migration, com `migration.sql` e `snapshot.json`, e sem journal. O `schema` aceita glob. Ter um histórico de migrations por módulo não é suportado: as chaves estrangeiras entre módulos quebram.
+- **Fatos**: o Drizzle v1 RC (`1.0.0-rc.4`) grava uma pasta por migration, com `migration.sql` e `snapshot.json`, e sem journal. O `schema` aceita glob. Ter um histórico de migrations por módulo não é suportado: as chaves estrangeiras entre módulos quebram. _(Corrigido em [Puxar o Skeleton upstream num produto privado](28-upstream-skeleton-sync.md): com o Skeleton num schema Postgres próprio, a FK sai certa no rc.4; a pasta única continua, porque a ordem e o rename quebram nos dois casos.)_
 
 ## Progresso do grilling (rodada 2)
 
@@ -54,6 +54,8 @@ Como o código do template se organiza em pacotes e diretórios, e como o Strip 
 - **Árvore final** confirmada (ver Answer).
 
 ## Answer
+
+> **Revisto em [Skeleton primeiro, Reference App em repo privado](27-skeleton-first-private-app.md):** a Reference App sai do template, então o Strip, o manifesto e o job `strip-check` deixam de existir. O layout, a interface da `Feature` e a regra de imports ficam como convenção para apps construídas sobre o Skeleton. O Manager sai do Skeleton (role em `text` com chave estrangeira para a tabela `member_roles`), decidido no mesmo ticket.
 
 **Pacotes**: o workspace tem só `app/` (o Worker inteiro: SPA, API, MCP, DOs, testes e o `docker-compose.yml` do Postgres de teste) e `.factory/`. O Turborepo fica. Tasks: `generate` (OpenAPI via `app.getOpenAPI31Document()`, Kubb e `routeTree`), `typecheck`, `lint`, `test` e `e2e`. Todas dependem de `generate`, e o `e2e` também de `build`. `pnpm factory:verify` = `turbo run typecheck lint test e2e`. O cache local fica ligado no dev e desligado no `build` do preview e no `work`. Sem Remote Cache.
 
