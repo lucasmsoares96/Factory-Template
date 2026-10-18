@@ -1,6 +1,6 @@
 # Factory Template
 
-A public repository template for an autonomous AI software factory: a harness that turns ready issues into reviewed pull requests, shipped with a reference app that demonstrates it.
+A public repository template for an autonomous AI software factory: a harness that turns ready issues into reviewed pull requests, shipped with the Skeleton that products are built on.
 
 ## Language
 
@@ -57,6 +57,10 @@ _Avoid_: Admin, creator
 **Employee**:
 The default role of a Member: works inside the Company without administering it.
 _Avoid_: Contributor, collaborator, member (as a role)
+
+**Connection**:
+An external AI agent that a user has authorized to use the app on their behalf, read-only or read-write, until the user revokes it.
+_Avoid_: Integration, token, app
 
 **Invitation**:
 A pending, expiring offer, sent by email, for a specific address to join a Company with a given role.
