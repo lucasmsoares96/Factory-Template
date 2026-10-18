@@ -61,16 +61,17 @@ Duas specs prontas para implementar: (1) **spec do harness + Skeleton**: motor d
 - [Kubb + MSW 3](issues/18-kubb-msw3.md): MSW 3.0.x em todo o workspace. O código gerado pelo Kubb 5.1 (`http` de `'msw'` + `Response`) roda no MSW 3, que mantém os exports da raiz até o v4. O peer `msw ^2` (opcional, issue kubb-labs/plugins#1049 aberta) é silenciado com `peerDependencyRules.allowedVersions`. O fixture do Browser Mode precisa de `scope: 'file'`, porque um `worker.start()` repetido agora lança exceção, e o worker é servido por `msw({ mode: 'worker-only' })`.
 
 - [Contrato de cada Stage e do loop](issues/15-stage-contracts.md): padrão do Matt. Seams chegam prontos (Testing Decisions da spec ou Triage `factory-explore`, que vira `ready-for-agent` sozinha no `easy-call`); a Exploration sai. Cada tentativa é Development (`tdd` nos seams) → Review (corrige, não reprova) → E2E (`pnpm factory:verify`, o mesmo do CI). Sessão nova sempre, Opus em tudo. Trava pela label `in-progress`; retry recomeça da `main`. PR em draft → review `COMMENT` → `ready`. Comentários no PR de quem tem `write`+ são tratados (Address/Decline/Defer).
+- [Anatomia do job da Factory e interface do adaptador de forja](issues/16-factory-job-anatomy.md): três jobs por execução (`claim` → `work` sem token de forja → `publish` em VM nova com `FACTORY_TOKEN` e o harness da `main`), ligados por `git bundle` + `result.json`. YAML fino, lógica em `.factory/` (TS). Quatro seams com adaptador falso: `Tracker` e `CodeHost` (GitHub e Markdown local), `Agent`, `Verify`. Cinco workflows só por evento, sem cron (issue, Triage, comentários no PR, unblock, update-branches). Cada execução lê o estado atual; `--force-with-lease` garante o branch. Execução local num container descartável (`pnpm factory local NN`).
 
 ## Not yet specified
 
 - **Layout do monorepo e fronteira Skeleton × Reference App**: estrutura de pacotes/apps e o que exatamente o Strip remove. A fronteira de domínio já está fechada ([Modelo de organização da Reference App](issues/10-organization-model.md) e [Modelo de projetos, Tarefas e fluxo](issues/11-projects-and-flow-model.md)); falta como o código se separa, incluindo o Manager, que existe só na Reference App.
-- **Lista final de arquivos de harness**: AGENTS.md por diretório, skills próprias da stack, subagents, `.mcp.json`, settings/hooks.
+- **Lista final de arquivos de harness**: AGENTS.md por diretório, skills próprias da stack, subagents, `.mcp.json`, settings/hooks, e a imagem do container de execução local. O código da Factory (`.factory/`, workflows `factory-*`) já está em [Anatomia do job da Factory e interface do adaptador de forja](issues/16-factory-job-anatomy.md).
 - **Bootstrap do template público**: wizard para contas, secrets, projetos Cloudflare/Neon/Resend, labels do GitHub.
 - **R2 para anexos de Tarefas**: bucket no bootstrap, isolamento no preview por PR (bucket ou prefixo por PR, limpeza no `closed`) e o que o Strip remove.
 - **Ferramentas do MCP da Reference App**: quais operações expor; as permissões seguem a tabela de [Modelo de projetos, Tarefas e fluxo](issues/11-projects-and-flow-model.md).
 - **Telas de métricas de tempo**: layout e filtros; as definições (tempo por coluna, por responsável, nas filas, cycle time) já estão em [Modelo de projetos, Tarefas e fluxo](issues/11-projects-and-flow-model.md).
-- **Redação final das duas specs e quebra do backlog** em issues `ready-for-agent` (`to-spec`, `to-tickets`), com a ordem de liberação. Espera [Medir a CPU do login no leadflow](issues/17-leadflow-login-cpu.md) e [Kubb + MSW 3](issues/18-kubb-msw3.md).
+- **Redação final das duas specs e quebra do backlog** em issues `ready-for-agent` (`to-spec`, `to-tickets`), com a ordem de liberação. Espera [Medir a CPU do login no leadflow](issues/17-leadflow-login-cpu.md) e [Segurança do CI do PR com código da Factory](issues/19-pr-ci-security.md).
 
 ## Out of scope
 
@@ -80,6 +81,7 @@ Duas specs prontas para implementar: (1) **spec do harness + Skeleton**: motor d
 - Suporte real a Forgejo no template: só o adaptador é projetado para caber nele ([Portabilidade GitHub → Forgejo](issues/14-forgejo-portability.md)).
 - Codeberg como forja da Factory: os Termos de Uso (desde junho de 2026) proíbem projetos majoritariamente gerados por IA, e os runners hospedados param em 10 min por job.
 - Sandbox `docker()` com rede restrita para o agente: endurecimento futuro.
+- Rodar a fronteira inteira localmente (`pnpm factory local --all`), teto global de execuções simultâneas e custo acumulado por issue: depois da v1 ([Anatomia do job da Factory e interface do adaptador de forja](issues/16-factory-job-anatomy.md)).
 - Motor alternativo (Agent SDK, dynamic Workflow, `claude-code-action` como orquestrador): descartado em [Escolha do motor da Factory](issues/12-factory-engine-choice.md).
 - Workflow de review de PR separado (`claude-code-review.yml`): substituído pelo Review stage interno.
 - Na Reference App: trocar o Pipeline de um Project, arquivar Project, menções e notificações em comentários, integração de PR com a forja (só links). Decidido em [Modelo de projetos, Tarefas e fluxo](issues/11-projects-and-flow-model.md).

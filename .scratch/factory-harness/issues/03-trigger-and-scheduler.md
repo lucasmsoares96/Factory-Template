@@ -20,3 +20,5 @@ Novidade de 2026: um PR criado com `GITHUB_TOKEN` gera runs que exigem aprovaç�
 ## Revisão
 
 A trava por criação do ref `factory/issue-N` foi substituída pela troca de label (`ready-for-agent` → `in-progress`), porque depois de uma Escalation o branch continua existindo e o retry nunca rodaria. Decidido em [Contrato de cada Stage e do loop](15-stage-contracts.md).
+
+O agendador passou a varrer **todas** as issues com `ready-for-agent` a cada `issues: closed`, sem `schedule`, e as execuções leem o estado atual em vez do evento. Decidido em [Anatomia do job da Factory e interface do adaptador de forja](16-factory-job-anatomy.md).

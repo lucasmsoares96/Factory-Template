@@ -38,3 +38,7 @@ Opções: GitHub App própria (prints via branch órfão), PAT de machine user (
 - **Prints**: anexo nativo via `postEvidence(pr, files)` no adaptador (GitHub: `gh pr comment --attach`; Forgejo: REST `/assets`). Branch órfão como fallback documentado.
 - **Segurança**: (1) o guard só aceita `ready-for-agent` aplicada por quem tem `write`+; (2) o processo do agente não recebe secrets de nuvem nem o `FACTORY_TOKEN`; push e PR rodam num step separado, depois do Sandcastle. Rede restrita via `docker()` fica fora de escopo.
 - **E2E Stage e prints**: stack local dentro do job (`createTestHarness`, Postgres em container, MSW). O smoke contra o preview roda depois, como CI do PR.
+
+## Revisão
+
+"Push e PR rodam num step separado" não isola o `FACTORY_TOKEN`: com `noSandbox()`, os steps de um job dividem VM e usuário. O `FACTORY_TOKEN` agora só existe num **job** separado (`publish`), em VM nova, que roda o harness da `main`. Decidido em [Anatomia do job da Factory e interface do adaptador de forja](16-factory-job-anatomy.md).
