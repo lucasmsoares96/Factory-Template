@@ -62,3 +62,5 @@ Restrição nova e permanente: **infra da app e forja 100% gratuitas** (o Claude
 - **Revisar depois:** CLI `cf` quando sair do beta; Hono 5 quando estável.
 
 Riscos encaminhados: CPU do login no Free → [Medir a CPU do login no leadflow](17-leadflow-login-cpu.md); Kubb `msw ^2` × MSW para Workers `>=3` → [Kubb + MSW 3](18-kubb-msw3.md).
+
+Revisto em [Segurança do CI do PR com código da Factory](19-pr-ci-security.md): o hash de senha roda num Durable Object `PasswordHasher` e o rate limit num DO `RateLimiter`.

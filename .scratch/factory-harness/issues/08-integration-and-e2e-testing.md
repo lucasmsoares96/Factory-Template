@@ -16,3 +16,5 @@ Qual é a melhor forma, segundo as docs oficiais atuais, de escrever: (a) **test
 - **Riscos**: Docker no runner (ticket 01); driver Hyperdrive × `neon-http` (ticket 06); Kubb ainda declara `msw ^2` enquanto `@msw/cloudflare` pede `msw >=3`; Hyperdrive dentro do harness não está documentado.
 
 [pesquisa](../research/08-integration-and-e2e-testing.md)
+
+Revisto em [Segurança do CI do PR com código da Factory](19-pr-ci-security.md): o preview não fala com o Resend (outbox no banco do branch, lido pelo smoke); Resend real só no smoke pós-deploy da produção.
