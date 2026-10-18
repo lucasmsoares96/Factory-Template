@@ -62,6 +62,7 @@ Duas specs prontas para implementar: (1) **spec do harness + Skeleton**: motor d
 
 - [Contrato de cada Stage e do loop](issues/15-stage-contracts.md): padrão do Matt. Seams chegam prontos (Testing Decisions da spec ou Triage `factory-explore`, que vira `ready-for-agent` sozinha no `easy-call`); a Exploration sai. Cada tentativa é Development (`tdd` nos seams) → Review (corrige, não reprova) → E2E (`pnpm factory:verify`, o mesmo do CI). Sessão nova sempre, Opus em tudo. Trava pela label `in-progress`; retry recomeça da `main`. PR em draft → review `COMMENT` → `ready`. Comentários no PR de quem tem `write`+ são tratados (Address/Decline/Defer).
 - [Anatomia do job da Factory e interface do adaptador de forja](issues/16-factory-job-anatomy.md): três jobs por execução (`claim` → `work` sem token de forja → `publish` em VM nova com `FACTORY_TOKEN` e o harness da `main`), ligados por `git bundle` + `result.json`. YAML fino, lógica em `.factory/` (TS). Quatro seams com adaptador falso: `Tracker` e `CodeHost` (GitHub e Markdown local), `Agent`, `Verify`. Cinco workflows só por evento, sem cron (issue, Triage, comentários no PR, unblock, update-branches). Cada execução lê o estado atual; `--force-with-lease` garante o branch. Execução local num container descartável (`pnpm factory local NN`).
+- [Medir a CPU do login no leadflow](issues/17-leadflow-login-cpu.md): email e senha cabem no Workers Free. O sign-in gasta 65–179 ms de CPU, e rajadas de 10 sequenciais e 10 em paralelo saíram todas `ok`. Em 30 dias, nenhum 1102 (máximo de 269 ms). Scrypt sem mudança; o Skeleton liga o rate limit do Better Auth explicitamente (no leadflow ele não atuou), com storage fora do KV.
 
 ## Not yet specified
 
@@ -71,7 +72,7 @@ Duas specs prontas para implementar: (1) **spec do harness + Skeleton**: motor d
 - **R2 para anexos de Tarefas**: bucket no bootstrap, isolamento no preview por PR (bucket ou prefixo por PR, limpeza no `closed`) e o que o Strip remove.
 - **Ferramentas do MCP da Reference App**: quais operações expor; as permissões seguem a tabela de [Modelo de projetos, Tarefas e fluxo](issues/11-projects-and-flow-model.md).
 - **Telas de métricas de tempo**: layout e filtros; as definições (tempo por coluna, por responsável, nas filas, cycle time) já estão em [Modelo de projetos, Tarefas e fluxo](issues/11-projects-and-flow-model.md).
-- **Redação final das duas specs e quebra do backlog** em issues `ready-for-agent` (`to-spec`, `to-tickets`), com a ordem de liberação. Espera [Medir a CPU do login no leadflow](issues/17-leadflow-login-cpu.md) e [Segurança do CI do PR com código da Factory](issues/19-pr-ci-security.md).
+- **Redação final das duas specs e quebra do backlog** em issues `ready-for-agent` (`to-spec`, `to-tickets`), com a ordem de liberação. Espera [Segurança do CI do PR com código da Factory](issues/19-pr-ci-security.md). A spec do Skeleton inclui o rate limit do Better Auth com storage fora do KV ([Medir a CPU do login no leadflow](issues/17-leadflow-login-cpu.md)).
 
 ## Out of scope
 
