@@ -56,3 +56,7 @@ Conclua com uma recomendação para a spec do Skeleton (o que o Skeleton precisa
   O preview Neon criado do `base` repete o teste com o banco no estado anterior.
 
 [pesquisa](../research/28-upstream-skeleton-sync.md)
+
+## Revisão
+
+O `sync-upstream` não precisa funcionar: o comando `pnpm sync-upstream`, a regra "o schema só acrescenta entre majors", as releases com `CHANGELOG` e os stubs congelados saem da spec. Ficam só "migrations publicadas imutáveis" (o banco de produção do próprio produto depende disso) e a pasta única de migrations. Decidido em [Bootstrap do template público](26-template-bootstrap.md).
