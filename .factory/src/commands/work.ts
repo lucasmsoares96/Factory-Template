@@ -68,7 +68,7 @@ export async function work(ctx: CommandContext, number: number, options: { repo:
     let started = ctx.now();
     const dev = await agent.run(
       "development",
-      developmentPrompt({ issue, log: await git.log(base, "HEAD"), feedback }),
+      developmentPrompt({ issue, base: config.baseBranch, log: await git.log(base, "HEAD"), feedback }),
       { timeoutMs, model: config.models.development },
     );
     add(usage.development, dev.usage);
