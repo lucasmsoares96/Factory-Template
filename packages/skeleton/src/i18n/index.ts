@@ -36,6 +36,11 @@ export function messagesFor(locale: Locale, overrides: MessageOverrides = {}): M
   return merge(skeletonMessages[locale], overrides[locale] ?? {});
 }
 
+/** Fills a text's `{name}` placeholders: `format("Hi {name}", { name: "Ana" })`. */
+export function format(text: string, values: Record<string, string>): string {
+  return text.replace(/\{(\w+)\}/g, (placeholder, key: string) => values[key] ?? placeholder);
+}
+
 function merge<T>(base: T, override: DeepPartial<T>): T {
   const result = { ...base } as Record<string, unknown>;
   for (const [key, value] of Object.entries(override)) {

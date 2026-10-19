@@ -13,6 +13,31 @@ export const errorMessages = {
 
 export type ErrorCode = keyof typeof errorMessages;
 
-export function isErrorCode(code: unknown): code is ErrorCode {
-  return typeof code === "string" && Object.hasOwn(errorMessages, code);
+/**
+ * The codes Better Auth answers `/api/auth/*` with (same `{ code, message }`
+ * shape) that the auth screens can show. Better Auth owns their messages; the
+ * SPA translates them like any other code.
+ */
+export const authErrorCodes = [
+  "INVALID_EMAIL",
+  "PASSWORD_TOO_SHORT",
+  "PASSWORD_TOO_LONG",
+  "USER_ALREADY_EXISTS",
+  "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL",
+  "EMAIL_NOT_VERIFIED",
+  "INVALID_TOKEN",
+  "TOKEN_EXPIRED",
+  "USER_NOT_FOUND",
+] as const;
+
+export type AuthErrorCode = (typeof authErrorCodes)[number];
+
+/** Every code the SPA can translate. */
+export type KnownErrorCode = ErrorCode | AuthErrorCode;
+
+export function isKnownErrorCode(code: unknown): code is KnownErrorCode {
+  return (
+    typeof code === "string" &&
+    (Object.hasOwn(errorMessages, code) || (authErrorCodes as readonly string[]).includes(code))
+  );
 }
