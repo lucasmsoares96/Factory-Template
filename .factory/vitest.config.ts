@@ -3,7 +3,8 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     include: ["test/**/*.test.ts"],
-    testTimeout: 30_000,
+    // Each test spawns dozens of git processes in temporary repos; generous for loaded CI machines.
+    testTimeout: 120_000,
     // Git in temporary repos: no user or system config, no hooks, no signing.
     env: {
       GIT_CONFIG_GLOBAL: "/dev/null",
