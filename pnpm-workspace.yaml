@@ -34,6 +34,8 @@ catalog:
 
 catalogMode: strict
 
+# pnpm 12 refuses releases younger than a day (minimumReleaseAge). wrangler 4.151.2
+# and its workerd were published on 2026-10-19; drop these once they are a day old.
 minimumReleaseAgeExclude:
   - "@cloudflare/workerd-darwin-64@1.20261019.1"
   - "@cloudflare/workerd-darwin-arm64@1.20261019.1"

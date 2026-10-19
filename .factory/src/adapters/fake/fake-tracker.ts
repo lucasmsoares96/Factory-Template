@@ -1,0 +1,119 @@
+import type { Blocker, Issue, IssueComment, Tracker } from "../../seams/tracker.ts";
+
+export interface FakeIssueInput {
+  number: number;
+  title?: string;
+  body?: string;
+  state?: "open" | "closed";
+  /** Labels with the login that applied each one. */
+  labels?: Record<string, string>;
+  parent?: number | null;
+  comments?: { author: string; body: string }[];
+  blockedBy?: number[];
+  /** For blockers: whether the issue counts as `done`. */
+  done?: boolean;
+}
+
+interface FakeIssue {
+  number: number;
+  title: string;
+  body: string;
+  state: "open" | "closed";
+  labels: Map<string, string>;
+  parent: number | null;
+  comments: IssueComment[];
+  blockedBy: number[];
+  done: boolean;
+}
+
+/** In-memory Tracker. Tests seed it and read its state back. */
+export class FakeTracker implements Tracker {
+  readonly issues = new Map<number, FakeIssue>();
+  readonly writers = new Set<string>();
+  private nextCommentId = 1;
+
+  constructor(seed: { issues?: FakeIssueInput[]; writers?: string[] } = {}) {
+    for (const issue of seed.issues ?? []) this.add(issue);
+    for (const login of seed.writers ?? []) this.writers.add(login);
+  }
+
+  add(input: FakeIssueInput): void {
+    this.issues.set(input.number, {
+      number: input.number,
+      title: input.title ?? `Issue ${input.number}`,
+      body: input.body ?? "",
+      state: input.state ?? "open",
+      labels: new Map(Object.entries(input.labels ?? {})),
+      parent: input.parent ?? null,
+      comments: (input.comments ?? []).map((c) => ({ id: `c${this.nextCommentId++}`, ...c })),
+      blockedBy: input.blockedBy ?? [],
+      done: input.done ?? false,
+    });
+  }
+
+  /** Labels currently on the issue. */
+  labelsOf(number: number): string[] {
+    return [...this.get(number).labels.keys()];
+  }
+
+  commentsOn(number: number): IssueComment[] {
+    return this.get(number).comments;
+  }
+
+  async issue(number: number): Promise<Issue> {
+    const issue = this.get(number);
+    const parent = issue.parent === null ? null : this.get(issue.parent);
+    return {
+      number: issue.number,
+      title: issue.title,
+      body: issue.body,
+      state: issue.state,
+      labels: [...issue.labels.keys()],
+      parent: parent && { number: parent.number, body: parent.body },
+      children: [...this.issues.values()].filter((i) => i.parent === number).map((i) => i.number),
+      comments: issue.comments.map((c) => ({ ...c })),
+    };
+  }
+
+  async blockers(number: number): Promise<Blocker[]> {
+    return this.get(number).blockedBy.map((n) => ({ number: n, done: this.get(n).done }));
+  }
+
+  async blocking(number: number): Promise<number[]> {
+    return [...this.issues.values()]
+      .filter((i) => i.state === "open" && i.blockedBy.includes(number))
+      .map((i) => i.number);
+  }
+
+  async labeled(label: string): Promise<number[]> {
+    return [...this.issues.values()]
+      .filter((i) => i.state === "open" && i.labels.has(label))
+      .map((i) => i.number);
+  }
+
+  async swapLabel(number: number, from: string, to: string): Promise<boolean> {
+    const issue = this.get(number);
+    if (!issue.labels.has(from)) return false;
+    issue.labels.delete(from);
+    issue.labels.set(to, "factory");
+    return true;
+  }
+
+  async comment(number: number, body: string): Promise<void> {
+    this.get(number).comments.push({ id: `c${this.nextCommentId++}`, author: "factory", body });
+  }
+
+  async canWrite(login: string): Promise<boolean> {
+    return this.writers.has(login);
+  }
+
+  async labelActor(number: number, label: string): Promise<string | null> {
+    return this.get(number).labels.get(label) ?? null;
+  }
+
+  private get(number: number): FakeIssue {
+    const issue = this.issues.get(number);
+    if (!issue) throw new Error(`FakeTracker: no issue #${number}`);
+    return issue;
+  }
+}

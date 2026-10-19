@@ -14,7 +14,8 @@
     "test": "turbo run test",
     "e2e": "turbo run e2e",
     "build": "turbo run build",
-    "factory:verify": "node scripts/verify.ts"
+    "factory:verify": "node scripts/verify.ts",
+    "factory": "node .factory/src/cli.ts"
   },
   "devDependencies": {
     "@types/node": "catalog:",

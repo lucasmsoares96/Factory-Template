@@ -54,3 +54,5 @@ Desvios e decisões:
 - Os journals das duas pastas ficam no schema `drizzle` (tabelas diferentes), para o `push --explain` com `schemaFilter` de cada config não enxergá-los como deriva.
 - `pnpm dev` hoje roda o `dev` de todos os `apps/*`; "um só vs. `pnpm dev <id>`" fica no ticket 07.
 - pnpm 12 exige `allowBuilds` (`esbuild`, `workerd`) no `pnpm-workspace.yaml`. Localmente, o pnpm 10 global não consegue trocar sozinho para o 12 (binário nativo); usei o pnpm 12.14.0 instalado pelo proto.
+- Merge com o ticket 08: o catalog fica com `@types/node` 24.19.2 (o 08 tinha 26.6.5), para casar com o Node 24 do `.node-version`; o `.factory` passa no `typecheck` e nos testes com ele.
+- pnpm 12 tem `minimumReleaseAge` de um dia por padrão e acrescentou sozinho `minimumReleaseAgeExclude` para o wrangler 4.151.2 e o workerd publicados hoje; dá para tirar a partir de 2026-10-20.
