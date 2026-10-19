@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
-import { cloneRepo, commitFile, createRepo, git, manualClock, tempDir, world, type WorldOptions } from "./helpers.ts";
+import { checkout, commitFile, git, manualClock, tempDir, world, type WorldOptions } from "./helpers.ts";
 
 let edits = 0;
 /** A Development session that commits one change. */
@@ -19,7 +19,7 @@ const reviewSays =
 const e2eFails = { ok: false, failedCommand: "pnpm --filter example test:e2e", output: "boom" };
 
 async function setup(options: Pick<WorldOptions, "agent" | "verify" | "env" | "now">) {
-  const repo = await cloneRepo(await createRepo());
+  const repo = await checkout();
   const out = await tempDir("factory-out-");
   const w = world({ repo, ...options });
   await w.tracker.swapLabel(7, "ready-for-agent", "in-progress");

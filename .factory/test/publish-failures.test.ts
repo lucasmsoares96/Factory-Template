@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
 import type { VerifyStep } from "../src/adapters/fake/fake-verify.ts";
-import { cloneRepo, commitFile, createRepo, git, lastJson, MACHINE_USER, tempDir, world, type WorldOptions } from "./helpers.ts";
+import { checkout, commitFile, commitFiles, git, lastJson, MACHINE_USER, tempDir, world, type WorldOptions } from "./helpers.ts";
 
 const RUN_URL = "https://forge.test/actions/runs/42";
 const OLD_SHA = "0123456789abcdef0123456789abcdef01234567";
@@ -33,9 +33,8 @@ async function pipeline(
     skipClaim?: boolean;
   } = {},
 ) {
-  const origin = await createRepo();
-  const workCheckout = await cloneRepo(origin);
-  const publishCheckout = await cloneRepo(origin);
+  const workCheckout = await checkout();
+  const publishCheckout = await checkout();
   const artifacts = await tempDir("factory-artifacts-");
   const w = world({ repo: workCheckout, ...options });
 
@@ -56,7 +55,7 @@ async function pipeline(
     "--start-sha", claimed.startSha ?? "", "--run-url", RUN_URL, ...(options.publishArgs ?? []),
   );
   const factoryComments = () => w.tracker.commentsOn(7).filter((c) => c.author === MACHINE_USER).map((c) => c.body);
-  return { w, exitCode, head, origin, publishCheckout, artifacts, output: lastJson(w.logs), factoryComments };
+  return { w, exitCode, head, publishCheckout, artifacts, output: lastJson(w.logs), factoryComments };
 }
 
 describe("factory publish: Escalation", () => {
@@ -114,7 +113,7 @@ describe("factory publish: Escalation", () => {
   });
 
   it("escalates with reason infra when the work job left no result.json", async () => {
-    const repo = await cloneRepo(await createRepo());
+    const repo = await checkout();
     const w = world({ repo });
     await w.factory("claim", "7");
 
@@ -131,7 +130,7 @@ describe("factory publish: Escalation", () => {
   it("escalates with reason infra when result.json does not match the schema, pushing nothing", async () => {
     const artifacts = await tempDir("factory-artifacts-");
     await writeFile(join(artifacts, "result.json"), JSON.stringify({ version: 1, issue: 7, outcome: "merged" }));
-    const repo = await cloneRepo(await createRepo());
+    const repo = await checkout();
     const w = world({ repo });
     await w.factory("claim", "7");
 
@@ -239,31 +238,32 @@ describe("factory publish: protected and harness paths", () => {
     expect(comment).toContain("+on: push");
   });
 
-  it.each([
-    ".github/workflows/ci.yml",
-    ".agents/skills/tdd/SKILL.md",
-    ".claude/skills/tdd",
-    "skills-lock.json",
-    ".claude/settings.json",
-    ".mcp.json",
-  ])("treats %s as protected", async (path) => {
-    const { output } = await pipeline({ agent: { development: [developFile(path)], review: [review] }, verify: [{ ok: true }] });
+  it("treats every protected path as protected", async () => {
+    const paths = [".github/workflows/ci.yml", ".agents/skills/tdd/SKILL.md", ".claude/skills/tdd/SKILL.md", "skills-lock.json", ".claude/settings.json", ".mcp.json"];
+    const touchesAll: AgentStep = ({ cwd }) => commitFiles(cwd, Object.fromEntries(paths.map((p) => [p, "change\n"])), "chore: touch #7");
+    const { w, output, factoryComments } = await pipeline({ agent: { development: [touchesAll], review: [review] }, verify: [{ ok: true }] });
 
-    expect(output).toMatchObject({ outcome: "escalated", reason: "protected-paths" });
+    expect(output).toMatchObject({ outcome: "escalated", reason: "protected-paths", pr: null });
+    expect(w.codeHost.writes).toEqual([]);
+    for (const path of paths) expect(factoryComments()[0]).toContain(`\`${path}\``);
   });
 
-  it.each(["AGENTS.md", "apps/example/AGENTS.md", "docs/agents/triage-labels.md", "GLOSSARY.md", "docs/adr/0001-x.md", ".factory/src/config.ts"])(
-    "labels a PR that changes %s as harness-change, with a warning on top",
-    async (path) => {
-      const { w, output } = await pipeline({ agent: { development: [developFile(path)], review: [review] }, verify: [{ ok: true }] });
+  it("labels a PR that changes harness paths as harness-change, with a warning on top", async () => {
+    const paths = ["AGENTS.md", "apps/example/AGENTS.md", "docs/agents/triage-labels.md", "GLOSSARY.md", "docs/adr/0001-x.md", ".factory/src/config.ts"];
+    const touchesAll: AgentStep = async (call) => {
+      await develop(call);
+      await commitFiles(call.cwd, Object.fromEntries(paths.map((p) => [p, "change\n"])), "docs: touch the harness #7");
+    };
+    const { w, output } = await pipeline({ agent: { development: [touchesAll], review: [review] }, verify: [{ ok: true }] });
 
-      expect(output).toMatchObject({ outcome: "ready", pr: 101 });
-      const pr = w.codeHost.pr(101);
-      expect(pr.labels).toEqual(["harness-change"]);
-      expect(pr.body.split("\n")[0]).toMatch(/^> \[!CAUTION\]/);
-      expect(pr.body).toContain(`\`${path}\``);
-    },
-  );
+    expect(output).toMatchObject({ outcome: "ready", pr: 101 });
+    const pr = w.codeHost.pr(101);
+    expect(pr.labels).toEqual(["harness-change"]);
+    const [warning] = pr.body.split("\n\n");
+    expect(warning).toMatch(/^> \[!CAUTION\]/);
+    for (const path of paths) expect(warning).toContain(`\`${path}\``);
+    expect(warning).not.toContain("src/greet.ts");
+  });
 
   it("does not label an ordinary change", async () => {
     const { w } = await pipeline({ agent: { development: [develop], review: [review] }, verify: [{ ok: true }] });

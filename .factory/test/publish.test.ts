@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
-import { cloneRepo, commitFile, createRepo, git, lastJson, tempDir, world } from "./helpers.ts";
+import { checkout, commitFile, git, lastJson, tempDir, world } from "./helpers.ts";
 
 const develop: AgentStep = async ({ cwd }) => {
   await commitFile(cwd, "src/greet.ts", 'export const greet = () => "hi";\n', "feat: greet the user #7");
@@ -23,9 +23,8 @@ const review: AgentStep = () => {
 
 /** Runs claim → work → publish through the CLI, each job on its own checkout. */
 async function happyPath(options: { branches?: Record<string, string> } = {}) {
-  const origin = await createRepo();
-  const workCheckout = await cloneRepo(origin);
-  const publishCheckout = await cloneRepo(origin);
+  const workCheckout = await checkout();
+  const publishCheckout = await checkout();
   const artifacts = await tempDir("factory-artifacts-");
   const w = world({
     repo: workCheckout,
