@@ -5,7 +5,7 @@ import type { InlineComment } from "./seams/code-host.ts";
 export type DiffLines = Map<string, Set<number>>;
 
 export async function diffLines(git: Git, base: string, head: string): Promise<DiffLines> {
-  const diff = await git.run("-c", "core.quotePath=false", "diff", "--no-color", "--no-ext-diff", "--unified=3", `${base}...${head}`);
+  const diff = await git.run("-c", "core.quotePath=false", "diff", "--no-renames", "--no-color", "--no-ext-diff", "--unified=3", `${base}...${head}`);
   const lines: DiffLines = new Map();
   let current: Set<number> | null = null;
   for (const line of diff.split("\n")) {
