@@ -7,6 +7,7 @@
     "docker-compose.yml",
     "package.json",
     "pnpm-workspace.yaml",
+    "scripts/verify.ts",
     "tsconfig.base.json"
   ],
   "globalEnv": ["LOCALE"],
