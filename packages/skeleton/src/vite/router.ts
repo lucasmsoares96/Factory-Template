@@ -1,6 +1,6 @@
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { physical, rootRoute, type VirtualRouteNode } from "@tanstack/virtual-file-routes";
+import { layout, physical, rootRoute, type VirtualRouteNode } from "@tanstack/virtual-file-routes";
 
 const skeletonSrc = fileURLToPath(new URL("..", import.meta.url));
 
@@ -13,8 +13,10 @@ export type SpaLayout = {
   /** Where the route tree is generated, relative to `dir` (committed). */
   routeTree: string;
   /**
-   * The composition's own feature routes, mounted next to the Skeleton's, e.g.
-   * `physical("/notes", "../features/notes/routes")` (relative to the route tree's folder).
+   * The composition's own feature routes, mounted next to the Skeleton's home
+   * page under the signed-in layout (a visitor without a session goes to the
+   * sign-in screen), e.g. `physical("/notes", "../features/notes/routes")`
+   * (relative to the route tree's folder).
    */
   routes?: VirtualRouteNode[];
 };
@@ -22,7 +24,8 @@ export type SpaLayout = {
 /**
  * TanStack Router's generator config, shared by `skeleton generate` and the Vite
  * plugin so both write the same `routeTree.gen.ts`. The Skeleton's root layout
- * and feature routes come first; each feature's routes enter by `physical()`.
+ * holds the public auth screens and the signed-in layout, which holds the home
+ * page and the composition's routes; each feature's routes enter by `physical()`.
  */
 export function routerConfig({ dir, routeTree, routes = [] }: SpaLayout) {
   const generatedRouteTree = join(dir, routeTree);
@@ -37,9 +40,8 @@ export function routerConfig({ dir, routeTree, routes = [] }: SpaLayout) {
     quoteStyle: "double" as const,
     disableLogging: true,
     virtualRouteConfig: rootRoute(skeleton("client/root.tsx"), [
-      physical(skeleton("features/home/routes")),
       physical(skeleton("features/auth/routes")),
-      ...routes,
+      layout("_signed-in", skeleton("client/signed-in.tsx"), [physical(skeleton("features/home/routes")), ...routes]),
     ]),
   };
 }

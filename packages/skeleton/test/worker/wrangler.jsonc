@@ -7,9 +7,15 @@
   "compatibility_date": "2026-10-19",
   "compatibility_flags": ["nodejs_compat"],
   "durable_objects": {
-    "bindings": [{ "name": "PASSWORD_HASHER", "class_name": "PasswordHasher" }]
+    "bindings": [
+      { "name": "PASSWORD_HASHER", "class_name": "PasswordHasher" },
+      { "name": "RATE_LIMITER", "class_name": "RateLimiter" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PasswordHasher"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["PasswordHasher"] },
+    { "tag": "v2", "new_sqlite_classes": ["RateLimiter"] }
+  ],
   "vars": { "EMAIL_TRANSPORT": "resend" },
   "secrets": { "required": ["DATABASE_URL", "BETTER_AUTH_SECRET"] }
 }

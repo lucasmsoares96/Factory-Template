@@ -1,7 +1,8 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { swaggerUI } from "@hono/swagger-ui";
 import { messagesFor, type MessageOverrides } from "../i18n/index.ts";
-import { authRoutes } from "./auth.ts";
+import { me } from "../features/me/api.ts";
+import { authContext, authRoutes } from "./auth.ts";
 import { database } from "./db.ts";
 import type { SkeletonEnv } from "./env.ts";
 import { createRouter, handleErrors } from "./errors.ts";
@@ -29,9 +30,10 @@ export type AppOptions = {
 export function createApp({ title, emailFrom, messages }: AppOptions) {
   const t = messagesFor(buildLocale, messages);
   const api = createRouter();
-  api.use(database);
+  api.use(database, authContext({ emailFrom, t }));
   api.route("/", health);
-  api.route("/", authRoutes({ emailFrom, t }));
+  api.route("/", authRoutes);
+  api.route("/", me);
 
   const app = new OpenAPIHono<SkeletonEnv>().route("/api", api);
   app.doc31("/api/openapi.json", openApiConfig(title));

@@ -1,8 +1,8 @@
 import { useForm } from "@tanstack/react-form";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Alert, AlertDescription } from "#ui/alert";
-import { Button } from "#ui/button";
+import { Button, buttonVariants } from "#ui/button";
 import { Input } from "#ui/input";
 import { Label } from "#ui/label";
 import { EMAIL_VERIFIED_PATH, authClient, orThrow } from "../../../client/auth.ts";
@@ -103,6 +103,12 @@ function SignUp() {
           )}
         </form.Subscribe>
       </form>
+      <p className="text-muted-foreground text-sm">
+        {t.haveAccount}{" "}
+        <Link to="/sign-in" className={buttonVariants({ variant: "link", size: "sm" })}>
+          {t.signIn}
+        </Link>
+      </p>
     </AuthCard>
   );
 }
