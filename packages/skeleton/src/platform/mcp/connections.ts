@@ -14,6 +14,7 @@ import { MCP_CONNECTION, type McpConnection, type SkeletonBindings, type Skeleto
 import { resolveIdentity } from "../identity.ts";
 import { buildLocale } from "../locale.ts";
 import { consentErrorPage, consentPage } from "./consent-page.ts";
+import type { Feature } from "../feature.ts";
 import { createMcpServer } from "./server.ts";
 import { MCP_SCOPES, type McpTool } from "./tool.ts";
 
@@ -46,6 +47,8 @@ export type McpBridgeOptions = {
   tools: readonly McpTool[];
   /** The composed app the tools call into, in the Worker. */
   app: { request: Hono<SkeletonEnv>["request"] };
+  /** The Product's features: those with `mcp(server)` add tools the OpenAPI document cannot describe. */
+  features?: readonly Feature[];
 };
 
 /**
@@ -58,7 +61,7 @@ export type McpBridgeOptions = {
  * only they accept. On Workers the origin is a hostname routed to this Worker,
  * never a header the client chose.
  */
-export function mcpBridge({ title, t, tools, app }: McpBridgeOptions) {
+export function mcpBridge({ title, t, tools, app, features = [] }: McpBridgeOptions) {
   const optionsByOrigin = new Map<string, OAuthProviderOptions<SkeletonBindings>>();
   const providers = new Map<string, OAuthProvider<SkeletonBindings>>();
 
@@ -73,6 +76,7 @@ export function mcpBridge({ title, t, tools, app }: McpBridgeOptions) {
         createMcpServer({
           name: title,
           tools,
+          features,
           scopes: auth.scope,
           origin,
           callRoute: async (route) =>

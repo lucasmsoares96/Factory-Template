@@ -3,5 +3,6 @@
   "compilerOptions": {
     "types": ["./worker-configuration.d.ts"]
   },
-  "include": ["src/worker.ts"]
+  "include": ["src/worker.ts", "src/features", "product.config.ts"],
+  "exclude": ["src/features/*/routes", "src/features/*/public"]
 }

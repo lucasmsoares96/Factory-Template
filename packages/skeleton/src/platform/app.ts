@@ -1,9 +1,11 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { swaggerUI } from "@hono/swagger-ui";
-import { messagesFor, type MessageOverrides } from "../i18n/index.ts";
+import { messagesFor } from "../i18n/index.ts";
+import type { ProductConfig } from "../product.ts";
 import { me } from "../features/me/api.ts";
 import { authContext, authRoutes } from "./auth.ts";
 import { database } from "./db.ts";
+import { assertUniqueFeatures, type Feature } from "./feature.ts";
 import type { SkeletonEnv } from "./env.ts";
 import { createRouter, handleErrors } from "./errors.ts";
 import { health } from "./health.ts";
@@ -15,14 +17,10 @@ import { openApiConfig } from "./openapi.ts";
 export { openApiConfig };
 
 export type AppOptions = {
-  /** The Product's id; it titles the OpenAPI document. */
-  title: string;
-  /** The sender of every email, e.g. `Example <no-reply@example.com>`. */
-  emailFrom: string;
-  /** The Product's texts over the Skeleton's (the same ones its SPA uses); emails use them. */
-  messages?: MessageOverrides;
-  /** More routers under `/api`, each built with `createRouter()` (ticket 07 makes them Features). */
-  routers?: OpenAPIHono<SkeletonEnv>[];
+  /** The Product's identity (`product.config.ts`). */
+  product: ProductConfig;
+  /** The Product's features, mounted in order after the Skeleton's own routes. */
+  features?: readonly Feature[];
   /** The MCP tools `pnpm generate` wrote for the Product (`mcp-tools.gen.json`). */
   mcpTools?: readonly McpTool[];
 };
@@ -37,10 +35,12 @@ export type AppOptions = {
  * OAuth provider's `/oauth/*` and `/.well-known/*` routes; `/oauth/authorize` is
  * the consent page.
  */
-export function createApp({ title, emailFrom, messages, routers = [], mcpTools = [] }: AppOptions) {
+export function createApp({ product, features = [], mcpTools = [] }: AppOptions) {
+  assertUniqueFeatures(features);
+  const { id: title, emailFrom, messages } = product;
   const t = messagesFor(buildLocale, messages);
   const app = new OpenAPIHono<SkeletonEnv>();
-  const mcp = mcpBridge({ title, t, tools: mcpTools, app });
+  const mcp = mcpBridge({ title, t, tools: mcpTools, app, features });
   const auth = authContext({ emailFrom, t });
 
   const api = createRouter();
@@ -48,7 +48,11 @@ export function createApp({ title, emailFrom, messages, routers = [], mcpTools =
   api.route("/", health);
   api.route("/", authRoutes);
   api.route("/", me);
-  for (const router of routers) api.route("/", router);
+  for (const feature of features) {
+    const router = createRouter();
+    feature.api(router);
+    api.route("/", router);
+  }
 
   app.route("/api", api);
   app.doc31("/api/openapi.json", openApiConfig(title));
