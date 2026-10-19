@@ -2,7 +2,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
-import { cloneRepo, commitFile, createRepo, git, tempDir, world, type WorldOptions } from "./helpers.ts";
+import { checkout, commitFile, git, tempDir, world, type WorldOptions } from "./helpers.ts";
 
 const develop: AgentStep = async ({ cwd }) => {
   await commitFile(cwd, "src/greet.ts", 'export const greet = () => "hi";\n', "feat: greet the user #7");
@@ -16,12 +16,11 @@ const reviewWithFix: AgentStep = async ({ cwd }) => {
 };
 
 async function setup(agent: WorldOptions["agent"], verify: WorldOptions["verify"], env: Record<string, string> = {}) {
-  const origin = await createRepo();
-  const repo = await cloneRepo(origin);
+  const repo = await checkout();
   const out = await tempDir("factory-out-");
   const w = world({ repo, agent, verify, env });
   await w.tracker.swapLabel(7, "ready-for-agent", "in-progress");
-  return { origin, repo, out, w, readResult: async () => JSON.parse(await readFile(join(out, "result.json"), "utf8")) };
+  return { repo, out, w, readResult: async () => JSON.parse(await readFile(join(out, "result.json"), "utf8")) };
 }
 
 describe("factory work", () => {
@@ -100,14 +99,14 @@ describe("factory work", () => {
   });
 
   it("bundles the issue branch, built from main, for the publish job", async () => {
-    const { origin, repo, out, w, readResult } = await setup(
+    const { repo, out, w, readResult } = await setup(
       { development: [develop], review: [reviewWithFix] },
       [{ ok: true }],
     );
 
     await w.factory("work", "7", "--out", out, "--repo", repo);
 
-    const publishCheckout = await cloneRepo(origin);
+    const publishCheckout = await checkout();
     await git(publishCheckout, "fetch", "--quiet", join(out, "branch.bundle"), "factory/issue-7:incoming");
     expect(await git(publishCheckout, "rev-parse", "incoming")).toBe((await readResult()).head);
     expect(await git(publishCheckout, "log", "--format=%s", "main..incoming")).toBe(
