@@ -1,4 +1,8 @@
 import { spawn } from "node:child_process";
+import { BASE_ENV, pick } from "../env.ts";
+
+/** The docker CLI finds its host, context and config through DOCKER_*. */
+const DOCKER_ENV_PREFIXES = ["DOCKER_"];
 
 export interface DockerResult {
   code: number;
@@ -22,7 +26,7 @@ export type DockerCli = (args: string[], options?: DockerOptions) => Promise<Doc
 export const dockerCli: DockerCli = (args, options = {}) =>
   new Promise((resolve, reject) => {
     const child = spawn("docker", args, {
-      env: { ...process.env, ...options.env },
+      env: { ...pick(process.env, [...BASE_ENV, "CI"], DOCKER_ENV_PREFIXES), ...options.env },
       stdio: options.inherit ? ["ignore", "inherit", "inherit"] : ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
