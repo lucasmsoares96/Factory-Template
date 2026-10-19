@@ -8,7 +8,7 @@ import { pluginMsw } from "@kubb/plugin-msw";
 import { pluginReactQuery } from "@kubb/plugin-react-query";
 import { pluginTs } from "@kubb/plugin-ts";
 import { createKubb } from "kubb";
-import { openApiConfig } from "../platform/app.ts";
+import { openApiConfig } from "../platform/openapi.ts";
 import { routerConfig, type SpaLayout } from "../vite/router.ts";
 
 /** Faker's seed for the generated MSW handlers: tests see the same data on every run. */

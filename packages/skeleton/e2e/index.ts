@@ -1,10 +1,13 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile, readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, devices, test as base } from "@playwright/test";
 import { messagesFor, resolveLocale, type MessageOverrides, type Messages } from "../src/i18n/index.ts";
+import { linkIn } from "../src/node/email-link.ts";
+import type { SentEmail } from "../src/node/resend-mock.ts";
 
 export { expect } from "@playwright/test";
+export { linkIn };
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 
@@ -18,6 +21,31 @@ export const EVIDENCE_DIR = join(repoRoot, "test-results/evidence");
 export const PRODUCT_DIR_ENV = "SKELETON_E2E_PRODUCT_DIR";
 /** Set by the global setup: the URL of the Worker under test. */
 export const BASE_URL_ENV = "SKELETON_E2E_BASE_URL";
+/** Set by the global setup: where the emails the Worker sent through (intercepted) Resend land. */
+export const MAILBOX_DIR_ENV = "SKELETON_E2E_MAILBOX_DIR";
+
+/** The emails the Worker sent during the run. */
+export type Mailbox = {
+  /** The newest email to `to`, waiting for it to arrive (emails go out after the response). */
+  latest(to: string, options?: { timeout?: number }): Promise<SentEmail>;
+};
+
+function mailboxIn(folder: string): Mailbox {
+  return {
+    async latest(to, { timeout = 10_000 } = {}) {
+      const deadline = Date.now() + timeout;
+      for (;;) {
+        const files = (await readdir(folder)).filter((file) => file.endsWith(".json")).sort().reverse();
+        for (const file of files) {
+          const email = JSON.parse(await readFile(join(folder, file), "utf8")) as SentEmail;
+          if (email.to.includes(to)) return email;
+        }
+        if (Date.now() > deadline) throw new Error(`No email to ${to} within ${timeout} ms.`);
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+    },
+  };
+}
 
 type E2EOptions = {
   /** The Product's id: names its evidence folder. */
@@ -29,9 +57,9 @@ type E2EOptions = {
 /**
  * The Skeleton's E2E test. Locate elements by role + i18n text (`t`) or
  * `data-testid`. Tag a test `@evidence` and call `evidence(name)` to save the
- * print the Factory posts on the PR.
+ * print the Factory posts on the PR. `mailbox` reads the emails the Worker sent.
  */
-export const test = base.extend<{ evidence: (name: string) => Promise<void> }, E2EOptions>({
+export const test = base.extend<{ evidence: (name: string) => Promise<void>; mailbox: Mailbox }, E2EOptions>({
   product: ["", { option: true, scope: "worker" }],
   t: [messagesFor("en"), { option: true, scope: "worker" }],
   // Playwright reads a fixture's dependencies from this (empty) pattern.
@@ -40,6 +68,12 @@ export const test = base.extend<{ evidence: (name: string) => Promise<void> }, E
     const url = process.env[BASE_URL_ENV];
     if (!url) throw new Error(`${BASE_URL_ENV} is not set: run the E2E through defineE2EConfig.`);
     await use(url);
+  },
+  // oxlint-disable-next-line no-empty-pattern
+  mailbox: async ({}, use) => {
+    const folder = process.env[MAILBOX_DIR_ENV];
+    if (!folder) throw new Error(`${MAILBOX_DIR_ENV} is not set: run the E2E through defineE2EConfig.`);
+    await use(mailboxIn(folder));
   },
   evidence: async ({ page, product }, use, testInfo) => {
     await use(async (name) => {

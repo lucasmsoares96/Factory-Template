@@ -11,6 +11,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./client": "./src/client/index.ts",
+    "./durable-objects": "./src/durable-objects.ts",
     "./i18n": "./src/i18n/index.ts",
     "./styles.css": "./src/client/styles.css",
     "./vite": "./src/vite/index.ts",
@@ -22,8 +23,8 @@
     "skeleton": "./bin/skeleton.ts"
   },
   "scripts": {
-    "generate": "node bin/skeleton.ts generate",
-    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.client.json",
+    "generate": "wrangler types test/worker/worker-configuration.d.ts -c test/worker/wrangler.jsonc && node bin/skeleton.ts generate",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.worker.json && tsc -p tsconfig.client.json",
     "lint": "oxlint && node bin/skeleton.ts migrations check-published",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate"
@@ -43,12 +44,14 @@
     "@kubb/plugin-ts": "catalog:",
     "@kubb/plugin-zod": "catalog:",
     "@tailwindcss/vite": "catalog:",
+    "@tanstack/react-form": "catalog:",
     "@tanstack/react-query": "catalog:",
     "@tanstack/react-router": "catalog:",
     "@tanstack/router-generator": "catalog:",
     "@tanstack/router-plugin": "catalog:",
     "@tanstack/virtual-file-routes": "catalog:",
     "@vitejs/plugin-react": "catalog:",
+    "better-auth": "catalog:",
     "class-variance-authority": "catalog:",
     "cn": "catalog:",
     "drizzle-kit": "catalog:",
@@ -59,6 +62,8 @@
     "pg": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
+    "react-email": "catalog:",
+    "resend": "catalog:",
     "shadcn": "catalog:",
     "tailwindcss": "catalog:",
     "tw-animate-css": "catalog:",
