@@ -1,6 +1,6 @@
 # Issue tracker: GitHub
 
-Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
+Issues and specs for this repo live in the forge's issue tracker (GitHub by default). Use the `gh` CLI for all operations; it infers the repository from the current clone.
 
 ## Conventions
 
