@@ -1,11 +1,11 @@
 import { createTestHarness } from "wrangler";
-import product from "../product.config.ts";
+import { builtWorkerConfig } from "@workspace/skeleton/node";
 import { afterAll, beforeAll, expect, test } from "vitest";
 
 const server = createTestHarness({
   workers: [
     {
-      configPath: new URL(`../dist/${product.id}/wrangler.json`, import.meta.url).pathname,
+      configPath: builtWorkerConfig(import.meta.dirname + "/.."),
       secrets: { DATABASE_URL: process.env.DATABASE_URL ?? "", BETTER_AUTH_SECRET: "e2e-secret-at-least-32-characters-long" },
     },
   ],

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { createTestHarness } from "wrangler";
+import { builtWorkerConfig } from "../src/node/built-worker.ts";
 import { migrateDatabase } from "../src/node/migrate.ts";
 import { ensurePostgres } from "../src/node/postgres.ts";
 import { mockResend } from "../src/node/resend-mock.ts";
@@ -30,7 +31,7 @@ export default async function setup() {
     const server = createTestHarness({
       workers: [
         {
-          configPath: join(dir, "dist", basename(dir), "wrangler.json"),
+          configPath: builtWorkerConfig(dir),
           secrets: {
             DATABASE_URL: postgres.url,
             BETTER_AUTH_SECRET: `e2e-${randomUUID()}`,
