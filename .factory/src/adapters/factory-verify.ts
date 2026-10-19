@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { pick, VERIFY_ENV, VERIFY_ENV_PREFIXES } from "../env.ts";
 import type { Verify, VerifyRun } from "../seams/verify.ts";
 
 const COMMAND = ["pnpm", "factory:verify"];
@@ -29,7 +30,7 @@ export class FactoryVerify implements Verify {
     return new Promise((resolve, reject) => {
       const child = spawn(command, args, {
         cwd: this.options.repo,
-        env: this.options.env ?? process.env,
+        env: pick(this.options.env ?? process.env, VERIFY_ENV, VERIFY_ENV_PREFIXES),
         detached: true,
         stdio: ["ignore", "pipe", "pipe"],
       });

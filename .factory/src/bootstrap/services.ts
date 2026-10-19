@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { BASE_ENV, pick } from "../env.ts";
 import type { NeonClient, NeonProject, ResendClient, ResendDomain } from "./clients.ts";
 
 const exec = promisify(execFile);
@@ -14,7 +15,7 @@ export class NeonCli implements NeonClient {
 
   async findProject(name: string): Promise<NeonProject | null> {
     const { stdout } = await exec("pnpm", ["exec", "neonctl", "projects", "list", "--output", "json"], {
-      env: { ...process.env, ...this.env },
+      env: pick(this.env, [...BASE_ENV, "NEON_API_KEY"]),
     });
     const parsed = JSON.parse(stdout) as { projects?: NeonProject[] } | NeonProject[];
     const projects = Array.isArray(parsed) ? parsed : (parsed.projects ?? []);

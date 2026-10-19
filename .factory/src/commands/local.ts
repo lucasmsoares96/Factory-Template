@@ -1,10 +1,11 @@
-import { execFile } from "node:child_process";
 import { cp, mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { promisify } from "node:util";
 import { evidenceDir, LocalCodeHost } from "../adapters/local/local-code-host.ts";
+import { ISSUE_FILE } from "../adapters/local/markdown-issues.ts";
 import { MarkdownTracker } from "../adapters/local/markdown-tracker.ts";
+import { CLAUDE_AUTH, pick } from "../env.ts";
+import { Git } from "../git.ts";
 import { configVariables, issueBranch } from "../config.ts";
 import { IN_BUNDLE, IN_TRACKER, type ContainerRunner } from "../local/container.ts";
 import type { Agent } from "../seams/agent.ts";
@@ -13,10 +14,7 @@ import { claim, type ClaimResult } from "./claim.ts";
 import type { CommandContext } from "./context.ts";
 import { publish, type PublishResult } from "./publish.ts";
 
-const exec = promisify(execFile);
-
-/** Claude Code's auth variables: the only secrets the container gets. */
-export const CLAUDE_AUTH = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"];
+export { CLAUDE_AUTH };
 
 export interface LocalOptions {
   /** The host repository: the base branch comes from it and the issue branch lands in it. */
@@ -96,8 +94,8 @@ export async function local(base: BaseContext, number: number, options: LocalOpt
 
 /** Claude's auth and the FACTORY_* settings that are set; never a forge token. */
 export function containerEnv(env: Record<string, string | undefined>): Record<string, string> {
-  const keys = [...CLAUDE_AUTH, ...configVariables()];
-  return Object.fromEntries(keys.flatMap((key) => (env[key] ? [[key, env[key]!]] : [])));
+  const set = Object.fromEntries(Object.entries(env).filter(([, value]) => value));
+  return pick(set, [...CLAUDE_AUTH, ...configVariables()]);
 }
 
 /** `.scratch/<feature>/issues/` holding `NN-*.md` for the issue; it must be unique. */
@@ -108,7 +106,7 @@ async function findIssues(repo: string, number: number): Promise<string> {
   for (const feature of features.filter((f) => f.isDirectory())) {
     const dir = join(scratch, feature.name, "issues");
     const names = await readdir(dir).catch(() => []);
-    if (names.some((name) => Number(/^(\d+)-.*\.md$/.exec(name)?.[1]) === number)) found.push(dir);
+    if (names.some((name) => Number(ISSUE_FILE.exec(name)?.[1]) === number)) found.push(dir);
   }
   if (found.length === 1) return found[0]!;
   if (found.length === 0) throw new Error(`No .scratch/*/issues/${String(number).padStart(2, "0")}-*.md in ${repo}`);
@@ -138,5 +136,5 @@ function unavailable<T extends object>(seam: string): T {
 }
 
 async function git(cwd: string, ...args: string[]): Promise<string> {
-  return (await exec("git", args, { cwd, maxBuffer: 64 * 1024 * 1024 })).stdout;
+  return new Git(cwd).run(...args);
 }

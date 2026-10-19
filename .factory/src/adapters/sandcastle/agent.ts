@@ -2,16 +2,12 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { AGENT_ENV_ALLOWLIST, pick } from "../../env.ts";
 import { Git } from "../../git.ts";
 import type { Agent, AgentRun, Stage, Usage } from "../../seams/agent.ts";
 import type { SessionRequest, SessionResponse } from "./session.ts";
 
-/**
- * The only variables a session sees: tools, Claude's auth, the E2E database
- * and CI. Everything else in the job's env (forge tokens, cloud keys,
- * NODE_OPTIONS…) stays out, because issue content becomes the prompt.
- */
-export const AGENT_ENV_ALLOWLIST = ["PATH", "HOME", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "DATABASE_URL", "CI"];
+export { AGENT_ENV_ALLOWLIST };
 
 const SESSION_SCRIPT = fileURLToPath(new URL("./session.ts", import.meta.url));
 const KILL_GRACE_MS = 5000;
@@ -62,9 +58,7 @@ export class SandcastleAgent implements Agent {
 }
 
 export function allowlisted(env: Record<string, string | undefined>): Record<string, string> {
-  return Object.fromEntries(
-    AGENT_ENV_ALLOWLIST.flatMap((key) => (env[key] === undefined ? [] : [[key, env[key]!]])),
-  );
+  return pick(env, AGENT_ENV_ALLOWLIST);
 }
 
 /** Runs one session in its own process group, so a timeout kills the agent and everything it started. */

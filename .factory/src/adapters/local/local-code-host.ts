@@ -1,12 +1,9 @@
-import { execFile } from "node:child_process";
 import { cp, mkdir } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
-import { promisify } from "node:util";
 import type { FactoryConfig } from "../../config.ts";
 import type { CodeHost, EvidenceGroup, PullRequest, PushResult, Review, ReviewThread } from "../../seams/code-host.ts";
+import { Git } from "../../git.ts";
 import type { MarkdownIssues } from "./markdown-issues.ts";
-
-const exec = promisify(execFile);
 
 const PR_MARKER = "<!-- factory:pr ";
 const EVIDENCE_MARKER = "<!-- factory:evidence -->";
@@ -186,5 +183,5 @@ export function evidenceDir(issuesDir: string, id: string): string {
 }
 
 async function git(cwd: string, ...args: string[]): Promise<string> {
-  return (await exec("git", args, { cwd, maxBuffer: 64 * 1024 * 1024 })).stdout;
+  return new Git(cwd).run(...args);
 }
