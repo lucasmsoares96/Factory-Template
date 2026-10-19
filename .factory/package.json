@@ -9,11 +9,14 @@
   },
   "dependencies": {
     "@ai-hero/sandcastle": "catalog:",
+    "@clack/prompts": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "neonctl": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "wrangler": "catalog:"
   }
 }
