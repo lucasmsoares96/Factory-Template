@@ -16,7 +16,8 @@ function handler(path: string, answer: Answer) {
   return {
     requests,
     handler: http.post(`/api/auth${path}`, async ({ request }) => {
-      requests.push((await request.json()) as Body);
+      const text = await request.text();
+      requests.push(text ? (JSON.parse(text) as Body) : {});
       return HttpResponse.json(answer.body, { status: answer.status });
     }),
   };
@@ -41,3 +42,16 @@ export function signUpHandler(answer?: Answer) {
 export function sendVerificationEmailHandler(answer: Answer = ok({ status: true })) {
   return handler("/send-verification-email", answer);
 }
+
+/** `POST /api/auth/sign-in/email`: the session cookie is Better Auth's business, the SPA reads `/api/me`. */
+export function signInHandler(answer?: Answer) {
+  return handler("/sign-in/email", answer ?? ok({ redirect: false, token: "session-token", user: { ...user("ana@example.com"), emailVerified: true } }));
+}
+
+/** `POST /api/auth/sign-out`. */
+export function signOutHandler(answer: Answer = ok({ success: true })) {
+  return handler("/sign-out", answer);
+}
+
+/** Better Auth's 429, as the Worker answers it (`TOO_MANY_REQUESTS`). */
+export const tooManyRequests = authError(429, "TOO_MANY_REQUESTS", "Too many requests. Try again later.");

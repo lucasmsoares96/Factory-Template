@@ -1,5 +1,6 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { Link, createFileRoute } from "@tanstack/react-router";
 import { Alert, AlertDescription } from "#ui/alert";
+import { buttonVariants } from "#ui/button";
 import { AuthCard } from "../../../client/components/auth-card.tsx";
 import { useErrorMessage, useMessages } from "../../../client/i18n.tsx";
 
@@ -26,5 +27,11 @@ function EmailVerified() {
       </AuthCard>
     );
   }
-  return <AuthCard title={t.title} description={t.description} />;
+  return (
+    <AuthCard title={t.title} description={t.description}>
+      <Link to="/sign-in" className={buttonVariants()}>
+        {t.signIn}
+      </Link>
+    </AuthCard>
+  );
 }

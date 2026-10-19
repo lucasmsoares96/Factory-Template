@@ -19,6 +19,11 @@ export type AuthOptionsInput = {
   sendEmail: SendEmail;
   /** Better Auth's scrypt by default; the Worker passes the `PasswordHasher` pool. */
   password?: NonNullable<BetterAuthOptions["emailAndPassword"]>["password"];
+  /**
+   * Where Better Auth counts requests per client IP: the Worker passes the
+   * `RateLimiter` Durable Object. Without it, an in-memory counter (tests).
+   */
+  rateLimit?: NonNullable<BetterAuthOptions["rateLimit"]>["customStorage"];
   /** Runs work (emails) after the response, so a new and an existing email answer alike. */
   defer?: (task: Promise<unknown>) => void;
 };
@@ -28,7 +33,7 @@ export type AuthOptionsInput = {
  * required before any session. The Worker builds one per request (bindings only
  * exist inside a request); tests build a test-only instance from the same config.
  */
-export function authOptions({ db, secret, baseURL, t, sendEmail, password, defer }: AuthOptionsInput) {
+export function authOptions({ db, secret, baseURL, t, sendEmail, password, rateLimit, defer }: AuthOptionsInput) {
   return {
     appName: t.app.title,
     baseURL,
@@ -44,7 +49,16 @@ export function authOptions({ db, secret, baseURL, t, sendEmail, password, defer
       sendOnSignUp: true,
       sendVerificationEmail: async ({ user, url }) => sendEmail(await verificationEmail({ t, user, url })),
     },
-    advanced: defer ? { backgroundTasks: { handler: defer } } : {},
+    // Always on: Better Auth only turns it on when NODE_ENV is "production", which
+    // a Worker never sees. Its rules stay the defaults (sign-in and sign-up: 3 per
+    // 10 s per IP). It runs before the password hash, so it also spares the hasher.
+    rateLimit: { enabled: true, customStorage: rateLimit },
+    advanced: {
+      // Cloudflare sets this header to the client's IP and overwrites any value the
+      // client sent; Better Auth's default (`x-forwarded-for`) is client-controlled.
+      ipAddress: { ipAddressHeaders: ["cf-connecting-ip"] },
+      ...(defer ? { backgroundTasks: { handler: defer } } : {}),
+    },
     telemetry: { enabled: false },
   } satisfies BetterAuthOptions;
 }
