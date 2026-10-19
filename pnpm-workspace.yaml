@@ -12,6 +12,7 @@ catalog:
   turbo: 2.11.9
   typescript: 7.0.2
   vitest: 5.0.5
+  yaml: 2.9.1
   # Cloudflare Workers
   "@cloudflare/vite-plugin": 1.64.0
   wrangler: 4.151.2
