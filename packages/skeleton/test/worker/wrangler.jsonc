@@ -1,0 +1,10 @@
+// A test-only composition of the Skeleton: the Worker every Skeleton
+// integration test talks to. Products compose the same app in their own Worker.
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "skeleton-test",
+  "main": "./index.ts",
+  "compatibility_date": "2026-10-19",
+  "compatibility_flags": ["nodejs_compat"],
+  "secrets": { "required": ["DATABASE_URL"] }
+}

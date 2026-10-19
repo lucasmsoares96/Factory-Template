@@ -1,9 +1,52 @@
 packages:
+  - apps/*
+  - packages/*
   - .factory
 
-# Versions checked against the npm registry on 2026-10-19.
+# Stack versions, pinned exactly. Each one was checked against the npm registry
+# and the official docs on the date recorded in the ticket that added it.
 catalog:
-  "@types/node": 26.6.5
+  # Tooling
+  "@types/node": 24.19.2
+  oxlint: 1.88.0
+  turbo: 2.11.9
   typescript: 7.0.2
   vitest: 5.0.5
+  # Cloudflare Workers
+  "@cloudflare/vite-plugin": 1.64.0
+  wrangler: 4.151.2
+  # Front
+  "@types/react": 19.3.0
+  "@types/react-dom": 19.3.0
+  "@vitejs/plugin-react": 6.1.2
+  react: 19.3.1
+  react-dom: 19.3.1
+  vite: 8.3.4
+  # API
+  "@hono/zod-openapi": 1.6.3
+  hono: 4.13.13
   zod: 4.6.7
+  # Database
+  "@types/pg": 8.23.1
+  drizzle-kit: 1.0.0-rc.4
+  drizzle-orm: 1.0.0-rc.4
+  pg: 8.23.1
+
+catalogMode: strict
+
+# pnpm 12 refuses releases younger than a day (minimumReleaseAge). wrangler 4.151.2
+# and its workerd were published on 2026-10-19; drop these once they are a day old.
+minimumReleaseAgeExclude:
+  - "@cloudflare/workerd-darwin-64@1.20261019.1"
+  - "@cloudflare/workerd-darwin-arm64@1.20261019.1"
+  - "@cloudflare/workerd-linux-64@1.20261019.1"
+  - "@cloudflare/workerd-linux-arm64@1.20261019.1"
+  - "@cloudflare/workerd-windows-64@1.20261019.1"
+  - miniflare@5.20261019.0-beta
+  - workerd@1.20261019.1
+  - wrangler@4.151.2
+
+# Dependencies allowed to run install scripts (pnpm fails on any other).
+allowBuilds:
+  esbuild: true
+  workerd: true
