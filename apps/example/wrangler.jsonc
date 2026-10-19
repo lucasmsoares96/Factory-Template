@@ -10,6 +10,14 @@
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*"]
   },
-  "secrets": { "required": ["DATABASE_URL"] },
+  // Better Auth's password hashing runs here (see @workspace/skeleton/durable-objects).
+  "durable_objects": {
+    "bindings": [{ "name": "PASSWORD_HASHER", "class_name": "PasswordHasher" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PasswordHasher"] }],
+  // Production sends email through Resend (secret RESEND_API_KEY, set by the
+  // bootstrap); previews and `pnpm dev` override EMAIL_TRANSPORT with "outbox".
+  "vars": { "EMAIL_TRANSPORT": "resend" },
+  "secrets": { "required": ["DATABASE_URL", "BETTER_AUTH_SECRET"] },
   "observability": { "enabled": true }
 }

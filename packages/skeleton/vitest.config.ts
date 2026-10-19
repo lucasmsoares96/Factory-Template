@@ -21,7 +21,16 @@ export default defineConfig({
         // msw/vite serves the worker script; nothing is copied into public/.
         plugins: [react(), msw({ mode: "worker-only" })],
         // Pre-bundled up front: a late discovery reloads the page mid-test.
-        optimizeDeps: { include: ["class-variance-authority", "cn", "@faker-js/faker"] },
+        optimizeDeps: {
+          include: [
+            "class-variance-authority",
+            "cn",
+            "@faker-js/faker",
+            "@base-ui/react/input",
+            "@tanstack/react-form",
+            "better-auth/react",
+          ],
+        },
         test: {
           name: "browser",
           include: ["test/**/*.browser.test.tsx"],

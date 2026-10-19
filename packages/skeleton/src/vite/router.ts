@@ -38,6 +38,7 @@ export function routerConfig({ dir, routeTree, routes = [] }: SpaLayout) {
     disableLogging: true,
     virtualRouteConfig: rootRoute(skeleton("client/root.tsx"), [
       physical(skeleton("features/home/routes")),
+      physical(skeleton("features/auth/routes")),
       ...routes,
     ]),
   };

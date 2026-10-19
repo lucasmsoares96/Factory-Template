@@ -1,0 +1,10 @@
+{
+  // What only runs in the Workers runtime (the Durable Objects, the test
+  // composition), under its types from `wrangler types`, as a Product's
+  // src/worker.ts is checked.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["./test/worker/worker-configuration.d.ts"]
+  },
+  "include": ["test/worker", "src/durable-objects.ts"]
+}

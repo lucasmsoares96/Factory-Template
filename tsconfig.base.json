@@ -3,6 +3,7 @@
     "target": "es2024",
     "lib": ["es2024"],
     "module": "preserve",
+    "jsx": "react-jsx",
     "moduleResolution": "bundler",
     "strict": true,
     "noUncheckedIndexedAccess": true,

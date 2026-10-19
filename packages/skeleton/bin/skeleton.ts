@@ -12,6 +12,7 @@ Commands:
                                  --product, for the Skeleton's own SPA (its tests use it).
   dev [--product <dir>]          Start the Product's Worker and SPA (vite dev) on a migrated
                                  database: DATABASE_URL, or the docker compose Postgres.
+                                 Emails land in the skeleton.email_outbox table.
   db migrate [--product <dir>]   Apply the Skeleton's migrations, then the Product's.
   db check [--product <dir>]     Fail unless drizzle-kit check passes and a brand-new database,
                                  once migrated, matches the schema (push --explain: no_changes).
@@ -78,15 +79,19 @@ async function generateCommand() {
   const { generate } = await import("../src/node/generate.ts");
   if (productDir) {
     const { readFile } = await import("node:fs/promises");
-    const { pathToFileURL } = await import("node:url");
+    const { importWorkerModule } = await import("../src/node/worker-module.ts");
     const { name } = JSON.parse(await readFile(resolve(productDir, "package.json"), "utf8"));
-    const { default: app } = await import(pathToFileURL(resolve(productDir, "src/worker.ts")).href);
+    const worker = await importWorkerModule(resolve(productDir, "src/worker.ts"));
+    const app = worker.default as Parameters<typeof generate>[0]["app"];
     const { PRODUCT_ROUTE_TREE } = await import("../src/vite/router.ts");
     await generate({ dir: productDir, app, title: name, routeTree: PRODUCT_ROUTE_TREE });
   } else {
-    const { createApp } = await import("../src/platform/app.ts");
+    // The Skeleton's own document comes from its test composition.
+    const { importWorkerModule } = await import("../src/node/worker-module.ts");
     const dir = resolve(import.meta.dirname, "..");
-    await generate({ dir, app: createApp({ title: "skeleton" }), title: "skeleton", routeTree: "test/spa/routeTree.gen.ts" });
+    const worker = await importWorkerModule(resolve(dir, "test/worker/index.ts"));
+    const app = worker.default as Parameters<typeof generate>[0]["app"];
+    await generate({ dir, app, title: "skeleton", routeTree: "test/spa/routeTree.gen.ts" });
   }
 }
 
@@ -96,11 +101,17 @@ async function dev(dir: string) {
   const { migrateDatabase } = await import("../src/node/migrate.ts");
   const postgres = ensurePostgres({ purpose: "dev", keep: true, cwd: dir });
   await migrateDatabase({ databaseUrl: postgres.url, productMigrationsFolder: resolve(dir, "drizzle") });
-  // `secrets.required` in wrangler.jsonc makes the Worker read DATABASE_URL from the environment.
+  // With `secrets` in wrangler.jsonc, the Worker reads its required secrets and
+  // overrides its vars from the environment. Emails land in the outbox table.
   const vite = spawn("vite", ["dev"], {
     cwd: dir,
     stdio: "inherit",
-    env: { ...process.env, DATABASE_URL: postgres.url },
+    env: {
+      ...process.env,
+      DATABASE_URL: postgres.url,
+      BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET ?? "local-dev-secret-never-used-in-production",
+      EMAIL_TRANSPORT: "outbox",
+    },
   });
   vite.on("exit", (code) => process.exit(code ?? 0));
 }
