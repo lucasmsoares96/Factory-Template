@@ -16,6 +16,11 @@ export function apiErrorSchema<const C extends [ErrorCode, ...ErrorCode[]]>(...c
   });
 }
 
+/** An error entry of a route's `responses`: `description` plus a body that can only carry `codes`. */
+export function errorResponse<const C extends [ErrorCode, ...ErrorCode[]]>(description: string, ...codes: C) {
+  return { description, content: { "application/json": { schema: apiErrorSchema(...codes) } } };
+}
+
 /** The body of an error response. */
 export function apiError<C extends ErrorCode>(code: C): ApiError<C> {
   return { code, message: errorMessages[code] };

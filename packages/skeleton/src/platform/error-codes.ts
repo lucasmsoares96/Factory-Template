@@ -9,6 +9,8 @@ export const errorMessages = {
   VALIDATION_FAILED: "The request is invalid.",
   INTERNAL_ERROR: "Something went wrong.",
   DATABASE_UNAVAILABLE: "The database is unavailable.",
+  UNAUTHENTICATED: "Sign in to continue.",
+  TOO_MANY_REQUESTS: "Too many requests. Try again later.",
 } as const;
 
 export type ErrorCode = keyof typeof errorMessages;
@@ -24,6 +26,7 @@ export const authErrorCodes = [
   "PASSWORD_TOO_LONG",
   "USER_ALREADY_EXISTS",
   "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL",
+  "INVALID_EMAIL_OR_PASSWORD",
   "EMAIL_NOT_VERIFIED",
   "INVALID_TOKEN",
   "TOKEN_EXPIRED",

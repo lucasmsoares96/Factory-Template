@@ -4,8 +4,8 @@ import { defineMessages, type Messages } from "../src/i18n/index.ts";
 import { en } from "../src/i18n/en.ts";
 
 // A locale that misses a key does not compile.
-// @ts-expect-error `home.checking` is missing
-export const missingKey: Messages = { ...en, home: { title: "", apiStatusLabel: "", apiStatus: { ok: "" } } };
+// @ts-expect-error `home.description` is missing
+export const missingKey: Messages = { ...en, home: { title: "" } };
 
 // A locale that misses the text for an API error code does not compile.
 export const missingErrorCode: Messages = {

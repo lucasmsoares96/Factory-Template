@@ -4,5 +4,5 @@
     "types": ["node"]
   },
   "include": ["src", "bin", "test", "e2e", "*.ts"],
-  "exclude": ["src/client", "src/features", "src/gen", "test/spa", "test/browser", "test/worker", "src/durable-objects.ts", "src/platform/password-hasher.ts"]
+  "exclude": ["src/client", "src/features", "src/gen", "test/spa", "test/browser", "test/worker", "src/durable-objects.ts", "src/platform/password-hasher.ts", "src/platform/rate-limiter.ts"]
 }

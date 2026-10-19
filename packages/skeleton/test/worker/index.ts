@@ -1,6 +1,6 @@
 import { createApp } from "../../src/index.ts";
 
-export { PasswordHasher } from "../../src/durable-objects.ts";
+export { PasswordHasher, RateLimiter } from "../../src/durable-objects.ts";
 
 export default createApp({
   title: "skeleton-test",

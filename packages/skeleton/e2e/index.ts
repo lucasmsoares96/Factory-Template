@@ -69,6 +69,14 @@ export const test = base.extend<{ evidence: (name: string) => Promise<void>; mai
     if (!url) throw new Error(`${BASE_URL_ENV} is not set: run the E2E through defineE2EConfig.`);
     await use(url);
   },
+  // Better Auth limits requests per client IP (`cf-connecting-ip`, which Cloudflare
+  // sets and the local runtime keeps when the client sends it): each test is its
+  // own visitor, so one test's attempts never block another's.
+  // oxlint-disable-next-line no-empty-pattern
+  extraHTTPHeaders: async ({}, use) => {
+    const ip = `10.${[0, 0, 0].map(() => Math.floor(Math.random() * 256)).join(".")}`;
+    await use({ "cf-connecting-ip": ip });
+  },
   // oxlint-disable-next-line no-empty-pattern
   mailbox: async ({}, use) => {
     const folder = process.env[MAILBOX_DIR_ENV];
