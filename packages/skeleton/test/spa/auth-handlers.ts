@@ -53,5 +53,18 @@ export function signOutHandler(answer: Answer = ok({ success: true })) {
   return handler("/sign-out", answer);
 }
 
+/** `POST /api/auth/request-password-reset`: the same answer whether the email is registered or not. */
+export function requestPasswordResetHandler(answer?: Answer) {
+  return handler(
+    "/request-password-reset",
+    answer ?? ok({ status: true, message: "If this email exists in our system, check your email for the reset link" }),
+  );
+}
+
+/** `POST /api/auth/reset-password`: the token the emailed link brought and the new password. */
+export function resetPasswordHandler(answer: Answer = ok({ status: true })) {
+  return handler("/reset-password", answer);
+}
+
 /** Better Auth's 429, as the Worker answers it (`TOO_MANY_REQUESTS`). */
 export const tooManyRequests = authError(429, "TOO_MANY_REQUESTS", "Too many requests. Try again later.");

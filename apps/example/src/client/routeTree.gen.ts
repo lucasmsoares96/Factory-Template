@@ -12,6 +12,8 @@ import { Route as rootRouteImport } from "./../../../../packages/skeleton/src/cl
 import { Route as DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRouteImport } from "./../../../../packages/skeleton/src/client/signed-in"
 import { Route as CheckEmailRouteImport } from "./../../../../packages/skeleton/src/features/auth/routes/check-email"
 import { Route as EmailVerifiedRouteImport } from "./../../../../packages/skeleton/src/features/auth/routes/email-verified"
+import { Route as ForgotPasswordRouteImport } from "./../../../../packages/skeleton/src/features/auth/routes/forgot-password"
+import { Route as ResetPasswordRouteImport } from "./../../../../packages/skeleton/src/features/auth/routes/reset-password"
 import { Route as SignInRouteImport } from "./../../../../packages/skeleton/src/features/auth/routes/sign-in"
 import { Route as SignUpRouteImport } from "./../../../../packages/skeleton/src/features/auth/routes/sign-up"
 import { Route as IndexRouteImport } from "./../../../../packages/skeleton/src/features/home/routes/index"
@@ -29,6 +31,16 @@ const CheckEmailRoute = CheckEmailRouteImport.update({
 const EmailVerifiedRoute = EmailVerifiedRouteImport.update({
   id: "/email-verified",
   path: "/email-verified",
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
+  id: "/forgot-password",
+  path: "/forgot-password",
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResetPasswordRoute = ResetPasswordRouteImport.update({
+  id: "/reset-password",
+  path: "/reset-password",
   getParentRoute: () => rootRouteImport,
 } as any)
 const SignInRoute = SignInRouteImport.update({
@@ -52,12 +64,16 @@ export interface FileRoutesByFullPath {
   "/": typeof IndexRoute
   "/check-email": typeof CheckEmailRoute
   "/email-verified": typeof EmailVerifiedRoute
+  "/forgot-password": typeof ForgotPasswordRoute
+  "/reset-password": typeof ResetPasswordRoute
   "/sign-in": typeof SignInRoute
   "/sign-up": typeof SignUpRoute
 }
 export interface FileRoutesByTo {
   "/check-email": typeof CheckEmailRoute
   "/email-verified": typeof EmailVerifiedRoute
+  "/forgot-password": typeof ForgotPasswordRoute
+  "/reset-password": typeof ResetPasswordRoute
   "/sign-in": typeof SignInRoute
   "/sign-up": typeof SignUpRoute
   "/": typeof IndexRoute
@@ -67,20 +83,38 @@ export interface FileRoutesById {
   "/_signed-in": typeof DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRouteWithChildren
   "/check-email": typeof CheckEmailRoute
   "/email-verified": typeof EmailVerifiedRoute
+  "/forgot-password": typeof ForgotPasswordRoute
+  "/reset-password": typeof ResetPasswordRoute
   "/sign-in": typeof SignInRoute
   "/sign-up": typeof SignUpRoute
   "/_signed-in/": typeof IndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: "/" | "/check-email" | "/email-verified" | "/sign-in" | "/sign-up"
+  fullPaths:
+    | "/"
+    | "/check-email"
+    | "/email-verified"
+    | "/forgot-password"
+    | "/reset-password"
+    | "/sign-in"
+    | "/sign-up"
   fileRoutesByTo: FileRoutesByTo
-  to: "/check-email" | "/email-verified" | "/sign-in" | "/sign-up" | "/"
+  to:
+    | "/check-email"
+    | "/email-verified"
+    | "/forgot-password"
+    | "/reset-password"
+    | "/sign-in"
+    | "/sign-up"
+    | "/"
   id:
     | "__root__"
     | "/_signed-in"
     | "/check-email"
     | "/email-verified"
+    | "/forgot-password"
+    | "/reset-password"
     | "/sign-in"
     | "/sign-up"
     | "/_signed-in/"
@@ -90,6 +124,8 @@ export interface RootRouteChildren {
   DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRoute: typeof DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRouteWithChildren
   CheckEmailRoute: typeof CheckEmailRoute
   EmailVerifiedRoute: typeof EmailVerifiedRoute
+  ForgotPasswordRoute: typeof ForgotPasswordRoute
+  ResetPasswordRoute: typeof ResetPasswordRoute
   SignInRoute: typeof SignInRoute
   SignUpRoute: typeof SignUpRoute
 }
@@ -115,6 +151,20 @@ declare module "@tanstack/react-router" {
       path: "/email-verified"
       fullPath: "/email-verified"
       preLoaderRoute: typeof EmailVerifiedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/forgot-password": {
+      id: "/forgot-password"
+      path: "/forgot-password"
+      fullPath: "/forgot-password"
+      preLoaderRoute: typeof ForgotPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/reset-password": {
+      id: "/reset-password"
+      path: "/reset-password"
+      fullPath: "/reset-password"
+      preLoaderRoute: typeof ResetPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
     "/sign-in": {
@@ -160,6 +210,8 @@ const rootRouteChildren: RootRouteChildren = {
     DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRouteWithChildren,
   CheckEmailRoute: CheckEmailRoute,
   EmailVerifiedRoute: EmailVerifiedRoute,
+  ForgotPasswordRoute: ForgotPasswordRoute,
+  ResetPasswordRoute: ResetPasswordRoute,
   SignInRoute: SignInRoute,
   SignUpRoute: SignUpRoute,
 }

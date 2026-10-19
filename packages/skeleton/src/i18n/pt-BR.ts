@@ -20,6 +20,8 @@ export const ptBR: Messages = {
       noAccount: "Ainda não tem conta?",
       signUp: "Criar uma conta",
       signedOut: "Você saiu.",
+      forgotPassword: "Esqueceu a senha?",
+      passwordReset: "A sua senha foi trocada. Entre com a senha nova.",
     },
     signOut: "Sair",
     signUp: {
@@ -47,6 +49,25 @@ export const ptBR: Messages = {
       failedTitle: "Não conseguimos verificar o seu email",
       signIn: "Entrar",
     },
+    forgotPassword: {
+      title: "Redefina a sua senha",
+      description: "Informe o email do seu cadastro e enviaremos um link para você escolher uma senha nova.",
+      email: "Email",
+      submit: "Enviar o link",
+      submitting: "Enviando…",
+      sent: "Se {email} tiver uma conta, um link para redefinir a senha está a caminho. Ele pode levar um minuto para chegar.",
+      backToSignIn: "Voltar para o login",
+    },
+    resetPassword: {
+      title: "Escolha uma senha nova",
+      description: "Todas as sessões abertas terminam, e você entra de novo com a senha nova.",
+      password: "Senha nova",
+      passwordHint: "Pelo menos 8 caracteres.",
+      submit: "Salvar a senha nova",
+      submitting: "Salvando…",
+      failedTitle: "Este link não funciona",
+      requestNew: "Pedir um link novo",
+    },
   },
   emails: {
     verifyEmail: {
@@ -58,6 +79,16 @@ export const ptBR: Messages = {
       button: "Confirmar email",
       fallback: "Se o botão não funcionar, abra este link:",
       ignore: "Se você não criou uma conta, pode ignorar este email.",
+    },
+    resetPassword: {
+      subject: "Redefina a sua senha",
+      preview: "Escolha uma senha nova para o {appName}.",
+      heading: "Redefina a sua senha",
+      greeting: "Olá, {name},",
+      body: "Alguém pediu para redefinir a senha da conta do {appName} de {email}. Abra o link para escolher uma senha nova. Ele funciona uma vez, dentro de uma hora.",
+      button: "Escolher uma senha nova",
+      fallback: "Se o botão não funcionar, abra este link:",
+      ignore: "Se não foi você que pediu, pode ignorar este email: a sua senha continua a mesma.",
     },
   },
   errors: {
