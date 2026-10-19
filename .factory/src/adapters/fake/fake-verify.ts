@@ -32,6 +32,7 @@ export class FakeVerify implements Verify {
       await mkdir(dir, { recursive: true });
       await writeFile(join(dir, shot.name), `png:${shot.product}/${shot.name}`);
     }
-    return { ok: step.ok ?? true, failedCommand: step.failedCommand ?? null, output: step.output ?? "" };
+    const timedOut = step.timedOut ?? false;
+    return { ok: !timedOut && (step.ok ?? true), failedCommand: step.failedCommand ?? null, output: step.output ?? "", timedOut };
   }
 }

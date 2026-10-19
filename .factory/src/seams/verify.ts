@@ -8,6 +8,8 @@ export interface VerifyRun {
   /** The command that failed, when `ok` is false. */
   failedCommand: string | null;
   output: string;
+  /** The run was stopped at its timeout (then `ok` is false). */
+  timedOut: boolean;
 }
 
 export interface Verify {
