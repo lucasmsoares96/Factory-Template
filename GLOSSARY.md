@@ -11,15 +11,19 @@ The harness that takes a ready issue and, without human intervention, produces a
 _Avoid_: Pipeline, bot
 
 **Template**:
-This repository: the Factory and the Skeleton, meant to be copied to start a new product that the factory builds.
+This repository: the Factory, the Skeleton and one example Product, meant to be copied to start a repository of Products that the factory builds.
 _Avoid_: Boilerplate, starter
 
+**Product**:
+An application built on the Skeleton, with its own users, Companies, domain, database and deployment. One repository can hold several Products, and a change to the Skeleton reaches all of them.
+_Avoid_: App (ambiguous with an application package), tenant (a Company is the tenant), Project (a Reference App concept)
+
 **Reference App**:
-The first product built on the Skeleton, a project-management application kept in its own repository, outside the template.
+The first Product built on the Skeleton, a project-management application kept in its own repository, outside the template.
 _Avoid_: Demo, sample app
 
 **Skeleton**:
-The application base shipped with the template: the stack wired end to end, with sign-up, Company creation, deploy and tests working. Every product, the Reference App included, is built on top of it. Its foundation, including sign-up and sign-in, is built by hand; the rest (account, Companies, Invitations) is built by the factory itself, as its acceptance test.
+The application base shared by every Product in a repository: the stack wired end to end, sign-up and sign-in, account, Companies and Invitations. It is never deployed on its own, only as part of a Product. Its foundation, including sign-up and sign-in, is built by hand; the rest (account, Companies, Invitations) is built by the factory itself, as its acceptance test.
 _Avoid_: Boilerplate, base app
 
 **Stage**:

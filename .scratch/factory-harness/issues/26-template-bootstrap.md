@@ -67,3 +67,7 @@ Decidido em 2026-10-19 com o usuário. Fatos em [GitHub](../research/26-github-b
 - quais permissões do token da Cloudflare criam um Worker Preview (workers-sdk#15797);
 - com que visibilidade o pacote do GHCR nasce num repo público (a documentação se contradiz);
 - o que a API devolve ao criar environment e ruleset num repo privado no Free.
+
+## Revisão
+
+`APP_NAME`/`APP_TITLE` saem: a identidade de cada Product fica em `apps/<id>/product.config.ts`. O bootstrap se divide em parte comum (Cloudflare, machine user, token do Claude, labels, incluindo `product:<id>`) e `pnpm bootstrap product <id>` (Produção e Previews), com `doctor` e `destroy` por Product, secrets do Product com prefixo `<ID>_`, environments `<id>-production`/`<id>-preview` e `DEPLOY_PRODUCTS`/`PREVIEW_PRODUCTS` como listas. Decidido em [Vários produtos num repo só](30-multi-product-repo.md).

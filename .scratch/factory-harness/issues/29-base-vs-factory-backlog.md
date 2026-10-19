@@ -53,3 +53,7 @@ A granularidade das sub-issues fica para o `to-tickets`.
 - **Base pronta = tudo**: os três módulos do bootstrap com `doctor` verde, deploy de teste, PR de teste com preview e smoke, e os critérios de aceite medidos. Só então a Factory recebe a primeira issue.
 - **ADRs são o último ticket da base**, antes da primeira issue da Factory, que já trabalha com `docs/adr/`.
 - **Ordem do backlog**: "trocar o nome" sozinha; depois do merge, Companies e o resto da conta (email, senha, "Conexões") em paralelo; convites e apagar a conta bloqueados por Companies (a exclusão da conta é recusada enquanto o usuário for Owner, [Modelo de organização da Reference App](10-organization-model.md)). Tudo marcado `ready-for-agent` de uma vez, com dependências nativas; o agendador libera. A granularidade fica para o `to-tickets`.
+
+## Revisão
+
+A base inclui também a divisão `packages/skeleton/` × `apps/example/`, o `new-product`, o bootstrap por Product, a matrix de afetados no CI e o E2E do Skeleton por Product. Base pronta exige ainda um teste de CI com `new-product ci-probe` numa cópia temporária + `verify`, sem deploy. O backlog do Skeleton não muda. O ADR de vários Products entra no último ticket. Decidido em [Vários produtos num repo só](30-multi-product-repo.md).

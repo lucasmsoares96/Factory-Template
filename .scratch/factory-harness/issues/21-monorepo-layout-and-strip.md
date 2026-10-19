@@ -97,3 +97,7 @@ Como o código do template se organiza em pacotes e diretórios, e como o Strip 
 Tem `--dry-run`. O job `strip-check` roda em todo PR do template: Strip numa cópia, migration num Postgres vazio, `verify`, depois `pnpm generate` e exige `git diff` vazio. O padrão segue Expo (`reset-project`) e Ignite (`remove-demo`) e é mais rigoroso que eles.
 
 **Código gerado**: o Kubb e o `openapi.json` ficam fora do git. O `routeTree.gen.ts` é commitado, como manda o FAQ do TanStack.
+
+## Revisão
+
+O workspace passa a ter `apps/<id>/` (um Worker por Product), `packages/skeleton/` (`platform/`, features do Skeleton, migrations próprias, molde do `new-product`, specs de E2E) e `.factory/`. A regra de imports vira regra de pacote: um Product só usa os exports públicos do Skeleton, e o Skeleton nunca importa de `apps/`. Decidido em [Vários produtos num repo só](30-multi-product-repo.md).

@@ -122,3 +122,7 @@ Decidido em 2026-10-18 com o usuário. Fatos em [research/25-harness-files.md](.
 - Forgejo (doc de migração): registry da instância; o token automático não lê pacotes, então imagem privada exige PAT em secret; o runner respeita o `USER` da imagem e nunca baixa de novo uma tag que já tem.
 
 **Critérios de aceite da base**: medir o "Initialize containers" com a imagem contra o `setup.sh` direto na VM (se o pull não for mais rápido, a escolha da imagem é reaberta); rodar o `actions/checkout` v7 dentro do container com `USER 1001`.
+
+## Revisão
+
+O `AGENTS.md` de `app/` se divide em dois: o de `packages/skeleton/` e o que o molde do `new-product` gera em cada `apps/<id>/`. A skill `skeleton-*` de testes ganha a regra de localizar elementos por role + chave do i18n, nunca pelo texto. `runs-on` do `work` e do `build` aceita `vars.FACTORY_RUNNER`. Decidido em [Vários produtos num repo só](30-multi-product-repo.md).
