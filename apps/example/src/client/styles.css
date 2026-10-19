@@ -1,0 +1,8 @@
+@import "@workspace/skeleton/styles.css";
+
+/* The Product's own components. */
+@source "../";
+
+/* The Product's theme: shadcn tokens over the Skeleton's (https://ui.shadcn.com/docs/theming). */
+:root {
+}

@@ -1,16 +1,12 @@
-import { StrictMode } from "react";
-import { createRoot } from "react-dom/client";
+import { mountSpa } from "@workspace/skeleton/client";
+import { messages } from "./messages.ts";
+import { routeTree } from "./routeTree.gen.ts";
+import "./styles.css";
 
-function App() {
-  return (
-    <main>
-      <h1>example</h1>
-    </main>
-  );
+const router = mountSpa({ routeTree, messages });
+
+declare module "@tanstack/react-router" {
+  interface Register {
+    router: typeof router;
+  }
 }
-
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
