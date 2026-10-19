@@ -1,15 +1,8 @@
-import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
+import { createRoute, z } from "@hono/zod-openapi";
 import { sql } from "drizzle-orm";
-import type { SkeletonEnv } from "./env.ts";
+import { apiError, apiErrorSchema, createRouter } from "./errors.ts";
 
-const Healthy = z.object({ status: z.literal("ok") }).openapi("Health");
-const Unhealthy = z
-  .object({
-    status: z.literal("error"),
-    code: z.literal("DATABASE_UNAVAILABLE"),
-    message: z.string(),
-  })
-  .openapi("HealthError");
+const Health = z.object({ status: z.literal("ok") }).openapi("Health");
 
 const getHealth = createRoute({
   method: "get",
@@ -18,19 +11,19 @@ const getHealth = createRoute({
   summary: "Check the service health",
   description: "Answers ok when the Worker is up and its database answers a query.",
   responses: {
-    200: { description: "The service and its database are up.", content: { "application/json": { schema: Healthy } } },
-    503: { description: "The database did not answer.", content: { "application/json": { schema: Unhealthy } } },
+    200: { description: "The service and its database are up.", content: { "application/json": { schema: Health } } },
+    503: {
+      description: "The database did not answer.",
+      content: { "application/json": { schema: apiErrorSchema("DATABASE_UNAVAILABLE") } },
+    },
   },
 });
 
-export const health = new OpenAPIHono<SkeletonEnv>().openapi(getHealth, async (c) => {
+export const health = createRouter().openapi(getHealth, async (c) => {
   try {
     await c.var.db.execute(sql`select 1`);
     return c.json({ status: "ok" as const }, 200);
   } catch {
-    return c.json(
-      { status: "error" as const, code: "DATABASE_UNAVAILABLE" as const, message: "The database is unavailable." },
-      503,
-    );
+    return c.json(apiError("DATABASE_UNAVAILABLE"), 503);
   }
 });
