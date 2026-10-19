@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ai-hero/sandcastle": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
