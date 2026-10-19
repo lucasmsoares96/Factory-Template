@@ -17,7 +17,8 @@
     "build": "turbo run build",
     "factory:verify": "node scripts/verify.ts",
     "factory:ci-probe": "node scripts/ci-probe.ts",
-    "factory": "node .factory/src/cli.ts"
+    "factory": "node .factory/src/cli.ts",
+    "bootstrap": "node .factory/src/bootstrap/cli.ts"
   },
   "devDependencies": {
     "@types/node": "catalog:",
