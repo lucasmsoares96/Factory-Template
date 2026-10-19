@@ -30,3 +30,5 @@ Decisões e desvios:
 - `destroy`, `product` e a verificação final não existem aqui (tickets 14 e 19): hoje respondem "Unknown command".
 
 Pending (human): rodar `pnpm bootstrap` na conta real (criar o token pela URL do template, registrar o `workers.dev`) e `pnpm bootstrap doctor` para conferir. O adaptador real do `gh` e da Cloudflare só foi exercitado por testes de construção de comando/fetch falso.
+
+Revisão: `workers_r2` saiu do template do token (R2 está fora do escopo da spec; a pesquisa 26 só cita R2 como recurso de auto-provisionamento do Wrangler, que o Skeleton não usa). Ficam `workers_scripts`, `workers_kv_storage` e `account_settings`. Teste em `bootstrap/common.test.ts`.
