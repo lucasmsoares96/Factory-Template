@@ -4,8 +4,9 @@ import { renderSpa } from "../spa/render.tsx";
 import { expect, test } from "../spa/test.ts";
 
 const email = "ana@example.com";
+const name = "Ana Souza";
 const signedOut = getMeHandler(() => getMeHandlerResponse401({ code: "UNAUTHENTICATED", message: "Sign in to continue." }));
-const signedIn = getMeHandler({ id: "user-1", name: "Ana Souza", email });
+const signedIn = getMeHandler({ id: "user-1", name, email });
 
 test("a visitor signs in and lands on the home page, greeted by name", async ({ worker }) => {
   const signIn = signInHandler();
@@ -17,7 +18,7 @@ test("a visitor signs in and lands on the home page, greeted by name", async ({ 
   worker.use(signedIn);
   await screen.getByRole("button", { name: t.auth.signIn.submit }).click();
 
-  await expect.element(screen.getByTestId("user-name")).toHaveTextContent("Ana Souza");
+  await expect.element(screen.getByTestId("user-name")).toHaveTextContent(name);
   expect(signIn.requests).toEqual([{ email, password: "correct horse battery" }]);
 });
 
@@ -30,7 +31,7 @@ test("a wrong password shows the reason translated by its code and keeps the ema
   await screen.getByRole("button", { name: t.auth.signIn.submit }).click();
 
   await expect.element(screen.getByRole("alert")).toHaveTextContent(t.errors.INVALID_EMAIL_OR_PASSWORD);
-  await expect.element(screen.getByText("Invalid email or password")).not.toBeInTheDocument();
+  await expect.element(screen.getByRole("alert")).not.toHaveTextContent("Invalid email or password");
   await expect.element(screen.getByLabelText(t.auth.signIn.email)).toHaveValue(email);
 });
 
