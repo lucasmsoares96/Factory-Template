@@ -26,21 +26,26 @@ export const MAILBOX_DIR_ENV = "SKELETON_E2E_MAILBOX_DIR";
 
 /** The emails the Worker sent during the run. */
 export type Mailbox = {
-  /** The newest email to `to`, waiting for it to arrive (emails go out after the response). */
-  latest(to: string, options?: { timeout?: number }): Promise<SentEmail>;
+  /**
+   * The newest email to `to` (with `subject`, if given), waiting for it to
+   * arrive (emails go out after the response).
+   */
+  latest(to: string, options?: { subject?: string; timeout?: number }): Promise<SentEmail>;
 };
 
 function mailboxIn(folder: string): Mailbox {
   return {
-    async latest(to, { timeout = 10_000 } = {}) {
+    async latest(to, { subject, timeout = 10_000 } = {}) {
       const deadline = Date.now() + timeout;
       for (;;) {
         const files = (await readdir(folder)).filter((file) => file.endsWith(".json")).sort().reverse();
         for (const file of files) {
           const email = JSON.parse(await readFile(join(folder, file), "utf8")) as SentEmail;
-          if (email.to.includes(to)) return email;
+          if (email.to.includes(to) && (subject === undefined || email.subject === subject)) return email;
         }
-        if (Date.now() > deadline) throw new Error(`No email to ${to} within ${timeout} ms.`);
+        if (Date.now() > deadline) {
+          throw new Error(`No email to ${to}${subject ? ` with subject "${subject}"` : ""} within ${timeout} ms.`);
+        }
         await new Promise((resolve) => setTimeout(resolve, 200));
       }
     },

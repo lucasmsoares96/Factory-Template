@@ -55,19 +55,24 @@ test("migrate applies a Product's migrations after the Skeleton's, in a journal 
   expect(journals.map((t) => t.table_name)).toEqual(["__product_migrations", "__skeleton_migrations"]);
 });
 
-test("check passes when the migrations rebuild the Skeleton schema on an empty database", () => {
+// `db check` runs drizzle-kit and migrates a fresh database in a child process:
+// about 15 s alone, but several times that while the full verify loads the
+// machine (Workers, browsers and scrypt hashing run in parallel).
+const CHECK_TIMEOUT = { timeout: 180_000 };
+
+test("check passes when the migrations rebuild the Skeleton schema on an empty database", CHECK_TIMEOUT, () => {
   const run = skeleton(["db", "check"]);
 
   expect(run.status, run.output).toBe(0);
 });
 
-test("check passes for a Product whose migrations match its schema", () => {
+test("check passes for a Product whose migrations match its schema", CHECK_TIMEOUT, () => {
   const run = skeleton(["db", "check", "--product", productWithTables]);
 
   expect(run.status, run.output).toBe(0);
 });
 
-test("check fails when a Product schema changed without a migration", () => {
+test("check fails when a Product schema changed without a migration", CHECK_TIMEOUT, () => {
   const product = copyFixture(productWithTables);
   const schema = join(product, "src/features/notes/schema.ts");
   writeFileSync(
