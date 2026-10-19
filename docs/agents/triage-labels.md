@@ -13,3 +13,15 @@ The skills speak in terms of five canonical triage roles. This file maps those r
 When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the corresponding label string from this table.
 
 Edit the right-hand column to match whatever vocabulary you actually use.
+
+## Factory labels
+
+The Factory adds these to the five above. Their names live in `.factory/src/config.ts` (`labels`); a test keeps this table equal to it, so change both together.
+
+| Label | Set by | Meaning |
+| --- | --- | --- |
+| `in-progress` | the Factory (`claim`) | The Factory holds the lock on this issue. Replaced by `ready-for-human` on an Escalation. |
+| `agent:explore` | a human | Ask the Factory to triage this issue: it explores and comments, and changes no code. |
+| `harness-change` | the Factory (`publish`) | The pull request touches `AGENTS.md`, `docs/agents/`, `GLOSSARY.md`, `docs/adr/` or `.factory/`. Review it with care. |
+| `preview` | the Factory (CI) | The pull request has a preview deployment. |
+| `product:<id>` | a human or the Factory | The issue or pull request concerns the Product `<id>`. One label per Product (for example `product:example`). |
