@@ -13,3 +13,14 @@ export async function orThrow<T>(result: Promise<{ data: T; error: null } | { da
   if (error) throw error;
   return data as T;
 }
+
+/** Where a visitor without a session is sent. */
+export const SIGN_IN_PATH = "/sign-in";
+
+/**
+ * The path to return to after signing in, if it is one of this SPA's own
+ * (a relative path, never `//host` or `/\host`), else the home page.
+ */
+export function safeRedirect(path: string | undefined): string {
+  return path && path.startsWith("/") && !path.startsWith("//") && !path.startsWith("/\\") ? path : "/";
+}

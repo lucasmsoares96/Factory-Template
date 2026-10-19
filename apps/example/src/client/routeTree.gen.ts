@@ -9,16 +9,18 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from "./../../../../packages/skeleton/src/client/root"
-import { Route as IndexRouteImport } from "./../../../../packages/skeleton/src/features/home/routes/index"
+import { Route as DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRouteImport } from "./../../../../packages/skeleton/src/client/signed-in"
 import { Route as CheckEmailRouteImport } from "./../../../../packages/skeleton/src/features/auth/routes/check-email"
 import { Route as EmailVerifiedRouteImport } from "./../../../../packages/skeleton/src/features/auth/routes/email-verified"
+import { Route as SignInRouteImport } from "./../../../../packages/skeleton/src/features/auth/routes/sign-in"
 import { Route as SignUpRouteImport } from "./../../../../packages/skeleton/src/features/auth/routes/sign-up"
+import { Route as IndexRouteImport } from "./../../../../packages/skeleton/src/features/home/routes/index"
 
-const IndexRoute = IndexRouteImport.update({
-  id: "/",
-  path: "/",
-  getParentRoute: () => rootRouteImport,
-} as any)
+const DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRoute =
+  DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRouteImport.update({
+    id: "/_signed-in",
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const CheckEmailRoute = CheckEmailRouteImport.update({
   id: "/check-email",
   path: "/check-email",
@@ -29,53 +31,76 @@ const EmailVerifiedRoute = EmailVerifiedRouteImport.update({
   path: "/email-verified",
   getParentRoute: () => rootRouteImport,
 } as any)
+const SignInRoute = SignInRouteImport.update({
+  id: "/sign-in",
+  path: "/sign-in",
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SignUpRoute = SignUpRouteImport.update({
   id: "/sign-up",
   path: "/sign-up",
   getParentRoute: () => rootRouteImport,
+} as any)
+const IndexRoute = IndexRouteImport.update({
+  id: "/",
+  path: "/",
+  getParentRoute: () =>
+    DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
   "/": typeof IndexRoute
   "/check-email": typeof CheckEmailRoute
   "/email-verified": typeof EmailVerifiedRoute
+  "/sign-in": typeof SignInRoute
   "/sign-up": typeof SignUpRoute
 }
 export interface FileRoutesByTo {
-  "/": typeof IndexRoute
   "/check-email": typeof CheckEmailRoute
   "/email-verified": typeof EmailVerifiedRoute
+  "/sign-in": typeof SignInRoute
   "/sign-up": typeof SignUpRoute
+  "/": typeof IndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  "/": typeof IndexRoute
+  "/_signed-in": typeof DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRouteWithChildren
   "/check-email": typeof CheckEmailRoute
   "/email-verified": typeof EmailVerifiedRoute
+  "/sign-in": typeof SignInRoute
   "/sign-up": typeof SignUpRoute
+  "/_signed-in/": typeof IndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: "/" | "/check-email" | "/email-verified" | "/sign-up"
+  fullPaths: "/" | "/check-email" | "/email-verified" | "/sign-in" | "/sign-up"
   fileRoutesByTo: FileRoutesByTo
-  to: "/" | "/check-email" | "/email-verified" | "/sign-up"
-  id: "__root__" | "/" | "/check-email" | "/email-verified" | "/sign-up"
+  to: "/check-email" | "/email-verified" | "/sign-in" | "/sign-up" | "/"
+  id:
+    | "__root__"
+    | "/_signed-in"
+    | "/check-email"
+    | "/email-verified"
+    | "/sign-in"
+    | "/sign-up"
+    | "/_signed-in/"
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
+  DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRoute: typeof DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRouteWithChildren
   CheckEmailRoute: typeof CheckEmailRoute
   EmailVerifiedRoute: typeof EmailVerifiedRoute
+  SignInRoute: typeof SignInRoute
   SignUpRoute: typeof SignUpRoute
 }
 
 declare module "@tanstack/react-router" {
   interface FileRoutesByPath {
-    "/": {
-      id: "/"
-      path: "/"
+    "/_signed-in": {
+      id: "/_signed-in"
+      path: ""
       fullPath: "/"
-      preLoaderRoute: typeof IndexRouteImport
+      preLoaderRoute: typeof DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRouteImport
       parentRoute: typeof rootRouteImport
     }
     "/check-email": {
@@ -92,6 +117,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof EmailVerifiedRouteImport
       parentRoute: typeof rootRouteImport
     }
+    "/sign-in": {
+      id: "/sign-in"
+      path: "/sign-in"
+      fullPath: "/sign-in"
+      preLoaderRoute: typeof SignInRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     "/sign-up": {
       id: "/sign-up"
       path: "/sign-up"
@@ -99,13 +131,36 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SignUpRouteImport
       parentRoute: typeof rootRouteImport
     }
+    "/_signed-in/": {
+      id: "/_signed-in/"
+      path: "/"
+      fullPath: "/"
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRoute
+    }
   }
 }
 
+interface DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRouteChildren {
+  IndexRoute: typeof IndexRoute
+}
+
+const DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRouteChildren: DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRouteChildren =
+  {
+    IndexRoute: IndexRoute,
+  }
+
+const DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRouteWithChildren =
+  DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRoute._addFileChildren(
+    DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRouteChildren,
+  )
+
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
+  DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRoute:
+    DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRouteWithChildren,
   CheckEmailRoute: CheckEmailRoute,
   EmailVerifiedRoute: EmailVerifiedRoute,
+  SignInRoute: SignInRoute,
   SignUpRoute: SignUpRoute,
 }
 export const routeTree = rootRouteImport

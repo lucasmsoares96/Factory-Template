@@ -1,5 +1,8 @@
+import type { Auth } from "./auth.ts";
 import type { Database } from "./db.ts";
+import type { Identity } from "./identity.ts";
 import type { PasswordHasherPool } from "./password.ts";
+import type { RateLimiterPool } from "./rate-limit.ts";
 
 /** Bindings every Product Worker provides to the Skeleton. */
 export type SkeletonBindings = {
@@ -9,6 +12,8 @@ export type SkeletonBindings = {
   BETTER_AUTH_SECRET: string;
   /** The `PasswordHasher` Durable Object (exported by the Product's Worker). */
   PASSWORD_HASHER: PasswordHasherPool;
+  /** The `RateLimiter` Durable Object (exported by the Product's Worker): Better Auth's rate-limit counters. */
+  RATE_LIMITER: RateLimiterPool;
   /** `outbox` in previews, `pnpm dev` and tests; unset (Resend) in production. */
   EMAIL_TRANSPORT?: string;
   /** Resend API key restricted to the Product's domain. Only production has it. */
@@ -21,5 +26,9 @@ export type SkeletonEnv = {
     db: Database;
     /** Runs `task` after the response; the request's database client outlives it. */
     defer: (task: Promise<unknown>) => void;
+    /** The request's Better Auth instance, built on first use. */
+    auth: () => Auth;
+    /** Who is calling: set by `requireIdentity` on the routes that need a user. */
+    identity: Identity;
   };
 };
