@@ -1,0 +1,107 @@
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
+import { cloneRepo, commitFile, createRepo, git, lastJson, tempDir, world } from "./helpers.ts";
+
+const develop: AgentStep = async ({ cwd }) => {
+  await commitFile(cwd, "src/greet.ts", 'export const greet = () => "hi";\n', "feat: greet the user #7");
+  await commitFile(cwd, "src/app.ts", (await git(cwd, "show", "HEAD:src/app.ts")).replace("line2 = 2", "line2 = 22") + "\n", "fix: line two #7");
+};
+
+const review: AgentStep = () => {
+  const findings = {
+    summary: "Looks right. Tightened nothing.",
+    inline: [
+      { path: "src/greet.ts", line: 1, body: "Consider a return type." },
+      { path: "src/app.ts", line: 3, body: "Context line inside the hunk." },
+      { path: "src/app.ts", line: 25, body: "Far from any change." },
+      { path: "README.md", line: 1, body: "Not in the diff at all." },
+    ],
+  };
+  return { output: `<review>${JSON.stringify(findings)}</review>` };
+};
+
+/** Runs claim → work → publish through the CLI, each job on its own checkout. */
+async function happyPath(options: { branches?: Record<string, string> } = {}) {
+  const origin = await createRepo();
+  const workCheckout = await cloneRepo(origin);
+  const publishCheckout = await cloneRepo(origin);
+  const artifacts = await tempDir("factory-artifacts-");
+  const w = world({
+    repo: workCheckout,
+    branches: options.branches,
+    agent: { development: [develop], review: [review] },
+    verify: [{ ok: true, evidence: [{ product: "example", name: "home.png" }, { product: "admin", name: "users.png" }, { product: "example", name: "about.png" }] }],
+  });
+
+  expect(await w.factory("claim", "7")).toBe(0);
+  const claimed = lastJson(w.logs) as { startSha: string | null };
+  expect(await w.factory("work", "7", "--repo", workCheckout, "--out", artifacts)).toBe(0);
+  const head = await git(workCheckout, "rev-parse", "HEAD");
+  const exitCode = await w.factory(
+    "publish", "7", "--repo", publishCheckout, "--in", artifacts, "--start-sha", claimed.startSha ?? "",
+  );
+  return { w, exitCode, head, artifacts, publishCheckout };
+}
+
+describe("factory publish", () => {
+  it("turns a ready issue into a ready PR with review and evidence", async () => {
+    const { w, exitCode, head, artifacts } = await happyPath();
+
+    expect(exitCode).toBe(0);
+    expect(w.tracker.labelsOf(7)).toEqual(["in-progress"]);
+    expect(w.codeHost.pushes).toEqual([{ branch: "factory/issue-7", sha: head, expectedSha: null }]);
+    expect(w.codeHost.branches.get("factory/issue-7")).toBe(head);
+
+    expect(w.codeHost.prs).toHaveLength(1);
+    const pr = w.codeHost.prs[0]!;
+    expect(pr).toMatchObject({ title: "Fix #7: Greet the user", branch: "factory/issue-7", base: "main", state: "open", draft: false });
+    expect(pr.body).toMatch(/^Closes #7$/m);
+    expect(pr.body).toContain("Implemented by the Factory");
+
+    expect(pr.reviews).toHaveLength(1);
+    expect(pr.reviews[0]!.event).toBe("COMMENT");
+    expect(pr.reviews[0]!.body).toContain("Looks right. Tightened nothing.");
+    expect(pr.reviews[0]!.comments).toEqual([
+      { path: "src/greet.ts", line: 1, body: "Consider a return type." },
+      { path: "src/app.ts", line: 3, body: "Context line inside the hunk." },
+    ]);
+
+    expect(pr.evidence).toEqual({
+      edits: 0,
+      groups: [
+        { product: "admin", images: [{ name: "users.png", path: join(artifacts, "evidence/admin/users.png") }] },
+        {
+          product: "example",
+          images: [
+            { name: "about.png", path: join(artifacts, "evidence/example/about.png") },
+            { name: "home.png", path: join(artifacts, "evidence/example/home.png") },
+          ],
+        },
+      ],
+    });
+
+    expect(w.codeHost.writes).toEqual(["push factory/issue-7", "openDraftPr #101", "submitReview #101", "postEvidence #101", "markReady #101"]);
+    expect(lastJson(w.logs)).toEqual({ issue: 7, outcome: "ready", pr: 101, url: "https://forge.test/pr/101" });
+  });
+
+  it("pushes with a lease on the branch head the claim saw", async () => {
+    const old = "0123456789abcdef0123456789abcdef01234567";
+    const { w, exitCode, head } = await happyPath({ branches: { "factory/issue-7": old } });
+
+    expect(exitCode).toBe(0);
+    expect(w.codeHost.pushes).toEqual([{ branch: "factory/issue-7", sha: head, expectedSha: old }]);
+  });
+
+  it("refuses a result.json that does not match the schema, writing nothing", async () => {
+    const artifacts = await tempDir("factory-artifacts-");
+    await writeFile(join(artifacts, "result.json"), JSON.stringify({ version: 1, issue: 7, outcome: "merged" }));
+    const repo = await cloneRepo(await createRepo());
+    const w = world({ repo });
+
+    await expect(w.factory("publish", "7", "--repo", repo, "--in", artifacts)).rejects.toThrow(/Invalid .*result\.json/);
+
+    expect(w.codeHost.writes).toEqual([]);
+  });
+});
