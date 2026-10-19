@@ -1,0 +1,9 @@
+packages:
+  - .factory
+
+# Versions checked against the npm registry on 2026-10-19.
+catalog:
+  "@types/node": 26.6.5
+  typescript: 7.0.2
+  vitest: 5.0.5
+  zod: 4.6.7
