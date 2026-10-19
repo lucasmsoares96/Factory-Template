@@ -68,6 +68,8 @@ catalog:
   drizzle-kit: 1.0.0-rc.4
   drizzle-orm: 1.0.0-rc.4
   pg: 8.23.1
+  # Factory: coding-agent runner (pre-1.0, pinned exactly)
+  "@ai-hero/sandcastle": 0.12.0
 
 catalogMode: strict
 
