@@ -12,8 +12,12 @@ export interface Adapters {
   verify: Verify;
 }
 
-/** Everything a command needs: the four seams, the configuration and a log sink. */
+/** Everything a command needs: the four seams, the configuration, a clock and the outputs. */
 export interface CommandContext extends Adapters {
   config: FactoryConfig;
   log: (line: string) => void;
+  /** Milliseconds; the global time limit and Stage durations are measured with it. */
+  now: () => number;
+  /** Appends Markdown to the job summary (`$GITHUB_STEP_SUMMARY`), when there is one. */
+  stepSummary: (markdown: string) => Promise<void>;
 }

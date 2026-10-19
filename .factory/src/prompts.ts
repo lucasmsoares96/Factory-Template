@@ -1,3 +1,4 @@
+import type { ReviewOutput } from "./result.ts";
 import type { Issue } from "./seams/tracker.ts";
 
 /**
@@ -32,6 +33,7 @@ export function developmentPrompt(ctx: StageContext): string {
   return [
     `Implement issue #${ctx.issue.number} on the current branch. Use the implement and tdd skills, testing only at the agreed seams.`,
     "Commit with Conventional Commits that reference the issue. Do not push, open PRs, comment or change labels.",
+    "If you cannot go on without a human decision, stop and end your final message with <needs-human>your question</needs-human>.",
     "",
     issueBlock(ctx.issue),
     "",
@@ -41,10 +43,21 @@ export function developmentPrompt(ctx: StageContext): string {
   ].join("\n");
 }
 
-export function reviewPrompt(ctx: Omit<StageContext, "feedback"> & { since: string | null }): string {
+export interface ReviewContext extends Omit<StageContext, "feedback"> {
+  /** Last commit an earlier Review saw; null on the first Review. */
+  since: string | null;
+  /** What the earlier Reviews of this run reported. */
+  findings: ReviewOutput[];
+}
+
+export function reviewPrompt(ctx: ReviewContext): string {
+  const findings = ctx.findings.flatMap((f) => [f.summary, ...f.inline.map((c) => `- ${c.path}:${c.line} ${c.body}`)]);
   return [
     `Review the work on issue #${ctx.issue.number} with the code-review skill and fix what you find, committing the fixes.`,
-    ctx.since ? `Review only what changed since ${ctx.since}, and check the previous findings.` : "Review the whole branch.",
+    ctx.since
+      ? `Review only what changed since ${ctx.since} (\`git diff ${ctx.since}..HEAD\`), and check that the previous findings are dealt with.`
+      : "Review the whole branch.",
+    ...(findings.length > 0 ? ["", "Previous findings:", ...findings] : []),
     'End with <review>{"summary": "...", "inline": [{"path": "...", "line": 1, "body": "..."}]}</review>.',
     "",
     issueBlock(ctx.issue),

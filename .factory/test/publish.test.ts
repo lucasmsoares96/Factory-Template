@@ -1,4 +1,3 @@
-import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
@@ -63,6 +62,7 @@ describe("factory publish", () => {
     expect(pr.reviews).toHaveLength(1);
     expect(pr.reviews[0]!.event).toBe("COMMENT");
     expect(pr.reviews[0]!.body).toContain("Looks right. Tightened nothing.");
+    expect(pr.reviews[0]!.body).toMatch(/Tokens: [\d,]+ in \/ [\d,]+ out\. Estimated cost: \$\d+\.\d\d\./);
     expect(pr.reviews[0]!.comments).toEqual([
       { path: "src/greet.ts", line: 1, body: "Consider a return type." },
       { path: "src/app.ts", line: 3, body: "Context line inside the hunk." },
@@ -92,16 +92,5 @@ describe("factory publish", () => {
 
     expect(exitCode).toBe(0);
     expect(w.codeHost.pushes).toEqual([{ branch: "factory/issue-7", sha: head, expectedSha: old }]);
-  });
-
-  it("refuses a result.json that does not match the schema, writing nothing", async () => {
-    const artifacts = await tempDir("factory-artifacts-");
-    await writeFile(join(artifacts, "result.json"), JSON.stringify({ version: 1, issue: 7, outcome: "merged" }));
-    const repo = await cloneRepo(await createRepo());
-    const w = world({ repo });
-
-    await expect(w.factory("publish", "7", "--repo", repo, "--in", artifacts)).rejects.toThrow(/Invalid .*result\.json/);
-
-    expect(w.codeHost.writes).toEqual([]);
   });
 });

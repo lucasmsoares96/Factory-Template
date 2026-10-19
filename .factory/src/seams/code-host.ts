@@ -54,7 +54,10 @@ export interface CodeHost {
   openPrFor(branch: string): Promise<PullRequest | null>;
   openDraftPr(input: { branch: string; base: string; title: string; body: string }): Promise<PullRequest>;
   markReady(pr: number): Promise<void>;
+  /** Closes the pull request, leaving `comment` on it first when given. */
   closePr(pr: number, comment?: string): Promise<void>;
+  /** Adds `label` to the pull request. */
+  labelPr(pr: number, label: string): Promise<void>;
   submitReview(pr: number, review: Review): Promise<void>;
   threads(pr: number): Promise<ReviewThread[]>;
   replyToThread(pr: number, threadId: string, body: string): Promise<void>;

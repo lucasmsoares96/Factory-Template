@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach } from "vitest";
 import { FakeAgent, type AgentStep } from "../src/adapters/fake/fake-agent.ts";
-import { FakeCodeHost } from "../src/adapters/fake/fake-code-host.ts";
+import { FakeCodeHost, type FakePullRequestSeed } from "../src/adapters/fake/fake-code-host.ts";
 import { FakeTracker, type FakeIssueInput } from "../src/adapters/fake/fake-tracker.ts";
 import { FakeVerify, type VerifyStep } from "../src/adapters/fake/fake-verify.ts";
 import { runFactory } from "../src/cli.ts";
@@ -100,6 +100,9 @@ export interface WorldOptions {
   issues?: FakeIssueInput[];
   writers?: string[];
   branches?: Record<string, string>;
+  prs?: FakePullRequestSeed[];
+  /** Clock of the run, in ms; defaults to the real one. */
+  now?: () => number;
   /** Working copy the fake Agent and Verify act on. */
   repo?: string;
   agent?: Partial<Record<"development" | "review", AgentStep[]>>;
@@ -108,8 +111,12 @@ export interface WorldOptions {
 }
 
 export function world(options: WorldOptions = {}): World {
-  const tracker = new FakeTracker({ issues: options.issues ?? readyIssue(), writers: options.writers ?? [HUMAN] });
-  const codeHost = new FakeCodeHost({ branches: options.branches ?? {} });
+  const tracker = new FakeTracker({
+    issues: options.issues ?? readyIssue(),
+    writers: options.writers ?? [HUMAN],
+    self: MACHINE_USER,
+  });
+  const codeHost = new FakeCodeHost({ branches: options.branches ?? {}, prs: options.prs ?? [] });
   const repo = options.repo ?? "/nonexistent";
   const agent = new FakeAgent(repo, options.agent ?? {});
   const verify = new FakeVerify(repo, "test-results/evidence", options.verify ?? []);
@@ -123,7 +130,12 @@ export function world(options: WorldOptions = {}): World {
     env,
     logs,
     factory: (...argv) =>
-      runFactory(argv, { env, log: (line) => logs.push(line), adapters: () => ({ tracker, codeHost, agent, verify }) }),
+      runFactory(argv, {
+        env,
+        log: (line) => logs.push(line),
+        adapters: () => ({ tracker, codeHost, agent, verify }),
+        ...(options.now ? { now: options.now } : {}),
+      }),
   };
 }
 
@@ -134,4 +146,10 @@ export function lastJson(logs: string[]): unknown {
     if (line.startsWith("{")) return JSON.parse(line);
   }
   throw new Error(`no JSON output in:\n${logs.join("\n")}`);
+}
+
+/** A manual clock for the global time limit: steps call `advance(minutes)`. */
+export function manualClock() {
+  let ms = 0;
+  return { now: () => ms, advance: (minutes: number) => void (ms += minutes * 60_000) };
 }
