@@ -7,7 +7,7 @@ import { Button, buttonVariants } from "#ui/button";
 import { Input } from "#ui/input";
 import { Label } from "#ui/label";
 import { getMeQueryKey } from "../../../gen/hooks/useGetMe.ts";
-import { authClient, orThrow, safeRedirect } from "../../../client/auth.ts";
+import { authClient, isWorkerPath, orThrow, safeRedirect } from "../../../client/auth.ts";
 import { AuthCard } from "../../../client/components/auth-card.tsx";
 import { errorCode, useErrorMessage, useMessages } from "../../../client/i18n.tsx";
 
@@ -48,7 +48,8 @@ function SignIn() {
       }
       // The visitor's earlier 401 must not stand for the new session.
       queryClient.removeQueries({ queryKey: getMeQueryKey() });
-      await navigate({ href: safeRedirect(search.redirect) });
+      const target = safeRedirect(search.redirect);
+      await navigate({ href: target, reloadDocument: isWorkerPath(target) });
     },
   });
 

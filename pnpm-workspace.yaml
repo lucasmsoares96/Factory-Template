@@ -45,6 +45,12 @@ catalog:
   zod: 4.6.7
   # Auth and email
   better-auth: 1.7.11
+  # MCP: OAuth authorization server + stateless MCP handler (SDK v2)
+  "@cloudflare/workers-oauth-provider": 1.2.3
+  "@modelcontextprotocol/client": 2.3.1
+  "@modelcontextprotocol/sdk": 1.32.1
+  "@modelcontextprotocol/server": 2.3.1
+  agents: 0.28.1
   react-email: 6.11.3
   resend: 6.34.1
   # Contract → client (Kubb 5: adapter-oas replaces v4's plugin-oas)
@@ -119,3 +125,5 @@ minimumReleaseAgeExclude:
 allowBuilds:
   esbuild: true
   workerd: true
+  # Pulled in by agents (mimetext → @babel/runtime-corejs3); its postinstall only prints a banner.
+  core-js-pure: false

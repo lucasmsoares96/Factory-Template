@@ -74,6 +74,22 @@ export const en = {
       requestNew: "Ask for a new link",
     },
   },
+  connect: {
+    title: "Connect {client} to {appName}",
+    verifiedClient: "{client} is published by {domain}.",
+    unverifiedClient: "{client} registered itself: its name is not verified.",
+    redirect: "Access will be sent to {host}.",
+    loopback: "This sends access to an app on your computer. Continue only if you just started connecting it.",
+    signedInAs: "Signed in as {name} ({email}).",
+    access: "What may it do?",
+    read: "Read only: see your data",
+    write: "Read and write: see and change your data",
+    allow: "Allow",
+    deny: "Deny",
+    failedTitle: "This connection request does not work",
+    startAgain: "Start connecting the app again.",
+    signInAgain: "Your session ended. Sign in and connect the app again.",
+  },
   emails: {
     verifyEmail: {
       subject: "Verify your email",

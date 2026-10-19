@@ -27,3 +27,11 @@ export const SIGN_IN_PATH = "/sign-in";
 export function safeRedirect(path: string | undefined): string {
   return path && path.startsWith("/") && !path.startsWith("//") && !path.startsWith("/\\") ? path : "/";
 }
+
+/**
+ * Whether the Worker answers `path` before the SPA (`run_worker_first`): the
+ * MCP consent page (`/oauth/authorize`) is one, so going back to it needs a page load.
+ */
+export function isWorkerPath(path: string): boolean {
+  return ["/api/", "/oauth/", "/.well-known/"].some((prefix) => path.startsWith(prefix)) || path === "/mcp";
+}
