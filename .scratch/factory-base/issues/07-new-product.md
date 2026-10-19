@@ -6,16 +6,16 @@ Spec: [../spec.md](../spec.md)
 
 **Blocked by:** 06
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Molde dentro do pacote do Skeleton; `pnpm new-product <id>` cria `apps/<id>/`, registra o Product no workspace e mostra o comando do bootstrap.
-- [ ] Identidade em `product.config.ts` (`id`, `title`, `emailFrom`, domínio); tema por tokens do shadcn e textos do i18n por cima.
-- [ ] Interface `Feature` (`id`, `api`, `mcp?`, `nav?`, `companyPage?`, `seed?`, `events?`) exportada pelo Skeleton; features e roles a mais (`INSERT` em `member_roles`) do Product entram por ela.
-- [ ] Cada Product tem o seu snapshot do `tools/list` e as suas migrations, aplicadas depois das do Skeleton.
-- [ ] Specs de E2E do Skeleton ficam no pacote e rodam no `e2e` de cada Product.
-- [ ] `pnpm dev` sobe o Product quando há um só e pede `pnpm dev <id>` quando há vários.
-- [ ] O molde gera o `AGENTS.md` do Product (conteúdo final no ticket 11).
-- [ ] Teste: `new-product` numa cópia temporária + `verify` passa, e a cópia é apagada no fim.
+- [x] Molde dentro do pacote do Skeleton; `pnpm new-product <id>` cria `apps/<id>/`, registra o Product no workspace e mostra o comando do bootstrap.
+- [x] Identidade em `product.config.ts` (`id`, `title`, `emailFrom`, domínio); tema por tokens do shadcn e textos do i18n por cima.
+- [x] Interface `Feature` (`id`, `api`, `mcp?`, `nav?`, `companyPage?`, `seed?`, `events?`) exportada pelo Skeleton; features e roles a mais (`INSERT` em `member_roles`) do Product entram por ela.
+- [x] Cada Product tem o seu snapshot do `tools/list` e as suas migrations, aplicadas depois das do Skeleton.
+- [x] Specs de E2E do Skeleton ficam no pacote e rodam no `e2e` de cada Product.
+- [x] `pnpm dev` sobe o Product quando há um só e pede `pnpm dev <id>` quando há vários.
+- [x] O molde gera o `AGENTS.md` do Product (conteúdo final no ticket 11).
+- [x] Teste: `new-product` numa cópia temporária + `verify` passa, e a cópia é apagada no fim.
 
 ## Comments
 
@@ -30,6 +30,8 @@ O que ficou:
 - Schemas por glob e migrations por Product já vinham do ticket 01 (`defineProductDrizzleConfig`, `drizzle/` do Product depois das do Skeleton); o snapshot `src/mcp-tools.gen.json` é por Product (o molde traz `[]`, o `generate` escreve o real). Os specs de E2E ficam em `packages/skeleton/e2e/` e o `playwright.config.ts` de cada Product os roda.
 - `pnpm dev [id]` (`scripts/dev.ts`): um Product só sobe sozinho; vários pedem `pnpm dev <id>`; sem Product, aponta `pnpm new-product`.
 - `pnpm factory:ci-probe` (`scripts/ci-probe.ts`): copia o repo (arquivos do Git, sem `.scratch`/`.agents`/`.claude`) para um tmp com `git init -b main`, roda `pnpm new-product ci-probe` e `node scripts/verify.ts --filter ci-probe` (generate, typecheck, lint, test, e2e só do Product), e apaga a cópia e os projetos `docker compose` que nasceram dela no `finally` e em SIGINT/SIGTERM. `scripts/verify.ts` ganhou `--filter <pacote>`.
+
+O `ci-probe` achou um bug real do molde na primeira execução: o plugin do Vite da Cloudflare nomeia a pasta de saída de um jeito próprio (`ci-probe` vira `ci_probe`), e o E2E assumia `dist/<id>/`. Agora `builtWorkerConfig()` (`@workspace/skeleton/node`) lê o redirect `.wrangler/deploy/config.json` que o plugin escreve (teste `test/built-worker.test.ts`). `pnpm factory:ci-probe` passou ponta a ponta (cópia + `new-product` + verify do Product), sem sobras de container nem de pasta temporária.
 
 Decisões:
 - O `ci-probe` NÃO roda dentro do `factory:verify`: precisa de um `pnpm install` completo e de um build de produção, o que dobraria o `verify`. O ticket 12 chama `pnpm factory:ci-probe` como o job `ci-probe`. O que o `verify` já cobre do molde: o teste que compara `example` com a saída do molde (um molde que quebra o `example` falha no `verify`).
