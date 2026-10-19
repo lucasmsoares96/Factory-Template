@@ -16,12 +16,15 @@ type SignInSearch = {
   redirect?: string;
   /** Set by the sign-out button. */
   signedOut?: true;
+  /** Set by the new-password screen once the password changed. */
+  passwordReset?: true;
 };
 
 export const Route = createFileRoute("/sign-in")({
   validateSearch: (search: Record<string, unknown>): SignInSearch => ({
     redirect: typeof search.redirect === "string" ? search.redirect : undefined,
     signedOut: search.signedOut === true ? true : undefined,
+    passwordReset: search.passwordReset === true ? true : undefined,
   }),
   component: SignIn,
 });
@@ -51,9 +54,9 @@ function SignIn() {
 
   return (
     <AuthCard title={t.title} description={t.description}>
-      {search.signedOut && !error ? (
+      {(search.signedOut || search.passwordReset) && !error ? (
         <p role="status" className="text-sm">
-          {t.signedOut}
+          {search.passwordReset ? t.passwordReset : t.signedOut}
         </p>
       ) : null}
       <form
@@ -100,6 +103,17 @@ function SignIn() {
             <AlertDescription>{errorMessage(error)}</AlertDescription>
           </Alert>
         ) : null}
+        <form.Subscribe selector={(state) => state.values.email}>
+          {(email) => (
+            <Link
+              to="/forgot-password"
+              search={{ email: email || undefined }}
+              className={buttonVariants({ variant: "link", size: "sm", className: "self-end" })}
+            >
+              {t.forgotPassword}
+            </Link>
+          )}
+        </form.Subscribe>
         {errorCode(error) === "EMAIL_NOT_VERIFIED" ? (
           <Link
             to="/check-email"

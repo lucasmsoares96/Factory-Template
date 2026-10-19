@@ -25,6 +25,8 @@ export const en = {
       noAccount: "No account yet?",
       signUp: "Create an account",
       signedOut: "You signed out.",
+      forgotPassword: "Forgot your password?",
+      passwordReset: "Your password was changed. Sign in with the new one.",
     },
     signOut: "Sign out",
     signUp: {
@@ -52,6 +54,25 @@ export const en = {
       failedTitle: "We could not verify your email",
       signIn: "Sign in",
     },
+    forgotPassword: {
+      title: "Reset your password",
+      description: "Enter the email you signed up with and we will send you a link to choose a new password.",
+      email: "Email",
+      submit: "Send me the link",
+      submitting: "Sending…",
+      sent: "If {email} has an account, a link to reset the password is on its way. It may take a minute to arrive.",
+      backToSignIn: "Back to sign in",
+    },
+    resetPassword: {
+      title: "Choose a new password",
+      description: "Every open session ends, and you sign in again with the new password.",
+      password: "New password",
+      passwordHint: "At least 8 characters.",
+      submit: "Save the new password",
+      submitting: "Saving…",
+      failedTitle: "This link does not work",
+      requestNew: "Ask for a new link",
+    },
   },
   emails: {
     verifyEmail: {
@@ -63,6 +84,16 @@ export const en = {
       button: "Verify email",
       fallback: "If the button does not work, open this link:",
       ignore: "If you did not create an account, you can ignore this email.",
+    },
+    resetPassword: {
+      subject: "Reset your password",
+      preview: "Choose a new password for {appName}.",
+      heading: "Reset your password",
+      greeting: "Hi {name},",
+      body: "Someone asked to reset the password of the {appName} account for {email}. Open the link to choose a new one. It works once, within an hour.",
+      button: "Choose a new password",
+      fallback: "If the button does not work, open this link:",
+      ignore: "If you did not ask for this, you can ignore this email: your password stays the same.",
     },
   },
   errors: {
