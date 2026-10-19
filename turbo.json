@@ -1,0 +1,39 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "ui": "stream",
+  "globalDependencies": [
+    ".node-version",
+    ".oxlintrc.json",
+    "docker-compose.yml",
+    "package.json",
+    "pnpm-workspace.yaml",
+    "tsconfig.base.json"
+  ],
+  "globalPassThroughEnv": ["CI", "DATABASE_URL", "DOCKER_*", "GITHUB_BASE_REF", "POSTGRES_IMAGE", "POSTGRES_PORT"],
+  "tasks": {
+    "generate": {
+      "dependsOn": ["^generate"],
+      "outputs": ["worker-configuration.d.ts"]
+    },
+    "typecheck": {
+      "dependsOn": ["generate", "^generate"]
+    },
+    "lint": {
+      "dependsOn": ["generate", "^generate"]
+    },
+    "test": {
+      "dependsOn": ["generate", "^generate"]
+    },
+    "build": {
+      "dependsOn": ["generate", "^generate"],
+      "outputs": ["dist/**"]
+    },
+    "e2e": {
+      "dependsOn": ["generate", "^generate", "build"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    }
+  }
+}
