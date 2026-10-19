@@ -26,7 +26,7 @@ async function imageRepo(): Promise<string> {
   await mkdir(join(repo, ".factory"), { recursive: true });
   await cp(IMAGE_DIR, join(repo, ".factory/image"), { recursive: true });
   await git(repo, "init", "--quiet");
-  await git(repo, "remote", "add", "origin", "git@github.com:Lucas/Factory-Template.git");
+  await git(repo, "remote", "add", "origin", "git@github.com:acme/widgets.git");
   return repo;
 }
 
@@ -38,7 +38,7 @@ describe("Factory image", () => {
 
     expect(inputs.args).toEqual({ NODE_VERSION: "24.22.0", PNPM_VERSION: "12.14.0", PLAYWRIGHT_VERSION: "1.64.1", CLAUDE_CODE_VERSION: "2.1.303" });
     const ref = await imageRef(repo, config, inputs);
-    expect(ref).toMatch(/^ghcr\.io\/lucas\/factory-template\/factory:[0-9a-f]{16}$/);
+    expect(ref).toMatch(/^ghcr\.io\/acme\/widgets\/factory:[0-9a-f]{16}$/);
     expect(await imageRef(repo, config, await imageInputs(repo, config))).toBe(ref);
 
     const bumped = loadConfig({ FACTORY_CLAUDE_CODE_VERSION: "2.1.304" });
