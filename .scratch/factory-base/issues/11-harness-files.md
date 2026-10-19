@@ -9,7 +9,7 @@ Spec: [../spec.md](../spec.md)
 **Status:** done
 
 - [x] `AGENTS.md` (inglês, < 200 linhas) na raiz, no Skeleton, no molde do Product e em `.factory/`, com o conteúdo da spec; nenhum `CLAUDE.md`; sem nome de repo fixo.
-- [x] Skills em `.agents/skills` com `.claude/skills/<x>` por symlink: as 18 do Matt da lista decidida, `playwright-cli` e `workers-best-practices` fixadas no `skills-lock.json`; as outras saem.
+- [x] Skills em `.agents/skills` com `.claude/skills/<x>` por symlink: as 19 do Matt da lista decidida (a spec e este ticket diziam 18 por erro de contagem; a lista nominal do ticket 25 do wayfinder, `issues/25-harness-files.md`, nomeia 19), `playwright-cli` e `workers-best-practices` fixadas no `skills-lock.json`; as outras saem.
 - [x] Skills próprias `skeleton-add-endpoint`, `skeleton-add-migration`, `skeleton-add-feature` e `skeleton-evidence-test` (com a regra de localizar por role + chave do i18n), fora do lock.
 - [x] `.mcp.json` com `cloudflare-docs` e `shadcn`; `cloudflare-api` e `neon` read-only documentados como `claude mcp add --scope local`.
 - [x] `.claude/settings.json` com `deny` de `Edit`/`Write` nos caminhos protegidos e de `Bash(pnpm bootstrap destroy:*)`, e hook `PreToolUse` do `git-guardrails`; sem `allow`, `env` ou subagents.

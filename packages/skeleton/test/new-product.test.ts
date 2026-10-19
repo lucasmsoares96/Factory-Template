@@ -90,6 +90,11 @@ test("`pnpm dev` starts the only Product, and asks for `pnpm dev <id>` when ther
   expect(() => resolveDevProduct(listProducts(workspace))).toThrow("Run `pnpm dev <id>` with one of: blog, shop.");
   expect(resolveDevProduct(listProducts(workspace), "blog")).toBe("blog");
   expect(() => resolveDevProduct(listProducts(workspace), "nope")).toThrow('No Product "nope"');
+  // The id ends up in a `--filter ./apps/<id>` path: it must be a valid Product id even if a folder matches.
+  mkdirSync(join(workspace, "apps/Bad_Id"));
+  writeFileSync(join(workspace, "apps/Bad_Id/package.json"), "{}");
+  expect(() => resolveDevProduct(listProducts(workspace), "Bad_Id")).toThrow('Invalid Product id "Bad_Id"');
+  expect(() => resolveDevProduct(listProducts(workspace), "../x")).toThrow('Invalid Product id "../x"');
 });
 
 test("the template's Product has no feature, no migration of its own and an empty tool list", () => {

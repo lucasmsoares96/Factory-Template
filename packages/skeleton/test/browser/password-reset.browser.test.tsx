@@ -57,7 +57,7 @@ test("a refused new password shows the reason translated by its code", async ({ 
   await screen.getByRole("button", { name: t.auth.resetPassword.submit }).click();
 
   await expect.element(screen.getByRole("alert")).toHaveTextContent(t.errors.PASSWORD_TOO_SHORT);
-  await expect.element(screen.getByText("Password too short")).not.toBeInTheDocument();
+  await expect.element(screen.getByRole("alert")).not.toHaveTextContent("Password too short");
 });
 
 test("a link already used offers to ask for a new one", async ({ worker }) => {

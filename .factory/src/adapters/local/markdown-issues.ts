@@ -42,6 +42,9 @@ export interface ParsedIssue {
   humanText: string;
 }
 
+/** `NN-slug.md`: the name of an issue file; group 1 is the number. */
+export const ISSUE_FILE = /^(\d+)-.*\.md$/;
+
 export class MarkdownIssues {
   readonly dir: string;
 
@@ -52,7 +55,7 @@ export class MarkdownIssues {
   async files(): Promise<IssueFile[]> {
     const names = await readdir(this.dir).catch(() => []);
     return names
-      .map((name) => /^(\d+)-.*\.md$/.exec(name))
+      .map((name) => ISSUE_FILE.exec(name))
       .filter((m): m is RegExpExecArray => m !== null)
       .map((m) => ({ number: Number(m[1]), id: m[1]!, path: join(this.dir, m[0]) }))
       .sort((a, b) => a.number - b.number);

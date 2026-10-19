@@ -10,7 +10,7 @@ Spec: [../spec.md](../spec.md)
 
 - [x] Molde dentro do pacote do Skeleton; `pnpm new-product <id>` cria `apps/<id>/`, registra o Product no workspace e mostra o comando do bootstrap.
 - [x] Identidade em `product.config.ts` (`id`, `title`, `emailFrom`, domínio); tema por tokens do shadcn e textos do i18n por cima.
-- [x] Interface `Feature` (`id`, `api`, `mcp?`, `nav?`, `companyPage?`, `seed?`, `events?`) exportada pelo Skeleton; features e roles a mais (`INSERT` em `member_roles`) do Product entram por ela.
+- [x] Interface `Feature` (`id`, `api`, `mcp?`, `nav?`, `companyPage?`, `seed?`, `events?`) exportada pelo Skeleton; features e roles a mais (`INSERT` em `member_roles`) do Product entram por ela. A interface (os tipos e a montagem em `createApp`) está completa. **Adiado, fora deste critério:** `messages.ts` e códigos de erro por feature, e a ligação do `seed` ao E2E e ao branch `base` do Neon (ver Comments e ticket 15).
 - [x] Cada Product tem o seu snapshot do `tools/list` e as suas migrations, aplicadas depois das do Skeleton.
 - [x] Specs de E2E do Skeleton ficam no pacote e rodam no `e2e` de cada Product.
 - [x] `pnpm dev` sobe o Product quando há um só e pede `pnpm dev <id>` quando há vários.
