@@ -29,6 +29,20 @@ export const defaultConfig = {
     inputPerMTok: 4,
     outputPerMTok: 20,
   },
+  /**
+   * Claude Code CLI in the Factory image (`latest` on npm, checked on
+   * 2026-10-19). Part of the image tag: bumping it builds a new image.
+   */
+  claudeCode: {
+    version: "2.1.303",
+  },
+  /**
+   * Factory image repository; the tag is the hash of the versions. Empty:
+   * `ghcr.io/<owner>/<repo>/factory` from the `origin` remote.
+   */
+  image: {
+    name: "",
+  },
   /** Attempts of Development → Review → E2E before Escalation. */
   maxAttempts: 5,
   /** Open previews per Product before "preview skipped: limit reached". */
@@ -62,6 +76,8 @@ const configSchema = z.object({
   models: z.object({ development: nonEmpty, review: nonEmpty, triage: nonEmpty }),
   timeouts: z.object({ development: positiveInt, review: positiveInt, e2e: positiveInt, total: positiveInt }),
   pricing: z.object({ inputPerMTok: z.coerce.number().nonnegative(), outputPerMTok: z.coerce.number().nonnegative() }),
+  claudeCode: z.object({ version: z.string().regex(/^\d+\.\d+\.\d+$/) }),
+  image: z.object({ name: z.string() }),
   maxAttempts: positiveInt,
   previewLimit: positiveInt,
   machineUser: z.string(),
@@ -87,6 +103,15 @@ export type FactoryConfig = z.infer<typeof configSchema>;
 /** `labels.inProgress` → `FACTORY_LABELS_IN_PROGRESS`. */
 export function variableName(path: string[]): string {
   return ["FACTORY", ...path.map((p) => p.replace(/([a-z0-9])([A-Z])/g, "$1_$2"))].join("_").toUpperCase();
+}
+
+/** Every repo variable that overrides a setting (`FACTORY_MAX_ATTEMPTS`, …). */
+export function configVariables(): string[] {
+  const walk = (node: Record<string, unknown>, path: string[]): string[] =>
+    Object.entries(node).flatMap(([key, value]) =>
+      value !== null && typeof value === "object" ? walk(value as Record<string, unknown>, [...path, key]) : [variableName([...path, key])],
+    );
+  return walk(defaultConfig, []);
 }
 
 /** Defaults with every `FACTORY_*` override from `env` applied and validated. */
