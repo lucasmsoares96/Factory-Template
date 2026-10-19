@@ -303,3 +303,30 @@ test("a password reset revokes every Connection of the user: access and refresh 
     expect((await refresh(clientId, refreshToken)).status).toBe(400);
   }
 });
+
+test("a token issued for one Product's /mcp is rejected by another Product's /mcp (US73)", async () => {
+  const otherDb = await createEmptyDatabase();
+  await migrateDatabase({ databaseUrl: otherDb.url });
+  const other = await startTestWorker({ databaseUrl: otherDb.url });
+  try {
+    const { cookie } = await signedInUser();
+    const { tokens, client } = await connectAgent(cookie);
+    await client.close();
+    const call = (origin: string) =>
+      fetch(new URL("/mcp", origin), {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${tokens.access_token}`,
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      });
+
+    expect((await call(worker.origin)).status).toBe(200);
+    expect((await call(other.origin)).status).toBe(401);
+  } finally {
+    await other.close();
+    await otherDb.drop();
+  }
+});
