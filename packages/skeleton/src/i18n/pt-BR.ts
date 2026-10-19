@@ -69,6 +69,22 @@ export const ptBR: Messages = {
       requestNew: "Pedir um link novo",
     },
   },
+  connect: {
+    title: "Conectar {client} ao {appName}",
+    verifiedClient: "{client} é publicado por {domain}.",
+    unverifiedClient: "{client} se registrou sozinho: o nome não é verificado.",
+    redirect: "O acesso vai para {host}.",
+    loopback: "Isto entrega o acesso a um app no seu computador. Continue só se você acabou de começar a conectá-lo.",
+    signedInAs: "Você entrou como {name} ({email}).",
+    access: "O que ele pode fazer?",
+    read: "Só ler: ver os seus dados",
+    write: "Ler e escrever: ver e alterar os seus dados",
+    allow: "Permitir",
+    deny: "Recusar",
+    failedTitle: "Este pedido de conexão não funciona",
+    startAgain: "Comece a conectar o app de novo.",
+    signInAgain: "A sua sessão terminou. Entre e conecte o app de novo.",
+  },
   emails: {
     verifyEmail: {
       subject: "Confirme o seu email",

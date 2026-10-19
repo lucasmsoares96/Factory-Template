@@ -44,3 +44,15 @@ test("never falls back to the SPA under /api/, even for a browser navigation", a
   expect(response.status).toBe(404);
   expect(await response.text()).not.toContain(`<div id="root">`);
 });
+
+test("answers /mcp from the Worker: 401 with the challenge that leads an MCP client to sign-in", async () => {
+  const response = await server.fetch("/mcp", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+
+  expect(response.status).toBe(401);
+  const challenge = response.headers.get("www-authenticate") ?? "";
+  expect(challenge).toMatch(/^Bearer .*resource_metadata="[^"]+\/\.well-known\/oauth-protected-resource\/mcp"/);
+  const metadata = await server.fetch(new URL(/resource_metadata="([^"]+)"/.exec(challenge)![1]!).pathname);
+  expect(await metadata.json()).toMatchObject({ resource: expect.stringMatching(/\/mcp$/) });
+  const authorize = await navigate("/oauth/authorize");
+  expect(await authorize.text()).not.toContain(`<div id="root">`);
+});
