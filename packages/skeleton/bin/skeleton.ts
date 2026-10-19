@@ -7,6 +7,9 @@ import { parseArgs } from "node:util";
 const usage = `Usage: skeleton <command> [options]
 
 Commands:
+  generate [--product <dir>]     Write the OpenAPI document, the Kubb client and MSW handlers
+                                 (src/gen/) and TanStack Router's routeTree.gen.ts. Without
+                                 --product, for the Skeleton's own SPA (its tests use it).
   dev [--product <dir>]          Start the Product's Worker and SPA (vite dev) on a migrated
                                  database: DATABASE_URL, or the docker compose Postgres.
   db migrate [--product <dir>]   Apply the Skeleton's migrations, then the Product's.
@@ -32,6 +35,9 @@ const productMigrations = productDir && resolve(productDir, "drizzle");
 
 try {
   switch (positionals.join(" ")) {
+    case "generate":
+      await generateCommand();
+      break;
     case "dev":
       await dev(productDir ?? process.cwd());
       break;
@@ -66,6 +72,22 @@ try {
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
+}
+
+async function generateCommand() {
+  const { generate } = await import("../src/node/generate.ts");
+  if (productDir) {
+    const { readFile } = await import("node:fs/promises");
+    const { pathToFileURL } = await import("node:url");
+    const { name } = JSON.parse(await readFile(resolve(productDir, "package.json"), "utf8"));
+    const { default: app } = await import(pathToFileURL(resolve(productDir, "src/worker.ts")).href);
+    const { PRODUCT_ROUTE_TREE } = await import("../src/vite/router.ts");
+    await generate({ dir: productDir, app, title: name, routeTree: PRODUCT_ROUTE_TREE });
+  } else {
+    const { createApp } = await import("../src/platform/app.ts");
+    const dir = resolve(import.meta.dirname, "..");
+    await generate({ dir, app: createApp({ title: "skeleton" }), title: "skeleton", routeTree: "test/spa/routeTree.gen.ts" });
+  }
 }
 
 async function dev(dir: string) {

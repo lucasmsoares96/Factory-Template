@@ -1,7 +1,13 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "categories": { "correctness": "error" },
-  "ignorePatterns": ["**/dist/**", "**/.wrangler/**", "**/worker-configuration.d.ts"],
+  "ignorePatterns": [
+    "**/dist/**",
+    "**/.wrangler/**",
+    "**/worker-configuration.d.ts",
+    "**/src/gen/**",
+    "**/routeTree.gen.ts"
+  ],
   "overrides": [
     {
       "files": ["apps/**"],
