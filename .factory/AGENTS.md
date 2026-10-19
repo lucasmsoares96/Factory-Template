@@ -6,6 +6,7 @@ The code that turns a ready issue into a reviewed pull request with evidence. A 
 
 - `src/cli.ts`: `pnpm factory <claim|work|publish|local>`. `src/commands/`: one file per command.
 - `src/adapters/`: the four seams, each with a real and a fake adapter: `Tracker`, `CodeHost`, `Agent`, `Verify` (interfaces in `src/seams/`). `local/` is the Markdown tracker and local code host, `sandcastle/` the real Agent.
+- `src/bootstrap/`: `pnpm bootstrap [doctor] [--redo <step>]`. Wizard steps in `common.ts` over client interfaces (`clients.ts`: GitHub, Cloudflare, Neon, Resend), real adapters and `fake/`. `github.ts` is the only module that calls `gh`. No local state, no secret on disk; `doctor` only reads.
 - `src/config.ts`: every setting and the label vocabulary. Any leaf is overridden by a `FACTORY_*` repo variable.
 - `src/guard.ts`: the deterministic guard before the lock. `src/paths.ts`: protected and harness paths. `src/result.ts`: the Zod schema of `result.json`.
 - `src/report.ts`: PR, review, evidence and Escalation text. `src/prompts.ts` renders `prompts/*.md`.
@@ -26,5 +27,6 @@ The code that turns a ready issue into a reviewed pull request with evidence. A 
 
 ## Commands
 
+- `pnpm bootstrap`, `pnpm bootstrap doctor`: set up and check the copied repo (needs `gh` logged in; tests use the fake clients only).
 - `pnpm --filter @factory/harness test|typecheck`
 - `pnpm factory local <NN> [--issues <dir>]`: run an issue on this machine in a throwaway container (needs Claude auth).
