@@ -133,7 +133,7 @@ export function escalationComment(report: EscalationReport, config: FactoryConfi
 function headline(report: EscalationReport, config: FactoryConfig): string {
   switch (report.reason) {
     case "e2e-failures":
-      return `E2E did not pass in ${report.result?.attempts.length ?? 0} attempts.`;
+      return attemptsHeadline(report.result);
     case "time":
       return `The run hit the global time limit of ${config.timeouts.total} min.`;
     case "needs-human":
@@ -143,6 +143,19 @@ function headline(report: EscalationReport, config: FactoryConfig): string {
     case "protected-paths":
       return "The diff touches protected paths, so the Factory opened no pull request.";
   }
+}
+
+/**
+ * Every attempt that does not reach a passing E2E counts toward the limit
+ * (Stage timeouts and the "made commits" gate included), so the headline names
+ * where the last attempt stopped instead of always blaming E2E.
+ */
+function attemptsHeadline(result: FactoryResult | null): string {
+  const count = result?.attempts.length ?? 0;
+  const last = result?.attempts.at(-1)?.stages.at(-1);
+  if (!last || last.stage === "e2e") return `E2E did not pass in ${count} attempts.`;
+  const what = last.outcome === "no-commits" ? "made no commits" : `ended with ${last.outcome}`;
+  return `The attempt limit was reached after ${count} attempts without a passing E2E; the last one stopped at ${last.stage === "development" ? "Development" : "Review"}, which ${what}.`;
 }
 
 /** A fenced code block that the content cannot close. */

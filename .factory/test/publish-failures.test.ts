@@ -91,6 +91,28 @@ describe("factory publish: Escalation", () => {
     expect(comment).toContain("Tokens: 30,000 in / 3,000 out. Estimated cost: $0.18.");
   });
 
+  it("does not blame E2E when the last attempt stopped at a Review timeout or a Development without commits", async () => {
+    const reviewTimesOut: AgentStep = (call) => ({ ...(review(call) as object), timedOut: true });
+    const reviewed = await pipeline({
+      env: { FACTORY_MAX_ATTEMPTS: "2" },
+      agent: { development: [develop, developFile("src/greet.ts", "again\n")], review: [review, reviewTimesOut] },
+      verify: [e2eFails],
+    });
+    expect(reviewed.output).toMatchObject({ outcome: "escalated", reason: "e2e-failures" });
+    const [reviewComment] = reviewed.factoryComments();
+    expect(reviewComment).toContain("without a passing E2E; the last one stopped at Review, which ended with timeout");
+    expect(reviewComment).not.toContain("E2E did not pass");
+
+    const idle = await pipeline({
+      env: { FACTORY_MAX_ATTEMPTS: "2" },
+      agent: { development: [develop, () => ({})], review: [review] },
+      verify: [e2eFails],
+    });
+    const [idleComment] = idle.factoryComments();
+    expect(idleComment).toContain("the last one stopped at Development, which made no commits");
+    expect(idleComment).not.toContain("E2E did not pass");
+  });
+
   it("escalates a Development that needs a human at once, without a PR when it made no commits", async () => {
     const { w, output, factoryComments } = await pipeline({
       agent: { development: [() => ({ output: "<needs-human>Which locale should greet() use?</needs-human>" })] },
