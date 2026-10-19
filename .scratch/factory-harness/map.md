@@ -79,7 +79,7 @@ A **spec do harness + Skeleton** pronta para implementar (motor da Factory, Stag
 
 ## Not yet specified
 
-_(vazio: o caminho até o destino está claro. Falta a entrega: `to-spec` + `to-tickets` para a spec da base e o PRD do Skeleton, como decidido em [Fronteira entre a base e o backlog da Factory](issues/29-base-vs-factory-backlog.md) e revisto em [Vários produtos num repo só](issues/30-multi-product-repo.md))_
+_(vazio: o caminho até o destino está claro. Falta a entrega: `to-spec` + `to-tickets` para a spec da base e o PRD do Skeleton, como decidido em [Fronteira entre a base e o backlog da Factory](issues/29-base-vs-factory-backlog.md) e revisto em [Vários produtos num repo só](issues/30-multi-product-repo.md). O último ticket da base é o prompt de instalação da Factory num repo do Forgejo com outra stack, escrito depois do teste de aceitação)_
 
 ## Out of scope
 

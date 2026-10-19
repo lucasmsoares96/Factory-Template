@@ -57,3 +57,10 @@ A granularidade das sub-issues fica para o `to-tickets`.
 ## Revisão
 
 A base inclui também a divisão `packages/skeleton/` × `apps/example/`, o `new-product`, o bootstrap por Product, a matrix de afetados no CI e o E2E do Skeleton por Product. Base pronta exige ainda um teste de CI com `new-product ci-probe` numa cópia temporária + `verify`, sem deploy. O backlog do Skeleton não muda. O ADR de vários Products entra no último ticket. Decidido em [Vários produtos num repo só](30-multi-product-repo.md).
+
+**Prompt de instalação no Forgejo** (decidido em 2026-10-19 com o usuário): é o último ticket da base. Ele só é escrito depois que a Factory passa no teste de aceitação, que é o backlog do Skeleton. O resultado é um arquivo com um prompt único, que um agente executa num repo **que já existe, no Forgejo e com outra stack**, e que instala ali o mesmo fluxo da Factory. O prompt substitui o "doc de migração" de [Portabilidade GitHub → Forgejo](14-forgejo-portability.md) e de [Segurança do CI do PR com código da Factory](19-pr-ci-security.md), e assume as notas reunidas nesses dois tickets.
+- Ele leva para o outro repo só o harness: `.factory/`, os workflows, os `AGENTS.md`, as skills, `.claude/settings.json` e a imagem com `setup.sh`. Ficam de fora o Skeleton e o bootstrap dos Products.
+- Ele implementa os adaptadores Forgejo de `CodeHost` e `Tracker`.
+- Ele monta o seam `Verify` a partir do que o repo de destino já tiver: comandos de typecheck, lint, teste e E2E, preview (se existir) e prints. Onde o repo não tiver um desses, o seam fica com uma implementação mínima, e o prompt diz isso.
+- Ele configura o runner próprio do Forgejo (`--ephemeral`, `one-job`) e as labels.
+- Ele termina com uma issue de teste de ponta a ponta no repo de destino.
