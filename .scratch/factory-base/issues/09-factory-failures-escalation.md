@@ -42,3 +42,7 @@ Mudanças nos seams e na CLI (sobre o 08):
 - Review incremental: o prompt traz o SHA do último commit revisado (`git diff <sha>..HEAD`) e os achados anteriores. O resumo da review junta todas as tentativas ("**Attempt N.** …") e os inline de todas, sem repetir.
 - Teto global: o timeout de cada Stage é cortado pelo que resta do teto; sem tempo restante, ou estouro durante um Stage, a execução escala com `time`.
 - Fake Tracker escreve como o machine user (`self`), para o teste do comentário único.
+
+Revisão (code review):
+- Contagem das 5 tentativas (US96): a spec diz "só o E2E conta falha", mas também que "Timeouts por Stage contam como falha" e que existe o gate "gerou commits"; os tickets 08/09 implementam esses dois como tentativa consumida (o laço segue com feedback). Decisão: manter o comportamento, e tornar a Escalation verdadeira. O `reason` continua `e2e-failures` (o enum do `result.json` é fechado), mas o título do relatório agora diz onde a última tentativa parou ("the last one stopped at Review, which ended with timeout" / "at Development, which made no commits"), em vez de "E2E did not pass". Teste em `publish-failures.test.ts`.
+- Desvio: `protected-paths` (`report.ts`, `publish.ts`) é um motivo de Escalation fora do enum `reason` do `result.json` (`e2e-failures | time | needs-human | infra`). Ele só existe no relatório do `publish` (o `work` nunca o grava), então o schema não muda; fica registrado como desvio e o comportamento se mantém.

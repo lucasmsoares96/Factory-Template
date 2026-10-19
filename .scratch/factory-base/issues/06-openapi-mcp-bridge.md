@@ -55,3 +55,5 @@ Desvios e decisões:
 
 Pending (human): medir na conta (ticket 14) o CPU por request do `/mcp` no Workers Free (registro das tools, validação, `app.request` interno e KV do provider). Único critério não marcado; por isso o Status é `ready-for-human`.
 Pending (human): criar o namespace KV `OAUTH_KV` de produção (e o `PREVIEW_OAUTH_KV_ID` do preview) na conta real, pelo bootstrap (tickets 13–15); o `wrangler.jsonc` tem só o binding.
+
+Revisão (US73): o teste "a token issued for one Product's /mcp is rejected by another Product's /mcp" em `packages/skeleton/test/mcp.test.ts` sobe uma segunda composição (outro banco, outro `OAUTH_KV`, outra origem) e mostra que o token de uma dá 200 na sua origem e 401 na outra. Nenhum critério novo marcado: o único aberto continua sendo a medição de CPU no Workers Free.
