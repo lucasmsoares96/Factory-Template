@@ -66,6 +66,14 @@ describe("label tables", () => {
     expect(firstColumn(section("Factory labels"))).toEqual([labels.inProgress, labels.agentExplore, labels.harnessChange, labels.preview, `${labels.productPrefix}<id>`]);
   });
 
+  it("who sets each Factory label is stated, and `preview` is set by a human and removed by CI", () => {
+    const rows = new Map([...section("Factory labels").matchAll(/^\| `([^`]+)`\s*\| ([^|]+)\|/gm)].map((m) => [m[1]!, m[2]!.trim()]));
+    expect(rows.get(defaultConfig.labels.preview)).toMatch(/^a human with `write`\+ access/);
+    expect(rows.get(defaultConfig.labels.preview)).toMatch(/CI removes it/);
+    expect(rows.get(defaultConfig.labels.inProgress)).toMatch(/^the Factory/);
+    expect(rows.get(defaultConfig.labels.agentExplore)).toMatch(/^a human/);
+  });
+
   it("the triage table maps the five roles to the config's labels", () => {
     const { labels } = defaultConfig;
     const rows = [...read("docs/agents/triage-labels.md").matchAll(/^\| `([^`]+)`\s*\| `([^`]+)`/gm)].map((m) => [m[1], m[2]]);
