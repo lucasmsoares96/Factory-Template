@@ -1,6 +1,8 @@
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
-import type { SkeletonEnv } from "./env.ts";
+import { eq } from "drizzle-orm";
+import { users } from "../db/schema.ts";
+import { MCP_CONNECTION, type SkeletonEnv } from "./env.ts";
 import { apiError, errorResponse } from "./errors.ts";
 
 /** The user a request acts for. */
@@ -9,9 +11,10 @@ export type IdentityUser = { id: string; name: string; email: string };
 /**
  * Who is calling an `/api` route, whatever the credential. Routes read the user
  * from here and never from a cookie or a token, so one route serves both the SPA
- * and (ticket 06) the MCP tools. `via` says which credential proved it.
+ * and the MCP tools. `via` says which credential proved it: the SPA's session
+ * cookie, or an MCP Connection's token (verified at `/mcp`).
  */
-export type Identity = { user: IdentityUser; via: "session" };
+export type Identity = { user: IdentityUser; via: "session" | "mcp" };
 
 /** A way to prove who is calling: answers `null` when its credential is absent or invalid. */
 type IdentitySource = (c: Context<SkeletonEnv>) => Promise<Identity | null>;
@@ -31,8 +34,27 @@ const session: IdentitySource = async (c) => {
   return { user: { id, name, email }, via: "session" };
 };
 
-/** Tried in order; the first one that proves an identity wins. The MCP token joins in ticket 06. */
-const sources: IdentitySource[] = [session];
+/**
+ * An MCP tool call: `/mcp` verified the Connection's token and calls the tool's
+ * route with the token's user in its `env`; the agent's token itself never
+ * reaches the route. The token carries only the user's id, so the user is read
+ * here: a deleted user proves nothing.
+ */
+const mcpConnection: IdentitySource = async (c) => {
+  const connection = c.env[MCP_CONNECTION];
+  if (!connection) return null;
+  const [user] = await c.var.db
+    .select({ id: users.id, name: users.name, email: users.email })
+    .from(users)
+    .where(eq(users.id, connection.userId));
+  return user ? { user, via: "mcp" } : null;
+};
+
+/**
+ * Tried in order; the first one that proves an identity wins. A tool call never
+ * carries a cookie, so the MCP Connection goes first and skips Better Auth.
+ */
+const sources: IdentitySource[] = [mcpConnection, session];
 
 /** The single place that resolves who is calling, or `null` for an anonymous request. */
 export async function resolveIdentity(c: Context<SkeletonEnv>): Promise<Identity | null> {
@@ -57,6 +79,6 @@ export const requireIdentity = createMiddleware<SkeletonEnv>(async (c, next) => 
 
 /** The 401 every route behind `requireIdentity` declares in its `responses`. */
 export const unauthenticatedResponse = errorResponse(
-  "No signed-in user: the session cookie is missing, expired or revoked.",
+  "No signed-in user: the session cookie (or the MCP Connection) is missing, expired or revoked.",
   "UNAUTHENTICATED",
 );

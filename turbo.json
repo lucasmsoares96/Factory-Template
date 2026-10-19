@@ -20,7 +20,9 @@
         "openapi.json",
         "src/gen/**",
         "src/client/routeTree.gen.ts",
-        "test/spa/routeTree.gen.ts"
+        "test/spa/routeTree.gen.ts",
+        "src/mcp-tools.gen.json",
+        "test/worker/mcp-tools.gen.json"
       ]
     },
     "typecheck": {

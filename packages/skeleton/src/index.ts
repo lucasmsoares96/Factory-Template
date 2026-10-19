@@ -19,3 +19,4 @@ export {
   type Identity,
   type IdentityUser,
 } from "./platform/identity.ts";
+export type { JsonSchema, McpScope, McpTool } from "./platform/mcp/tool.ts";

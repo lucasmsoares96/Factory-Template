@@ -10,6 +10,8 @@ const getHealth = createRoute({
   operationId: "getHealth",
   summary: "Check the service health",
   description: "Answers ok when the Worker is up and its database answers a query.",
+  // A probe for the platform, not something an agent acts on.
+  "x-mcp": false,
   responses: {
     200: { description: "The service and its database are up.", content: { "application/json": { schema: Health } } },
     503: {

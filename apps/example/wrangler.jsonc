@@ -1,14 +1,16 @@
 // The Product's Worker: Static Assets serve the SPA, and the Skeleton's
-// Hono app answers /api/* (run_worker_first). The Vite plugin builds both.
+// Hono app answers /api/*, the MCP server (/mcp) and its OAuth endpoints
+// (/oauth/*, /.well-known/*) first (run_worker_first). The Vite plugin builds both.
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "example",
   "main": "./src/worker.ts",
   "compatibility_date": "2026-10-19",
-  "compatibility_flags": ["nodejs_compat"],
+  // global_fetch_strictly_public: the OAuth provider fetches MCP clients' metadata documents (CIMD).
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "assets": {
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
+    "run_worker_first": ["/api/*", "/mcp", "/oauth/*", "/.well-known/*"]
   },
   // Better Auth's password hashing and rate-limit counters run here (see @workspace/skeleton/durable-objects).
   "durable_objects": {
@@ -21,6 +23,9 @@
     { "tag": "v1", "new_sqlite_classes": ["PasswordHasher"] },
     { "tag": "v2", "new_sqlite_classes": ["RateLimiter"] }
   ],
+  // The MCP Connections (clients, grants, tokens) of workers-oauth-provider. The
+  // bootstrap creates the namespace and writes its id here.
+  "kv_namespaces": [{ "binding": "OAUTH_KV" }],
   // Production sends email through Resend (secret RESEND_API_KEY, set by the
   // bootstrap); previews and `pnpm dev` override EMAIL_TRANSPORT with "outbox".
   "vars": { "EMAIL_TRANSPORT": "resend" },

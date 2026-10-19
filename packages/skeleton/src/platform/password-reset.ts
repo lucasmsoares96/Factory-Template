@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import type { SkeletonEnv } from "./env.ts";
+import { revokeConnections } from "./mcp/connections.ts";
 
 /** Takes away one kind of access the user granted before the reset. */
 type AccessRevoker = (c: Context<SkeletonEnv>, user: { id: string }) => Promise<void>;
@@ -7,10 +8,10 @@ type AccessRevoker = (c: Context<SkeletonEnv>, user: { id: string }) => Promise<
 /**
  * Access a password reset takes away besides the user's sessions. Better Auth
  * deletes the sessions itself, in the same transaction as the new password
- * (`revokeSessionsOnPasswordReset`). The user's MCP Connections join in ticket 06
- * (`listUserGrants` + `revokeGrant`), here and nowhere else.
+ * (`revokeSessionsOnPasswordReset`). The user's MCP Connections (grants and their
+ * tokens, `listUserGrants` + `revokeGrant`) go here, and every later kind of access too.
  */
-const revokers: AccessRevoker[] = [];
+const revokers: AccessRevoker[] = [revokeConnections];
 
 /**
  * The single place that revokes what outlives a password reset. Better Auth

@@ -8,8 +8,9 @@ const usage = `Usage: skeleton <command> [options]
 
 Commands:
   generate [--product <dir>]     Write the OpenAPI document, the Kubb client and MSW handlers
-                                 (src/gen/) and TanStack Router's routeTree.gen.ts. Without
-                                 --product, for the Skeleton's own SPA (its tests use it).
+                                 (src/gen/), TanStack Router's routeTree.gen.ts and the MCP
+                                 tools (src/mcp-tools.gen.json). Without --product, for the
+                                 Skeleton's own SPA and test composition (its tests use them).
   dev [--product <dir>]          Start the Product's Worker and SPA (vite dev) on a migrated
                                  database: DATABASE_URL, or the docker compose Postgres.
                                  Emails land in the skeleton.email_outbox table.
@@ -76,7 +77,7 @@ try {
 }
 
 async function generateCommand() {
-  const { generate } = await import("../src/node/generate.ts");
+  const { generate, PRODUCT_MCP_TOOLS } = await import("../src/node/generate.ts");
   if (productDir) {
     const { readFile } = await import("node:fs/promises");
     const { importWorkerModule } = await import("../src/node/worker-module.ts");
@@ -84,14 +85,20 @@ async function generateCommand() {
     const worker = await importWorkerModule(resolve(productDir, "src/worker.ts"));
     const app = worker.default as Parameters<typeof generate>[0]["app"];
     const { PRODUCT_ROUTE_TREE } = await import("../src/vite/router.ts");
-    await generate({ dir: productDir, app, title: name, routeTree: PRODUCT_ROUTE_TREE });
+    await generate({ dir: productDir, app, title: name, routeTree: PRODUCT_ROUTE_TREE, mcpTools: PRODUCT_MCP_TOOLS });
   } else {
     // The Skeleton's own document comes from its test composition.
     const { importWorkerModule } = await import("../src/node/worker-module.ts");
     const dir = resolve(import.meta.dirname, "..");
     const worker = await importWorkerModule(resolve(dir, "test/worker/index.ts"));
     const app = worker.default as Parameters<typeof generate>[0]["app"];
-    await generate({ dir, app, title: "skeleton", routeTree: "test/spa/routeTree.gen.ts" });
+    await generate({
+      dir,
+      app,
+      title: "skeleton",
+      routeTree: "test/spa/routeTree.gen.ts",
+      mcpTools: "test/worker/mcp-tools.gen.json",
+    });
   }
 }
 
