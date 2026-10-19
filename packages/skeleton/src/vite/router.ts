@@ -1,3 +1,4 @@
+import { existsSync, readdirSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { layout, physical, rootRoute, type VirtualRouteNode } from "@tanstack/virtual-file-routes";
@@ -19,7 +20,33 @@ export type SpaLayout = {
    * (relative to the route tree's folder).
    */
   routes?: VirtualRouteNode[];
+  /**
+   * Routes a visitor without a session can open, mounted at the root next to
+   * the sign-in and sign-up screens.
+   */
+  publicRoutes?: VirtualRouteNode[];
 };
+
+/**
+ * The UI routes of a Product's features, found by convention: for each
+ * `src/features/<id>/`, `routes/` (signed-in) and `public/` (open to visitors)
+ * mount at `/<id>`. Both `skeleton generate` and the Vite plugin call it, so
+ * they always write the same route tree.
+ */
+export function featureRoutes(dir: string, routeTree: string = PRODUCT_ROUTE_TREE) {
+  const routesDirectory = dirname(join(dir, routeTree));
+  const featuresDir = join(dir, "src/features");
+  const found: { routes: VirtualRouteNode[]; publicRoutes: VirtualRouteNode[] } = { routes: [], publicRoutes: [] };
+  if (!existsSync(featuresDir)) return found;
+  for (const entry of readdirSync(featuresDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    if (!entry.isDirectory()) continue;
+    for (const [folder, list] of [["routes", found.routes], ["public", found.publicRoutes]] as const) {
+      const routesPath = join(featuresDir, entry.name, folder);
+      if (existsSync(routesPath)) list.push(physical(`/${entry.name}`, relative(routesDirectory, routesPath)));
+    }
+  }
+  return found;
+}
 
 /**
  * TanStack Router's generator config, shared by `skeleton generate` and the Vite
@@ -27,7 +54,7 @@ export type SpaLayout = {
  * holds the public auth screens and the signed-in layout, which holds the home
  * page and the composition's routes; each feature's routes enter by `physical()`.
  */
-export function routerConfig({ dir, routeTree, routes = [] }: SpaLayout) {
+export function routerConfig({ dir, routeTree, routes = [], publicRoutes = [] }: SpaLayout) {
   const generatedRouteTree = join(dir, routeTree);
   const routesDirectory = dirname(generatedRouteTree);
   // The generator joins (not resolves) these paths onto routesDirectory.
@@ -41,6 +68,7 @@ export function routerConfig({ dir, routeTree, routes = [] }: SpaLayout) {
     disableLogging: true,
     virtualRouteConfig: rootRoute(skeleton("client/root.tsx"), [
       physical(skeleton("features/auth/routes")),
+      ...publicRoutes,
       layout("_signed-in", skeleton("client/signed-in.tsx"), [physical(skeleton("features/home/routes")), ...routes]),
     ]),
   };

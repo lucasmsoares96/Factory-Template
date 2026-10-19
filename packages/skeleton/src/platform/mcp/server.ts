@@ -1,4 +1,5 @@
 import { fromJsonSchema, McpServer, type CallToolResult } from "@modelcontextprotocol/server";
+import type { Feature } from "../feature.ts";
 import type { McpTool } from "./tool.ts";
 
 /** Calls a tool's route inside the Worker and answers with the route's response. */
@@ -12,12 +13,14 @@ export type RouteCaller = (request: Request) => Promise<Response>;
 export function createMcpServer({
   name,
   tools,
+  features = [],
   scopes,
   origin,
   callRoute,
 }: {
   name: string;
   tools: readonly McpTool[];
+  features?: readonly Feature[];
   scopes: readonly string[];
   /** The origin `/mcp` was reached on: the routes see the same one. */
   origin: string;
@@ -38,6 +41,7 @@ export function createMcpServer({
       async (args) => resultOf(tool, await callRoute(routeRequest(tool, args, origin))),
     );
   }
+  for (const feature of features) feature.mcp?.(server);
   return server;
 }
 

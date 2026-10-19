@@ -17,6 +17,9 @@ Commands:
   db migrate [--product <dir>]   Apply the Skeleton's migrations, then the Product's.
   db check [--product <dir>]     Fail unless drizzle-kit check passes and a brand-new database,
                                  once migrated, matches the schema (push --explain: no_changes).
+  new-product <id> [--title <name>] [--domain <domain>] [--no-install]
+                                 Create apps/<id>/ from the Skeleton's template, then run
+                                 pnpm install and generate (not with --no-install).
   migrations check-published [--dir drizzle] [--base <ref>]
                                  Fail if a migration already on the base branch was edited,
                                  renamed or deleted.
@@ -30,13 +33,28 @@ const { values, positionals } = parseArgs({
     product: { type: "string" },
     base: { type: "string" },
     dir: { type: "string", default: "drizzle" },
+    title: { type: "string" },
+    domain: { type: "string" },
+    "no-install": { type: "boolean", default: false },
   },
 });
 const productDir = values.product && resolve(values.product);
 const productMigrations = productDir && resolve(productDir, "drizzle");
 
 try {
-  switch (positionals.join(" ")) {
+  if (positionals[0] === "new-product") {
+    const [, id, ...extra] = positionals;
+    if (!id || extra.length) throw new Error("Usage: pnpm new-product <id> [--title <name>] [--domain <domain>] [--no-install]");
+    const { findWorkspaceRoot, newProduct, nextSteps } = await import("../src/node/products.ts");
+    newProduct({
+      root: findWorkspaceRoot(process.cwd()),
+      id,
+      title: values.title,
+      domain: values.domain,
+      install: !values["no-install"],
+    });
+    console.log(`\n${nextSteps(id)}`);
+  } else switch (positionals.join(" ")) {
     case "generate":
       await generateCommand();
       break;
@@ -84,8 +102,15 @@ async function generateCommand() {
     const { name } = JSON.parse(await readFile(resolve(productDir, "package.json"), "utf8"));
     const worker = await importWorkerModule(resolve(productDir, "src/worker.ts"));
     const app = worker.default as Parameters<typeof generate>[0]["app"];
-    const { PRODUCT_ROUTE_TREE } = await import("../src/vite/router.ts");
-    await generate({ dir: productDir, app, title: name, routeTree: PRODUCT_ROUTE_TREE, mcpTools: PRODUCT_MCP_TOOLS });
+    const { PRODUCT_ROUTE_TREE, featureRoutes } = await import("../src/vite/router.ts");
+    await generate({
+      dir: productDir,
+      app,
+      title: name,
+      routeTree: PRODUCT_ROUTE_TREE,
+      mcpTools: PRODUCT_MCP_TOOLS,
+      ...featureRoutes(productDir),
+    });
   } else {
     // The Skeleton's own document comes from its test composition.
     const { importWorkerModule } = await import("../src/node/worker-module.ts");

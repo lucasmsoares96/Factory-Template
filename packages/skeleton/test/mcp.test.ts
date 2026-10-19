@@ -101,6 +101,8 @@ async function connectAgent(cookie: string, { access = "read", modern = false }:
   return { clientId, tokens, client };
 }
 
+/** The tool the test composition's feature registers by hand (`mcp(server)`); it is not in the generated list. */
+const MANUAL_TOOL = "manualPing";
 const names = (tools: { name: string }[]) => tools.map((tool) => tool.name);
 
 test("without a token, /mcp answers 401 with a challenge that leads to the authorization server", async () => {
@@ -123,7 +125,7 @@ test("a `read` Connection calls getMe as the user who consented, and never sees 
   const { tokens, client } = await connectAgent(cookie, { access: "read" });
 
   expect(tokens.scope).toBe("read");
-  expect(names((await client.listTools()).tools)).toEqual(["getMe", "getNote"]);
+  expect(names((await client.listTools()).tools)).toEqual(["getMe", "getNote", "manualPing"]);
   const result = await client.callTool({ name: "getMe", arguments: {} });
   expect(result.isError).toBeFalsy();
   expect(result.structuredContent).toEqual({ id: user.id, name: "Ana Souza", email: user.email });
@@ -138,7 +140,7 @@ test("a `write` Connection sees every tool and its writes reach the route as the
   const { tokens, client } = await connectAgent(cookie, { access: "write" });
 
   expect(tokens.scope.split(" ").sort()).toEqual(["read", "write"]);
-  expect(names((await client.listTools()).tools)).toEqual(["createNote", "getMe", "getNote"]);
+  expect(names((await client.listTools()).tools)).toEqual(["createNote", "getMe", "getNote", "manualPing"]);
   const result = await client.callTool({ name: "createNote", arguments: { body: { text: "Buy milk" } } });
   expect(result.isError).toBeFalsy();
   expect(result.structuredContent).toEqual({ id: expect.any(String), text: "Buy milk", authorId: user.id });
@@ -164,7 +166,8 @@ test("tools/list serves exactly the committed tool list (the snapshot `pnpm gene
     readFileSync(new URL("./worker/mcp-tools.gen.json", import.meta.url), "utf8"),
   ) as McpTool[];
 
-  const { tools } = await client.listTools();
+  const { tools: listed } = await client.listTools();
+  const tools = listed.filter((tool) => tool.name !== MANUAL_TOOL);
 
   expect(tools).toEqual(
     committed.map(({ name, title, description, inputSchema, outputSchema, annotations }) => ({
@@ -179,11 +182,22 @@ test("tools/list serves exactly the committed tool list (the snapshot `pnpm gene
   await client.close();
 });
 
+test("a feature's mcp hook adds a tool the OpenAPI document does not describe", async () => {
+  const { cookie } = await signedInUser();
+  const { client } = await connectAgent(cookie, { access: "read" });
+
+  const result = await client.callTool({ name: MANUAL_TOOL, arguments: {} });
+
+  expect(result.isError).toBeFalsy();
+  expect(result.content).toEqual([{ type: "text", text: "pong" }]);
+  await client.close();
+});
+
 test("a client on the 2026-07-28 protocol uses the same tools", async () => {
   const { user, cookie } = await signedInUser();
   const { client } = await connectAgent(cookie, { modern: true });
 
-  expect(names((await client.listTools()).tools)).toEqual(["getMe", "getNote"]);
+  expect(names((await client.listTools()).tools)).toEqual(["getMe", "getNote", "manualPing"]);
   expect((await client.callTool({ name: "getMe", arguments: {} })).structuredContent).toMatchObject({ id: user.id });
   await client.close();
 });
