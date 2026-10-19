@@ -40,7 +40,7 @@ test("GET /api/health answers 503 with a stable code when the database is unreac
     const response = await server.fetch("/api/health");
 
     expect(response.status).toBe(503);
-    expect(await response.json()).toMatchObject({ status: "error", code: "DATABASE_UNAVAILABLE" });
+    expect(await response.json()).toEqual({ code: "DATABASE_UNAVAILABLE", message: "The database is unavailable." });
   } finally {
     await server.close();
   }

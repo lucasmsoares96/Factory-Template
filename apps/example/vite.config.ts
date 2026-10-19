@@ -1,7 +1,6 @@
-import { cloudflare } from "@cloudflare/vite-plugin";
-import react from "@vitejs/plugin-react";
+import { skeleton } from "@workspace/skeleton/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  plugins: [react(), cloudflare()],
+  plugins: skeleton({ dir: import.meta.dirname }),
 });
