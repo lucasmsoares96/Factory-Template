@@ -19,4 +19,14 @@ export {
   type Identity,
   type IdentityUser,
 } from "./platform/identity.ts";
+export {
+  assertUniqueFeatures,
+  defineFeature,
+  seedFeatures,
+  type Feature,
+  type FeatureCompanyPage,
+  type FeatureEvents,
+  type FeatureNav,
+} from "./platform/feature.ts";
+export { defineProduct, type ProductConfig } from "./product.ts";
 export type { JsonSchema, McpScope, McpTool } from "./platform/mcp/tool.ts";

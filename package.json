@@ -7,7 +7,8 @@
     "node": ">=24.11.0"
   },
   "scripts": {
-    "dev": "pnpm --filter \"./apps/*\" dev",
+    "dev": "node scripts/dev.ts",
+    "new-product": "node packages/skeleton/bin/skeleton.ts new-product",
     "generate": "turbo run generate",
     "typecheck": "turbo run typecheck",
     "lint": "turbo run lint",
@@ -15,6 +16,7 @@
     "e2e": "turbo run e2e",
     "build": "turbo run build",
     "factory:verify": "node scripts/verify.ts",
+    "factory:ci-probe": "node scripts/ci-probe.ts",
     "factory": "node .factory/src/cli.ts"
   },
   "devDependencies": {

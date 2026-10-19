@@ -1,0 +1,35 @@
+{
+  "name": "{{id}}",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "skeleton dev --product .",
+    "generate": "wrangler types && skeleton generate --product .",
+    "typecheck": "tsc -p tsconfig.worker.json && tsc -p tsconfig.app.json && tsc -p tsconfig.json",
+    "lint": "oxlint && skeleton migrations check-published",
+    "test": "skeleton db check --product .",
+    "build": "vite build",
+    "e2e": "vitest run --config vitest.e2e.config.ts && playwright test",
+    "db:migrate": "skeleton db migrate --product .",
+    "db:generate": "drizzle-kit generate"
+  },
+  "dependencies": {
+    "@tanstack/react-router": "catalog:",
+    "@workspace/skeleton": "workspace:*",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@faker-js/faker": "catalog:",
+    "@playwright/test": "catalog:",
+    "@tanstack/react-query": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "drizzle-kit": "catalog:",
+    "msw": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:",
+    "wrangler": "catalog:"
+  }
+}
