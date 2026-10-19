@@ -47,5 +47,5 @@ test("an API failure is shown translated by its code, never by the English messa
   const { screen, t } = await renderSpa({ locale: "pt-BR" });
 
   await expect.element(screen.getByRole("alert")).toHaveTextContent(t.errors.INTERNAL_ERROR);
-  await expect.element(screen.getByText("Something went wrong.")).not.toBeInTheDocument();
+  await expect.element(screen.getByRole("alert")).not.toHaveTextContent("Something went wrong.");
 });

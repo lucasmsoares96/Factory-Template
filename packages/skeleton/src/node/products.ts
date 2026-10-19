@@ -21,6 +21,15 @@ export function findWorkspaceRoot(from: string): string {
   }
 }
 
+/** Throws unless `id` is a valid Product id (the rule `new-product` and `dev` share). */
+export function assertProductId(id: string): void {
+  if (id.length > MAX_ID_LENGTH || !PRODUCT_ID.test(id)) {
+    throw new Error(
+      `Invalid Product id "${id}": use lower-case letters, digits and single dashes, starting with a letter (at most ${MAX_ID_LENGTH} characters).`,
+    );
+  }
+}
+
 /** The ids of the Products in `<root>/apps`, sorted. */
 export function listProducts(root: string): string[] {
   const apps = join(root, "apps");
@@ -37,6 +46,7 @@ export function listProducts(root: string): string[] {
  */
 export function resolveDevProduct(products: readonly string[], requested?: string): string {
   if (requested !== undefined) {
+    assertProductId(requested);
     if (products.includes(requested)) return requested;
     throw new Error(`No Product "${requested}" in apps/. Products: ${products.join(", ") || "none"}.`);
   }
@@ -102,11 +112,7 @@ export function renderTemplate(outDir: string, values: { id: string; title: stri
  * (lockfile) and `generate` (the committed generated files).
  */
 export function newProduct({ root, id, title, domain, install = true, outDir }: NewProductOptions) {
-  if (id.length > MAX_ID_LENGTH || !PRODUCT_ID.test(id)) {
-    throw new Error(
-      `Invalid Product id "${id}": use lower-case letters, digits and single dashes, starting with a letter (at most ${MAX_ID_LENGTH} characters).`,
-    );
-  }
+  assertProductId(id);
   const target = outDir ?? join(root, "apps", id);
   if (existsSync(target) && statSync(target).isDirectory() && readdirSync(target).length > 0) {
     throw new Error(`${target} already exists.`);
