@@ -30,9 +30,12 @@ interface FakeIssue {
 export class FakeTracker implements Tracker {
   readonly issues = new Map<number, FakeIssue>();
   readonly writers = new Set<string>();
+  /** Login the Factory writes as: author of its comments and actor of its label changes. */
+  readonly self: string;
   private nextCommentId = 1;
 
-  constructor(seed: { issues?: FakeIssueInput[]; writers?: string[] } = {}) {
+  constructor(seed: { issues?: FakeIssueInput[]; writers?: string[]; self?: string } = {}) {
+    this.self = seed.self ?? "factory";
     for (const issue of seed.issues ?? []) this.add(issue);
     for (const login of seed.writers ?? []) this.writers.add(login);
   }
@@ -95,12 +98,12 @@ export class FakeTracker implements Tracker {
     const issue = this.get(number);
     if (!issue.labels.has(from)) return false;
     issue.labels.delete(from);
-    issue.labels.set(to, "factory");
+    issue.labels.set(to, this.self);
     return true;
   }
 
   async comment(number: number, body: string): Promise<void> {
-    this.get(number).comments.push({ id: `c${this.nextCommentId++}`, author: "factory", body });
+    this.get(number).comments.push({ id: `c${this.nextCommentId++}`, author: this.self, body });
   }
 
   async canWrite(login: string): Promise<boolean> {

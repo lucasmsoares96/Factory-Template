@@ -20,6 +20,15 @@ export const defaultConfig = {
     e2e: 20,
     total: 330,
   },
+  /**
+   * USD per million tokens, for the estimated cost in the review, the
+   * Escalation and the job summary. Claude Opus 5.5 list price, checked on
+   * 2026-10-19. Every Stage runs on Opus.
+   */
+  pricing: {
+    inputPerMTok: 4,
+    outputPerMTok: 20,
+  },
   /** Attempts of Development → Review → E2E before Escalation. */
   maxAttempts: 5,
   /** Open previews per Product before "preview skipped: limit reached". */
@@ -52,6 +61,7 @@ const nonEmpty = z.string().min(1);
 const configSchema = z.object({
   models: z.object({ development: nonEmpty, review: nonEmpty, triage: nonEmpty }),
   timeouts: z.object({ development: positiveInt, review: positiveInt, e2e: positiveInt, total: positiveInt }),
+  pricing: z.object({ inputPerMTok: z.coerce.number().nonnegative(), outputPerMTok: z.coerce.number().nonnegative() }),
   maxAttempts: positiveInt,
   previewLimit: positiveInt,
   machineUser: z.string(),

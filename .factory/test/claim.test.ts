@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { HUMAN, MACHINE_USER, lastJson, readyIssue, world } from "./helpers.ts";
+import { HUMAN, MACHINE_USER, SPEC_BODY, lastJson, readyIssue, world } from "./helpers.ts";
 
 describe("factory claim", () => {
   it("takes the lock: ready-for-agent becomes in-progress", async () => {
@@ -53,12 +53,10 @@ describe("factory claim", () => {
     ["a closed issue", { state: "closed" }, "not-open"],
     ["an issue without ready-for-agent", { labels: { "needs-triage": HUMAN } }, "not-ready"],
     ["a label applied by someone without write", { labels: { "ready-for-agent": "mallory" } }, "label-actor-cannot-write"],
-    ["an issue without acceptance criteria", { body: "## What to build\n\nThings.\n" }, "missing-acceptance-criteria"],
-    ["an issue without seams", { parent: null }, "missing-seams"],
     ["a Blocked Issue", { blockedBy: [3] }, "blocked"],
   ];
 
-  it.each(refusals)("refuses %s without taking the lock", async (_name, overrides, reason) => {
+  it.each(refusals)("refuses %s without touching the issue", async (_name, overrides, reason) => {
     const issues = readyIssue(overrides);
     issues.push({ number: 3, title: "Blocker", done: false });
     const w = world({ issues });
@@ -67,7 +65,101 @@ describe("factory claim", () => {
     expect(await w.factory("claim", "7")).toBe(0);
 
     expect(w.tracker.labelsOf(7)).toEqual(labelsBefore);
+    expect(w.tracker.commentsOn(7)).toEqual([]);
     expect(lastJson(w.logs)).toEqual({ claimed: false, issue: 7, reason });
+  });
+
+  it("refuses the parent spec", async () => {
+    const issues = readyIssue();
+    issues[0]!.labels = { "ready-for-agent": HUMAN };
+    issues[0]!.body = `${SPEC_BODY}\n## Acceptance criteria\n\n- [ ] all of it\n`;
+    const w = world({ issues });
+
+    await w.factory("claim", "1");
+
+    expect(w.tracker.labelsOf(1)).toEqual(["ready-for-agent"]);
+    expect(lastJson(w.logs)).toEqual({ claimed: false, issue: 1, reason: "parent-spec" });
+  });
+
+  it("refuses an issue whose Factory pull request is already open", async () => {
+    const w = world({ prs: [{ number: 55, branch: "factory/issue-7", draft: false }] });
+
+    await w.factory("claim", "7");
+
+    expect(w.tracker.labelsOf(7)).toEqual(["ready-for-agent"]);
+    expect(lastJson(w.logs)).toEqual({ claimed: false, issue: 7, reason: "open-pr" });
+  });
+
+  it("claims an escalated issue whose draft pull request is still open, so the retry can replace it", async () => {
+    const w = world({ prs: [{ number: 55, branch: "factory/issue-7", draft: true }] });
+
+    await w.factory("claim", "7");
+
+    expect(lastJson(w.logs)).toMatchObject({ claimed: true });
+  });
+
+  it("sends an issue without acceptance criteria to needs-info", async () => {
+    const w = world({ issues: readyIssue({ body: "## What to build\n\nThings.\n" }) });
+
+    await w.factory("claim", "7");
+
+    expect(lastJson(w.logs)).toEqual({ claimed: false, issue: 7, reason: "missing-acceptance-criteria" });
+    expect(w.tracker.labelsOf(7)).toEqual(["needs-info"]);
+    expect(w.tracker.commentsOn(7).map((c) => c.body).join("\n")).toContain("## Acceptance criteria");
+  });
+
+  it("sends an issue without seams to Triage", async () => {
+    const w = world({ issues: readyIssue({ parent: null }) });
+
+    await w.factory("claim", "7");
+
+    expect(lastJson(w.logs)).toEqual({ claimed: false, issue: 7, reason: "missing-seams" });
+    expect(w.tracker.labelsOf(7)).toEqual(["agent:explore"]);
+  });
+
+  it("does not take seams from a Triage comment written by someone else", async () => {
+    const w = world({
+      issues: readyIssue({ parent: null, comments: [{ author: HUMAN, body: "<!-- factory:triage -->\nSeams: CLI." }] }),
+    });
+
+    await w.factory("claim", "7");
+
+    expect(lastJson(w.logs)).toMatchObject({ claimed: false, reason: "missing-seams" });
+  });
+
+  describe("a Blocked Issue", () => {
+    function blocked() {
+      const issues = readyIssue({ blockedBy: [3, 4, 5] });
+      issues.push({ number: 3, title: "Blocker", done: false });
+      issues.push({ number: 4, title: "Done blocker", state: "closed", done: true });
+      issues.push({ number: 5, title: "Other blocker", done: false });
+      return world({ issues });
+    }
+
+    it("keeps ready-for-agent and gets one Waiting on comment on the labeled event", async () => {
+      const w = blocked();
+
+      await w.factory("claim", "7", "--event", "labeled");
+      await w.factory("claim", "7", "--event", "labeled");
+
+      expect(w.tracker.labelsOf(7)).toEqual(["ready-for-agent"]);
+      const comments = w.tracker.commentsOn(7);
+      expect(comments).toHaveLength(1);
+      expect(comments[0]!.author).toBe(MACHINE_USER);
+      expect(comments[0]!.body).toContain("Waiting on #3, #5");
+      expect(comments[0]!.body).not.toContain("#4");
+      expect(comments[0]!.body).toMatch(/re-add `ready-for-agent`/);
+      expect(lastJson(w.logs)).toEqual({ claimed: false, issue: 7, reason: "blocked" });
+    });
+
+    it("does not comment when the run did not come from the labeled event", async () => {
+      const w = blocked();
+
+      await w.factory("claim", "7");
+      await w.factory("claim", "7", "--event", "dispatch");
+
+      expect(w.tracker.commentsOn(7)).toEqual([]);
+    });
   });
 
   it("starts once every blocker is done", async () => {
