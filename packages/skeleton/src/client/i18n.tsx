@@ -1,6 +1,6 @@
 import { createContext, useContext, type ReactNode } from "react";
 import type { Messages } from "../i18n/index.ts";
-import { isErrorCode, type ErrorCode } from "../platform/error-codes.ts";
+import { isKnownErrorCode, type KnownErrorCode } from "../platform/error-codes.ts";
 
 const MessagesContext = createContext<Messages | null>(null);
 
@@ -27,10 +27,13 @@ export function useErrorMessage(): (error: unknown) => string {
   };
 }
 
-/** The `code` of an error the API answered with (Kubb's `ResponseError`), if known. */
-export function errorCode(error: unknown): ErrorCode | undefined {
-  if (typeof error !== "object" || error === null || !("data" in error)) return undefined;
-  const { data } = error;
-  if (typeof data !== "object" || data === null || !("code" in data)) return undefined;
-  return isErrorCode(data.code) ? data.code : undefined;
+/**
+ * The `code` of an error the API answered with, if known: Kubb's `ResponseError`
+ * (`{ data: { code } }`) or a Better Auth client error (`{ code }`).
+ */
+export function errorCode(error: unknown): KnownErrorCode | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const body = "data" in error ? error.data : error;
+  if (typeof body !== "object" || body === null || !("code" in body)) return undefined;
+  return isKnownErrorCode(body.code) ? body.code : undefined;
 }

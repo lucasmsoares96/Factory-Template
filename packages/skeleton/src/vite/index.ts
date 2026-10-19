@@ -27,7 +27,8 @@ export function skeleton({ dir, routes }: SkeletonViteOptions): PluginOption[] {
     {
       name: "skeleton",
       config: () => ({
-        define: { "import.meta.env.LOCALE": JSON.stringify(locale) },
+        // The SPA reads `import.meta.env.LOCALE`; the Worker (its emails) reads `__SKELETON_LOCALE__`.
+        define: { "import.meta.env.LOCALE": JSON.stringify(locale), __SKELETON_LOCALE__: JSON.stringify(locale) },
         resolve: { dedupe: ["react", "react-dom", "@tanstack/react-query", "@tanstack/react-router"] },
       }),
     },

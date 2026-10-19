@@ -16,6 +16,7 @@
       "dependsOn": ["^generate"],
       "outputs": [
         "worker-configuration.d.ts",
+        "test/worker/worker-configuration.d.ts",
         "openapi.json",
         "src/gen/**",
         "src/client/routeTree.gen.ts",

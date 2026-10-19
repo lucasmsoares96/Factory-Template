@@ -22,6 +22,7 @@ catalog:
   react: 19.3.1
   react-dom: 19.3.1
   vite: 8.3.4
+  "@tanstack/react-form": 1.33.5
   "@tanstack/react-query": 5.104.4
   "@tanstack/react-router": 1.170.45
   "@tanstack/router-generator": 1.167.45
@@ -42,6 +43,10 @@ catalog:
   "@hono/zod-openapi": 1.6.3
   hono: 4.13.13
   zod: 4.6.7
+  # Auth and email
+  better-auth: 1.7.11
+  react-email: 6.11.3
+  resend: 6.34.1
   # Contract → client (Kubb 5: adapter-oas replaces v4's plugin-oas)
   "@faker-js/faker": 10.6.0
   "@kubb/adapter-oas": 5.11.1
@@ -101,6 +106,14 @@ minimumReleaseAgeExclude:
   - kubb@5.11.1
   - shadcn@4.22.1
   - unplugin-kubb@5.11.1
+  - "@better-auth/core@1.7.11"
+  - "@better-auth/drizzle-adapter@1.7.11"
+  - "@better-auth/kysely-adapter@1.7.11"
+  - "@better-auth/memory-adapter@1.7.11"
+  - "@better-auth/mongo-adapter@1.7.11"
+  - "@better-auth/prisma-adapter@1.7.11"
+  - "@better-auth/telemetry@1.7.11"
+  - better-auth@1.7.11
 
 # Dependencies allowed to run install scripts (pnpm fails on any other).
 allowBuilds:

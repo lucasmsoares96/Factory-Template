@@ -13,14 +13,20 @@ export function createDatabase(databaseUrl: string) {
 
 /**
  * One client per request, as Workers require: sockets cannot outlive the
- * request that opened them. The connection closes after the response.
+ * request that opened them. `c.var.defer(task)` runs work after the response
+ * (`waitUntil`); the connection closes once the response and every deferred
+ * task are done.
  */
 export const database = createMiddleware<SkeletonEnv>(async (c, next) => {
   const db = createDatabase(c.env.DATABASE_URL);
+  const deferred: Promise<unknown>[] = [];
   c.set("db", db);
+  c.set("defer", (task) => {
+    deferred.push(task.catch((error: unknown) => console.error("Deferred task failed:", error)));
+  });
   try {
     await next();
   } finally {
-    c.executionCtx.waitUntil(db.$client.end());
+    c.executionCtx.waitUntil(Promise.allSettled(deferred).then(() => db.$client.end()));
   }
 });
