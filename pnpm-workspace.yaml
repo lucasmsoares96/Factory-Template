@@ -7,6 +7,8 @@ packages:
 # and the official docs on the date recorded in the ticket that added it.
 catalog:
   # Tooling
+  "@clack/prompts": 1.8.1
+  neonctl: 8.8.0
   "@types/node": 24.19.2
   oxlint: 1.88.0
   turbo: 2.11.9
