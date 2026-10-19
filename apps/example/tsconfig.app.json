@@ -5,5 +5,5 @@
     "jsx": "react-jsx",
     "types": ["vite/client"]
   },
-  "include": ["src/client", "src/gen"]
+  "include": ["src/client", "src/features/*/routes", "src/features/*/public", "src/gen", "product.config.ts"]
 }

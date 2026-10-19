@@ -5,15 +5,17 @@ import type { VirtualRouteNode } from "@tanstack/virtual-file-routes";
 import react from "@vitejs/plugin-react";
 import type { PluginOption } from "vite";
 import { resolveLocale } from "../i18n/index.ts";
-import { PRODUCT_ROUTE_TREE, routerConfig } from "./router.ts";
+import { PRODUCT_ROUTE_TREE, featureRoutes, routerConfig } from "./router.ts";
 
-export { PRODUCT_ROUTE_TREE, routerConfig, type SpaLayout } from "./router.ts";
+export { PRODUCT_ROUTE_TREE, featureRoutes, routerConfig, type SpaLayout } from "./router.ts";
 
 export type SkeletonViteOptions = {
   /** The Product's directory (`import.meta.dirname` in its vite.config.ts). */
   dir: string;
-  /** The Product's own feature routes, each mounted by `physical()`. */
+  /** More signed-in routes than the features' `routes/` folders, each mounted by `physical()`. */
   routes?: VirtualRouteNode[];
+  /** More public routes than the features' `public/` folders. */
+  publicRoutes?: VirtualRouteNode[];
 };
 
 /**
@@ -21,8 +23,9 @@ export type SkeletonViteOptions = {
  * `skeleton generate`), React, Tailwind (shadcn) and Cloudflare (the Worker and
  * its Static Assets). The `LOCALE` build variable picks the SPA's language.
  */
-export function skeleton({ dir, routes }: SkeletonViteOptions): PluginOption[] {
+export function skeleton({ dir, routes = [], publicRoutes = [] }: SkeletonViteOptions): PluginOption[] {
   const locale = resolveLocale(process.env.LOCALE);
+  const fromFeatures = featureRoutes(dir);
   return [
     {
       name: "skeleton",
@@ -32,7 +35,14 @@ export function skeleton({ dir, routes }: SkeletonViteOptions): PluginOption[] {
         resolve: { dedupe: ["react", "react-dom", "@tanstack/react-query", "@tanstack/react-router"] },
       }),
     },
-    tanstackRouter(routerConfig({ dir, routeTree: PRODUCT_ROUTE_TREE, routes })),
+    tanstackRouter(
+      routerConfig({
+        dir,
+        routeTree: PRODUCT_ROUTE_TREE,
+        routes: [...fromFeatures.routes, ...routes],
+        publicRoutes: [...fromFeatures.publicRoutes, ...publicRoutes],
+      }),
+    ),
     react(),
     tailwindcss(),
     cloudflare(),
