@@ -1,0 +1,33 @@
+{
+  "name": "@workspace/skeleton",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./drizzle": "./src/db/drizzle-config.ts",
+    "./node": "./src/node/index.ts"
+  },
+  "bin": {
+    "skeleton": "./bin/skeleton.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "oxlint && node bin/skeleton.ts migrations check-published",
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate"
+  },
+  "dependencies": {
+    "@hono/zod-openapi": "catalog:",
+    "drizzle-kit": "catalog:",
+    "drizzle-orm": "catalog:",
+    "hono": "catalog:",
+    "pg": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@types/pg": "catalog:",
+    "vitest": "catalog:",
+    "wrangler": "catalog:"
+  }
+}
