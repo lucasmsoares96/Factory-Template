@@ -8,6 +8,7 @@ export const PROTECTED_PATHS = [
   ".github/workflows/",
   ".agents/skills",
   ".claude/skills",
+  ".claude/hooks",
   "skills-lock.json",
   ".claude/settings.json",
   ".mcp.json",

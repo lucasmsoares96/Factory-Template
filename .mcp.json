@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "cloudflare-docs": {
+      "type": "http",
+      "url": "https://docs.mcp.cloudflare.com/mcp"
+    },
+    "shadcn": {
+      "command": "npx",
+      "args": ["shadcn@4.22.1", "mcp"]
+    }
+  }
+}
