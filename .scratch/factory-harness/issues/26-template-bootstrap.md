@@ -16,3 +16,8 @@ Como alguém que copia o template chega a uma Factory e um Skeleton funcionando,
 - **Forma**: um script interativo (`pnpm bootstrap`), uma checklist, ou os dois; idempotente e reexecutável; onde guarda o estado.
 - **Verificação**: como o bootstrap prova que acabou (primeiro deploy, preview de um PR de teste, uma issue de exemplo que a Factory resolve).
 - **Renomear o produto**: nome do Worker, do banco e do pacote, a partir de uma variável só.
+- **Novos pontos de [Lista final de arquivos de harness](25-harness-files.md)**:
+  - labels da tabela "Factory labels" de `docs/agents/triage-labels.md` (`in-progress`, `agent:explore`, `harness-change`), além das de triage;
+  - pacote da imagem no GHCR: o primeiro push cria o pacote; conferir se ele fica ligado ao repo e com a visibilidade do repo, e se os jobs leem com `packages: read`;
+  - `.mcp.json` sem segredo, então o bootstrap não cria token de MCP;
+  - remover a nota "Issues live in `lucasmsoares96/Factory-Template`": o `AGENTS.md` e o `issue-tracker.md` já saem genéricos.
