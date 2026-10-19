@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { cloudflareTokenUrl } from "../../src/bootstrap/common.ts";
 import { TOKEN, staticLabelNames, world } from "./helpers.ts";
 
 describe("pnpm bootstrap (common part)", () => {
@@ -17,6 +18,13 @@ describe("pnpm bootstrap (common part)", () => {
       expect(label.color).toMatch(/^[0-9a-f]{6}$/);
       expect(label.description.length).toBeGreaterThan(0);
     }
+  });
+
+  it("the token template asks for Workers and KV, and no R2 (out of scope)", () => {
+    const keys = decodeURIComponent(cloudflareTokenUrl());
+    expect(keys).toContain("workers_scripts");
+    expect(keys).toContain("workers_kv_storage");
+    expect(keys).not.toContain("workers_r2");
   });
 
   it("points at the token template URL and never prints the token", async () => {

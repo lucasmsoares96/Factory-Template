@@ -9,7 +9,6 @@ export function cloudflareTokenUrl(): string {
   const permissions = [
     { key: "workers_scripts", type: "edit" },
     { key: "workers_kv_storage", type: "edit" },
-    { key: "workers_r2", type: "edit" },
     { key: "account_settings", type: "read" },
   ];
   return `https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=${encodeURIComponent(JSON.stringify(permissions))}&name=${encodeURIComponent("Factory Template (Edit Cloudflare Workers)")}`;
