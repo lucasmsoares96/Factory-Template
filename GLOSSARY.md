@@ -19,7 +19,7 @@ The first product built on the Skeleton, a project-management application kept i
 _Avoid_: Demo, sample app
 
 **Skeleton**:
-The application base shipped with the template: the stack wired end to end, with sign-up, Company creation, deploy and tests working. Every product, the Reference App included, is built on top of it. Built by the factory itself, as its acceptance test.
+The application base shipped with the template: the stack wired end to end, with sign-up, Company creation, deploy and tests working. Every product, the Reference App included, is built on top of it. Its foundation, including sign-up and sign-in, is built by hand; the rest (account, Companies, Invitations) is built by the factory itself, as its acceptance test.
 _Avoid_: Boilerplate, base app
 
 **Stage**:

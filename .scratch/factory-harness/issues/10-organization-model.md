@@ -71,3 +71,7 @@ Ninguém altera a própria role.
 - Senha e troca de senha: [Trocas na stack](13-stack-swaps.md).
 
 Vocabulário registrado em `GLOSSARY.md`: Company, Member, Owner, Manager, Employee, Invitation, Team.
+
+## Revisão
+
+No Skeleton, que só tem Owner e Employee, o antigo Owner vira **Employee** na transferência de posse. Decidido em [Fronteira entre a base e o backlog da Factory](29-base-vs-factory-backlog.md).
