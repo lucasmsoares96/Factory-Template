@@ -1,9 +1,9 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
+import { cp, mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
-import { afterEach } from "vitest";
+import { afterAll, afterEach } from "vitest";
 import { FakeAgent, type AgentStep } from "../src/adapters/fake/fake-agent.ts";
 import { FakeCodeHost, type FakePullRequestSeed } from "../src/adapters/fake/fake-code-host.ts";
 import { FakeTracker, type FakeIssueInput } from "../src/adapters/fake/fake-tracker.ts";
@@ -57,31 +57,57 @@ export async function git(cwd: string, ...args: string[]): Promise<string> {
   return (await exec("git", args, { cwd })).stdout.trim();
 }
 
-/** A repo with one commit on `main`; `src/app.ts` has 30 numbered lines. */
-export async function createRepo(): Promise<string> {
-  const dir = await tempDir("factory-repo-");
-  await git(dir, "init", "--quiet", "--initial-branch=main");
+/**
+ * Fixture repos are built once per test file and copied with `fs.cp`:
+ * spawning git is the slow part of these tests (hundreds of ms per call on a
+ * loaded machine), so each test starts from a copy instead of init + commit + clone.
+ */
+let template: Promise<string> | null = null;
+
+/** An origin with one commit on `main` (`src/app.ts` has 30 numbered lines) and a clone of it. */
+async function buildTemplate(): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "factory-template-"));
+  const origin = join(root, "origin");
+  await mkdir(join(origin, "src"), { recursive: true });
   const lines = Array.from({ length: 30 }, (_, i) => `export const line${i + 1} = ${i + 1};`);
-  await mkdir(join(dir, "src"), { recursive: true });
-  await writeFile(join(dir, "src/app.ts"), lines.join("\n") + "\n");
-  await writeFile(join(dir, ".gitignore"), "test-results/\n");
-  await git(dir, "add", ".");
-  await git(dir, "commit", "--quiet", "-m", "chore: initial commit");
-  return dir;
+  await writeFile(join(origin, "src/app.ts"), lines.join("\n") + "\n");
+  await writeFile(join(origin, ".gitignore"), "test-results/\n");
+  await git(origin, "init", "--quiet", "--initial-branch=main");
+  await git(origin, "add", ".");
+  await git(origin, "commit", "--quiet", "-m", "chore: initial commit");
+  await git(root, "clone", "--quiet", origin, "clone");
+  return join(root, "clone");
 }
 
-/** A second working copy of `origin`, like the checkout of another job. */
-export async function cloneRepo(origin: string): Promise<string> {
-  const dir = await tempDir("factory-clone-");
-  await git(dir, "clone", "--quiet", origin, ".");
+afterAll(async () => {
+  if (template) await rm(dirname(await template), { recursive: true, force: true });
+  template = null;
+});
+
+/**
+ * A working copy of the fixture repo, like the checkout of one job: `main`
+ * with one commit, `src/app.ts` with 30 numbered lines. Every checkout of a
+ * test file shares that first commit, so bundles move between them.
+ */
+export async function checkout(): Promise<string> {
+  template ??= buildTemplate();
+  const dir = await tempDir("factory-repo-");
+  await cp(await template, dir, { recursive: true });
   return dir;
 }
 
 /** Writes `path` in the repo and commits it, as an agent session would. */
 export async function commitFile(cwd: string, path: string, content: string, message: string): Promise<void> {
-  await mkdir(dirname(join(cwd, path)), { recursive: true });
-  await writeFile(join(cwd, path), content);
-  await git(cwd, "add", path);
+  await commitFiles(cwd, { [path]: content }, message);
+}
+
+/** Writes every file and commits them together. */
+export async function commitFiles(cwd: string, files: Record<string, string>, message: string): Promise<void> {
+  for (const [path, content] of Object.entries(files)) {
+    await mkdir(dirname(join(cwd, path)), { recursive: true });
+    await writeFile(join(cwd, path), content);
+  }
+  await git(cwd, "add", "--", ...Object.keys(files));
   await git(cwd, "commit", "--quiet", "-m", message);
 }
 
