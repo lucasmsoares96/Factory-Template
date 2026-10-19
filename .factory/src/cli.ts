@@ -3,9 +3,12 @@ import { parseArgs } from "node:util";
 import { adaptersFromEnv } from "./adapters/index.ts";
 import { claim } from "./commands/claim.ts";
 import type { Adapters, CommandContext } from "./commands/context.ts";
+import { CLAUDE_AUTH, local } from "./commands/local.ts";
 import { publish } from "./commands/publish.ts";
 import { work } from "./commands/work.ts";
 import { loadConfig, type FactoryConfig } from "./config.ts";
+import { DockerContainerRunner, type ContainerRunner } from "./local/container.ts";
+import { dockerCli } from "./local/docker.ts";
 
 export interface FactoryDeps {
   env: Record<string, string | undefined>;
@@ -14,6 +17,8 @@ export interface FactoryDeps {
   adapters: (input: { config: FactoryConfig; repo: string }) => Adapters;
   /** Clock in milliseconds; defaults to `Date.now`. */
   now?: () => number;
+  /** Where `local` runs the work job; defaults to a Docker container. */
+  container?: (config: FactoryConfig) => ContainerRunner;
 }
 
 const USAGE = `Usage: pnpm factory <command> [options]
@@ -26,6 +31,10 @@ Commands:
   publish <issue> --in <dir> [--repo <dir>] [--start-sha <sha>] [--run-url <url>] [--pr <n>]
                                          Re-check the forge, validate result.json, push with a lease, then open the
                                          PR with review and evidence, or escalate. --pr: the run continues PR <n>.
+  local <issue> [--issues <dir>] [--repo <dir>]
+                                         The issue flow on this machine for a Markdown ticket
+                                         (.scratch/<feature>/issues/NN-*.md): claim and publish here, work in a
+                                         throwaway Docker container. Needs CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY.
   help                                   Show this message.
 
 Settings come from .factory/src/config.ts and FACTORY_* variables.`;
@@ -37,7 +46,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
     deps.log(USAGE);
     return command === undefined ? 1 : 0;
   }
-  if (!["claim", "work", "publish"].includes(command)) {
+  if (!["claim", "work", "publish", "local"].includes(command)) {
     deps.log(`Unknown command: ${command}\n\n${USAGE}`);
     return 1;
   }
@@ -53,20 +62,35 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
       event: { type: "string" },
       "run-url": { type: "string" },
       pr: { type: "string" },
+      issues: { type: "string" },
     },
   });
   const issue = parseIssue(positionals[0]);
-  const config = loadConfig(deps.env);
   const summaryFile = deps.env.GITHUB_STEP_SUMMARY;
-  const ctx: CommandContext = {
-    ...deps.adapters({ config, repo: values.repo }),
+  const base = (config: FactoryConfig) => ({
     config,
     log: deps.log,
     now: deps.now ?? Date.now,
-    stepSummary: async (markdown) => {
+    stepSummary: async (markdown: string) => {
       if (summaryFile) await appendFile(summaryFile, `${markdown}\n`);
     },
-  };
+  });
+
+  if (command === "local") {
+    if (!CLAUDE_AUTH.some((key) => deps.env[key])) {
+      throw new Error("`factory local` needs Claude's auth: set CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`) or ANTHROPIC_API_KEY.");
+    }
+    // Locally the Factory writes as `factory` unless a machine user is set.
+    const env = { ...deps.env, FACTORY_MACHINE_USER: deps.env.FACTORY_MACHINE_USER || "factory" };
+    const config = loadConfig(env);
+    const container = deps.container?.(config) ?? new DockerContainerRunner({ docker: dockerCli, config, log: deps.log });
+    const result = await local(base(config), issue, { repo: values.repo, issues: values.issues ?? null, container, env });
+    deps.log(JSON.stringify(result));
+    return 0;
+  }
+
+  const config = loadConfig(deps.env);
+  const ctx: CommandContext = { ...deps.adapters({ config, repo: values.repo }), ...base(config) };
 
   switch (command) {
     case "claim":
