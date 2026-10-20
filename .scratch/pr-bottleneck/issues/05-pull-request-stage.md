@@ -36,3 +36,6 @@ Medido com Claude real (2026-10-20, `pnpm factory local`, Opus 5.5):
 - Issue do Skeleton (frase de boas-vindas na tela de login): `ready` na 1ª tentativa, 2 commits, US$ 4,66. O Pull Request Stage escreveu o corpo com a skill `pr`: Summary com diffs de árvore de componentes e de chaves do i18n, Evidence com o teste antes/depois e o print, Merge Danger (two-way, blast radius pequeno). O `publish` pôs o `Closes #1` no fim.
 - Defeito achado e corrigido: o corpo trazia a linha "🤖 Generated with Claude Code", que o modelo da skill `pr` manda acrescentar. O prompt agora a proíbe e o `publish` a remove (com `Co-Authored-By`), com teste.
 - Retomada de extração: não exercitada com Claude real. A Review e o Pull Request Stage entregaram o bloco na primeira resposta (nenhuma sessão `-resume`). Não dá para forçar o modelo a esquecer o bloco; a retomada segue coberta pelo teste do adaptador do Sandcastle com um `claude` falso.
+
+
+Merge (2026-10-20): mesmo caso do ticket 24 da base: o `verify` completo fica com o CI do PR.
