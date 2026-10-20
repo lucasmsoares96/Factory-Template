@@ -287,6 +287,18 @@ describe("factory publish: protected and harness paths", () => {
     expect(warning).not.toContain("src/greet.ts");
   });
 
+  it("labels a PR that changes only CODING_STANDARDS.md as harness-change, with the warning", async () => {
+    const touch: AgentStep = async (call) => {
+      await develop(call);
+      await commitFiles(call.cwd, { "CODING_STANDARDS.md": "# Coding Standards\n" }, "docs: add a rule #7");
+    };
+    const { w } = await pipeline({ agent: { development: [touch], review: [review] }, verify: [{ ok: true }] });
+
+    const pr = w.codeHost.pr(101);
+    expect(pr.labels).toEqual(["harness-change"]);
+    expect(pr.body.split("\n\n")[0]).toMatch(/^> \[!CAUTION\][\s\S]*`CODING_STANDARDS.md`/);
+  });
+
   it("does not label an ordinary change", async () => {
     const { w } = await pipeline({ agent: { development: [develop], review: [review] }, verify: [{ ok: true }] });
 
