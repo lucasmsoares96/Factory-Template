@@ -5,6 +5,7 @@
   "scripts": {
     "factory": "node src/cli.ts",
     "test": "vitest run",
+    "lint": "oxlint",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
