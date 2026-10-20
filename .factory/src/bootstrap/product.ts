@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { NeonClient, NeonProject, RulesetInfo, RulesetSpec } from "./clients.ts";
 import { passwordProblem } from "../../../packages/skeleton/src/platform/password-rules.ts";
 import { accountNames } from "./accounts.ts";
-import { domainSteps, productionEnvironment, productSecretName, secretScope } from "./domain.ts";
+import { resendSteps, productionEnvironment, productSecretName, secretScope } from "./domain.ts";
 import type { ProductIdentity, Step, StepContext } from "./steps.ts";
 
 export const DEPLOY_PRODUCTS = "DEPLOY_PRODUCTS";
@@ -314,7 +314,7 @@ export function productionSteps(product: ProductIdentity): Step[] {
     databaseSecretsStep(product),
     authSecretStep(product),
     defaultAccountStep(product),
-    ...domainSteps(product),
+    ...resendSteps(product),
     mainRulesetStep(),
     deployProductsStep(product),
   ];

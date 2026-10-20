@@ -2,13 +2,14 @@ import { describe, expect, it } from "vitest";
 import { labelSpecs } from "../../src/bootstrap/labels.ts";
 import { TOKEN, world } from "./helpers.ts";
 
-const ENV = { CLOUDFLARE_API_TOKEN: TOKEN, CLOUDFLARE_ACCOUNT_ID: "acc-1", RESEND_API_KEY: "re-full" };
+const ENV = { CLOUDFLARE_API_TOKEN: TOKEN, CLOUDFLARE_ACCOUNT_ID: "acc-1" };
 
 const ADMIN = "Admin@Example.com";
 const PASSWORD = "admin password 123";
 
 function productWorld(answers: Record<string, string | boolean | string[]> = {}, env: Record<string, string | undefined> = ENV) {
-  const w = world({ "resend-domain-action": "skip", "default-account-email": ADMIN, "default-account-password": PASSWORD, "default-account-password-confirm": PASSWORD, ...answers }, env);
+  const w = world({ "resend-setup": "skip", "default-account-email": ADMIN, "default-account-password": PASSWORD, "default-account-password-confirm": PASSWORD, ...answers }, env);
+  w.deps.interactive = true;
   w.github.secrets.set("CLOUDFLARE_API_TOKEN", TOKEN);
   w.github.secrets.set("CLOUDFLARE_ACCOUNT_ID", "acc-1");
   w.cloudflare.subdomains.set("acc-1", "my-team");
@@ -269,11 +270,27 @@ describe("pnpm bootstrap product: Production module", () => {
     expect(code).toBe(0);
     expect(output).toContain("Resend domain deferred");
     expect(w.resend.domains).toEqual([]);
+    expect(w.prompter.asked).toContain("resend-setup");
+    expect(w.prompter.asked).not.toContain("resend-key");
     expect(w.github.environmentSecrets.get("example-production")?.has("EXAMPLE_RESEND_API_KEY")).toBe(false);
   });
 
+  it("with every optional answer skipped: one Resend decision, no Resend key, no Cloudflare token, no worker-domain, doctor green", async () => {
+    const w = productWorld({ "resend-setup": "skip" }, {});
+    w.cloudflare.zones.push({ id: "zone-1", name: "example.com" });
+
+    const { code, output } = await w.run("product", "example");
+
+    expect(code).toBe(0);
+    expect(w.prompter.asked.filter((id) => id === "resend-setup")).toHaveLength(1);
+    expect(w.prompter.asked).not.toContain("resend-key");
+    expect(w.prompter.asked.filter((id) => id === "cloudflare-token")).toHaveLength(1); // the common part's, once
+    expect(output).not.toContain("Worker Custom Domain: running");
+    expect(output.trimEnd().split("\n").pop()).toBe("After the first deploy, attach the domain with: pnpm bootstrap domain example --redo worker-domain");
+  });
+
   it("stores the restricted Resend key in the environment when the domain is created", async () => {
-    const w = productWorld({ "resend-domain-action": "create" });
+    const w = productWorld({ "resend-setup": "now", "resend-key": "re-full" });
     w.cloudflare.zones.push({ id: "zone-1", name: "example.com" });
 
     await w.run("product", "example");
@@ -297,6 +314,7 @@ describe("pnpm bootstrap doctor <id>: Production section", () => {
   it("is read-only and passes after the module ran", async () => {
     const w = productWorld();
     await w.run("product", "example");
+    w.deps.interactive = false;
     const before = counts(w);
 
     const { code, output } = await w.run("doctor", "example");
@@ -311,6 +329,7 @@ describe("pnpm bootstrap doctor <id>: Production section", () => {
     const w = productWorld();
     w.github.refuseEnvironments = true;
     await w.run("product", "example");
+    w.deps.interactive = false;
 
     const { code, output } = await w.run("doctor", "example");
 

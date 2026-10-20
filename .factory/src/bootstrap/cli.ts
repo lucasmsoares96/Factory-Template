@@ -76,7 +76,9 @@ export async function runBootstrap(argv: string[], deps: BootstrapDeps): Promise
     const memory: StepContext["memory"] = {};
     try {
       await runSteps(productionSteps(product), { ...deps, memory }, values.redo ?? []);
-      return await finish(deps, productId, memory, { production: true }, true);
+      const code = await finish(deps, productId, memory, { production: true }, true);
+      deps.log(`After the first deploy, attach the domain with: pnpm bootstrap domain ${productId} --redo worker-domain`);
+      return code;
     } finally {
       await memory.neon?.close();
     }
