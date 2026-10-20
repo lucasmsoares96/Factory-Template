@@ -12,6 +12,9 @@ function answer<T>(value: T | symbol): T {
 /** The interactive prompts of `@clack/prompts`. */
 export const clackPrompter: Prompter = {
   note: (message) => clack.note(message),
+  link: (message, url) => {
+    process.stdout.write(`\n${message}\n${url}\n\n`);
+  },
   text: async ({ message, initial }) => String(answer(await clack.text({ message, ...(initial === undefined ? {} : { initialValue: initial }) }))),
   password: async ({ message }) => String(answer(await clack.password({ message }))),
   select: async ({ message, options }) =>

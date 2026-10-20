@@ -4,8 +4,13 @@ import { labelSpecs } from "./labels.ts";
 const TOKEN_SECRET = "CLOUDFLARE_API_TOKEN";
 const ACCOUNT_SECRET = "CLOUDFLARE_ACCOUNT_ID";
 
-/** The "Edit Cloudflare Workers" permissions as a token template URL (the token itself can only be made in the dashboard). */
-export function cloudflareTokenUrl(): string {
+/**
+ * The "Edit Cloudflare Workers" permissions as a token template URL (the token itself can only be made in the dashboard).
+ * With an account id: the direct create page. Without: the documented account-picker redirect (`?to=/:account/api-tokens`;
+ * `:account` is a literal placeholder Cloudflare resolves). Everything is percent-encoded exactly once.
+ * Docs checked 2026-10-20: developers.cloudflare.com/fundamentals/api/how-to/account-owned-token-template/ (updated 2025-01-14).
+ */
+export function cloudflareTokenUrl(accountId?: string): string {
   const permissions = [
     { key: "workers_scripts", type: "edit" },
     { key: "workers_kv_storage", type: "edit" },
@@ -15,7 +20,13 @@ export function cloudflareTokenUrl(): string {
     { key: "zone", type: "read" },
     { key: "workers_routes", type: "edit" },
   ];
-  return `https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=${encodeURIComponent(JSON.stringify(permissions))}&name=${encodeURIComponent("Factory Template (Edit Cloudflare Workers)")}`;
+  const query = new URLSearchParams({
+    permissionGroupKeys: JSON.stringify(permissions),
+    name: "Factory Template (Edit Cloudflare Workers)",
+  }).toString();
+  return accountId
+    ? `https://dash.cloudflare.com/${encodeURIComponent(accountId)}/api-tokens/create?${query}`
+    : `https://dash.cloudflare.com/?to=/:account/api-tokens&${query}`;
 }
 
 /** The token of this run: memory, then the environment. Never prompts. */
@@ -48,7 +59,8 @@ export const cloudflareToken: Step = {
     return { done: secrets.includes(TOKEN_SECRET) && secrets.includes(ACCOUNT_SECRET) };
   },
   async run(ctx) {
-    ctx.prompter.note(`Create the API token from the "Edit Cloudflare Workers" template:\n${cloudflareTokenUrl()}`);
+    const known = ctx.memory.accountId ?? (ctx.env.CLOUDFLARE_ACCOUNT_ID || undefined);
+    ctx.prompter.link('Create the API token from the "Edit Cloudflare Workers" template:', cloudflareTokenUrl(known));
     const token = (await ctx.prompter.password({ id: "cloudflare-token", message: "Paste the Cloudflare API token" })).trim();
     ctx.memory.cloudflareToken = token;
     delete ctx.memory.accountId;

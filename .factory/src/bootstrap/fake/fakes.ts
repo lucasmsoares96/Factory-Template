@@ -177,7 +177,11 @@ export class FakeResend {
 /** Scripted answers by prompt id; asking for one that was not scripted fails the test. */
 export class FakePrompter implements Prompter {
   readonly asked: string[] = [];
+  /** Messages through `note`: framed and wrapped at `columns`, like clack does. */
   readonly notes: string[] = [];
+  /** Lines through `link`: written verbatim, one per entry. */
+  readonly printed: string[] = [];
+  columns = 80;
   private readonly answers: Record<string, string | boolean>;
 
   constructor(answers: Record<string, string | boolean>) {
@@ -185,7 +189,12 @@ export class FakePrompter implements Prompter {
   }
 
   note(message: string): void {
-    this.notes.push(message);
+    const width = Math.max(10, this.columns - 6);
+    const wrapped = message.split("\n").flatMap((line) => line.match(new RegExp(`.{1,${width}}`, "g")) ?? [""]);
+    this.notes.push(wrapped.map((l) => `| ${l}`).join("\n"));
+  }
+  link(message: string, url: string): void {
+    this.printed.push(message, url);
   }
   private answer(id: string): string | boolean {
     this.asked.push(id);
