@@ -217,6 +217,31 @@ describe.each([[WORKFLOWS_DIR]])("deploy workflow in %s", (dir) => {
   it("never runs concurrent deploys of one branch into each other", () => {
     expect(deploy).toMatchObject({ concurrency: { "cancel-in-progress": false } });
   });
+
+  it("calls wrangler from the package that depends on it, not from the root (where it is not installed)", () => {
+    const script = runs(jobs.deploy!).join("\n");
+    expect(script).not.toMatch(/(^|\s)pnpm exec wrangler/m);
+    expect(script).toMatch(/pnpm --filter @factory\/harness exec wrangler deploy/);
+    expect(JSON.parse(readFileSync(join(repo, ".factory/package.json"), "utf8")).devDependencies.wrangler).toBeDefined();
+  });
+});
+
+describe.each([[WORKFLOWS_DIR]])("binaries the workflows in %s run", (dir) => {
+  const { allJobs } = checkWorkflows(dir);
+  // `pnpm exec <bin>` at the root only finds binaries the root package depends on: a bin of a workspace
+  // package must be run with `pnpm --filter <package> exec <bin>`.
+  it("every root `pnpm exec <bin>` is a dependency of the root package", () => {
+    const root = JSON.parse(readFileSync(join(repo, "package.json"), "utf8"));
+    const rootDeps = new Set(Object.keys({ ...root.dependencies, ...root.devDependencies }));
+    const offenders: string[] = [];
+    for (const { file, id, job } of allJobs) {
+      for (const line of runs(job).join("\n").split("\n")) {
+        const match = /(?:^|[\s;&|(])pnpm exec ([\w@/.-]+)/.exec(line);
+        if (match && !rootDeps.has(match[1]!)) offenders.push(`${file} ${id}: ${match[1]}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
 });
 
 describe("workflow files", () => {
