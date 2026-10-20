@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { NeonClient, NeonProject, RulesetInfo, RulesetSpec } from "./clients.ts";
 import { passwordProblem } from "../../../packages/skeleton/src/platform/password-rules.ts";
-import { generatePassword, smokeEmail, smokeNames } from "./accounts.ts";
+import { accountNames } from "./accounts.ts";
 import { domainSteps, productionEnvironment, productSecretName, secretScope } from "./domain.ts";
 import type { ProductIdentity, Step, StepContext } from "./steps.ts";
 
@@ -207,7 +207,7 @@ const PASSWORD_ATTEMPTS = 3;
 /** Asks twice (hidden) and applies the sign-up's password rules. The answer lives in the caller's frame only. */
 async function askPassword(ctx: StepContext, id: string): Promise<string> {
   for (let attempt = 1; attempt <= PASSWORD_ATTEMPTS; attempt++) {
-    const password = await ctx.prompter.password({ id, message: "Password of the default account (hidden, never stored)" });
+    const password = await ctx.prompter.password({ id, message: "Password of the default account (hidden; kept only as the deploy secret)" });
     const problem = passwordProblem(password);
     if (problem) ctx.log(`  ${problem}`);
     else if ((await ctx.prompter.password({ id: `${id}-confirm`, message: "Type it again" })) === password) return password;
@@ -219,51 +219,38 @@ async function askPassword(ctx: StepContext, id: string): Promise<string> {
 /** The email the person types for the default account. */
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/**
+ * The Product's one account: the person's own, and the one the production smoke signs in as. The email and password are
+ * typed by the person; the password goes only to the user row (hashed) and to the secret `<ID>_ACCOUNT_PASSWORD`.
+ */
 export function defaultAccountStep(product: ProductIdentity): Step {
-  const smoke = smokeEmail(product.id, product.domain);
+  const { password: passwordName, email: emailName } = accountNames(product.id);
   return {
     id: "default-account",
-    title: `Default account in the ${product.id} production database (the app can be entered without signing up)`,
+    title: `Default account in the ${product.id} production database (${passwordName}, ${emailName}; the app and the smoke sign in as it)`,
     async check(ctx) {
-      // Done when anyone besides the smoke account can already enter; telling that needs the database, so Neon is asked.
+      const email = (await ctx.github.listVariables())[emailName];
+      if (!email || (await missingSecrets(ctx, product.id, [passwordName])).length > 0) return { done: false };
+      // Done when that verified user exists; telling that needs the database, so Neon is asked.
       const url = await productionDatabaseUrl(ctx, product, true);
-      return { done: url ? await ctx.accounts.hasVerifiedUserOtherThan(url, smoke) : false };
+      return { done: url ? await ctx.accounts.verifiedUserExists(url, email) : false, detail: email };
     },
     async run(ctx) {
       const url = await requireDatabaseUrl(ctx, product);
       const email = (await ctx.prompter.text({ id: "default-account-email", message: "Email of the default account (created already verified)" })).trim().toLowerCase();
       if (!EMAIL.test(email)) throw new Error(`"${email}" is not an email.`);
-      if (!ctx.redo?.includes("default-account") && (await ctx.accounts.userExists(url, email))) {
-        return ctx.log(`  ${email} already exists: left alone (--redo default-account resets its password).`);
-      }
+      const redo = ctx.redo?.includes("default-account") === true;
+      const exists = !redo && (await ctx.accounts.verifiedUserExists(url, email));
       const password = await askPassword(ctx, "default-account-password");
-      const result = await createAccount(ctx, url, product, { email, name: email.split("@")[0]!, password });
-      ctx.log(result === "created" ? `  created ${email}` : `  reset the password of ${email}`);
-    },
-  };
-}
-
-export function smokeAccountStep(product: ProductIdentity): Step {
-  const { password: passwordName, email: emailName } = smokeNames(product.id);
-  const email = smokeEmail(product.id, product.domain);
-  return {
-    id: "smoke-account",
-    title: `Smoke account ${email} (${passwordName}, ${emailName})`,
-    async check(ctx) {
-      const stored = (await missingSecrets(ctx, product.id, [passwordName])).length === 0 && (await ctx.github.listVariables())[emailName] === email;
-      // The forge cannot be read back for the password, so the database is only consulted when this run already holds its URL.
-      const url = ctx.memory.databaseUrl;
-      return { done: stored && (url ? await ctx.accounts.userExists(url, email) : true), detail: email };
-    },
-    async run(ctx) {
-      const url = await requireDatabaseUrl(ctx, product);
-      // The password is never printed or kept: it goes into the database (hashed) and into the secret, once. An account
-      // that exists without a stored secret cannot be signed in to, so it gets a new password.
-      const password = generatePassword();
-      const result = await createAccount(ctx, url, product, { email, name: "Smoke", password });
+      if (exists) {
+        // The user is there but the secret is not: the password just typed is stored as is, the user row is not touched.
+        ctx.log(`  ${email} already exists: its password is stored as ${passwordName}, the user is left alone.`);
+      } else {
+        const result = await createAccount(ctx, url, product, { email, name: email.split("@")[0]!, password });
+        ctx.log(result === "created" ? `  created ${email}` : `  reset the password of ${email}`);
+      }
       await ctx.github.setSecret(passwordName, password, await secretScope(ctx, product.id));
       await ctx.github.setVariable(emailName, email);
-      ctx.log(result === "created" ? `  created ${email}` : `  rotated the password of ${email}`);
     },
   };
 }
@@ -327,7 +314,6 @@ export function productionSteps(product: ProductIdentity): Step[] {
     databaseSecretsStep(product),
     authSecretStep(product),
     defaultAccountStep(product),
-    smokeAccountStep(product),
     ...domainSteps(product),
     mainRulesetStep(),
     deployProductsStep(product),

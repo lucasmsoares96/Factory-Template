@@ -29,7 +29,7 @@ describe("pnpm bootstrap product: Production module", () => {
     expect(w.neon.projects.map((p) => p.name)).toEqual(["example"]);
     expect(w.github.environments.get("example-production")).toBe("main");
     const env = w.github.environmentSecrets.get("example-production")!;
-    expect([...env.keys()].sort()).toEqual(["EXAMPLE_BETTER_AUTH_SECRET", "EXAMPLE_DATABASE_URL", "EXAMPLE_DATABASE_URL_POOLED", "EXAMPLE_SMOKE_PASSWORD"]);
+    expect([...env.keys()].sort()).toEqual(["EXAMPLE_ACCOUNT_PASSWORD", "EXAMPLE_BETTER_AUTH_SECRET", "EXAMPLE_DATABASE_URL", "EXAMPLE_DATABASE_URL_POOLED"]);
     expect(env.get("EXAMPLE_DATABASE_URL")).toContain("neon.tech");
     expect(env.get("EXAMPLE_DATABASE_URL_POOLED")).toContain("-pooler");
     expect(w.github.rulesets.map((r) => r.name)).toEqual(["main"]);
@@ -319,57 +319,45 @@ describe("pnpm bootstrap doctor <id>: Production section", () => {
   });
 });
 
-describe("pnpm bootstrap product: accounts in the production database", () => {
-  const SMOKE = "smoke@example.com";
+describe("pnpm bootstrap product: the account in the production database", () => {
+  const EMAIL = "admin@example.com";
+  const SECRET = "EXAMPLE_ACCOUNT_PASSWORD";
   const url = (w: ReturnType<typeof productWorld>) => [...w.accounts.databases.keys()][0]!;
   const users = (w: ReturnType<typeof productWorld>) => w.accounts.databases.get(url(w))!.users;
-  /** Everything outside the database itself: logs, prompts, the forge (names and values), the variables. */
+  const secrets = (w: ReturnType<typeof productWorld>) => w.github.environmentSecrets.get("example-production")!;
+  /** Everything outside the database itself and the one secret: logs, prompts, the forge, the variables. */
   const outsideTheDatabase = (w: ReturnType<typeof productWorld>) =>
     JSON.stringify([
       everythingShown(w),
       [...w.github.secrets],
-      [...w.github.environmentSecrets].map(([name, m]) => [name, [...m].filter(([secret]) => secret !== "EXAMPLE_SMOKE_PASSWORD")]),
+      [...w.github.environmentSecrets].map(([name, m]) => [name, [...m].filter(([secret]) => secret !== SECRET)]),
       [...w.github.variables],
     ]);
 
-  it("creates the default account (email lower-cased, verified) and a smoke account, migrations first", async () => {
+  it("creates one verified account (email lower-cased), migrations first, and no second one", async () => {
     const w = productWorld();
 
     const { code } = await w.run("product", "example");
 
     expect(code).toBe(0);
-    expect(w.accounts.events).toEqual(["migrate example", "upsert admin@example.com", "migrate example", `upsert ${SMOKE}`]);
-    expect(users(w).get("admin@example.com")).toEqual({ password: PASSWORD, verified: true });
-    expect(users(w).get(SMOKE)?.verified).toBe(true);
-    expect(url(w)).toBe(w.github.environmentSecrets.get("example-production")!.get("EXAMPLE_DATABASE_URL"));
+    expect(w.accounts.events).toEqual(["migrate example", `upsert ${EMAIL}`]);
+    expect([...users(w).keys()]).toEqual([EMAIL]);
+    expect(users(w).get(EMAIL)).toEqual({ password: PASSWORD, verified: true });
+    expect(url(w)).toBe(secrets(w).get("EXAMPLE_DATABASE_URL"));
   });
 
-  it("stores only EXAMPLE_SMOKE_PASSWORD and the EXAMPLE_SMOKE_EMAIL variable; no password appears anywhere but the database", async () => {
+  it("stores the password only as EXAMPLE_ACCOUNT_PASSWORD and the email as a variable; it is never shown or written elsewhere", async () => {
     const w = productWorld();
     await w.run("product", "example");
 
-    const stored = w.github.environmentSecrets.get("example-production")!;
-    expect([...stored.keys()].filter((n) => n.includes("PASSWORD"))).toEqual(["EXAMPLE_SMOKE_PASSWORD"]);
-    expect(stored.get("EXAMPLE_SMOKE_PASSWORD")).toBe(users(w).get(SMOKE)!.password);
-    expect(stored.get("EXAMPLE_SMOKE_PASSWORD")!.length).toBeGreaterThanOrEqual(24);
-    expect(w.github.variables.get("EXAMPLE_SMOKE_EMAIL")).toBe(SMOKE);
-    const shown = JSON.stringify([everythingShown(w), [...w.github.variables], [...w.github.secrets]]);
-    expect(shown).not.toContain(PASSWORD);
-    expect(shown).not.toContain(stored.get("EXAMPLE_SMOKE_PASSWORD"));
-    expect(JSON.stringify([...stored])).not.toContain(PASSWORD);
-    expect(w.github.secretWrites.map((s) => s.name)).not.toContain("EXAMPLE_DEFAULT_PASSWORD");
+    expect([...secrets(w).keys()].filter((n) => n.includes("PASSWORD") || n.includes("SMOKE"))).toEqual([SECRET]);
+    expect(secrets(w).get(SECRET)).toBe(PASSWORD);
+    expect(w.github.variables.get("EXAMPLE_ACCOUNT_EMAIL")).toBe(EMAIL);
+    expect([...w.github.variables.keys()].some((n) => n.includes("SMOKE"))).toBe(false);
+    expect(outsideTheDatabase(w)).not.toContain(PASSWORD);
   });
 
-  it("falls back to smoke@<id>.invalid when the Product has no domain", async () => {
-    const w = productWorld({ "product-domain": "" });
-    w.products.set("example", { ...w.products.get("example")!, domain: "" });
-
-    await w.run("product", "example");
-
-    expect(w.github.variables.get("EXAMPLE_SMOKE_EMAIL")).toBe("smoke@example.invalid");
-  });
-
-  it("does not ask for the default account again on the second run, and writes nothing", async () => {
+  it("creates nothing and asks nothing on the second run", async () => {
     const w = productWorld();
     await w.run("product", "example");
     const before = counts(w);
@@ -380,62 +368,53 @@ describe("pnpm bootstrap product: accounts in the production database", () => {
     expect(code).toBe(0);
     expect(counts(w)).toEqual(before);
     expect(w.prompter.asked.slice(asked)).not.toContain("default-account-password");
+    expect(w.prompter.asked.slice(asked)).not.toContain("default-account-email");
   });
 
-  it("leaves an existing user with the chosen email alone: no password is asked", async () => {
+  it("asks the password once and stores it, without resetting it, when the user exists but the secret is missing", async () => {
     const w = productWorld();
     await w.run("product", "example");
-    // Only the smoke account can enter now (the default one is gone) and "boss" exists but was never verified.
-    users(w).delete("admin@example.com");
-    users(w).set("boss@example.com", { password: "old password 1", verified: false });
-    w.prompter["answers"]["default-account-email"] = "boss@example.com";
-    const before = w.accounts.writes;
+    secrets(w).delete(SECRET);
+    users(w).get(EMAIL)!.password = PASSWORD;
+    const writes = w.accounts.writes;
+    const asked = w.prompter.asked.length;
 
     const { output } = await w.run("product", "example");
 
-    expect(output).toContain("boss@example.com already exists: left alone");
-    expect(w.accounts.writes).toBe(before);
-    expect(users(w).get("boss@example.com")!.password).toBe("old password 1");
+    expect(output).toContain(`${EMAIL} already exists`);
+    expect(w.accounts.writes).toBe(writes);
+    expect(users(w).get(EMAIL)!.password).toBe(PASSWORD);
+    expect(secrets(w).get(SECRET)).toBe(PASSWORD);
+    expect(w.prompter.asked.slice(asked).filter((id) => id === "default-account-password")).toHaveLength(1);
+    expect(outsideTheDatabase(w)).not.toContain(PASSWORD);
   });
 
-  it("--redo default-account asks again and resets that user's password", async () => {
+  it("--redo default-account asks again, resets that user's password and updates the secret", async () => {
     const w = productWorld();
     await w.run("product", "example");
     w.prompter["answers"]["default-account-password"] = "brand new password 9";
     w.prompter["answers"]["default-account-password-confirm"] = "brand new password 9";
-    const smokeBefore = users(w).get(SMOKE)!.password;
 
     const { output } = await w.run("product", "example", "--redo", "default-account");
 
-    expect(output).toContain("reset the password of admin@example.com");
-    expect(users(w).get("admin@example.com")!.password).toBe("brand new password 9");
-    expect(users(w).get(SMOKE)!.password).toBe(smokeBefore);
-    expect(w.accounts.events.slice(-2)).toEqual(["migrate example", "upsert admin@example.com"]);
+    expect(output).toContain(`reset the password of ${EMAIL}`);
+    expect(users(w).get(EMAIL)!.password).toBe("brand new password 9");
+    expect(secrets(w).get(SECRET)).toBe("brand new password 9");
+    expect(w.accounts.events.slice(-2)).toEqual(["migrate example", `upsert ${EMAIL}`]);
     expect(outsideTheDatabase(w)).not.toContain("brand new password 9");
+    expect(outsideTheDatabase(w)).not.toContain(PASSWORD);
   });
 
-  it("--redo smoke-account rotates the password in the database and in the secret", async () => {
+  it("verifies and resets an existing user who never verified", async () => {
     const w = productWorld();
     await w.run("product", "example");
-    const old = users(w).get(SMOKE)!.password;
-
-    const { output } = await w.run("product", "example", "--redo", "smoke-account");
-
-    const fresh = w.github.environmentSecrets.get("example-production")!.get("EXAMPLE_SMOKE_PASSWORD");
-    expect(output).toContain(`rotated the password of ${SMOKE}`);
-    expect(fresh).not.toBe(old);
-    expect(users(w).get(SMOKE)!.password).toBe(fresh);
-    expect(outsideTheDatabase(w)).not.toContain(fresh!);
-  });
-
-  it("rotates a smoke account whose secret was lost (the old password cannot be recovered)", async () => {
-    const w = productWorld();
-    await w.run("product", "example");
-    w.github.environmentSecrets.get("example-production")!.delete("EXAMPLE_SMOKE_PASSWORD");
+    secrets(w).delete(SECRET);
+    users(w).set(EMAIL, { password: "old password 1", verified: false });
 
     await w.run("product", "example");
 
-    expect(users(w).get(SMOKE)!.password).toBe(w.github.environmentSecrets.get("example-production")!.get("EXAMPLE_SMOKE_PASSWORD"));
+    expect(users(w).get(EMAIL)).toEqual({ password: PASSWORD, verified: true });
+    expect(secrets(w).get(SECRET)).toBe(PASSWORD);
   });
 
   it("applies the sign-up's password rules and asks again; a mismatch is asked again too", async () => {
@@ -449,30 +428,31 @@ describe("pnpm bootstrap product: accounts in the production database", () => {
     expect(code).toBe(0);
     expect(output).toContain("at least 8 characters");
     expect(output).toContain("The two passwords differ");
-    expect(users(w).get("admin@example.com")!.password).toBe("long enough pass");
+    expect(users(w).get(EMAIL)!.password).toBe("long enough pass");
   });
 
-  it("gives up after three invalid passwords and writes no user", async () => {
+  it("gives up after three invalid passwords and writes no user and no secret", async () => {
     const w = productWorld({ "default-account-password": "short" });
 
     await expect(w.run("product", "example")).rejects.toThrow("No valid password");
 
-    expect([...(w.accounts.databases.values())].flatMap((d) => [...d.users.keys()])).toEqual([]);
+    expect([...w.accounts.databases.values()].flatMap((d) => [...d.users.keys()])).toEqual([]);
+    expect(w.github.secretWrites.map((s) => s.name)).not.toContain(SECRET);
   });
 
-  it("doctor <id> shows both accounts, and reports one that is gone", async () => {
+  it("doctor <id> shows one Account line, and reports it gone", async () => {
     const w = productWorld({}, { ...ENV, NEON_API_KEY: "neon-full" });
     await w.run("product", "example");
 
     const ok = await w.run("doctor", "example");
-    expect(ok.output).toMatch(/ok\s+Default account/);
-    expect(ok.output).toMatch(/ok\s+Smoke account\s+smoke@example\.com/);
-    expect(ok.output).toMatch(/ok\s+EXAMPLE_SMOKE_PASSWORD/);
+    expect(ok.output).toMatch(/ok\s+Account\s+admin@example\.com/);
+    expect(ok.output).toMatch(/ok\s+EXAMPLE_ACCOUNT_PASSWORD/);
+    expect(ok.output).not.toMatch(/Smoke|SMOKE/);
 
-    users(w).delete(SMOKE);
+    users(w).delete(EMAIL);
     const gone = await w.run("doctor", "example");
     expect(gone.code).toBe(1);
-    expect(gone.output).toMatch(/missing\s+Smoke account/);
+    expect(gone.output).toMatch(/missing\s+Account/);
   });
 
   it("doctor <id> skips the account check, with the reason, when the run cannot reach the database", async () => {
@@ -481,7 +461,6 @@ describe("pnpm bootstrap product: accounts in the production database", () => {
 
     const { output } = await w.run("doctor", "example");
     // This run signs in to Neon only when asked; the doctor alone has no session and no NEON_API_KEY.
-    expect(output).toMatch(/skip\s+Default account\s+set NEON_API_KEY/);
-    expect(output).toMatch(/skip\s+Smoke account/);
+    expect(output).toMatch(/skip\s+Account\s+set NEON_API_KEY/);
   });
 });

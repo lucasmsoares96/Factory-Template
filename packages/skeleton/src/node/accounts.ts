@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { hashPassword } from "better-auth/crypto";
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { accounts, users } from "../db/schema.ts";
 
@@ -44,11 +44,11 @@ async function absentTables(read: () => Promise<boolean>): Promise<boolean> {
   }
 }
 
-/** Whether the database holds a verified user whose email is not `email` (the people the bootstrap's accounts are for). */
-export function hasVerifiedUserOtherThan({ databaseUrl, email }: Target): Promise<boolean> {
+/** Whether `email` is a verified user (one who can sign in); a database the migrations never reached has none. */
+export function verifiedUserExists({ databaseUrl, email }: Target): Promise<boolean> {
   return withDb(databaseUrl, (db) =>
     absentTables(async () => {
-      const rows = await db.select({ id: users.id }).from(users).where(and(eq(users.emailVerified, true), ne(users.email, normalize(email)))).limit(1);
+      const rows = await db.select({ id: users.id }).from(users).where(and(eq(users.email, normalize(email)), eq(users.emailVerified, true))).limit(1);
       return rows.length > 0;
     }),
   );

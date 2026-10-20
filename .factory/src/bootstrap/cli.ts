@@ -27,8 +27,8 @@ Commands:
   domain <id>            Per Product: Resend sending domain, its DNS records in Cloudflare, a restricted
                          Resend key and the Worker's Custom Domain. Skips what exists, so it is safe to rerun.
   product <id>           Per Product, the Production module: Neon project, GitHub environment, <ID>_ secrets,
-                         two accounts made straight in the production database (a default one you choose, and
-                         a smoke one for CI), the Resend domain (deferrable), the ruleset on main and the id
+                         the account you choose, made straight in the production database (the smoke signs
+                         in as it), the Resend domain (deferrable), the ruleset on main and the id
                          in DEPLOY_PRODUCTS.
                          Neon signs in through your browser (or NEON_API_KEY in the environment); the login
                          is temporary and removed when the command ends. Turns DEPLOY_ENABLED on once the
@@ -39,8 +39,7 @@ Options:
   --redo <step>          Redo one step even if it looks done (repeatable): cloudflare-token, workers-dev, labels;
                          for the domain command: resend-domain, dns-records, restricted-resend-key, worker-domain;
                          for the product command: neon-project, github-environment, database-secrets, auth-secret,
-                         default-account (asks again and resets the password), smoke-account (rotates the
-                         password), the four domain steps, main-ruleset, deploy-products.
+                         default-account (asks again, resets the password and the secret), the four domain steps, main-ruleset, deploy-products.
 
 The wizard ends by running the doctor with the credentials it already holds, so one run is enough.
 Run \`pnpm bootstrap doctor [<id>]\` on its own whenever something looks off; with no CLOUDFLARE_API_TOKEN (or

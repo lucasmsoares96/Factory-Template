@@ -1,4 +1,4 @@
-import { smokeEmail, smokeNames } from "./accounts.ts";
+import { accountNames } from "./accounts.ts";
 import { promptMainToken } from "./common.ts";
 import { labelSpecs } from "./labels.ts";
 import { deployFirstMessage, productionEnvironment, productSecretName, readDnsState, readWorkerDomainState } from "./domain.ts";
@@ -202,7 +202,7 @@ async function productionChecks(
 }
 
 /**
- * The smoke account's secret and variable are required (the smoke job signs in with them). Whether the accounts exist
+ * The account's secret and variable are required (the smoke job signs in with them). Whether the account exists
  * is read from the production database when this run can reach it (a Neon session or `NEON_API_KEY`); otherwise `skip`.
  */
 async function accountChecks(
@@ -212,12 +212,11 @@ async function accountChecks(
   add: (status: CheckStatus, name: string, detail?: string) => void,
   redo: string,
 ): Promise<void> {
-  const names = smokeNames(product.id);
+  const names = accountNames(product.id);
   const missing = (await missingSecrets(ctx, product.id, [names.password])).length > 0;
   add(missing ? "missing" : "ok", names.password, missing ? redo : undefined);
   const email = variables[names.email];
   add(email ? "ok" : "missing", names.email, email ?? redo);
-  const smoke = email ?? smokeEmail(product.id, product.domain);
 
   let url: string | undefined;
   try {
@@ -227,14 +226,15 @@ async function accountChecks(
     return;
   }
   if (!url) {
-    for (const name of ["Default account", "Smoke account"]) add("skip", name, "set NEON_API_KEY to read the production database (the wizard signs in by itself)");
+    add("skip", "Account", "set NEON_API_KEY to read the production database (the wizard signs in by itself)");
     return;
   }
   try {
-    const hasDefault = await ctx.accounts.hasVerifiedUserOtherThan(url, smoke);
-    add(hasDefault ? "ok" : "missing", "Default account", hasDefault ? "a verified user besides the smoke account exists" : `none; ${redo}`);
-    const hasSmoke = await ctx.accounts.userExists(url, smoke);
-    add(hasSmoke ? "ok" : "missing", "Smoke account", hasSmoke ? smoke : `${smoke} not in the database; ${redo}`);
+    if (!email) add("missing", "Account", `no ${names.email}; ${redo}`);
+    else {
+      const has = await ctx.accounts.verifiedUserExists(url, email);
+      add(has ? "ok" : "missing", "Account", has ? email : `${email} is not a verified user in the database; ${redo}`);
+    }
   } catch (error) {
     add("warn", "Accounts", (error as Error).message);
   }
