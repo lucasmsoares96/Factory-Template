@@ -22,14 +22,14 @@ const review: AgentStep = () => {
 };
 
 /** Runs claim → work → publish through the CLI, each job on its own checkout. */
-async function happyPath(options: { branches?: Record<string, string> } = {}) {
+async function happyPath(options: { branches?: Record<string, string>; review?: AgentStep } = {}) {
   const workCheckout = await checkout();
   const publishCheckout = await checkout();
   const artifacts = await tempDir("factory-artifacts-");
   const w = world({
     repo: workCheckout,
     branches: options.branches,
-    agent: { development: [develop], review: [review] },
+    agent: { development: [develop], review: [options.review ?? review] },
     verify: [{ ok: true, evidence: [{ product: "example", name: "home.png" }, { product: "admin", name: "users.png" }, { product: "example", name: "about.png" }] }],
   });
 
@@ -83,6 +83,21 @@ describe("factory publish", () => {
 
     expect(w.codeHost.writes).toEqual(["push factory/issue-7", "openDraftPr #101", "submitReview #101", "postEvidence #101", "markReady #101"]);
     expect(lastJson(w.logs)).toEqual({ issue: 7, outcome: "ready", pr: 101, url: "https://forge.test/pr/101" });
+  });
+
+  it("posts a COMMENT review without inline comments when the review has none", async () => {
+    const summaryOnly: AgentStep = () => ({
+      output: `<review>${JSON.stringify({ summary: "Fixed the naming myself.", inline: [] })}</review>`,
+    });
+    const { w, exitCode } = await happyPath({ review: summaryOnly });
+
+    expect(exitCode).toBe(0);
+    const reviews = w.codeHost.prs[0]!.reviews;
+    expect(reviews).toHaveLength(1);
+    expect(reviews[0]!.event).toBe("COMMENT");
+    expect(reviews[0]!.body).toContain("Fixed the naming myself.");
+    expect(reviews[0]!.body).toMatch(/Tokens: [\d,]+ in \/ [\d,]+ out\./);
+    expect(reviews[0]!.comments).toEqual([]);
   });
 
   it("pushes with a lease on the branch head the claim saw", async () => {
