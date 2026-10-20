@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GhCli } from "../../src/bootstrap/github.ts";
+import { CloudflareRefused } from "../../src/bootstrap/clients.ts";
 import { CloudflareApi } from "../../src/bootstrap/cloudflare.ts";
 import { ResendApi } from "../../src/bootstrap/resend.ts";
 
@@ -76,6 +77,51 @@ describe("CloudflareApi (fake fetch)", () => {
     const { client } = api(() => ({ status: 403, body: { success: false, errors: [{ code: 9109, message: "Invalid access" }] } }));
 
     await expect(client.listAccounts()).rejects.toThrow(/Cloudflare rejected the token.*Invalid access/);
+  });
+});
+
+describe("CloudflareApi: token probes (fake fetch)", () => {
+  function api(handler: (url: string) => { status: number; body: unknown }) {
+    const seen: string[] = [];
+    const client = new CloudflareApi("tok", async (url) => {
+      seen.push(String(url).replace("https://api.cloudflare.com/client/v4", ""));
+      const { status, body } = handler(String(url));
+      return new Response(JSON.stringify(body), { status });
+    });
+    return { client, seen };
+  }
+  const ok = (result: unknown) => ({ status: 200, body: { success: true, result } });
+
+  it("reads scripts, KV namespaces, the account and one zone, all with GET", async () => {
+    const { client, seen } = api((url) =>
+      url.endsWith("/workers/scripts") ? ok([{ id: "w" }]) : url.endsWith("/namespaces") ? ok([{ id: "kv1", title: "t" }]) : url.includes("/zones") ? ok([{ id: "z", name: "a.com" }]) : ok({ id: "acc", name: "N" }),
+    );
+
+    expect(await client.listWorkerScripts("acc")).toEqual(["w"]);
+    expect(await client.listKvNamespaces("acc")).toEqual(["kv1"]);
+    expect(await client.getAccount("acc")).toEqual({ id: "acc", name: "N" });
+    expect(await client.listZones()).toEqual([{ id: "z", name: "a.com" }]);
+    expect(seen).toEqual(["/accounts/acc/workers/scripts", "/accounts/acc/storage/kv/namespaces", "/accounts/acc", "/zones?per_page=1"]);
+  });
+
+  it("verifies an account-owned token, falling back to the user token verify", async () => {
+    const account = api(() => ok({ status: "active" }));
+    await account.client.verifyToken("acc");
+    expect(account.seen).toEqual(["/accounts/acc/tokens/verify"]);
+
+    const user = api((url) => (url.includes("/accounts/") ? { status: 401, body: { success: false, errors: [{ code: 1000, message: "x" }] } } : ok({ status: "active" })));
+    await user.client.verifyToken("acc");
+    expect(user.seen).toEqual(["/accounts/acc/tokens/verify", "/user/tokens/verify"]);
+
+    const expired = api(() => ok({ status: "expired" }));
+    await expect(expired.client.verifyToken("acc")).rejects.toThrow(/expired/);
+  });
+
+  it("tells a refused permission (403 or 10000) from other failures", async () => {
+    const { client } = api((url) => (url.includes("namespaces") ? { status: 403, body: { success: false, errors: [{ code: 10000, message: "Authentication error" }] } } : { status: 500, body: { success: false } }));
+
+    await expect(client.listKvNamespaces("acc")).rejects.toBeInstanceOf(CloudflareRefused);
+    await expect(client.listWorkerScripts("acc")).rejects.not.toBeInstanceOf(CloudflareRefused);
   });
 });
 

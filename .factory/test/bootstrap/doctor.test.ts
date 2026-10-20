@@ -90,4 +90,15 @@ describe("pnpm bootstrap doctor", () => {
     expect(code).toBe(1);
     expect(output).toMatch(/missing\s+Repo permission/);
   });
+
+  it("does not need DNS or zone permission to be ok", async () => {
+    const w = world({}, { CLOUDFLARE_API_TOKEN: TOKEN });
+    await w.run();
+    w.cloudflare.deny(TOKEN, "dns", "zone");
+
+    const { code, output } = await w.run("doctor");
+
+    expect(code).toBe(0);
+    expect(output).toMatch(/ok\s+workers\.dev/);
+  });
 });
