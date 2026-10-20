@@ -1,6 +1,6 @@
 import { readdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
-import type { IssueComment } from "../../seams/tracker.ts";
+import { basename, dirname, join, resolve } from "node:path";
+import type { IssueComment, NewIssue } from "../../seams/tracker.ts";
 
 /**
  * The local issue files: `.scratch/<feature>/issues/NN-<slug>.md`, as in
@@ -76,6 +76,35 @@ export class MarkdownIssues {
 
   async readSpec(path: string): Promise<string | null> {
     return readFile(path, "utf8").catch(() => null);
+  }
+
+  /**
+   * Writes the next `NN-slug.md`: `Status:` is the first label (`needs-triage`
+   * without one), nothing blocks it, and `Related to:` links the issue it comes from.
+   */
+  async create(input: NewIssue): Promise<{ number: number; path: string }> {
+    const files = await this.files();
+    const last = files.at(-1);
+    const number = (last?.number ?? 0) + 1;
+    const id = String(number).padStart(Math.max(2, last?.id.length ?? 2), "0");
+    const slug = input.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "issue";
+    const related = input.relatedTo === undefined ? null : files.find((f) => f.number === input.relatedTo);
+    const path = join(this.dir, `${id}-${slug}.md`);
+    const lines = [
+      `# ${id}: ${input.title}`,
+      "",
+      "**Blocked by:** None (can start immediately)",
+      "",
+      `**Status:** ${input.labels?.[0] ?? "needs-triage"}`,
+      ...(input.relatedTo === undefined
+        ? []
+        : ["", `**Related to:** ${related ? `[${related.id}](${basename(related.path)})` : `#${input.relatedTo}`}`]),
+      "",
+      input.body.trim(),
+      "",
+    ];
+    await writeFile(path, lines.join("\n"), { flag: "wx" });
+    return { number, path };
   }
 
   /** Rewrites the Status value, keeping the line's formatting. */
