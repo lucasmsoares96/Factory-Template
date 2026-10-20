@@ -1,12 +1,25 @@
 import type { FactoryConfig } from "../config.ts";
 import type { CloudflareClient, GitHubClient, NeonClient, Prompter, ResendClient } from "./clients.ts";
 
+/** The part of a Product's identity (ticket 07) the wizard reads; it never rewrites the file. */
+export interface ProductIdentity {
+  id: string;
+  title: string;
+  emailFrom: string;
+  /** Empty until the person sets it in `product.config.ts`. */
+  domain: string;
+}
+
 export interface BootstrapDeps {
   github: GitHubClient;
   /** Builds the Cloudflare client once a token is at hand. */
   cloudflare: (token: string) => CloudflareClient;
   neon: NeonClient;
-  resend: ResendClient;
+  /** Builds the Resend client once a key is at hand. */
+  resend: (key: string) => ResendClient;
+  /** Reads `apps/<id>/product.config.ts`. */
+  product: (id: string) => Promise<ProductIdentity>;
+  sleep: (ms: number) => Promise<void>;
   prompter: Prompter;
   env: Record<string, string | undefined>;
   log: (line: string) => void;
@@ -15,7 +28,7 @@ export interface BootstrapDeps {
 
 /** Values held in memory for the length of one run. Nothing here reaches disk. */
 export interface StepContext extends BootstrapDeps {
-  memory: { cloudflareToken?: string; accountId?: string };
+  memory: { cloudflareToken?: string; accountId?: string; resendKey?: string; resendDeferred?: boolean };
 }
 
 export interface Step {

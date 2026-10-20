@@ -10,6 +10,10 @@ export function cloudflareTokenUrl(): string {
     { key: "workers_scripts", type: "edit" },
     { key: "workers_kv_storage", type: "edit" },
     { key: "account_settings", type: "read" },
+    // For `pnpm bootstrap domain`: DNS records, zone lookup and the Workers Custom Domain.
+    { key: "dns", type: "edit" },
+    { key: "zone", type: "read" },
+    { key: "workers_routes", type: "edit" },
   ];
   return `https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=${encodeURIComponent(JSON.stringify(permissions))}&name=${encodeURIComponent("Factory Template (Edit Cloudflare Workers)")}`;
 }

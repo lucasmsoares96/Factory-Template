@@ -27,6 +27,13 @@ describe("pnpm bootstrap (common part)", () => {
     expect(keys).not.toContain("workers_r2");
   });
 
+  it("the token template also grants DNS edit, zone read and Workers Routes edit for the domain command", () => {
+    const keys = decodeURIComponent(cloudflareTokenUrl());
+    expect(keys).toContain('"key":"dns","type":"edit"');
+    expect(keys).toContain('"key":"zone","type":"read"');
+    expect(keys).toContain('"key":"workers_routes","type":"edit"');
+  });
+
   it("points at the token template URL and never prints the token", async () => {
     const w = world();
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { GhCli } from "../../src/bootstrap/github.ts";
 import { CloudflareApi } from "../../src/bootstrap/cloudflare.ts";
+import { ResendApi } from "../../src/bootstrap/resend.ts";
 
 describe("GhCli (command construction, no gh process)", () => {
   function recorder(replies: Record<string, string> = {}) {
@@ -75,5 +76,113 @@ describe("CloudflareApi (fake fetch)", () => {
     const { client } = api(() => ({ status: 403, body: { success: false, errors: [{ code: 9109, message: "Invalid access" }] } }));
 
     await expect(client.listAccounts()).rejects.toThrow(/Cloudflare rejected the token.*Invalid access/);
+  });
+});
+
+describe("CloudflareApi: zones, DNS and Custom Domains (fake fetch)", () => {
+  function api(handler: (url: string, init: RequestInit) => unknown) {
+    const seen: { url: string; method?: string; body?: unknown }[] = [];
+    const client = new CloudflareApi("tok", async (url, init) => {
+      seen.push({ url: String(url).replace("https://api.cloudflare.com/client/v4", ""), method: init?.method, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+      return new Response(JSON.stringify(handler(String(url), init ?? {})), { status: 200 });
+    });
+    return { client, seen };
+  }
+
+  it("finds a zone by exact name and returns null when the account has none", async () => {
+    const { client, seen } = api(() => ({ success: true, result: [{ id: "z1", name: "example.com", status: "active" }] }));
+
+    expect(await client.findZone("example.com")).toEqual({ id: "z1", name: "example.com" });
+    expect(await client.findZone("other.com")).toBeNull();
+    expect(seen[0]?.url).toBe("/zones?name=example.com");
+  });
+
+  it("reads every page of DNS records", async () => {
+    const { client, seen } = api((url) =>
+      url.includes("&page=1")
+        ? { success: true, result: [{ type: "A", name: "a.example.com", content: "1.1.1.1" }], result_info: { total_pages: 2 } }
+        : { success: true, result: [{ type: "TXT", name: "b.example.com", content: "x" }], result_info: { total_pages: 2 } },
+    );
+
+    expect((await client.listDnsRecords("z1")).map((r) => r.name)).toEqual(["a.example.com", "b.example.com"]);
+    expect(seen).toHaveLength(2);
+  });
+
+  it("creates records unproxied with automatic TTL and the MX priority", async () => {
+    const { client, seen } = api(() => ({ success: true, result: {} }));
+
+    await client.createDnsRecord("z1", { type: "MX", name: "send.example.com", content: "feedback-smtp.us-east-1.amazonses.com", priority: 10, proxied: false });
+
+    expect(seen[0]).toEqual({
+      url: "/zones/z1/dns_records",
+      method: "POST",
+      body: { type: "MX", name: "send.example.com", content: "feedback-smtp.us-east-1.amazonses.com", ttl: 1, proxied: false, priority: 10 },
+    });
+  });
+
+  it("checks that a Worker exists and attaches a Custom Domain with PUT", async () => {
+    const { client, seen } = api((url) =>
+      url.endsWith("/workers/scripts") ? { success: true, result: [{ id: "example" }] } : { success: true, result: [{ hostname: "example.com", service: "example" }] },
+    );
+
+    expect(await client.workerExists("acc", "example")).toBe(true);
+    expect(await client.workerExists("acc", "other")).toBe(false);
+    expect(await client.listWorkerDomains("acc", "example")).toEqual([{ hostname: "example.com", service: "example" }]);
+    await client.attachWorkerDomain("acc", { hostname: "example.com", service: "example", zoneId: "z1", zoneName: "example.com" });
+
+    expect(seen.at(-1)).toEqual({
+      url: "/accounts/acc/workers/domains",
+      method: "PUT",
+      body: { hostname: "example.com", service: "example", zone_id: "z1", zone_name: "example.com" },
+    });
+  });
+
+  it("rejects an answer with an unexpected shape", async () => {
+    const { client } = api(() => ({ success: true, result: [{ nope: 1 }] }));
+
+    await expect(client.findZone("example.com")).rejects.toThrow(/unexpected shape/);
+  });
+});
+
+describe("ResendApi (fake fetch)", () => {
+  function api(handler: (url: string, init: RequestInit) => unknown, status = 200) {
+    const seen: { url: string; method?: string; body?: unknown }[] = [];
+    const client = new ResendApi("re-key", async (url, init) => {
+      seen.push({ url: String(url).replace("https://api.resend.com", ""), method: init?.method, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+      return new Response(JSON.stringify(handler(String(url), init ?? {})), { status });
+    });
+    return { client, seen };
+  }
+  const record = { record: "DKIM", type: "TXT", name: "resend._domainkey", value: "p=abc", status: "not_started", ttl: "Auto" };
+
+  it("finds a domain by name and reads its records with the second call", async () => {
+    const { client, seen } = api((url) =>
+      url.endsWith("/domains")
+        ? { data: [{ id: "d1", name: "example.com", status: "verified" }] }
+        : { id: "d1", name: "example.com", status: "verified", records: [record] },
+    );
+
+    expect(await client.findDomain("example.com")).toMatchObject({ id: "d1", status: "verified", records: [{ type: "TXT", name: "resend._domainkey" }] });
+    expect(await client.findDomain("nope.com")).toBeNull();
+    expect(seen[1]?.url).toBe("/domains/d1");
+  });
+
+  it("creates a domain, verifies it and asks for a sending-only key limited to it", async () => {
+    const { client, seen } = api((url) =>
+      url.endsWith("/api-keys") ? { id: "k1", token: "re_secret" } : { id: "d1", name: "example.com", status: "not_started", records: [record] },
+    );
+
+    expect((await client.createDomain("example.com")).id).toBe("d1");
+    await client.verifyDomain("d1");
+    expect(await client.createRestrictedKey({ name: "example", domainId: "d1" })).toBe("re_secret");
+
+    expect(seen.map((s) => `${s.method} ${s.url}`)).toEqual(["POST /domains", "POST /domains/d1/verify", "POST /api-keys"]);
+    expect(seen[2]?.body).toEqual({ name: "example", permission: "sending_access", domain_id: "d1" });
+  });
+
+  it("throws a readable error when Resend refuses", async () => {
+    const { client } = api(() => ({ message: "restricted_api_key" }), 401);
+
+    await expect(client.createDomain("example.com")).rejects.toThrow(/Resend refused the request \(POST \/domains → 401\)/);
   });
 });
