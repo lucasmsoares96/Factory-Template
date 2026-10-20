@@ -36,6 +36,8 @@ export async function doctor(
   memory: StepContext["memory"] = {},
   /** `bootstrap domain <id>` checks the domain only: the Production section would fail it for what it never set up. */
   sections: { production: boolean } = { production: true },
+  /** `false` at the end of a wizard run: it never asks for a credential, it only re-checks with what the run holds. */
+  options: { prompt: boolean } = { prompt: true },
 ): Promise<DoctorReport> {
   const { github, config } = deps;
   const ctx: StepContext = { ...deps, memory };
@@ -83,9 +85,9 @@ export async function doctor(
 
   let token = memory.cloudflareToken ?? (deps.env.CLOUDFLARE_API_TOKEN || undefined);
   let promptError: string | undefined;
-  if (!token && deps.interactive && !memory.cloudflareDeclined) {
+  if (!token && options.prompt && deps.interactive && !memory.cloudflareDeclined) {
     try {
-      token = await promptMainToken(ctx, { message: "Paste the Cloudflare API token to check workers.dev (not stored; leave empty to skip)", showLink: false, optional: true });
+      token = await promptMainToken(ctx, { message: "Paste the Cloudflare API token to check workers.dev (not stored; leave empty to skip)", showLink: true, optional: true });
     } catch (error) {
       promptError = (error as Error).message;
     }
@@ -93,7 +95,9 @@ export async function doctor(
   if (promptError) {
     add("Resources", "missing", "workers.dev", promptError);
   } else if (!token) {
-    add("Resources", "skip", "workers.dev", "export CLOUDFLARE_API_TOKEN to check it (secrets cannot be read back)");
+    // Secrets cannot be read back: their presence on the forge stands in for the check.
+    if (secrets.includes("CLOUDFLARE_API_TOKEN") && secrets.includes("CLOUDFLARE_ACCOUNT_ID")) add("Resources", "ok", "workers.dev", "not re-checked (token not in this run)");
+    else add("Resources", "skip", "workers.dev", "export CLOUDFLARE_API_TOKEN to check it (secrets cannot be read back)");
   } else {
     try {
       memory.cloudflareToken = token;
@@ -119,7 +123,7 @@ export async function doctor(
         const key = productSecretName(product.id, "RESEND_API_KEY");
         const keyMissing = (await missingSecrets(ctx, product.id, [key])).length > 0;
         domainAdd(keyMissing ? "off" : "ok", key, keyMissing ? `run \`pnpm bootstrap domain ${product.id}\`` : undefined);
-        if (deps.interactive && !memory.resendKey && !memory.resendDeferred && !deps.env.RESEND_API_KEY) {
+        if (options.prompt && deps.interactive && !memory.resendKey && !memory.resendDeferred && !deps.env.RESEND_API_KEY) {
           const key = (await deps.prompter.password({ id: "resend-key", message: "Paste a Resend API key to check the domain (not stored; leave empty to skip)" })).trim();
           if (key) memory.resendKey = key;
         }
@@ -187,7 +191,11 @@ async function productionChecks(
   await accountChecks(ctx, product, variables, add, redo);
 
   const neon = await neonHandle(ctx, false);
-  if (!neon) add("skip", "Neon project", "set NEON_API_KEY to look it up (the wizard signs in by itself)");
+  if (!neon) {
+    // No login from the doctor: the presence of the database secrets stands in for the project.
+    if (missing.has(names.databaseUrl) || missing.has(names.databaseUrlPooled)) add("skip", "Neon project", "not looked up (no Neon session or NEON_API_KEY)");
+    else add("ok", "Neon project", "ok (database secrets present; project not looked up)");
+  }
   else {
     try {
       const orgId = await neonOrgId(ctx, neon);
@@ -226,7 +234,9 @@ async function accountChecks(
     return;
   }
   if (!url) {
-    add("skip", "Account", "set NEON_API_KEY to read the production database (the wizard signs in by itself)");
+    // No session in memory and no key: the doctor never opens a Neon login, presence of the secret and the email stands in.
+    if (!missing && email) add("ok", "Account", "ok (secret and email present; DB not read)");
+    else add("skip", "Account", "the production database was not read (no Neon session or NEON_API_KEY)");
     return;
   }
   try {

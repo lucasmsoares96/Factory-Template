@@ -93,13 +93,21 @@ export async function cloudflareHandle(
   return { client, accountId };
 }
 
+/** The restricted key secret is only made once the Resend domain exists: its presence on the forge stands in when no Resend key is at hand. */
+async function resendProvenByKeySecret(ctx: StepContext, product: ProductIdentity): Promise<boolean> {
+  return (await ctx.github.listSecrets(await secretScope(ctx, product.id))).includes(productSecretName(product.id, "RESEND_API_KEY"));
+}
+
 export function resendDomainStep(product: ProductIdentity): Step {
   return {
     id: "resend-domain",
     title: "Resend sending domain",
     async check(ctx) {
       const resend = await resendClient(ctx, false, product.id);
-      if (!resend) return { done: false, detail: "export RESEND_API_KEY to look it up" };
+      if (!resend) {
+        if (await resendProvenByKeySecret(ctx, product)) return { done: true, detail: "not re-checked: the restricted key secret exists" };
+        return { done: false, detail: "export RESEND_API_KEY to look it up" };
+      }
       const found = await resend.findDomain(product.domain);
       return { done: found !== null, detail: found ? `${found.name}: ${found.status}` : undefined };
     },
@@ -176,7 +184,10 @@ export function dnsRecordsStep(product: ProductIdentity): Step {
     async check(ctx) {
       if (ctx.memory.resendDeferred) return { done: true, detail: "Resend domain deferred" };
       const state = await readDnsState(ctx, product, false);
-      if (state.kind === "no-resend-key") return { done: false, detail: "export RESEND_API_KEY to look it up" };
+      if (state.kind === "no-resend-key") {
+        if (await resendProvenByKeySecret(ctx, product)) return { done: true, detail: "not re-checked: the restricted key secret exists" };
+        return { done: false, detail: "export RESEND_API_KEY to look it up" };
+      }
       if (state.kind === "no-domain") return { done: false, detail: "no Resend domain yet" };
       if (state.kind === "no-cloudflare") return { done: false, detail: "export CLOUDFLARE_API_TOKEN to look it up" };
       if (state.kind === "no-zone") return { done: false, detail: "zone not in this Cloudflare account" };
