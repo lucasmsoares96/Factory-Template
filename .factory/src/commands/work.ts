@@ -14,7 +14,7 @@ import {
 } from "../result.ts";
 import { summaryMarkdown } from "../report.ts";
 import { changedSkeletonPaths, followUpTicket, productOf, revertToBase, skeletonGaps } from "../scope.ts";
-import { parseReviewOutput } from "../review-output.ts";
+import { parseReviewOutput, reviewExtraction } from "../review-output.ts";
 import type { Usage } from "../seams/agent.ts";
 import type { CommandContext } from "./context.ts";
 
@@ -112,10 +112,10 @@ export async function work(ctx: CommandContext, number: number, options: { repo:
     const reviewRun = await agent.run(
       "review",
       reviewPrompt({ issue, log: await git.log(base, "HEAD"), since: lastReviewed, findings: reviews }),
-      { timeoutMs, model: config.models.review },
+      { timeoutMs, model: config.models.review, extract: reviewExtraction },
     );
     add(usage.review, reviewRun.usage);
-    const reviewRecord = { stage: "review" as const, durationMs: ctx.now() - started, commits: reviewRun.commits, usage: reviewRun.usage };
+    const reviewRecord = { stage: "review" as const, durationMs: ctx.now() - started, commits: reviewRun.commits, usage: reviewRun.usage, retries: reviewRun.retries };
     skeletonGaps(reviewRun.output).forEach((g) => gaps.add(g));
     let reverted: string[] = [];
     if (product !== null) {
