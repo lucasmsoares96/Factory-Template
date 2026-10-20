@@ -101,8 +101,8 @@ export const test = base.extend<{ evidence: (name: string) => Promise<void>; mai
 });
 
 /**
- * A Product's `playwright.config.ts`: runs the Skeleton's E2E specs against the
- * Product's production build (`dist/<product>/wrangler.json`, served by
+ * A Product's `playwright.config.ts`: runs the Skeleton's E2E specs and the
+ * Product's own (`apps/<id>/e2e/`) against the Product's production build (`dist/<product>/wrangler.json`, served by
  * `createTestHarness()`) on a migrated Postgres (`DATABASE_URL` or a container).
  */
 export function defineE2EConfig({
@@ -117,7 +117,6 @@ export function defineE2EConfig({
   process.env[PRODUCT_DIR_ENV] = dir;
   const t = messagesFor(resolveLocale(process.env.LOCALE), messages);
   return defineConfig<E2EOptions>({
-    testDir: fileURLToPath(new URL("./specs", import.meta.url)),
     globalSetup: fileURLToPath(new URL("./global-setup.ts", import.meta.url)),
     outputDir: join(dir, "test-results/playwright"),
     forbidOnly: Boolean(process.env.CI),
@@ -125,6 +124,10 @@ export function defineE2EConfig({
     workers: process.env.CI ? 1 : undefined,
     reporter: process.env.CI ? [["list"], ["html", { open: "never", outputFolder: join(dir, "playwright-report") }]] : "list",
     use: { product, t, trace: "retain-on-failure" },
-    projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+    // Two projects, one browser: the Skeleton's specs (every Product runs them) and the Product's own in `<dir>/e2e/`.
+    projects: [
+      { name: "skeleton", testDir: fileURLToPath(new URL("./specs", import.meta.url)), use: { ...devices["Desktop Chrome"] } },
+      { name: "product", testDir: join(dir, "e2e"), use: { ...devices["Desktop Chrome"] } },
+    ],
   });
 }
