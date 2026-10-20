@@ -5,6 +5,7 @@ import { authSchema } from "../db/schema.ts";
 import { resetPasswordEmail } from "../emails/reset-password.tsx";
 import { verificationEmail } from "../emails/verify-email.tsx";
 import type { Messages } from "../i18n/index.ts";
+import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from "./password-rules.ts";
 import { AUTH_BASE_PATH } from "./auth-base-path.ts";
 import type { SendEmail } from "./email.ts";
 
@@ -60,6 +61,8 @@ export function authOptions({
       enabled: true,
       requireEmailVerification: true,
       password,
+      minPasswordLength: PASSWORD_MIN_LENGTH,
+      maxPasswordLength: PASSWORD_MAX_LENGTH,
       // Better Auth answers an unknown email exactly like a registered one and
       // only emails the registered: the email goes out after the response.
       sendResetPassword: async ({ user, url }) => sendEmail(await resetPasswordEmail({ t, user, url })),
