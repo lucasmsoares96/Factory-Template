@@ -70,6 +70,8 @@ export interface ResendClient {
 /** What a wizard step asks of the person. Answers are never logged. */
 export interface Prompter {
   note(message: string): void;
+  /** Prints a message and then a URL alone on its own line: no frame, no wrapping, so terminals can detect the link. */
+  link(message: string, url: string): void;
   text(input: { id: string; message: string; initial?: string }): Promise<string>;
   password(input: { id: string; message: string }): Promise<string>;
   select<T extends string>(input: { id: string; message: string; options: { value: T; label: string }[] }): Promise<T>;
