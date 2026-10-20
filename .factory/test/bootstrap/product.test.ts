@@ -284,7 +284,7 @@ describe("pnpm bootstrap product: Production module", () => {
     expect(code).toBe(0);
     expect(w.prompter.asked.filter((id) => id === "resend-setup")).toHaveLength(1);
     expect(w.prompter.asked).not.toContain("resend-key");
-    expect(w.prompter.asked.filter((id) => id === "cloudflare-token")).toHaveLength(1); // the common part's, once
+    expect(w.prompter.asked).not.toContain("cloudflare-token"); // the final doctor never asks
     expect(output).not.toContain("Worker Custom Domain: running");
     expect(output.trimEnd().split("\n").pop()).toBe("After the first deploy, attach the domain with: pnpm bootstrap domain example --redo worker-domain");
   });
@@ -474,12 +474,74 @@ describe("pnpm bootstrap product: the account in the production database", () =>
     expect(gone.output).toMatch(/missing\s+Account/);
   });
 
-  it("doctor <id> skips the account check, with the reason, when the run cannot reach the database", async () => {
-    const w = productWorld();
+  it("doctor <id> reports the account as present (DB not read) when the run has no Neon session", async () => {
+    const w = productWorld({ "resend-key": "" });
     await w.run("product", "example");
 
     const { output } = await w.run("doctor", "example");
-    // This run signs in to Neon only when asked; the doctor alone has no session and no NEON_API_KEY.
-    expect(output).toMatch(/skip\s+Account\s+set NEON_API_KEY/);
+    // The doctor never signs in to Neon: presence of the secret and the email stands in.
+    expect(output).toMatch(/ok\s+Account\s+ok \(secret and email present; DB not read\)/);
+  });
+});
+
+describe("pnpm bootstrap product: one Neon login at most, only for Neon work", () => {
+  const logins = (w: ReturnType<typeof productWorld>) => w.neon.sessions.filter((s) => s.loggedIn).length;
+
+  it("a first run logs in exactly once", async () => {
+    const w = productWorld({ "resend-key": "" });
+    await w.run("product", "example");
+    expect(logins(w)).toBe(1);
+  });
+
+  it("a rerun after a complete first run logs in zero times, asks nothing at all and ends green", async () => {
+    const w = productWorld({ "resend-setup": "now", "resend-key": "re-full" });
+    w.cloudflare.zones.push({ id: "zone-1", name: "example.com" });
+    await w.run("product", "example");
+    const asked = w.prompter.asked.length;
+    const sessions = w.neon.sessions.length;
+
+    const { code, output } = await w.run("product", "example");
+
+    expect(code).toBe(0);
+    expect(w.neon.sessions).toHaveLength(sessions);
+    expect(w.prompter.asked.slice(asked)).toEqual([]);
+    expect(output).toContain("secret and email present; DB not read");
+    expect(output).not.toMatch(/^\s*(missing|warn)\s/m);
+  });
+
+  it("standalone doctor never logs in to Neon", async () => {
+    const w = productWorld({ "resend-key": "" });
+    await w.run("product", "example");
+    const sessions = w.neon.sessions.length;
+
+    const { code } = await w.run("doctor", "example");
+
+    expect(code).toBe(0);
+    expect(w.neon.sessions).toHaveLength(sessions);
+  });
+
+  it("--redo default-account logs in once", async () => {
+    const w = productWorld({ "resend-key": "" });
+    await w.run("product", "example");
+    const before = logins(w);
+
+    const { code } = await w.run("product", "example", "--redo", "default-account");
+
+    expect(code).toBe(0);
+    expect(logins(w) - before).toBe(1);
+  });
+
+  it("logs in once when the account variable and secret are missing", async () => {
+    const w = productWorld({ "resend-key": "" });
+    await w.run("product", "example");
+    w.github.variables.delete("EXAMPLE_ACCOUNT_EMAIL");
+    w.github.environmentSecrets.get("example-production")!.delete("EXAMPLE_ACCOUNT_PASSWORD");
+    const before = logins(w);
+
+    const { code } = await w.run("product", "example");
+
+    expect(code).toBe(0);
+    expect(logins(w) - before).toBe(1);
+    expect(w.github.variables.get("EXAMPLE_ACCOUNT_EMAIL")).toBe(ADMIN.toLowerCase());
   });
 });

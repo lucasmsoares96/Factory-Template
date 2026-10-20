@@ -40,7 +40,7 @@ describe("one run is enough", () => {
     expect(output).not.toMatch(/\bskip\b/);
   });
 
-  it("a second run without the token in the environment asks once, in a terminal, instead of skipping", async () => {
+  it("a second run without the token in the environment asks nothing: the secrets stand in for the workers.dev check", async () => {
     const w = world();
     await w.run();
     w.deps.interactive = true;
@@ -49,8 +49,8 @@ describe("one run is enough", () => {
     const { code, output } = await w.run();
 
     expect(code).toBe(0);
-    expect(w.prompter.asked).toEqual(["cloudflare-token"]);
-    expect(output).toMatch(/ok\s+workers\.dev/);
+    expect(w.prompter.asked).toEqual([]);
+    expect(output).toMatch(/ok\s+workers\.dev\s+not re-checked/);
     expect(output).not.toMatch(/\bskip\b/);
   });
 
@@ -94,6 +94,7 @@ describe("standalone doctor", () => {
 
     expect(code).toBe(0);
     expect(w.prompter.asked).toEqual(["cloudflare-token"]);
+    expect(w.prompter.printed.join("\n")).toContain("Create the API token from this template");
     expect(output).toMatch(/ok\s+workers\.dev/);
     expect(w.github.writes + w.cloudflare.writes).toBe(0);
     expect(w.github.secrets).toEqual(secrets);
@@ -114,7 +115,7 @@ describe("standalone doctor", () => {
     expect(output).toContain("Workers Scripts");
   });
 
-  it("without a terminal keeps skip and asks nothing", async () => {
+  it("without a terminal reports presence and asks nothing", async () => {
     const w = world();
     await w.run();
     w.prompter.asked.length = 0;
@@ -122,7 +123,7 @@ describe("standalone doctor", () => {
     const { code, output } = await w.run("doctor");
 
     expect(code).toBe(0);
-    expect(output).toMatch(/skip\s+workers\.dev\s+export CLOUDFLARE_API_TOKEN to check it/);
+    expect(output).toMatch(/ok\s+workers\.dev\s+not re-checked \(token not in this run\)/);
     expect(w.prompter.asked).toEqual([]);
   });
 
