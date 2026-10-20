@@ -34,15 +34,50 @@ describe("pnpm bootstrap (common part)", () => {
     expect(keys).toContain('"key":"workers_routes","type":"edit"');
   });
 
-  it("points at the token template URL and never prints the token", async () => {
+  it("prints the token URL on one unwrapped, undecorated line, even in a 60-column terminal", async () => {
+    const w = world({}, { CLOUDFLARE_ACCOUNT_ID: "d812538a70457573532f056032500cdb" });
+    w.prompter.columns = 60;
+
+    await w.run();
+
+    const holders = w.prompter.printed.filter((l) => l.includes("https://dash.cloudflare.com/"));
+    expect(holders).toHaveLength(1);
+    const url = holders[0] as string;
+    expect(url).toMatch(/^https:\/\/dash\.cloudflare\.com\/\S+$/);
+    expect(w.prompter.notes.join("\n")).not.toContain("https://");
+    expect(url).not.toMatch(/%25/); // encoded once
+    const u = new URL(url);
+    expect(u.pathname).toBe("/d812538a70457573532f056032500cdb/api-tokens/create");
+    expect(JSON.parse(u.searchParams.get("permissionGroupKeys") as string)).toEqual([
+      { key: "workers_scripts", type: "edit" },
+      { key: "workers_kv_storage", type: "edit" },
+      { key: "account_settings", type: "read" },
+      { key: "dns", type: "edit" },
+      { key: "zone", type: "read" },
+      { key: "workers_routes", type: "edit" },
+    ]);
+    expect(u.searchParams.get("name")).toBe("Factory Template (Edit Cloudflare Workers)");
+    expect(JSON.stringify([w.lines, w.prompter.printed, w.prompter.notes])).not.toContain(TOKEN);
+  });
+
+  it("falls back to the documented account picker form when the account is unknown", async () => {
     const w = world();
 
     await w.run();
 
-    const url = w.prompter.notes.join("\n");
-    expect(url).toContain("https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=");
-    expect(decodeURIComponent(url)).toContain('"key":"workers_scripts","type":"edit"');
-    expect(JSON.stringify([w.lines, w.prompter.notes])).not.toContain(TOKEN);
+    const url = w.prompter.printed.find((l) => l.startsWith("https://dash.cloudflare.com/")) as string;
+    expect(url).toContain("https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=%5B%7B");
+  });
+
+  it("builds the token URL with and without an account id", () => {
+    const direct = cloudflareTokenUrl("acc123");
+    const picker = cloudflareTokenUrl();
+    expect(direct.startsWith("https://dash.cloudflare.com/acc123/api-tokens/create?permissionGroupKeys=%5B%7B%22key%22%3A%22workers_scripts%22")).toBe(true);
+    expect(direct.endsWith("&name=Factory+Template+%28Edit+Cloudflare+Workers%29")).toBe(true);
+    expect(picker.startsWith("https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=%5B")).toBe(true);
+    expect(new URL(picker).searchParams.get("name")).toBe("Factory Template (Edit Cloudflare Workers)");
+    expect(direct).not.toContain("%25");
+    expect(picker).not.toContain("%25");
   });
 
   it("creates nothing on the second run and asks nothing", async () => {
