@@ -1,0 +1,23 @@
+// A test-only composition of the Skeleton: the Worker every Skeleton
+// integration test talks to. Products compose the same app in their own Worker.
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "skeleton-test",
+  "main": "./index.ts",
+  "compatibility_date": "2026-10-19",
+  // global_fetch_strictly_public: the OAuth provider fetches Client ID Metadata Documents.
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "durable_objects": {
+    "bindings": [
+      { "name": "PASSWORD_HASHER", "class_name": "PasswordHasher" },
+      { "name": "RATE_LIMITER", "class_name": "RateLimiter" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["PasswordHasher"] },
+    { "tag": "v2", "new_sqlite_classes": ["RateLimiter"] }
+  ],
+  "kv_namespaces": [{ "binding": "OAUTH_KV" }],
+  "vars": { "EMAIL_TRANSPORT": "resend" },
+  "secrets": { "required": ["DATABASE_URL", "BETTER_AUTH_SECRET"] }
+}

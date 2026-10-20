@@ -1,0 +1,50 @@
+import { cloudflare } from "@cloudflare/vite-plugin";
+import tailwindcss from "@tailwindcss/vite";
+import { tanstackRouter } from "@tanstack/router-plugin/vite";
+import type { VirtualRouteNode } from "@tanstack/virtual-file-routes";
+import react from "@vitejs/plugin-react";
+import type { PluginOption } from "vite";
+import { resolveLocale } from "../i18n/index.ts";
+import { PRODUCT_ROUTE_TREE, featureRoutes, routerConfig } from "./router.ts";
+
+export { PRODUCT_ROUTE_TREE, featureRoutes, routerConfig, type SpaLayout } from "./router.ts";
+
+export type SkeletonViteOptions = {
+  /** The Product's directory (`import.meta.dirname` in its vite.config.ts). */
+  dir: string;
+  /** More signed-in routes than the features' `routes/` folders, each mounted by `physical()`. */
+  routes?: VirtualRouteNode[];
+  /** More public routes than the features' `public/` folders. */
+  publicRoutes?: VirtualRouteNode[];
+};
+
+/**
+ * Every Vite plugin a Product's Worker needs: TanStack Router (same config as
+ * `skeleton generate`), React, Tailwind (shadcn) and Cloudflare (the Worker and
+ * its Static Assets). The `LOCALE` build variable picks the SPA's language.
+ */
+export function skeleton({ dir, routes = [], publicRoutes = [] }: SkeletonViteOptions): PluginOption[] {
+  const locale = resolveLocale(process.env.LOCALE);
+  const fromFeatures = featureRoutes(dir);
+  return [
+    {
+      name: "skeleton",
+      config: () => ({
+        // The SPA reads `import.meta.env.LOCALE`; the Worker (its emails) reads `__SKELETON_LOCALE__`.
+        define: { "import.meta.env.LOCALE": JSON.stringify(locale), __SKELETON_LOCALE__: JSON.stringify(locale) },
+        resolve: { dedupe: ["react", "react-dom", "@tanstack/react-query", "@tanstack/react-router"] },
+      }),
+    },
+    tanstackRouter(
+      routerConfig({
+        dir,
+        routeTree: PRODUCT_ROUTE_TREE,
+        routes: [...fromFeatures.routes, ...routes],
+        publicRoutes: [...fromFeatures.publicRoutes, ...publicRoutes],
+      }),
+    ),
+    react(),
+    tailwindcss(),
+    cloudflare(),
+  ];
+}

@@ -1,0 +1,70 @@
+{
+  "version": "8",
+  "dialect": "postgres",
+  "id": "030a7ec0-5872-4f1c-88b2-3f0b1a1ecfd5",
+  "prevIds": [
+    "00000000-0000-0000-0000-000000000000"
+  ],
+  "ddl": [
+    {
+      "isRlsEnabled": false,
+      "name": "notes",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notes"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "role",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notes"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "role"
+      ],
+      "schemaTo": "skeleton",
+      "tableTo": "member_roles",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "NO ACTION",
+      "name": "notes_role_member_roles_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "notes"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "notes_pkey",
+      "schema": "public",
+      "table": "notes",
+      "entityType": "pks"
+    }
+  ],
+  "renames": []
+}

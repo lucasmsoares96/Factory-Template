@@ -1,0 +1,51 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "ui": "stream",
+  "globalDependencies": [
+    ".node-version",
+    ".oxlintrc.json",
+    "docker-compose.yml",
+    "package.json",
+    "pnpm-workspace.yaml",
+    "scripts/verify.ts",
+    "tsconfig.base.json"
+  ],
+  "globalEnv": ["LOCALE"],
+  "globalPassThroughEnv": ["CI", "DATABASE_URL", "DOCKER_*", "GITHUB_BASE_REF", "POSTGRES_IMAGE", "POSTGRES_PORT"],
+  "tasks": {
+    "generate": {
+      "dependsOn": ["^generate"],
+      "outputs": [
+        "worker-configuration.d.ts",
+        "test/worker/worker-configuration.d.ts",
+        "openapi.json",
+        "src/gen/**",
+        "src/client/routeTree.gen.ts",
+        "test/spa/routeTree.gen.ts",
+        "src/mcp-tools.gen.json",
+        "test/worker/mcp-tools.gen.json"
+      ]
+    },
+    "typecheck": {
+      "dependsOn": ["generate", "^generate"]
+    },
+    "lint": {
+      "dependsOn": ["generate", "^generate"]
+    },
+    "test": {
+      "dependsOn": ["generate", "^generate"]
+    },
+    "build": {
+      "dependsOn": ["generate", "^generate"],
+      "outputs": ["dist/**"]
+    },
+    "e2e": {
+      "dependsOn": ["generate", "^generate", "build"],
+      "outputs": ["$TURBO_ROOT$/test-results/evidence/**"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    }
+  }
+}

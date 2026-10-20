@@ -1,0 +1,44 @@
+{
+  "version": "8",
+  "dialect": "postgres",
+  "id": "f9609d90-6705-4672-a097-05cb84d41ae7",
+  "prevIds": [
+    "00000000-0000-0000-0000-000000000000"
+  ],
+  "ddl": [
+    {
+      "name": "skeleton",
+      "entityType": "schemas"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "member_roles",
+      "entityType": "tables",
+      "schema": "skeleton"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "skeleton",
+      "table": "member_roles"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "member_roles_pkey",
+      "schema": "skeleton",
+      "table": "member_roles",
+      "entityType": "pks"
+    }
+  ],
+  "renames": []
+}
