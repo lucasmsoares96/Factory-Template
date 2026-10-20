@@ -172,7 +172,9 @@ jobs:
         run: |
           node .factory/src/ci/deploy.ts secrets-file --file "$RUNNER_TEMP/worker-secrets.json"
           # KV for the OAuth provider comes from wrangler's automatic provisioning (the binding has no id).
-          pnpm exec wrangler deploy --config "$WRANGLER_CONFIG" --name "$PRODUCT" --secrets-file "$RUNNER_TEMP/worker-secrets.json"
+          # wrangler is a dependency of @factory/harness, not of the root: run it from that package.
+          # Every path here is absolute ($RUNNER_TEMP), so the package's working directory does not matter.
+          pnpm --filter @factory/harness exec wrangler deploy --config "$WRANGLER_CONFIG" --name "$PRODUCT" --secrets-file "$RUNNER_TEMP/worker-secrets.json"
           rm -f "$RUNNER_TEMP/worker-secrets.json"
       # The URL travels to `smoke` as a one-line artifact: a matrix job's outputs would collide between Products.
       - name: deployed URL
