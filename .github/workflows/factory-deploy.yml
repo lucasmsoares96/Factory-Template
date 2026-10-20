@@ -1,0 +1,212 @@
+# Every merge into the default branch deploys the Products it affects that are
+# listed in the DEPLOY_PRODUCTS variable, from here and never from a laptop.
+# The code of a Product is built in `build` (the image, no secret); `deploy` is
+# the only job that holds the Cloudflare and Neon secrets and it runs the
+# checkout of the branch plus an allowlisted artifact; `smoke` has no secret.
+# Shows as skipped until `pnpm bootstrap product <id>` sets DEPLOY_ENABLED.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Deploys of the same branch run one after the other; a started deploy is never cancelled.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  image:
+    if: ${{ vars.DEPLOY_ENABLED == 'true' && github.ref_name == github.event.repository.default_branch }}
+    uses: ./.github/workflows/factory-image.yml
+    permissions:
+      contents: read
+      packages: write
+    with:
+      ref: ${{ github.sha }}
+
+  # Affected Products ∩ DEPLOY_PRODUCTS, one `build`, `deploy` and `smoke` each.
+  plan:
+    needs: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.image.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      empty: ${{ steps.plan.outputs.empty }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+          filter: blob:none
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - id: plan
+        env:
+          BASE: ${{ github.event.before }}
+          HEAD: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          DEPLOY_PRODUCTS: ${{ vars.DEPLOY_PRODUCTS }}
+        run: node .factory/src/ci/deploy.ts plan --base "$BASE" --head "$HEAD"
+
+  # The Product's code runs here and only here: no secret, read-only token, no cache.
+  build:
+    name: build (${{ matrix.id }})
+    needs: [image, plan]
+    if: needs.plan.outputs.empty == 'false'
+    runs-on: ${{ vars.FACTORY_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.image.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      CI: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+          filter: blob:none
+      - run: pnpm install --frozen-lockfile
+      - name: build ${{ matrix.id }}
+        env:
+          PRODUCT: ${{ matrix.id }}
+        run: pnpm exec turbo run build --filter "$PRODUCT"
+      - name: bundle
+        env:
+          PRODUCT: ${{ matrix.id }}
+        run: node .factory/src/ci/deploy.ts bundle --product "$PRODUCT" --out "$RUNNER_TEMP/bundle"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bundle-${{ matrix.id }}
+          path: ${{ runner.temp }}/bundle
+          if-no-files-found: error
+          retention-days: 1
+
+  # A fresh VM with the checkout of the branch, not of anything the build produced
+  # except the allowlisted artifact. The secrets of this job are the only ones.
+  deploy:
+    name: deploy (${{ matrix.id }})
+    needs: [plan, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    # The environment of the Product when environments exist; otherwise the secrets are at repo level.
+    environment: ${{ vars.FACTORY_USE_ENVIRONMENTS != 'false' && format('{0}-production', matrix.id) || null }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_BASE_URL: https://api.cloudflare.com/client/v4
+      WRANGLER_SEND_METRICS: "false"
+      CI: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          filter: blob:none
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: corepack enable pnpm
+      # Dependencies from the lockfile of the branch, with no install script: nothing of the artifact decides what runs.
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: bundle-${{ matrix.id }}
+          path: ${{ runner.temp }}/artifact
+      - name: check the artifact against the allowlist
+        run: node .factory/src/ci/deploy.ts verify-bundle --dir "$RUNNER_TEMP/artifact"
+      - name: config with the Product id
+        id: config
+        env:
+          PRODUCT: ${{ matrix.id }}
+        run: node .factory/src/ci/deploy.ts config --product "$PRODUCT" --dir "$RUNNER_TEMP/artifact"
+      # Skeleton migrations, then the Product's, against the direct Neon URL.
+      - name: migrate
+        env:
+          MIGRATE_DATABASE_URL: ${{ secrets[format('{0}DATABASE_URL', matrix.prefix)] }}
+        run: node .factory/src/ci/deploy.ts migrate --dir "$RUNNER_TEMP/artifact"
+      - name: deploy
+        env:
+          PRODUCT: ${{ matrix.id }}
+          POOLED_DATABASE_URL: ${{ secrets[format('{0}DATABASE_URL_POOLED', matrix.prefix)] }}
+          AUTH_SECRET: ${{ secrets[format('{0}BETTER_AUTH_SECRET', matrix.prefix)] }}
+          RESEND_KEY: ${{ secrets[format('{0}RESEND_API_KEY', matrix.prefix)] }}
+          WRANGLER_CONFIG: ${{ steps.config.outputs.path }}
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-output.ndjson
+        run: |
+          node .factory/src/ci/deploy.ts secrets-file --file "$RUNNER_TEMP/worker-secrets.json"
+          # KV for the OAuth provider comes from wrangler's automatic provisioning (the binding has no id).
+          pnpm exec wrangler deploy --config "$WRANGLER_CONFIG" --name "$PRODUCT" --secrets-file "$RUNNER_TEMP/worker-secrets.json"
+          rm -f "$RUNNER_TEMP/worker-secrets.json"
+      # The URL travels to `smoke` as a one-line artifact: a matrix job's outputs would collide between Products.
+      - name: deployed URL
+        run: |
+          mkdir -p "$RUNNER_TEMP/url"
+          node .factory/src/ci/deploy.ts url --file "$RUNNER_TEMP/wrangler-output.ndjson" > "$RUNNER_TEMP/url/url.txt"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: url-${{ matrix.id }}
+          path: ${{ runner.temp }}/url
+          if-no-files-found: error
+          retention-days: 1
+
+  # Against the deployed URL, no secret. A red smoke is a red deploy: an `exceededCpu` on the password hash shows here.
+  smoke:
+    name: smoke (${{ matrix.id }})
+    needs: [plan, deploy]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          filter: blob:none
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: url-${{ matrix.id }}
+          path: ${{ runner.temp }}/url
+      - run: node .factory/src/ci/smoke.ts "$(cat "$RUNNER_TEMP/url/url.txt")"

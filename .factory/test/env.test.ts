@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { FactoryVerify } from "../src/adapters/factory-verify.ts";
-import { NeonCli } from "../src/bootstrap/services.ts";
 import { dockerCli } from "../src/local/docker.ts";
 import { AGENT_ENV_ALLOWLIST, BASE_ENV, pick, VERIFY_ENV } from "../src/env.ts";
 import { containerEnv } from "../src/commands/local.ts";
@@ -53,17 +52,6 @@ describe("shared env allowlists", () => {
     } finally {
       for (const key of Object.keys(SECRETS)) delete process.env[key];
     }
-  });
-
-  it("neonctl gets NEON_API_KEY but no other secret", async () => {
-    const bin = await tempDir("factory-neon-shim-");
-    const shim = `#!/bin/sh\nprintf '[{"name":"x","id":"%s"}]' "$(env | grep -E '^(NEON_API_KEY|GITHUB_TOKEN|CLOUDFLARE_API_TOKEN)=' | cut -d= -f1 | tr '\\n' ,)"\n`;
-    await writeFile(join(bin, "pnpm"), shim, { mode: 0o755 });
-    const env = { ...process.env, ...SECRETS, PATH: `${bin}:${process.env.PATH}` };
-
-    const found = await new NeonCli(env).findProject("x");
-
-    expect(found?.id).toBe("NEON_API_KEY,");
   });
 });
 

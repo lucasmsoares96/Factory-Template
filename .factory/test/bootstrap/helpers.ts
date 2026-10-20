@@ -9,6 +9,7 @@ export function world(answers: Record<string, string | boolean | string[]> = {},
   const github = new FakeGitHub();
   const cloudflare = new FakeCloudflare();
   const resend = new FakeResend();
+  const neon = new FakeNeon();
   const products = new Map<string, ProductIdentity>([
     ["example", { id: "example", title: "Example", emailFrom: "Example <no-reply@example.com>", domain: "example.com" }],
   ]);
@@ -17,7 +18,7 @@ export function world(answers: Record<string, string | boolean | string[]> = {},
   const deps: BootstrapDeps = {
     github,
     cloudflare: (token) => cloudflare.forToken(token),
-    neon: new FakeNeon(),
+    neon: (options) => neon.forSession(options),
     resend: (key) => resend.forKey(key),
     product: async (id) => {
       const found = products.get(id);
@@ -35,7 +36,7 @@ export function world(answers: Record<string, string | boolean | string[]> = {},
     const code = await runBootstrap(argv, deps);
     return { code, output: lines.join("\n") };
   };
-  return { github, cloudflare, resend, products, prompter, lines, deps, run };
+  return { github, cloudflare, resend, neon, products, prompter, lines, deps, run };
 }
 
 export const staticLabelNames = Object.entries(defaultConfig.labels)
