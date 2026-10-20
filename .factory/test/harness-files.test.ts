@@ -91,11 +91,18 @@ describe("skills", () => {
   const MATT = [
     "tdd", "code-review", "triage", "implement", "diagnosing-bugs", "codebase-design", "domain-modeling", "grilling", "wayfinder",
     "research", "prototype", "to-spec", "to-tickets", "setup-matt-pocock-skills", "wizard", "pr", "writing-for-agents", "handoff",
-    "git-guardrails-claude-code",
+    "git-guardrails-claude-code", "retro",
   ];
   const VENDOR = ["playwright-cli", "workers-best-practices"];
   const OWN = ["skeleton-add-endpoint", "skeleton-add-migration", "skeleton-add-feature", "skeleton-evidence-test"];
   const dirs = (path: string) => readdirSync(join(repo, path)).sort();
+
+  it("documents where /retro finds the primary sources of a run", () => {
+    const doc = read("docs/agents/retro-sources.md");
+    for (const source of ["stream-json", "gh run download", ".jsonl", "evidence/NN/sessions", "Escalation", "Merge Gate", "threads", "reviews"]) {
+      expect(doc, source).toContain(source);
+    }
+  });
 
   it("ships exactly the decided skills", () => {
     expect(dirs(".agents/skills")).toEqual([...MATT, ...VENDOR, ...OWN].sort());
