@@ -13,6 +13,7 @@ import {
   type StageRecord,
 } from "../result.ts";
 import { summaryMarkdown } from "../report.ts";
+import { changedSkeletonPaths, followUpTicket, productOf, revertToBase, skeletonGaps } from "../scope.ts";
 import { parseReviewOutput } from "../review-output.ts";
 import type { Usage } from "../seams/agent.ts";
 import type { CommandContext } from "./context.ts";
@@ -47,6 +48,10 @@ export async function work(ctx: CommandContext, number: number, options: { repo:
   let ready = false;
   let reason: Reason = "e2e-failures";
   let question: string | null = null;
+  // A Product issue never changes the Skeleton: see scope.ts.
+  const product = productOf(issue, config);
+  const skeletonFiles = new Set<string>();
+  const gaps = new Set<string>();
 
   /** A Stage's timeout, cut to what is left of the global limit; null when nothing is left. */
   const budget = (minutes: number): number | null => {
@@ -73,6 +78,7 @@ export async function work(ctx: CommandContext, number: number, options: { repo:
     );
     add(usage.development, dev.usage);
     const devRecord = { stage: "development" as const, durationMs: ctx.now() - started, commits: dev.commits, usage: dev.usage };
+    skeletonGaps(dev.output).forEach((g) => gaps.add(g));
     const asked = needsHuman(dev.output);
     if (asked !== null) {
       stages.push({ ...devRecord, outcome: "needs-human" });
@@ -110,6 +116,15 @@ export async function work(ctx: CommandContext, number: number, options: { repo:
     );
     add(usage.review, reviewRun.usage);
     const reviewRecord = { stage: "review" as const, durationMs: ctx.now() - started, commits: reviewRun.commits, usage: reviewRun.usage };
+    skeletonGaps(reviewRun.output).forEach((g) => gaps.add(g));
+    let reverted: string[] = [];
+    if (product !== null) {
+      reverted = await changedSkeletonPaths(git, base);
+      if (reverted.length > 0) {
+        await revertToBase(git, base, reverted, `revert: drop Skeleton changes from Product issue #${number}\n\nA Product issue never changes ${reverted.length} file(s) under packages/skeleton/:\n${reverted.map((p) => `- ${p}`).join("\n")}`);
+        reverted.forEach((p) => skeletonFiles.add(p));
+      }
+    }
     if (reviewRun.timedOut) {
       stages.push({ ...reviewRecord, outcome: "timeout", output: tail(reviewRun.output) });
       if (outOfTime()) {
@@ -148,6 +163,19 @@ export async function work(ctx: CommandContext, number: number, options: { repo:
     feedback = e2e.timedOut
       ? `E2E timed out after ${minutes(timeoutMs)} min running \`${command}\`:\n${output}`
       : `E2E failed running \`${command}\`:\n${output}`;
+    if (reverted.length > 0) {
+      feedback += `\n\nThe Review removed your changes under \`packages/skeleton/\` (${reverted.join(", ")}): a Product issue never changes the Skeleton. Meet the criteria with Product code only.`;
+    }
+  }
+
+  const followUps =
+    product !== null && (skeletonFiles.size > 0 || gaps.size > 0)
+      ? [followUpTicket(issue, product, [...skeletonFiles].sort(), [...gaps])]
+      : [];
+  // No new `reason`: criteria that fail without the Skeleton change are a needs-human Escalation.
+  if (!ready && reason === "e2e-failures" && followUps.length > 0) {
+    reason = "needs-human";
+    question = "The acceptance criteria could not be met without a change in the Skeleton, which a Product issue may not make. The follow-up ticket asks for it; decide how to proceed.";
   }
 
   const head = (await git.countCommits(base, "HEAD")) > 0 ? await git.head() : null;
@@ -169,6 +197,7 @@ export async function work(ctx: CommandContext, number: number, options: { repo:
     threadReplies: [],
     usage,
     evidence,
+    followUps,
   };
   await writeResult(join(options.out, RESULT_FILE), result);
   await ctx.stepSummary(summaryMarkdown(result, config));

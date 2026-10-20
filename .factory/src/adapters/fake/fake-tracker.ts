@@ -1,4 +1,4 @@
-import type { Blocker, Issue, IssueComment, Tracker } from "../../seams/tracker.ts";
+import type { Blocker, Issue, IssueComment, NewIssue, Tracker } from "../../seams/tracker.ts";
 
 export interface FakeIssueInput {
   number: number;
@@ -24,6 +24,7 @@ interface FakeIssue {
   comments: IssueComment[];
   blockedBy: number[];
   done: boolean;
+  relatedTo: number | null;
 }
 
 /** In-memory Tracker. Tests seed it and read its state back. */
@@ -51,6 +52,7 @@ export class FakeTracker implements Tracker {
       comments: (input.comments ?? []).map((c) => ({ id: `c${this.nextCommentId++}`, ...c })),
       blockedBy: input.blockedBy ?? [],
       done: input.done ?? false,
+      relatedTo: null,
     });
   }
 
@@ -104,6 +106,13 @@ export class FakeTracker implements Tracker {
 
   async comment(number: number, body: string): Promise<void> {
     this.get(number).comments.push({ id: `c${this.nextCommentId++}`, author: this.self, body });
+  }
+
+  async createIssue(input: NewIssue): Promise<{ number: number; url: string | null }> {
+    const number = Math.max(0, ...this.issues.keys()) + 1;
+    this.add({ number, title: input.title, body: input.body, labels: Object.fromEntries((input.labels ?? []).map((l) => [l, this.self])) });
+    this.get(number).relatedTo = input.relatedTo ?? null;
+    return { number, url: `https://forge.test/issues/${number}` };
   }
 
   async canWrite(login: string): Promise<boolean> {

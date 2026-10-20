@@ -29,6 +29,14 @@ export interface Blocker {
   done: boolean;
 }
 
+export interface NewIssue {
+  title: string;
+  body: string;
+  labels?: string[];
+  /** The issue this one comes from. The adapter links back to it in the new issue. */
+  relatedTo?: number;
+}
+
 export interface Tracker {
   issue(number: number): Promise<Issue>;
   /** Issues that block `number`. */
@@ -43,6 +51,8 @@ export interface Tracker {
    */
   swapLabel(number: number, from: string, to: string): Promise<boolean>;
   comment(number: number, body: string): Promise<void>;
+  /** Opens a new issue; returns its number and, when the forge has one, its URL. */
+  createIssue(input: NewIssue): Promise<{ number: number; url: string | null }>;
   /** Whether `login` has `write` or higher on the repository. */
   canWrite(login: string): Promise<boolean>;
   /** Who last applied `label` to the issue, or null if it is not there. */

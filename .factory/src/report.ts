@@ -94,6 +94,21 @@ export interface EscalationReport {
   patch?: string;
   pr: { number: number; url: string } | null;
   runUrl: string | null;
+  /** Skeleton tickets opened for this run. */
+  followUps?: FollowUpRef[];
+}
+
+export interface FollowUpRef {
+  number: number;
+  title: string;
+}
+
+/** Tells the issue (and the PR) that the Skeleton change it needs was split into other tickets. */
+export function followUpComment(followUps: FollowUpRef[]): string {
+  return [
+    "**The Skeleton must grow.** A Product issue never changes `packages/skeleton/`, so the Factory removed that change from this work and opened:",
+    ...followUps.map((f) => `- #${f.number} ${f.title}`),
+  ].join("\n");
 }
 
 /** The comment an Escalation leaves on the issue. */
@@ -101,6 +116,7 @@ export function escalationComment(report: EscalationReport, config: FactoryConfi
   const { result } = report;
   const lines = [ESCALATION_MARKER, `**Factory escalation (\`${report.reason}\`):** ${headline(report, config)}`];
   if (result?.question) lines.push("", `**Question:** ${result.question}`);
+  if (report.followUps?.length) lines.push("", followUpComment(report.followUps));
   if (report.detail) lines.push("", fence(report.detail, "text"));
   if (report.protectedPaths?.length) {
     lines.push("", `**Protected paths:** ${report.protectedPaths.map((p) => `\`${p}\``).join(", ")}`);

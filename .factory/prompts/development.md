@@ -4,6 +4,8 @@ Follow the `implement` skill for the whole run, and the `tdd` skill for the red 
 
 When you are done, commit. Nobody answers questions during the run: if you cannot go on without a human decision, stop and end your final message with `<needs-human>your question</needs-human>`.
 
+If this is a Product issue and the Skeleton lacks something it needs, do not edit `packages/skeleton/**`: describe the missing piece in `<skeleton-gap>…</skeleton-gap>` in your final message and build what the Product can do on its own.
+
 {{RULES}}
 
 {{ISSUE}}
