@@ -14,7 +14,8 @@ export interface BootstrapDeps {
   github: GitHubClient;
   /** Builds the Cloudflare client once a token is at hand. */
   cloudflare: (token: string) => CloudflareClient;
-  neon: NeonClient;
+  /** Builds a Neon client: with the API key of the environment, or without one (then `login()` opens the browser). */
+  neon: (options: { apiKey?: string }) => NeonClient;
   /** Builds the Resend client once a key is at hand. */
   resend: (key: string) => ResendClient;
   /** Reads `apps/<id>/product.config.ts`. */
@@ -30,7 +31,7 @@ export interface BootstrapDeps {
 
 /** Values held in memory for the length of one run. Nothing here reaches disk. */
 export interface StepContext extends BootstrapDeps {
-  memory: { cloudflareToken?: string; accountId?: string; resendKey?: string; resendDeferred?: boolean };
+  memory: { cloudflareToken?: string; accountId?: string; resendKey?: string; resendDeferred?: boolean; neon?: NeonClient; neonOrg?: { id?: string } };
 }
 
 export interface Step {

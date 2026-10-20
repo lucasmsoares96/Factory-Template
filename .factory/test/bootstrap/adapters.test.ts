@@ -1,4 +1,6 @@
+import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { NeonCli } from "../../src/bootstrap/neon.ts";
 import { GhCli } from "../../src/bootstrap/github.ts";
 import { CloudflareRefused } from "../../src/bootstrap/clients.ts";
 import { CloudflareApi } from "../../src/bootstrap/cloudflare.ts";
@@ -38,6 +40,65 @@ describe("GhCli (command construction, no gh process)", () => {
 
     expect(await gh.listVariables()).toEqual({ A: "1" });
     expect(await gh.listLabels()).toEqual([{ name: "x", color: "aaaaaa", description: "d" }]);
+  });
+});
+
+describe("GhCli: environments and rulesets (command construction)", () => {
+  it("sets an environment secret with --env and the value on stdin", async () => {
+    const calls: { args: string[]; input?: string }[] = [];
+    const gh = new GhCli(async (args, input) => {
+      calls.push({ args, input });
+      return "";
+    });
+    await gh.setSecret("EXAMPLE_DATABASE_URL", "postgresql://x", { environment: "example-production" });
+    expect(calls).toEqual([{ args: ["secret", "set", "EXAMPLE_DATABASE_URL", "--env", "example-production"], input: "postgresql://x" }]);
+  });
+
+  it("restricts an environment to one branch with a custom branch policy, adding it once", async () => {
+    const calls: string[][] = [];
+    const gh = new GhCli(async (args) => {
+      calls.push(args);
+      return args[1]?.endsWith("/deployment-branch-policies") && args.length === 2 ? JSON.stringify({ branch_policies: [] }) : "";
+    });
+    expect(await gh.upsertEnvironment("example-production", { branch: "main" })).toBe("created");
+    expect(calls.map((c) => c.slice(0, 4).join(" "))).toEqual([
+      "api -X PUT repos/{owner}/{repo}/environments/example-production",
+      "api repos/{owner}/{repo}/environments/example-production/deployment-branch-policies",
+      "api -X POST repos/{owner}/{repo}/environments/example-production/deployment-branch-policies",
+    ]);
+  });
+
+  it("reports a refusal (403, 404 or 422) instead of throwing, and rethrows anything else", async () => {
+    const refusing = new GhCli(async () => {
+      throw new Error("gh api failed: gh: Upgrade to GitHub Pro (HTTP 403)");
+    });
+    expect(await refusing.upsertEnvironment("e", { branch: "main" })).toBe("refused");
+    expect(await refusing.createRuleset({ name: "main", include: ["~DEFAULT_BRANCH"], rules: ["deletion"], requiredChecks: [] })).toBe("refused");
+    expect(await refusing.listEnvironments()).toEqual([]);
+    expect(await refusing.listRulesets()).toEqual([]);
+
+    const broken = new GhCli(async () => {
+      throw new Error("gh api failed: HTTP 500");
+    });
+    await expect(broken.upsertEnvironment("e", { branch: "main" })).rejects.toThrow("500");
+  });
+
+  it("reads a hand-made ruleset's rules and required checks", async () => {
+    const gh = new GhCli(async (args) =>
+      args[1] === "repos/{owner}/{repo}/rulesets?includes_parents=false"
+        ? JSON.stringify([{ id: 25500591 }])
+        : JSON.stringify({
+            id: 25500591,
+            name: "main",
+            target: "branch",
+            enforcement: "active",
+            conditions: { ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] } },
+            rules: [{ type: "deletion" }, { type: "non_fast_forward" }, { type: "pull_request", parameters: {} }, { type: "required_status_checks", parameters: { required_status_checks: [{ context: "verify", integration_id: 15368 }] } }],
+          }),
+    );
+    expect(await gh.listRulesets()).toEqual([
+      { id: 25500591, name: "main", target: "branch", enforcement: "active", include: ["~DEFAULT_BRANCH"], rules: ["deletion", "non_fast_forward", "pull_request", "required_status_checks"], requiredChecks: ["verify"] },
+    ]);
   });
 });
 
@@ -230,5 +291,107 @@ describe("ResendApi (fake fetch)", () => {
     const { client } = api(() => ({ message: "restricted_api_key" }), 401);
 
     await expect(client.createDomain("example.com")).rejects.toThrow(/Resend refused the request \(POST \/domains → 401\)/);
+  });
+});
+
+describe("NeonCli (fake neonctl, real throwaway folder)", () => {
+  type Call = { args: string[]; env: Record<string, string>; inherit?: boolean };
+  function cli(answers: Record<string, string>, options: { apiKey?: string; failOn?: string } = {}) {
+    const calls: Call[] = [];
+    const syncCalls: Call[] = [];
+    const neon = new NeonCli({
+      ...(options.apiKey ? { apiKey: options.apiKey } : {}),
+      env: { PATH: "/bin", HOME: "/home/x", GITHUB_TOKEN: "ghp_secret", NEON_API_KEY: "ambient-key" },
+      run: async (args, opts) => {
+        calls.push({ args, ...opts });
+        if (args[0] === options.failOn) throw new Error(`neonctl ${args[0]} failed: nope`);
+        return answers[args[0]!] ?? "";
+      },
+      runSync: (args, opts) => {
+        syncCalls.push({ args, ...opts });
+      },
+    });
+    const dirOf = (call: Call) => call.args[call.args.indexOf("--config-dir") + 1]!;
+    return { neon, calls, syncCalls, dirOf };
+  }
+
+  it("signs in with `auth` in a throwaway --config-dir, handing the terminal over", async () => {
+    const { neon, calls, dirOf } = cli({});
+    await neon.login();
+    expect(calls[0]).toMatchObject({ args: ["auth", "--config-dir", dirOf(calls[0]!)], inherit: true });
+    expect(dirOf(calls[0]!)).toContain("factory-neon-");
+    expect(existsSync(dirOf(calls[0]!))).toBe(true);
+    await neon.close();
+  });
+
+  it("builds list, create and connection-string commands with -o json, --org-id, --no-secrets and --pooled", async () => {
+    const { neon, calls } = cli({
+      orgs: JSON.stringify([{ id: "org-1", name: "P" }]),
+      projects: JSON.stringify({ projects: [{ id: "p1", name: "example" }] }),
+      "connection-string": "postgresql://u:pw@h/neondb\n",
+    });
+    await neon.login();
+    expect(await neon.listOrgs()).toEqual([{ id: "org-1", name: "P" }]);
+    expect(await neon.listProjects("org-1")).toEqual([{ id: "p1", name: "example" }]);
+    expect(await neon.connectionString("p1", { pooled: true, orgId: "org-1" })).toBe("postgresql://u:pw@h/neondb");
+    const [, orgsCall, listCall, uriCall] = calls.map((c) => c.args.filter((a) => a !== "--config-dir").join(" "));
+    expect(orgsCall).toMatch(/^orgs list -o json /);
+    expect(listCall).toMatch(/^projects list --org-id org-1 -o json /);
+    expect(uriCall).toMatch(/^connection-string --project-id p1 --org-id org-1 --pooled --role-name neondb_owner --database-name neondb /);
+    await neon.close();
+  });
+
+  it("creates with --no-secrets and reads the id from the JSON", async () => {
+    const { neon, calls } = cli({ projects: JSON.stringify({ project: { id: "p9", name: "shop" }, connection_uris: [] }) });
+    expect(await neon.createProject("shop", "org-1")).toEqual({ id: "p9", name: "shop" });
+    expect(calls[0]!.args).toEqual(expect.arrayContaining(["projects", "create", "--name", "shop", "--org-id", "org-1", "--no-secrets"]));
+    await neon.close();
+  });
+
+  it("gives the child only the base environment, and an API key only when it was given one", async () => {
+    const plain = cli({ orgs: "[]" });
+    await plain.neon.listOrgs();
+    expect(plain.calls[0]!.env).toEqual({ PATH: "/bin", HOME: "/home/x" });
+    await plain.neon.close();
+
+    const keyed = cli({ orgs: "[]" }, { apiKey: "the-key" });
+    await keyed.neon.listOrgs();
+    await keyed.neon.login();
+    expect(keyed.calls[0]!.env).toEqual({ PATH: "/bin", HOME: "/home/x", NEON_API_KEY: "the-key" });
+    expect(keyed.calls.some((c) => c.args[0] === "auth")).toBe(false);
+    await keyed.neon.close();
+  });
+
+  it("logs out against the same folder and removes it on close, once", async () => {
+    const { neon, calls, syncCalls, dirOf } = cli({ orgs: "[]" });
+    await neon.listOrgs();
+    const dir = dirOf(calls[0]!);
+
+    await neon.close();
+    await neon.close();
+
+    expect(syncCalls).toHaveLength(1);
+    expect(syncCalls[0]!.args).toEqual(["logout", "--config-dir", dir]);
+    expect(existsSync(dir)).toBe(false);
+  });
+
+  it("removes the folder even when the logout or an earlier call failed", async () => {
+    const { neon, calls, dirOf } = cli({}, { failOn: "orgs" });
+    (neon as unknown as { runSync: () => void }).runSync = () => {
+      throw new Error("offline");
+    };
+    await expect(neon.listOrgs()).rejects.toThrow("orgs failed");
+    const dir = dirOf(calls[0]!);
+    expect(existsSync(dir)).toBe(true);
+
+    await expect(neon.close()).resolves.toBeUndefined();
+
+    expect(existsSync(dir)).toBe(false);
+  });
+
+  it("does not accept an answer that is not a connection string, and does not echo it", async () => {
+    const { neon } = cli({ "connection-string": "Error: secret-ish output" });
+    await expect(neon.connectionString("p1", { pooled: false })).rejects.toThrow(/did not answer a connection string/);
+    await neon.close();
   });
 });
