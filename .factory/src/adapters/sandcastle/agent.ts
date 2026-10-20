@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AGENT_ENV_ALLOWLIST, pick } from "../../env.ts";
 import { Git } from "../../git.ts";
-import type { Agent, AgentRun, Stage, Usage } from "../../seams/agent.ts";
+import { MAX_EXTRACTION_RETRIES, type Agent, type AgentRun, type Extraction, type Stage, type Usage } from "../../seams/agent.ts";
 import type { SessionRequest, SessionResponse } from "./session.ts";
 
 export { AGENT_ENV_ALLOWLIST };
@@ -25,7 +25,9 @@ export interface SandcastleAgentOptions {
  * Agent seam on Sandcastle 0.12 with `noSandbox()`: the job's container or VM
  * is the sandbox. Each call is a fresh Claude Code session, run by a child
  * Node process whose env is the allowlist (noSandbox hands the agent the
- * whole env of its process). The session is killed at its timeout.
+ * whole env of its process). The session is killed at its timeout. When the
+ * caller asks for an `extract` block, a session without it is resumed
+ * (Sandcastle `resumeSession`, Claude Code `--resume <id>`) up to twice.
  */
 export class SandcastleAgent implements Agent {
   private readonly options: SandcastleAgentOptions;
@@ -35,26 +37,75 @@ export class SandcastleAgent implements Agent {
     this.options = options;
   }
 
-  async run(stage: Stage, prompt: string, options: { timeoutMs: number; model: string }): Promise<AgentRun> {
+  async run(stage: Stage, prompt: string, options: { timeoutMs: number; model: string; extract?: Extraction }): Promise<AgentRun> {
     const git = new Git(this.options.repo);
     const before = await git.head();
     await mkdir(this.options.sessionsDir, { recursive: true });
     const name = `${String(++this.sessions).padStart(2, "0")}-${stage}`;
-    const streamFile = join(this.options.sessionsDir, `${name}.jsonl`);
+    const started = Date.now();
+    const env = allowlisted(this.options.env ?? process.env);
+    const first = await this.session(name, name, prompt, options, env, options.timeoutMs);
+    let { output, usage, timedOut } = first;
+    const sessionId = first.sessionId;
+    let retries = 0;
+    const { extract } = options;
+    // Resumed only to extract the block, never to continue the work; the Stage timeout covers it.
+    while (extract && !timedOut && !extract.valid(first.output) && retries < MAX_EXTRACTION_RETRIES && sessionId) {
+      const left = options.timeoutMs - (Date.now() - started);
+      if (left <= 0) {
+        timedOut = true;
+        break;
+      }
+      retries++;
+      const resumed = await this.session(name, `${name}-resume${retries}`, extract.ask, options, env, left, sessionId);
+      usage = { inputTokens: usage.inputTokens + resumed.usage.inputTokens, outputTokens: usage.outputTokens + resumed.usage.outputTokens };
+      timedOut = resumed.timedOut;
+      if (!timedOut && extract.valid(resumed.output)) {
+        output = resumed.output;
+        break;
+      }
+    }
+    return { commits: await git.countCommits(before, "HEAD"), output, usage, retries, timedOut };
+  }
+
+  private async session(
+    name: string,
+    file: string,
+    prompt: string,
+    options: { model: string },
+    env: Record<string, string>,
+    timeoutMs: number,
+    resumeSession?: string,
+  ): Promise<{ output: string; usage: Usage; timedOut: boolean; sessionId?: string }> {
+    const streamFile = join(this.options.sessionsDir, `${file}.jsonl`);
     const request: SessionRequest = {
       cwd: this.options.repo,
       prompt,
       model: options.model,
       streamFile,
-      logFile: join(this.options.sessionsDir, `${name}.log`),
-      idleTimeoutSeconds: Math.ceil(options.timeoutMs / 1000),
+      logFile: join(this.options.sessionsDir, `${file}.log`),
+      idleTimeoutSeconds: Math.ceil(timeoutMs / 1000),
+      ...(resumeSession ? { resumeSession } : {}),
     };
-
-    const { response, timedOut } = await runSession(request, allowlisted(this.options.env ?? process.env), options.timeoutMs);
-    if (!timedOut && !response?.ok) throw new Error(`Agent session ${name} failed: ${response?.error ?? "no response"}`);
+    const { response, timedOut } = await runSession(request, env, timeoutMs);
+    if (!timedOut && !response?.ok) throw new Error(`Agent session ${file} failed: ${response?.error ?? "no response"}`);
     const stream = await readFile(streamFile, "utf8").catch(() => "");
-    return { commits: await git.countCommits(before, "HEAD"), ...summarize(stream), timedOut };
+    return { ...summarize(stream), sessionId: sessionIdOf(stream), timedOut };
   }
+}
+
+/** The Claude Code session id, from the first stream-json event that carries one. */
+export function sessionIdOf(stream: string): string | undefined {
+  for (const line of stream.split("\n")) {
+    if (!line.startsWith("{")) continue;
+    try {
+      const id = (JSON.parse(line) as { session_id?: unknown }).session_id;
+      if (typeof id === "string" && id) return id;
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
 }
 
 export function allowlisted(env: Record<string, string | undefined>): Record<string, string> {
