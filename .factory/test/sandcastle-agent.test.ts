@@ -74,7 +74,9 @@ async function setup(behaviour: Parameters<typeof fakeClaude>[0] = {}) {
   return { claude, repo, sessions, agent };
 }
 
-const options = { timeoutMs: 60_000, model: "claude-opus-5-5" };
+// Generous on purpose: these tests are not about time, and a slow machine must not run out of the Stage
+// timeout before a resume (the adapter stops resuming when no time is left). The timeout test sets its own.
+const options = { timeoutMs: 600_000, model: "claude-opus-5-5" };
 
 describe("Sandcastle Agent", () => {
   it("runs Claude Code headless in the repo with only the allowlisted env", async () => {
