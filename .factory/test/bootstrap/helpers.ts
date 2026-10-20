@@ -5,7 +5,7 @@ import { FakeCloudflare, FakeGitHub, FakeNeon, FakePrompter, FakeResend } from "
 
 export const TOKEN = "good-token";
 
-export function world(answers: Record<string, string | boolean> = {}, env: Record<string, string | undefined> = {}) {
+export function world(answers: Record<string, string | boolean | string[]> = {}, env: Record<string, string | undefined> = {}) {
   const github = new FakeGitHub();
   const cloudflare = new FakeCloudflare();
   const resend = new FakeResend();
