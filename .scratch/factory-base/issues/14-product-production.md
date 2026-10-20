@@ -14,6 +14,7 @@ Spec: [../spec.md](../spec.md)
 - [ ] O deploy da `main` também migra o branch `base` do preview quando o módulo Previews existir.
 - [ ] Testes do módulo contra os falsos: queda para o nível do repo, prefixo `<ID>_` (seam 8).
 - [ ] Deploy de teste do `example` pelo Actions.
+- [ ] Medidos também aqui, vindos dos tickets 03 e 04: 429 do rate limit por IP atrás da Cloudflare (`cf-connecting-ip`); linhas do `RateLimiter` dentro das cotas de DO do Free; CPU do render do email no Worker.
 - [ ] Critérios medidos e registrados aqui: login real sem `exceededCpu` no `PasswordHasher`; CPU por request do `/mcp` no Free; resposta da API a environment e ruleset num repo privado no Free. O que for criado só para medir é apagado.
 
 ## Comments

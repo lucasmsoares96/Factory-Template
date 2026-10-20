@@ -15,6 +15,7 @@ Spec: [../spec.md](../spec.md)
 - [ ] Um commit da sessão é descartado: o branch publicado é o que o E2E validou.
 - [ ] `result.json` com o corpo (nulo quando não houver), o registro do Stage e os tokens dele; a linha de custo soma todos os Stages.
 - [ ] O `publish` monta o corpo: avisos `[!WARNING]`/`[!CAUTION]` no topo, texto do Stage no meio, `Closes #N` no fim. Sem texto, o meio é "Implemented by the Factory." e o rodapé registra a falha do Pull Request Stage e o motivo.
+- [ ] Os tickets de acompanhamento abertos pela regra do Skeleton (`followUps` do `result.json`, ticket 09 da base) são parte determinística do corpo, montados pelo `publish` junto dos avisos; o prompt proíbe o agente de escrevê-los, e o texto do Stage não os apaga nem os duplica.
 - [ ] Num run que continua um PR aberto, o corpo é reescrito. Num run sem PR (caminho protegido, sem commits), o texto é descartado.
 - [ ] `pnpm factory local` roda o Stage e escreve o corpo no PR local.
 - [ ] Testes pela CLI contra os falsos: Stage depois do E2E verde; na Escalation com commits; ausente sem commits, em `infra`, com o tempo esgotado e por caminho protegido; ordem do corpo; corpo mínimo e motivo quando o Stage falha ou estoura o timeout; commit descartado; fora das tentativas; tokens no rodapé e no resumo; corpo reescrito ao continuar um PR (seam 1).
