@@ -1,3 +1,4 @@
+import type { Extraction } from "./seams/agent.ts";
 import { reviewSchema, type ReviewOutput } from "./result.ts";
 
 /**
@@ -6,15 +7,23 @@ import { reviewSchema, type ReviewOutput } from "./result.ts";
  * Without a valid block, the whole message becomes the summary.
  */
 export function parseReviewOutput(output: string): ReviewOutput {
+  return findReviewBlock(output) ?? { summary: output.trim(), inline: [] };
+}
+
+function findReviewBlock(output: string): ReviewOutput | null {
   const blocks = [...output.matchAll(/<review>([\s\S]*?)<\/review>/g)];
   const last = blocks.at(-1)?.[1];
-  if (last !== undefined) {
-    try {
-      const parsed = reviewSchema.safeParse(JSON.parse(last));
-      if (parsed.success) return parsed.data;
-    } catch {
-      // Fall through to the raw message.
-    }
+  if (last === undefined) return null;
+  try {
+    const parsed = reviewSchema.safeParse(JSON.parse(last));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
   }
-  return { summary: output.trim(), inline: [] };
 }
+
+/** The Review's expected block, for the Agent seam to extract again from a resumed session. */
+export const reviewExtraction: Extraction = {
+  valid: (output) => findReviewBlock(output) !== null,
+  ask: 'Your last message has no valid <review> block. Reply with the block again, and nothing else: <review>{"summary": "...", "inline": [{"path": "...", "line": 1, "body": "..."}]}</review> with valid JSON and an "inline" array (empty when you have no inline comments).',
+};

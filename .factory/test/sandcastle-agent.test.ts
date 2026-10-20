@@ -9,7 +9,7 @@ import { checkout, git, tempDir } from "./helpers.ts";
  * fake `claude` on PATH. The fake records its argv, stdin and env, may run a
  * shell command in the repo, and answers in Claude Code's stream-json.
  */
-async function fakeClaude(behaviour: { run?: string; sleep?: boolean; exit?: number; result?: string } = {}) {
+async function fakeClaude(behaviour: { run?: string; sleep?: boolean; exit?: number; result?: string; results?: string[] } = {}) {
   const bin = await tempDir("factory-bin-");
   const record = join(bin, "record.json");
   const lines = [
@@ -22,19 +22,29 @@ async function fakeClaude(behaviour: { run?: string; sleep?: boolean; exit?: num
       usage: { input_tokens: 10, cache_creation_input_tokens: 20, cache_read_input_tokens: 300, output_tokens: 40 },
     },
   ];
+  const calls = join(bin, "calls.jsonl");
   const script = `#!/usr/bin/env node
 const { execSync } = require("node:child_process");
 const fs = require("node:fs");
 const stdin = fs.readFileSync(0, "utf8");
 fs.writeFileSync(${JSON.stringify(record)}, JSON.stringify({ argv: process.argv.slice(2), stdin, env: process.env, cwd: process.cwd() }));
+fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify({ argv: process.argv.slice(2), stdin }) + "\\n");
+const nth = fs.readFileSync(${JSON.stringify(calls)}, "utf8").trim().split("\\n").length - 1;
+// Claude Code keeps its sessions under HOME; Sandcastle checks the file exists before it resumes.
+const dir = process.env.HOME + "/.claude/projects/-fake";
+fs.mkdirSync(dir, { recursive: true });
+fs.writeFileSync(dir + "/session-1.jsonl", "{}\\n");
+const results = ${JSON.stringify(behaviour.results ?? null)};
 ${behaviour.run ? `execSync(${JSON.stringify(behaviour.run)}, { stdio: "ignore" });` : ""}
-${behaviour.sleep ? "setInterval(() => {}, 1000);" : `for (const line of ${JSON.stringify(lines)}) console.log(JSON.stringify(line));
+${behaviour.sleep ? "setInterval(() => {}, 1000);" : `for (const line of ${JSON.stringify(lines)}) console.log(JSON.stringify(line.type === "result" && results ? { ...line, result: results[Math.min(nth, results.length - 1)] } : line));
 process.exit(${behaviour.exit ?? 0});`}
 `;
   await writeFile(join(bin, "claude"), script);
   await chmod(join(bin, "claude"), 0o755);
   return {
     path: `${bin}:${process.env.PATH}`,
+    allCalls: async () =>
+      (await readFile(calls, "utf8")).trim().split("\n").map((l) => JSON.parse(l) as { argv: string[]; stdin: string }),
     recorded: async () =>
       JSON.parse(await readFile(record, "utf8")) as { argv: string[]; stdin: string; env: Record<string, string>; cwd: string },
   };
@@ -101,6 +111,7 @@ describe("Sandcastle Agent", () => {
       commits: 1,
       output: "Implemented greet().",
       usage: { inputTokens: 330, outputTokens: 40 },
+      retries: 0,
       timedOut: false,
     });
     expect(await git(repo, "log", "-1", "--format=%s")).toBe("feat: greet #7");
@@ -113,6 +124,38 @@ describe("Sandcastle Agent", () => {
 
     await agent.run("review", "Review it.", options);
     expect((await readdir(sessions)).filter((f) => f.endsWith(".jsonl"))).toEqual(["01-development.jsonl", "02-review.jsonl"]);
+  });
+
+  it("resumes the same session to extract the block, up to twice, adding the tokens", async () => {
+    const { claude, sessions, agent } = await setup({ results: ["No block.", "Still no.", "<review>ok</review>"] });
+    const extract = { valid: (output: string) => output.includes("<review>"), ask: "Emit the <review> block." };
+
+    const run = await agent.run("review", "Review it.", { ...options, extract });
+
+    const calls = await claude.allCalls();
+    expect(calls.map((c) => c.stdin)).toEqual(["Review it.", "Emit the <review> block.", "Emit the <review> block."]);
+    expect(calls.map((c) => c.argv.includes("--resume") && c.argv[c.argv.indexOf("--resume") + 1])).toEqual([false, "session-1", "session-1"]);
+    expect(run).toMatchObject({ output: "<review>ok</review>", retries: 2, timedOut: false, usage: { inputTokens: 990, outputTokens: 120 } });
+    expect((await readdir(sessions)).filter((f) => f.endsWith(".jsonl"))).toEqual(["01-review-resume1.jsonl", "01-review-resume2.jsonl", "01-review.jsonl"]);
+  });
+
+  it("gives up after 2 resumes and keeps the first message", async () => {
+    const { claude, agent } = await setup({ results: ["First.", "no", "no", "<review>too late</review>"] });
+    const extract = { valid: (output: string) => output.includes("<review>"), ask: "Emit the block." };
+
+    const run = await agent.run("review", "Review it.", { ...options, extract });
+
+    expect(await claude.allCalls()).toHaveLength(3);
+    expect(run).toMatchObject({ output: "First.", retries: 2 });
+  });
+
+  it("does not resume without an extraction, or when the first message is valid", async () => {
+    const { claude, agent } = await setup({ result: "<review>ok</review>" });
+    const extract = { valid: (output: string) => output.includes("<review>"), ask: "Emit the block." };
+
+    expect(await agent.run("review", "Review it.", options)).toMatchObject({ retries: 0 });
+    expect(await agent.run("review", "Review it.", { ...options, extract })).toMatchObject({ retries: 0 });
+    expect(await claude.allCalls()).toHaveLength(2);
   });
 
   it("stops a session at its timeout, killing the agent", async () => {
