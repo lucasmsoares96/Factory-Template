@@ -10,20 +10,31 @@ const ACCOUNT_SECRET = "CLOUDFLARE_ACCOUNT_ID";
  * `:account` is a literal placeholder Cloudflare resolves). Everything is percent-encoded exactly once.
  * Docs checked 2026-10-20: developers.cloudflare.com/fundamentals/api/how-to/account-owned-token-template/ (updated 2025-01-14).
  */
-export function cloudflareTokenUrl(accountId?: string): string {
-  const permissions = [
-    { key: "workers_scripts", type: "edit" },
-    { key: "workers_kv_storage", type: "edit" },
-    { key: "account_settings", type: "read" },
-    // For `pnpm bootstrap domain`: DNS records, zone lookup and the Workers Custom Domain.
-    { key: "dns", type: "edit" },
-    { key: "zone", type: "read" },
-    { key: "workers_routes", type: "edit" },
-  ];
-  const query = new URLSearchParams({
-    permissionGroupKeys: JSON.stringify(permissions),
-    name: "Factory Template (Edit Cloudflare Workers)",
-  }).toString();
+export interface TokenPermission {
+  key: string;
+  type: "read" | "edit";
+}
+
+/**
+ * What the common part needs. This exact list, encoded exactly like this, is what the dashboard pre-selected
+ * correctly. Do not add keys here without checking the dashboard: adding the three `DOMAIN_PERMISSIONS` to it
+ * made the dashboard stop pre-selecting these three (2026-10-20).
+ */
+export const BASE_PERMISSIONS: TokenPermission[] = [
+  { key: "workers_scripts", type: "edit" },
+  { key: "workers_kv_storage", type: "edit" },
+  { key: "account_settings", type: "read" },
+];
+
+/** What `pnpm bootstrap domain` needs on top of the base: DNS records, zone lookup and the Workers Custom Domain. */
+export const DOMAIN_PERMISSIONS: TokenPermission[] = [
+  { key: "dns", type: "edit" },
+  { key: "zone", type: "read" },
+  { key: "workers_routes", type: "edit" },
+];
+
+export function cloudflareTokenUrl(accountId?: string, permissions: TokenPermission[] = BASE_PERMISSIONS): string {
+  const query = `permissionGroupKeys=${encodeURIComponent(JSON.stringify(permissions))}&name=${encodeURIComponent("Factory Template (Edit Cloudflare Workers)")}`;
   return accountId
     ? `https://dash.cloudflare.com/${encodeURIComponent(accountId)}/api-tokens/create?${query}`
     : `https://dash.cloudflare.com/?to=/:account/api-tokens&${query}`;
