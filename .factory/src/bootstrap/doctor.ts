@@ -1,3 +1,4 @@
+import { promptMainToken } from "./common.ts";
 import { labelSpecs } from "./labels.ts";
 import { deployFirstMessage, productSecretName, readDnsState, readWorkerDomainState } from "./domain.ts";
 import type { BootstrapDeps, StepContext } from "./steps.ts";
@@ -23,9 +24,13 @@ const MODULE_SWITCHES = [
   ["FACTORY_ENABLED", "the Factory"],
 ] as const;
 
-/** Read-only: lists and reads, never creates, sets or prompts. */
-export async function doctor(deps: BootstrapDeps, productId?: string): Promise<DoctorReport> {
-  const { github, config, env } = deps;
+/**
+ * Read-only: lists and reads, never creates or sets anything. The credentials come from `memory` (what this run already
+ * holds), then the environment, then, only when a person can answer (`deps.interactive`), a password prompt (not stored).
+ */
+export async function doctor(deps: BootstrapDeps, productId?: string, memory: StepContext["memory"] = {}): Promise<DoctorReport> {
+  const { github, config } = deps;
+  const ctx: StepContext = { ...deps, memory };
   const checks: Check[] = [];
   const add = (group: string, status: CheckStatus, name: string, detail?: string) => checks.push({ group, status, name, detail });
 
@@ -68,14 +73,25 @@ export async function doctor(deps: BootstrapDeps, productId?: string): Promise<D
     add("Labels", same ? "ok" : "missing", want.name, same ? undefined : found ? "differs from config.ts" : "run `pnpm bootstrap`");
   }
 
-  const token = env.CLOUDFLARE_API_TOKEN;
-  if (!token) {
+  let token = memory.cloudflareToken ?? (deps.env.CLOUDFLARE_API_TOKEN || undefined);
+  let promptError: string | undefined;
+  if (!token && deps.interactive) {
+    try {
+      token = await promptMainToken(ctx, { message: "Paste the Cloudflare API token to check workers.dev (not stored)", showLink: false });
+    } catch (error) {
+      promptError = (error as Error).message;
+    }
+  }
+  if (promptError) {
+    add("Resources", "missing", "workers.dev", promptError);
+  } else if (!token) {
     add("Resources", "skip", "workers.dev", "export CLOUDFLARE_API_TOKEN to check it (secrets cannot be read back)");
   } else {
     try {
+      memory.cloudflareToken = token;
       const client = deps.cloudflare(token);
-      const accounts = await client.listAccounts();
-      const subdomain = accounts[0] ? await client.getWorkersSubdomain(accounts[0].id) : null;
+      const accountId = memory.accountId ?? (deps.env.CLOUDFLARE_ACCOUNT_ID || undefined) ?? (await client.listAccounts())[0]?.id;
+      const subdomain = accountId ? await client.getWorkersSubdomain(accountId) : null;
       add("Resources", subdomain ? "ok" : "missing", "workers.dev", subdomain ?? "no subdomain registered; run `pnpm bootstrap`");
     } catch (error) {
       add("Resources", "missing", "workers.dev", (error as Error).message);
@@ -86,7 +102,6 @@ export async function doctor(deps: BootstrapDeps, productId?: string): Promise<D
     const group = `Domain (${productId})`;
     try {
       const product = await deps.product(productId);
-      const ctx: StepContext = { ...deps, memory: {} };
       const domainAdd = (status: CheckStatus, name: string, detail?: string) => add(group, status, name, detail);
       if (!product.domain) {
         domainAdd("off", "Domain", `empty: set \`domain\` in apps/${productId}/product.config.ts`);
@@ -94,10 +109,14 @@ export async function doctor(deps: BootstrapDeps, productId?: string): Promise<D
         domainAdd("ok", "Domain", product.domain);
         const key = productSecretName(product.id, "RESEND_API_KEY");
         domainAdd(secrets.includes(key) ? "ok" : "off", key, secrets.includes(key) ? undefined : `run \`pnpm bootstrap domain ${product.id}\``);
+        if (deps.interactive && !memory.resendKey && !memory.resendDeferred && !deps.env.RESEND_API_KEY) {
+          const key = (await deps.prompter.password({ id: "resend-key", message: "Paste a Resend API key to check the domain (not stored)" })).trim();
+          if (key) memory.resendKey = key;
+        }
         try {
           const dns = await readDnsState(ctx, product, false);
           if (dns.kind === "no-resend-key") {
-            domainAdd("skip", "Resend domain", "export RESEND_API_KEY to check it");
+            domainAdd(memory.resendDeferred ? "off" : "skip", "Resend domain", memory.resendDeferred ? "deferred in this run" : "export RESEND_API_KEY to check it");
             domainAdd("skip", "DNS records", "needs the Resend domain");
           } else if (dns.kind === "no-domain") {
             domainAdd("off", "Resend domain", `not created (deferred?): the Product keeps the outbox; run \`pnpm bootstrap domain ${product.id}\``);

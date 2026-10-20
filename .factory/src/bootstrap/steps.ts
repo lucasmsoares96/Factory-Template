@@ -24,6 +24,8 @@ export interface BootstrapDeps {
   env: Record<string, string | undefined>;
   log: (line: string) => void;
   config: FactoryConfig;
+  /** A person can answer prompts (stdin is a TTY). Unset means no: CI and agents never get asked. */
+  interactive?: boolean;
 }
 
 /** Values held in memory for the length of one run. Nothing here reaches disk. */

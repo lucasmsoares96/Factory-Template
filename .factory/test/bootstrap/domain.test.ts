@@ -1,10 +1,17 @@
 import { describe, expect, it } from "vitest";
+import { labelSpecs } from "../../src/bootstrap/labels.ts";
 import { TOKEN, world } from "./helpers.ts";
 
 const ENV = { CLOUDFLARE_API_TOKEN: TOKEN, CLOUDFLARE_ACCOUNT_ID: "acc-1", RESEND_API_KEY: "re-full" };
 
 function domainWorld(answers: Record<string, string | boolean> = {}, env: Record<string, string | undefined> = ENV) {
-  return world({ "resend-domain-action": "create", ...answers }, env);
+  const w = world({ "resend-domain-action": "create", ...answers }, env);
+  // The common part ran before: the final doctor only fails on what is really missing.
+  w.github.secrets.set("CLOUDFLARE_API_TOKEN", TOKEN);
+  w.github.secrets.set("CLOUDFLARE_ACCOUNT_ID", "acc-1");
+  w.cloudflare.subdomains.set("acc-1", "my-team");
+  for (const label of labelSpecs(w.deps.config)) w.github.labels.set(label.name, label);
+  return w;
 }
 
 describe("pnpm bootstrap domain: resend-domain", () => {
