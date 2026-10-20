@@ -46,6 +46,37 @@ export interface CloudflareClient {
   /** The `workers.dev` subdomain of the account, or null when none is registered. */
   getWorkersSubdomain(accountId: string): Promise<string | null>;
   registerWorkersSubdomain(accountId: string, subdomain: string): Promise<void>;
+  /** The zone whose name is exactly `name` in the account the token sees, or null. */
+  findZone(name: string): Promise<CloudflareZone | null>;
+  listDnsRecords(zoneId: string): Promise<CloudflareDnsRecord[]>;
+  createDnsRecord(zoneId: string, record: NewDnsRecord): Promise<void>;
+  workerExists(accountId: string, name: string): Promise<boolean>;
+  /** Custom Domains attached to the Worker `service`. */
+  listWorkerDomains(accountId: string, service: string): Promise<WorkerDomain[]>;
+  attachWorkerDomain(accountId: string, domain: { hostname: string; service: string; zoneId: string; zoneName: string }): Promise<void>;
+}
+
+export interface CloudflareZone {
+  id: string;
+  name: string;
+}
+
+export interface CloudflareDnsRecord {
+  type: string;
+  /** Fully qualified, as Cloudflare returns it. */
+  name: string;
+  content: string;
+}
+
+export interface NewDnsRecord extends CloudflareDnsRecord {
+  priority?: number;
+  /** Always false here: email records must not be proxied. */
+  proxied: false;
+}
+
+export interface WorkerDomain {
+  hostname: string;
+  service: string;
 }
 
 export interface NeonProject {
@@ -57,14 +88,32 @@ export interface NeonClient {
   findProject(name: string): Promise<NeonProject | null>;
 }
 
-export interface ResendDomain {
-  id: string;
+/** A DNS record Resend asks for. `name` is relative to the domain, as Resend gives it. */
+export interface ResendDnsRecord {
+  record: string;
+  type: string;
   name: string;
+  value: string;
+  priority?: number;
   status: string;
 }
 
+export interface ResendDomain {
+  id: string;
+  name: string;
+  /** not_started, pending, verified, failed, temporary_failure... */
+  status: string;
+  records: ResendDnsRecord[];
+}
+
+/** Bound to one API key, held in memory. */
 export interface ResendClient {
   findDomain(name: string): Promise<ResendDomain | null>;
+  createDomain(name: string): Promise<ResendDomain>;
+  /** Starts the asynchronous check; read the result with `findDomain`. */
+  verifyDomain(id: string): Promise<void>;
+  /** A sending-only key limited to the domain; the token is returned once. Needs a full-access key. */
+  createRestrictedKey(input: { name: string; domainId: string }): Promise<string>;
 }
 
 /** What a wizard step asks of the person. Answers are never logged. */

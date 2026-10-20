@@ -1,5 +1,6 @@
 import { labelSpecs } from "./labels.ts";
-import type { BootstrapDeps } from "./steps.ts";
+import { deployFirstMessage, productSecretName, readDnsState, readWorkerDomainState } from "./domain.ts";
+import type { BootstrapDeps, StepContext } from "./steps.ts";
 
 export type CheckStatus = "ok" | "missing" | "warn" | "off" | "skip";
 
@@ -23,7 +24,7 @@ const MODULE_SWITCHES = [
 ] as const;
 
 /** Read-only: lists and reads, never creates, sets or prompts. */
-export async function doctor(deps: BootstrapDeps): Promise<DoctorReport> {
+export async function doctor(deps: BootstrapDeps, productId?: string): Promise<DoctorReport> {
   const { github, config, env } = deps;
   const checks: Check[] = [];
   const add = (group: string, status: CheckStatus, name: string, detail?: string) => checks.push({ group, status, name, detail });
@@ -78,6 +79,48 @@ export async function doctor(deps: BootstrapDeps): Promise<DoctorReport> {
       add("Resources", subdomain ? "ok" : "missing", "workers.dev", subdomain ?? "no subdomain registered; run `pnpm bootstrap`");
     } catch (error) {
       add("Resources", "missing", "workers.dev", (error as Error).message);
+    }
+  }
+
+  if (productId) {
+    const group = `Domain (${productId})`;
+    try {
+      const product = await deps.product(productId);
+      const ctx: StepContext = { ...deps, memory: {} };
+      const domainAdd = (status: CheckStatus, name: string, detail?: string) => add(group, status, name, detail);
+      if (!product.domain) {
+        domainAdd("off", "Domain", `empty: set \`domain\` in apps/${productId}/product.config.ts`);
+      } else {
+        domainAdd("ok", "Domain", product.domain);
+        const key = productSecretName(product.id, "RESEND_API_KEY");
+        domainAdd(secrets.includes(key) ? "ok" : "off", key, secrets.includes(key) ? undefined : `run \`pnpm bootstrap domain ${product.id}\``);
+        try {
+          const dns = await readDnsState(ctx, product, false);
+          if (dns.kind === "no-resend-key") {
+            domainAdd("skip", "Resend domain", "export RESEND_API_KEY to check it");
+            domainAdd("skip", "DNS records", "needs the Resend domain");
+          } else if (dns.kind === "no-domain") {
+            domainAdd("off", "Resend domain", `not created (deferred?): the Product keeps the outbox; run \`pnpm bootstrap domain ${product.id}\``);
+            domainAdd("skip", "DNS records", "needs the Resend domain");
+          } else {
+            domainAdd(dns.domain.status === "verified" ? "ok" : "warn", "Resend domain", `${dns.domain.name}: ${dns.domain.status}`);
+            if (dns.kind === "no-cloudflare") domainAdd("skip", "DNS records", "export CLOUDFLARE_API_TOKEN to check them");
+            else if (dns.kind === "no-zone") domainAdd("warn", "DNS records", "zone not in this Cloudflare account: create the records by hand");
+            else if (dns.missing.length > 0) domainAdd("warn", "DNS records", `${dns.missing.length} missing in ${dns.zone.name}; run \`pnpm bootstrap domain ${product.id} --redo dns-records\``);
+            else domainAdd("ok", "DNS records", dns.different.length > 0 ? `all present (${dns.different.length} with another value, left alone)` : "all present");
+          }
+          const worker = await readWorkerDomainState(ctx, product, false);
+          if (worker.kind === "no-cloudflare") domainAdd("skip", "Worker Custom Domain", "export CLOUDFLARE_API_TOKEN to check it");
+          else if (worker.kind === "no-worker") domainAdd("off", "Worker Custom Domain", deployFirstMessage(product.id));
+          else if (worker.kind === "no-zone") domainAdd("warn", "Worker Custom Domain", "zone not in this Cloudflare account");
+          else if (worker.kind === "attached") domainAdd("ok", "Worker Custom Domain", product.domain);
+          else domainAdd("warn", "Worker Custom Domain", `not attached; run \`pnpm bootstrap domain ${product.id} --redo worker-domain\``);
+        } catch (error) {
+          domainAdd("warn", "Domain checks", (error as Error).message);
+        }
+      }
+    } catch (error) {
+      add(group, "missing", "Product", (error as Error).message);
     }
   }
 
