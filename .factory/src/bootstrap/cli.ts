@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import { loadConfig } from "../config.ts";
+import { SkeletonAccounts } from "./accounts.ts";
 import { CloudflareApi } from "./cloudflare.ts";
 import { commonSteps } from "./common.ts";
 import { doctor, formatReport } from "./doctor.ts";
@@ -26,7 +27,9 @@ Commands:
   domain <id>            Per Product: Resend sending domain, its DNS records in Cloudflare, a restricted
                          Resend key and the Worker's Custom Domain. Skips what exists, so it is safe to rerun.
   product <id>           Per Product, the Production module: Neon project, GitHub environment, <ID>_ secrets,
-                         the Resend domain (deferrable), the ruleset on main and the id in DEPLOY_PRODUCTS.
+                         two accounts made straight in the production database (a default one you choose, and
+                         a smoke one for CI), the Resend domain (deferrable), the ruleset on main and the id
+                         in DEPLOY_PRODUCTS.
                          Neon signs in through your browser (or NEON_API_KEY in the environment); the login
                          is temporary and removed when the command ends. Turns DEPLOY_ENABLED on once the
                          doctor of the Product passes.
@@ -36,7 +39,8 @@ Options:
   --redo <step>          Redo one step even if it looks done (repeatable): cloudflare-token, workers-dev, labels;
                          for the domain command: resend-domain, dns-records, restricted-resend-key, worker-domain;
                          for the product command: neon-project, github-environment, database-secrets, auth-secret,
-                         the four domain steps, main-ruleset, deploy-products.
+                         default-account (asks again and resets the password), smoke-account (rotates the
+                         password), the four domain steps, main-ruleset, deploy-products.
 
 The wizard ends by running the doctor with the credentials it already holds, so one run is enough.
 Run \`pnpm bootstrap doctor [<id>]\` on its own whenever something looks off; with no CLOUDFLARE_API_TOKEN (or
@@ -164,6 +168,7 @@ if (import.meta.main) {
         openNeon.add(client);
         return client;
       },
+      accounts: new SkeletonAccounts(),
       resend: (key) => new ResendApi(key),
       product: loadProduct,
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),

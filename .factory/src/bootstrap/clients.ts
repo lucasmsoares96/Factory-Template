@@ -150,6 +150,20 @@ export interface NeonClient {
   close(): Promise<void>;
 }
 
+/**
+ * The Product's production database, reached by the direct connection string held in memory. The passwords given to
+ * `upsertUser` are hashed by the Skeleton's own function and go nowhere else.
+ */
+export interface AccountsClient {
+  /** The Skeleton's migrations and then the Product's (the same code the deploy runs); idempotent. */
+  migrate(databaseUrl: string, productId: string): Promise<void>;
+  userExists(databaseUrl: string, email: string): Promise<boolean>;
+  /** Whether a verified user other than `email` exists: someone besides the CI smoke account can already enter. */
+  hasVerifiedUserOtherThan(databaseUrl: string, email: string): Promise<boolean>;
+  /** A verified user who signs in with `password`; an existing email gets verified and its password reset. */
+  upsertUser(databaseUrl: string, user: { email: string; name: string; password: string }): Promise<"created" | "password-reset">;
+}
+
 /** A DNS record Resend asks for. `name` is relative to the domain, as Resend gives it. */
 export interface ResendDnsRecord {
   record: string;

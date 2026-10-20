@@ -2,7 +2,8 @@
 # listed in the DEPLOY_PRODUCTS variable, from here and never from a laptop.
 # The code of a Product is built in `build` (the image, no secret); `deploy` is
 # the only job that holds the Cloudflare and Neon secrets and it runs the
-# checkout of the branch plus an allowlisted artifact; `smoke` has no secret.
+# checkout of the branch plus an allowlisted artifact; `smoke` holds one secret,
+# the password of the Product's smoke account (see the smoke job).
 # Shows as skipped until `pnpm bootstrap product <id>` sets DEPLOY_ENABLED.
 name: Deploy
 
@@ -185,7 +186,10 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # Against the deployed URL, no secret. A red smoke is a red deploy: an `exceededCpu` on the password hash shows here.
+  # Against the deployed URL, with a real sign-in: a red smoke is a red deploy, and an `exceededCpu` on the password
+  # hash shows here. The only secret is the smoke account's password (`<ID>_SMOKE_PASSWORD`, a user made by the
+  # bootstrap in the production database); the Cloudflare and Neon secrets stay in `deploy`. This workflow is the
+  # `main` branch's own: a pull request's copy never runs with it.
   smoke:
     name: smoke (${{ matrix.id }})
     needs: [plan, deploy]
@@ -193,6 +197,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+    # The environment that holds the secret (when environments exist; otherwise it is at repo level).
+    environment: ${{ vars.FACTORY_USE_ENVIRONMENTS != 'false' && format('{0}-production', matrix.id) || null }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
@@ -209,4 +215,8 @@ jobs:
         with:
           name: url-${{ matrix.id }}
           path: ${{ runner.temp }}/url
-      - run: node .factory/src/ci/smoke.ts "$(cat "$RUNNER_TEMP/url/url.txt")"
+      - name: smoke
+        env:
+          SMOKE_EMAIL: ${{ vars[format('{0}SMOKE_EMAIL', matrix.prefix)] }}
+          SMOKE_PASSWORD: ${{ secrets[format('{0}SMOKE_PASSWORD', matrix.prefix)] }}
+        run: node .factory/src/ci/smoke.ts "$(cat "$RUNNER_TEMP/url/url.txt")"

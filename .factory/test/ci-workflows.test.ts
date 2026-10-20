@@ -163,7 +163,7 @@ describe.each([[WORKFLOWS_DIR]])("deploy workflow in %s", (dir) => {
   });
 
   it("`deploy` is the only job with Cloudflare or Neon secrets", () => {
-    const withSecrets = mine.filter(({ job }) => /secrets[.[]/.test(textOf(job))).map(({ id }) => id);
+    const withSecrets = mine.filter(({ id, job }) => id !== "smoke" && /secrets[.[]/.test(textOf(job))).map(({ id }) => id);
     expect(withSecrets).toEqual(["deploy"]);
     expect(textOf(jobs.deploy!)).toContain("secrets.CLOUDFLARE_API_TOKEN");
     expect(textOf(jobs.deploy!)).toContain("DATABASE_URL");
@@ -199,9 +199,14 @@ describe.each([[WORKFLOWS_DIR]])("deploy workflow in %s", (dir) => {
     expect(String(jobs.deploy!.environment)).toContain("-production");
   });
 
-  it("`smoke` has no secrets and no environment, and waits for the deploy", () => {
-    expect(textOf(jobs.smoke!)).not.toMatch(/secrets/);
-    expect(jobs.smoke!.environment).toBeUndefined();
+  it("`smoke` holds only the smoke account's password, in the Product's environment, and waits for the deploy", () => {
+    const text = textOf(jobs.smoke!);
+    // Every `secrets` reference of the job: exactly one, the `<ID>_SMOKE_PASSWORD` (the email is a variable).
+    expect(text.match(/secrets\[[^\]]*\]|secrets\.\w+/g)).toEqual(["secrets[format('{0}SMOKE_PASSWORD', matrix.prefix)]"]);
+    expect(text).toContain("vars[format('{0}SMOKE_EMAIL', matrix.prefix)]");
+    expect(text).not.toMatch(/CLOUDFLARE|DATABASE_URL|BETTER_AUTH|RESEND|wrangler|GITHUB_TOKEN|github\.token/);
+    expect(String(jobs.smoke!.environment)).toBe(String(jobs.deploy!.environment));
+    expect(jobs.smoke!.permissions).toEqual({ contents: "read" });
     expect(runs(jobs.smoke!).join("\n")).toContain(".factory/src/ci/smoke.ts");
   });
 

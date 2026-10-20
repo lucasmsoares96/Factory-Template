@@ -1,7 +1,7 @@
 import { defaultConfig, loadConfig } from "../../src/config.ts";
 import { runBootstrap, type BootstrapDeps } from "../../src/bootstrap/cli.ts";
 import type { ProductIdentity } from "../../src/bootstrap/steps.ts";
-import { FakeCloudflare, FakeGitHub, FakeNeon, FakePrompter, FakeResend } from "../../src/bootstrap/fake/fakes.ts";
+import { FakeAccounts, FakeCloudflare, FakeGitHub, FakeNeon, FakePrompter, FakeResend } from "../../src/bootstrap/fake/fakes.ts";
 
 export const TOKEN = "good-token";
 
@@ -10,6 +10,7 @@ export function world(answers: Record<string, string | boolean | string[]> = {},
   const cloudflare = new FakeCloudflare();
   const resend = new FakeResend();
   const neon = new FakeNeon();
+  const accounts = new FakeAccounts();
   const products = new Map<string, ProductIdentity>([
     ["example", { id: "example", title: "Example", emailFrom: "Example <no-reply@example.com>", domain: "example.com" }],
   ]);
@@ -19,6 +20,7 @@ export function world(answers: Record<string, string | boolean | string[]> = {},
     github,
     cloudflare: (token) => cloudflare.forToken(token),
     neon: (options) => neon.forSession(options),
+    accounts,
     resend: (key) => resend.forKey(key),
     product: async (id) => {
       const found = products.get(id);
@@ -36,7 +38,7 @@ export function world(answers: Record<string, string | boolean | string[]> = {},
     const code = await runBootstrap(argv, deps);
     return { code, output: lines.join("\n") };
   };
-  return { github, cloudflare, resend, neon, products, prompter, lines, deps, run };
+  return { github, cloudflare, resend, neon, accounts, products, prompter, lines, deps, run };
 }
 
 export const staticLabelNames = Object.entries(defaultConfig.labels)

@@ -1,8 +1,9 @@
+import { smokeEmail, smokeNames } from "./accounts.ts";
 import { promptMainToken } from "./common.ts";
 import { labelSpecs } from "./labels.ts";
 import { deployFirstMessage, productionEnvironment, productSecretName, readDnsState, readWorkerDomainState } from "./domain.ts";
-import { coversMain, DEPLOY_PRODUCTS, missingSecrets, neonHandle, neonOrgId, parseProductList, productionSecrets, USE_ENVIRONMENTS } from "./product.ts";
-import type { BootstrapDeps, StepContext } from "./steps.ts";
+import { coversMain, DEPLOY_PRODUCTS, missingSecrets, neonHandle, neonOrgId, parseProductList, productionDatabaseUrl, productionSecrets, USE_ENVIRONMENTS } from "./product.ts";
+import type { BootstrapDeps, ProductIdentity, StepContext } from "./steps.ts";
 
 export type CheckStatus = "ok" | "missing" | "warn" | "off" | "skip";
 
@@ -109,7 +110,7 @@ export async function doctor(
     const group = `Domain (${productId})`;
     try {
       const product = await deps.product(productId);
-      if (sections.production) await productionChecks(ctx, product.id, variables, repo.defaultBranch, (status, name, detail) => add(`Production (${productId})`, status, name, detail));
+      if (sections.production) await productionChecks(ctx, product, variables, repo.defaultBranch, (status, name, detail) => add(`Production (${productId})`, status, name, detail));
       const domainAdd = (status: CheckStatus, name: string, detail?: string) => add(group, status, name, detail);
       if (!product.domain) {
         domainAdd("off", "Domain", `empty: set \`domain\` in apps/${productId}/product.config.ts`);
@@ -161,11 +162,12 @@ export async function doctor(
  */
 async function productionChecks(
   ctx: StepContext,
-  id: string,
+  product: ProductIdentity,
   variables: Record<string, string>,
   defaultBranch: string,
   add: (status: CheckStatus, name: string, detail?: string) => void,
 ): Promise<void> {
+  const id = product.id;
   const redo = `run \`pnpm bootstrap product ${id}\``;
   const names = productionSecrets(id);
   const missing = new Set(await missingSecrets(ctx, id, [names.databaseUrl, names.databaseUrlPooled, names.authSecret]));
@@ -182,6 +184,8 @@ async function productionChecks(
   const ruleset = (await ctx.github.listRulesets()).find((r) => coversMain(r, defaultBranch));
   add(ruleset ? "ok" : "off", "Ruleset on the default branch", ruleset ? `${ruleset.name} #${ruleset.id}` : "none (the plan may refuse it) or not made yet");
 
+  await accountChecks(ctx, product, variables, add, redo);
+
   const neon = await neonHandle(ctx, false);
   if (!neon) add("skip", "Neon project", "set NEON_API_KEY to look it up (the wizard signs in by itself)");
   else {
@@ -194,6 +198,45 @@ async function productionChecks(
     } catch (error) {
       add("warn", "Neon project", (error as Error).message);
     }
+  }
+}
+
+/**
+ * The smoke account's secret and variable are required (the smoke job signs in with them). Whether the accounts exist
+ * is read from the production database when this run can reach it (a Neon session or `NEON_API_KEY`); otherwise `skip`.
+ */
+async function accountChecks(
+  ctx: StepContext,
+  product: ProductIdentity,
+  variables: Record<string, string>,
+  add: (status: CheckStatus, name: string, detail?: string) => void,
+  redo: string,
+): Promise<void> {
+  const names = smokeNames(product.id);
+  const missing = (await missingSecrets(ctx, product.id, [names.password])).length > 0;
+  add(missing ? "missing" : "ok", names.password, missing ? redo : undefined);
+  const email = variables[names.email];
+  add(email ? "ok" : "missing", names.email, email ?? redo);
+  const smoke = email ?? smokeEmail(product.id, product.domain);
+
+  let url: string | undefined;
+  try {
+    url = await productionDatabaseUrl(ctx, product, false);
+  } catch (error) {
+    add("warn", "Accounts", (error as Error).message);
+    return;
+  }
+  if (!url) {
+    for (const name of ["Default account", "Smoke account"]) add("skip", name, "set NEON_API_KEY to read the production database (the wizard signs in by itself)");
+    return;
+  }
+  try {
+    const hasDefault = await ctx.accounts.hasVerifiedUserOtherThan(url, smoke);
+    add(hasDefault ? "ok" : "missing", "Default account", hasDefault ? "a verified user besides the smoke account exists" : `none; ${redo}`);
+    const hasSmoke = await ctx.accounts.userExists(url, smoke);
+    add(hasSmoke ? "ok" : "missing", "Smoke account", hasSmoke ? smoke : `${smoke} not in the database; ${redo}`);
+  } catch (error) {
+    add("warn", "Accounts", (error as Error).message);
   }
 }
 

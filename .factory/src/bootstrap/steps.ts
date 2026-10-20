@@ -1,5 +1,5 @@
 import type { FactoryConfig } from "../config.ts";
-import type { CloudflareClient, GitHubClient, NeonClient, Prompter, ResendClient } from "./clients.ts";
+import type { AccountsClient, CloudflareClient, GitHubClient, NeonClient, Prompter, ResendClient } from "./clients.ts";
 
 /** The part of a Product's identity (ticket 07) the wizard reads; it never rewrites the file. */
 export interface ProductIdentity {
@@ -16,6 +16,8 @@ export interface BootstrapDeps {
   cloudflare: (token: string) => CloudflareClient;
   /** Builds a Neon client: with the API key of the environment, or without one (then `login()` opens the browser). */
   neon: (options: { apiKey?: string }) => NeonClient;
+  /** The production database, for the accounts the Production module creates. */
+  accounts: AccountsClient;
   /** Builds the Resend client once a key is at hand. */
   resend: (key: string) => ResendClient;
   /** Reads `apps/<id>/product.config.ts`. */
@@ -31,7 +33,9 @@ export interface BootstrapDeps {
 
 /** Values held in memory for the length of one run. Nothing here reaches disk. */
 export interface StepContext extends BootstrapDeps {
-  memory: { cloudflareToken?: string; accountId?: string; resendKey?: string; resendDeferred?: boolean; neon?: NeonClient; neonOrg?: { id?: string } };
+  /** The steps named by `--redo` in this run (set by `runSteps`). */
+  redo?: string[];
+  memory: { cloudflareToken?: string; accountId?: string; resendKey?: string; resendDeferred?: boolean; neon?: NeonClient; neonOrg?: { id?: string }; databaseUrl?: string };
 }
 
 export interface Step {
@@ -55,6 +59,6 @@ export async function runSteps(steps: Step[], ctx: StepContext, redo: string[]):
       continue;
     }
     ctx.log(`- ${step.title}: ${redo.includes(step.id) ? "redoing" : "running"}`);
-    await step.run(ctx);
+    await step.run({ ...ctx, redo });
   }
 }
