@@ -6,7 +6,7 @@ Spec: [../spec.md](../spec.md)
 
 **Blocked by:** None (can start immediately). Fecha antes do [ticket 21 da base](../../factory-base/issues/21-base-ready-adrs.md).
 
-**Status:** ready-for-human
+**Status:** done
 
 - [x] O seam `Agent` aceita o validador do bloco esperado e devolve quantas retomadas houve, com os tokens somados.
 - [x] O adaptador do Sandcastle retoma a mesma sessão para extrair; o adaptador falso segue um roteiro (bloco inválido, depois válido).
@@ -15,7 +15,7 @@ Spec: [../spec.md](../spec.md)
 - [x] Testes pela CLI contra os falsos: bloco válido sem retomada; válido na 1ª e na 2ª retomada; inválido depois de 2, com o fallback da mensagem crua; tokens somados; timeout do Stage respeitado (seam 1).
 - [x] Teste do adaptador do Sandcastle para a retomada.
 - [x] ADR em `docs/adr/`: a retomada só para extração num seam de sessões novas, com as alternativas (sessão nova por retentativa; sem retentativa).
-- [ ] `pnpm factory:verify` verde.
+- [x] `pnpm factory:verify` verde.
 
 ## Comments
 
@@ -23,3 +23,6 @@ Spec: [../spec.md](../spec.md)
 - Seam: `Agent.run(..., { extract })` and `AgentRun.retries`; the stage record in `result.json` carries `retries`. Fake: a step returns `resumes: [...]`. Tests: `review-extraction.test.ts` (seam 1), `sandcastle-agent.test.ts`. ADR: `docs/adr/0001-resume-session-only-to-extract-output.md`.
 - Pending (human): the measured run with real Claude (`pnpm factory local`) showing a resume working in the Sandcastle adapter (spec acceptance); real Claude's `--resume` usage totals were not verified.
 - `pnpm factory:verify` NOT run (coordinator: machine overloaded; the orchestrator runs it serially at merge). Verified instead: `typecheck` clean; vitest green on review-extraction, sandcastle-agent, work, work-failures, prompts.
+
+
+Merge (2026-10-20): `TURBO_FORCE=1 pnpm factory:verify` verde na `factory-base` (12/12). O teste de retomada do adaptador falhava sob carga porque o Stage de 60 s acabava antes da retomada; o timeout comum dos testes do adaptador passou a 10 min (o teste de timeout define o seu). A demonstração com Claude real é do ticket 05.
