@@ -6,7 +6,7 @@ Spec: [../spec.md](../spec.md)
 
 **Blocked by:** 08, 02
 
-**Status:** ready-for-human
+**Status:** done
 
 - [x] `Tracker` Markdown local (`Status:` = label, `Blocked by:`, `## Comments`; desbloqueada quando todas estão `done`) e `CodeHost` local (branch local, review e Escalation no `## Comments`, prints numa pasta de evidência), com testes próprios (seam 1).
 - [x] `Agent` real: Sandcastle fixado com `noSandbox()` num processo filho, env por allowlist (`PATH`, `HOME`, auth do Claude, `DATABASE_URL`, `CI`), com teste que prova que nada mais vaza.
@@ -15,7 +15,7 @@ Spec: [../spec.md](../spec.md)
 - [x] Imagem `ubuntu:24.04` + `setup.sh` (Node pelo `.node-version`, pnpm via corepack, Claude Code do `config.ts`, `git`, Chromium do Playwright), `useradd -u 1001`, `USER 1001`, sem `docker` CLI; tag pelo hash das versões; `factory local` tenta `docker pull` e só constrói se faltar.
 - [x] Container do agente com o repo por `git clone` (nunca bind-mount), só a auth do Claude, Postgres num container irmão em rede privada, sem o socket do Docker; o `publish` roda no host.
 - [x] `stream-json` de cada sessão guardado junto da evidência.
-- [ ] Demonstração: uma issue de teste em Markdown sobre o `example` chega a `ready` localmente; a issue, o branch e a evidência de teste são apagados no fim.
+- [x] Demonstração: uma issue de teste em Markdown sobre o `example` chega a `ready` localmente; a issue, o branch e a evidência de teste são apagados no fim.
 
 ## Comments
 
@@ -44,7 +44,7 @@ Desvios e notas:
 
 Demonstração com Claude real (2026-10-20): `FACTORY_BASE_BRANCH=factory-base pnpm factory local 1 --issues .scratch/factory-demo/issues` terminou com `{"issue":1,"outcome":"ready","attempts":1}`. O branch `factory/issue-1` teve 3 commits, a Review achou 3 ressalvas e corrigiu os testes do rodapé, o E2E `@evidence` passou (5 specs) e o `stream-json` de cada sessão foi guardado. O Claude tocou `AGENTS.md`, então a PR local saiu com `harness-change`. Os containers, a rede, o volume, a imagem local, a issue de teste e a evidência foram apagados.
 
-Pending (human): apagar o branch de teste, que o hook do git bloqueia (`branch -D`): `git branch -D factory/issue-1`.
+Branch de teste `factory/issue-1` apagado pelo usuário (2026-10-20). Nada pendente neste ticket.
 
 ```bash
 mkdir -p .scratch/factory-demo/issues
