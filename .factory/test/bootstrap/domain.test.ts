@@ -295,9 +295,9 @@ describe("pnpm bootstrap doctor <id>: domain section", () => {
     w.cloudflare.zones.push({ id: "zone-1", name: "example.com" });
     w.cloudflare.workers.add("example");
     // The Production section of the same doctor is out of scope here: its required items are in place.
-    for (const name of ["EXAMPLE_DATABASE_URL", "EXAMPLE_DATABASE_URL_POOLED", "EXAMPLE_BETTER_AUTH_SECRET", "EXAMPLE_SMOKE_PASSWORD"]) w.github.secrets.set(name, "x");
+    for (const name of ["EXAMPLE_DATABASE_URL", "EXAMPLE_DATABASE_URL_POOLED", "EXAMPLE_BETTER_AUTH_SECRET", "EXAMPLE_ACCOUNT_PASSWORD"]) w.github.secrets.set(name, "x");
     w.github.variables.set("DEPLOY_PRODUCTS", "example");
-    w.github.variables.set("EXAMPLE_SMOKE_EMAIL", "smoke@example.com");
+    w.github.variables.set("EXAMPLE_ACCOUNT_EMAIL", "admin@example.com");
     return w;
   }
 

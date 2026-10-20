@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { migrateDatabase } from "../src/node/migrate.ts";
 import { mockResend } from "../src/node/resend-mock.ts";
-import { passwordProblem, upsertVerifiedUser, userExists } from "../src/node/accounts.ts";
+import { passwordProblem, upsertVerifiedUser, userExists, verifiedUserExists } from "../src/node/accounts.ts";
 import { createEmptyDatabase } from "./support/database.ts";
 import { startTestWorker, type TestWorker } from "./support/worker.ts";
 
@@ -36,6 +36,7 @@ test("a user inserted by the bootstrap signs in with no verification email, and 
   expect(await upsertVerifiedUser({ databaseUrl: db.url, email, name: "Admin", password: "correct horse battery" })).toBe("created");
 
   expect(await userExists({ databaseUrl: db.url, email: email.toLowerCase() })).toBe(true);
+  expect(await verifiedUserExists({ databaseUrl: db.url, email })).toBe(true);
   const response = await signIn(email, "correct horse battery");
   expect(response.status).toBe(200);
   const me = await worker.fetch("/api/me", { headers: { cookie: cookieFrom(response) } });
@@ -59,6 +60,7 @@ test("a user who signed up but never verified is verified by the reset", async (
   const email = `late-${randomUUID()}@example.com`;
   await worker.post("/api/auth/sign-up/email", { name: "Late", email, password: "unverified pass 1", callbackURL: "/" });
   expect((await signIn(email, "unverified pass 1")).status).toBe(403);
+  expect(await verifiedUserExists({ databaseUrl: db.url, email })).toBe(false);
 
   await upsertVerifiedUser({ databaseUrl: db.url, email, name: "Late", password: "verified pass 22" });
 

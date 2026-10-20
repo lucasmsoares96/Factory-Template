@@ -174,7 +174,7 @@ describe("deploy config and secrets", () => {
 });
 
 describe("smoke", () => {
-  const account = { email: "smoke@example.com", password: "smoke-secret-password-9" };
+  const account = { email: "admin@example.com", password: "account-secret-password-9" };
   const challenge = () => new Response("", { status: 401, headers: { "www-authenticate": 'Bearer resource_metadata="https://x/.well-known/oauth-protected-resource"' } });
   interface Routes {
     health?: Response;
@@ -221,13 +221,13 @@ describe("smoke", () => {
     const noCookie = await smoke("https://x", { account, fetchFn: worker({ signIn: new Response("{}", { status: 200 }) }).fetchFn });
     expect(noCookie.problems).toEqual(["sign-in answered no session cookie"]);
     const other = await smoke("https://x", { account, fetchFn: worker({ me: Response.json({ email: "someone@else.com" }) }).fetchFn });
-    expect(other.problems).toEqual(["/api/me answered another user than the smoke account"]);
+    expect(other.problems).toEqual(["/api/me answered another user than the account"]);
     const down = await smoke("https://x", { account, fetchFn: worker({ me: new Response("", { status: 500 }) }).fetchFn });
     expect(down.problems).toEqual(["/api/me answered 500"]);
     expect(JSON.stringify([refused, noCookie, other, down])).not.toContain(account.password);
   });
 
-  it("fails, saying what to run, when the smoke account is not configured", async () => {
+  it("fails, saying what to run, when the account is not configured", async () => {
     const result = await smoke("https://x", { account: undefined, fetchFn: worker().fetchFn });
     expect(result.ok).toBe(false);
     expect(result.problems.join()).toContain("pnpm bootstrap product");
