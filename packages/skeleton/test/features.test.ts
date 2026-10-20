@@ -1,5 +1,4 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { Generator, getConfig } from "@tanstack/router-generator";
@@ -26,9 +25,13 @@ test("seeds run in the order the features are listed, and features without one a
 });
 
 // A Product's feature routes enter the route tree by convention (routes/ and public/ per feature).
+// The fake Product lives inside the package, not in the OS temp dir: the route generator writes to
+// `.tanstack/tmp` here and renames into the Product, and a rename fails across filesystems (EXDEV),
+// which is the case for /tmp in the CI container.
 let product: string;
 beforeEach(() => {
-  product = mkdtempSync(join(tmpdir(), "feature-routes-"));
+  mkdirSync(join(import.meta.dirname, "../.tanstack"), { recursive: true });
+  product = mkdtempSync(join(import.meta.dirname, "../.tanstack/feature-routes-"));
   for (const path of ["src/client", "src/features/notes/routes", "src/features/notes/public", "src/features/billing/routes"]) {
     mkdirSync(join(product, path), { recursive: true });
   }
