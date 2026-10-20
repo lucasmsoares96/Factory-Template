@@ -24,14 +24,46 @@ export interface GitHubClient {
   repo(): Promise<RepoInfo>;
   /** Login of the account `gh` is authenticated as. */
   user(): Promise<string>;
-  listSecrets(): Promise<string[]>;
-  /** Stores the value in the repo; it is never read back. */
-  setSecret(name: string, value: string): Promise<void>;
+  /** Names of the secrets of the repo, or of one environment. */
+  listSecrets(options?: { environment?: string }): Promise<string[]>;
+  /** Stores the value in the repo (or in one environment); it is never read back. */
+  setSecret(name: string, value: string, options?: { environment?: string }): Promise<void>;
   listVariables(): Promise<Record<string, string>>;
   setVariable(name: string, value: string): Promise<void>;
   listLabels(): Promise<LabelSpec[]>;
   /** Create or update (`gh label create --force`). */
   upsertLabel(label: LabelSpec): Promise<void>;
+  listEnvironments(): Promise<string[]>;
+  /**
+   * Creates (or updates) an environment that only the branch `branch` may deploy to. `refused` means the plan or the
+   * visibility of the repo does not allow environments (the API said 403, 404 or 422); any other failure throws.
+   */
+  upsertEnvironment(name: string, input: { branch: string }): Promise<"created" | "refused">;
+  /** Branch rulesets of the repo, with their rules. */
+  listRulesets(): Promise<RulesetInfo[]>;
+  /** `refused` as for environments. */
+  createRuleset(spec: RulesetSpec): Promise<"created" | "refused">;
+}
+
+/** The rules of a branch ruleset the wizard cares about. `ref` patterns are as GitHub stores them (`~DEFAULT_BRANCH`, `refs/heads/main`). */
+export interface RulesetSpec {
+  name: string;
+  /** Ref patterns the ruleset applies to. */
+  include: string[];
+  /** Rule types: `deletion`, `non_fast_forward`, `pull_request`, `required_status_checks`. */
+  rules: string[];
+  /** Contexts of the required status checks. */
+  requiredChecks: string[];
+}
+
+export interface RulesetInfo {
+  id: number;
+  name: string;
+  target: string;
+  enforcement: string;
+  include: string[];
+  rules: string[];
+  requiredChecks: string[];
 }
 
 export interface CloudflareAccount {
@@ -95,8 +127,41 @@ export interface NeonProject {
   name: string;
 }
 
+export interface NeonOrg {
+  id: string;
+  name: string;
+}
+
+/**
+ * Neon through `neonctl` with a throwaway config directory: nothing is kept after `close()`. The credentials (an OAuth
+ * login of this run, or `NEON_API_KEY` from the environment) stay inside the adapter; connection strings hold a password
+ * and travel only as return values, from here straight to `GitHubClient.setSecret`.
+ */
 export interface NeonClient {
-  findProject(name: string): Promise<NeonProject | null>;
+  /** Opens the browser to sign in. Not needed (and a no-op) when the adapter was given an API key. */
+  login(): Promise<void>;
+  listOrgs(): Promise<NeonOrg[]>;
+  /** Every project of the org, any name. Project names are not unique in Neon, so the caller filters and handles duplicates. */
+  listProjects(orgId?: string): Promise<NeonProject[]>;
+  createProject(name: string, orgId?: string): Promise<NeonProject>;
+  /** The connection string of the default branch: pooled (the Worker) or direct (migrations). */
+  connectionString(projectId: string, options: { pooled: boolean; orgId?: string }): Promise<string>;
+  /** Logs out (revokes the grant) and removes the throwaway directory. Safe to call twice and after a failure. */
+  close(): Promise<void>;
+}
+
+/**
+ * The Product's production database, reached by the direct connection string held in memory. The passwords given to
+ * `upsertUser` are hashed by the Skeleton's own function and go nowhere else.
+ */
+export interface AccountsClient {
+  /** The Skeleton's migrations and then the Product's (the same code the deploy runs); idempotent. */
+  migrate(databaseUrl: string, productId: string): Promise<void>;
+  userExists(databaseUrl: string, email: string): Promise<boolean>;
+  /** Whether a user with this email exists and is verified (so it can sign in). */
+  verifiedUserExists(databaseUrl: string, email: string): Promise<boolean>;
+  /** A verified user who signs in with `password`; an existing email gets verified and its password reset. */
+  upsertUser(databaseUrl: string, user: { email: string; name: string; password: string }): Promise<"created" | "password-reset">;
 }
 
 /** A DNS record Resend asks for. `name` is relative to the domain, as Resend gives it. */
