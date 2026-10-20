@@ -231,9 +231,10 @@ export function defaultAccountStep(product: ProductIdentity): Step {
     async check(ctx) {
       const email = (await ctx.github.listVariables())[emailName];
       if (!email || (await missingSecrets(ctx, product.id, [passwordName])).length > 0) return { done: false };
-      // Done when that verified user exists; telling that needs the database, so Neon is asked.
-      const url = await productionDatabaseUrl(ctx, product, true);
-      return { done: url ? await ctx.accounts.verifiedUserExists(url, email) : false, detail: email };
+      // Presence stands in (secrets cannot be read back). The database confirms it only when this run already has a
+      // Neon session, a key or the URL: the check never logs in, so a rerun with nothing to do never opens the browser.
+      const url = await productionDatabaseUrl(ctx, product, false);
+      return { done: url ? await ctx.accounts.verifiedUserExists(url, email) : true, detail: email };
     },
     async run(ctx) {
       const url = await requireDatabaseUrl(ctx, product);
