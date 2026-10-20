@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { BASE_ENV, pick } from "../env.ts";
-import type { NeonClient, NeonProject, ResendClient, ResendDomain } from "./clients.ts";
+import type { NeonClient, NeonProject } from "./clients.ts";
 
 const exec = promisify(execFile);
 
@@ -20,23 +20,5 @@ export class NeonCli implements NeonClient {
     const parsed = JSON.parse(stdout) as { projects?: NeonProject[] } | NeonProject[];
     const projects = Array.isArray(parsed) ? parsed : (parsed.projects ?? []);
     return projects.find((p) => p.name === name) ?? null;
-  }
-}
-
-/** Resend over its REST API; the key stays in memory. */
-export class ResendApi implements ResendClient {
-  private readonly key: string;
-  private readonly fetchFn: typeof fetch;
-
-  constructor(key: string, fetchFn: typeof fetch = fetch) {
-    this.key = key;
-    this.fetchFn = fetchFn;
-  }
-
-  async findDomain(name: string): Promise<ResendDomain | null> {
-    const response = await this.fetchFn("https://api.resend.com/domains", { headers: { Authorization: `Bearer ${this.key}` } });
-    if (!response.ok) throw new Error(`Resend refused the request (${response.status}).`);
-    const body = (await response.json()) as { data?: ResendDomain[] };
-    return (body.data ?? []).find((d) => d.name === name) ?? null;
   }
 }
