@@ -55,12 +55,14 @@ describe("local CodeHost", () => {
     expect(pr).toMatchObject({ number: 7, branch: "factory/issue-7", draft: true, state: "open" });
     expect(await codeHost.openPrFor("factory/issue-7")).toMatchObject({ number: 7, draft: true });
 
+    await codeHost.updatePrBody(7, "## Summary\n\nNew body\n\nCloses #7");
     await codeHost.labelPr(7, "harness-change");
     await codeHost.markReady(7);
     let text = await read();
     expect(text.match(/factory:pr/g)).toHaveLength(1);
     expect(text).toContain("**Pull request (local, ready):** `factory/issue-7` → `main`");
     expect(text).toContain("Fix #7: Greet the user");
+    expect(text).toContain("New body");
     expect(text).toContain("Labels: `harness-change`");
     expect(await codeHost.openPrFor("factory/issue-7")).toMatchObject({ draft: false });
 

@@ -4,6 +4,7 @@ import {
   developmentPrompt,
   prFeedbackPrompt,
   PROMPTS_DIR,
+  pullRequestPrompt,
   renderTemplate,
   reviewPrompt,
   triagePrompt,
@@ -32,13 +33,20 @@ const prompts = {
     log: "abc1234 feat: greet #7",
     threads: [{ id: "t1", path: "src/greet.ts", author: "alice", body: "Rename this.", replies: [] }],
   }),
+  "pull-request": pullRequestPrompt({
+    issue,
+    base: "main",
+    log: "abc1234 feat: greet #7",
+    result: "E2E passed on attempt 2.",
+    prints: [{ product: "example", path: "test-results/evidence/example/home.png" }],
+  }),
   "update-branch": updateBranchPrompt({ issue, base: "main", conflicts: ["src/greet.ts"] }),
 };
 
 describe("prompt templates", () => {
   it("has one English template per agent Stage in .factory/prompts/", async () => {
     const files = (await readdir(PROMPTS_DIR)).filter((f) => f.endsWith(".md")).sort();
-    expect(files).toEqual(["development.md", "pr-feedback.md", "review.md", "rules.md", "triage.md", "update-branch.md"]);
+    expect(files).toEqual(["development.md", "pr-feedback.md", "pull-request.md", "review.md", "rules.md", "triage.md", "update-branch.md"]);
   });
 
   it.each(Object.entries(prompts))("%s fills every placeholder and repeats the hard rules", (_, prompt) => {
@@ -61,6 +69,7 @@ describe("prompt templates", () => {
     expect(prompts.development).toMatch(/`implement` skill[\s\S]*`tdd` skill/);
     expect(prompts.review).toContain("`code-review` skill");
     expect(prompts.triage).toContain("`triage` skill");
+    expect(prompts["pull-request"]).toContain("`pr` skill");
     expect(prompts["pr-feedback"]).toMatch(/Address, Decline or Defer/);
     expect(prompts["update-branch"]).toContain("Preserve both intents, do not invent new behaviour.");
   });
@@ -81,6 +90,9 @@ describe("prompt templates", () => {
     expect(prompts.development).toContain("<needs-human>");
     expect(prompts.review).toContain("<review>");
     expect(prompts.triage).toContain("<triage>");
+    expect(prompts["pull-request"]).toContain("<pull-request>");
+    expect(prompts["pull-request"]).toContain("E2E passed on attempt 2.");
+    expect(prompts["pull-request"]).toContain("- test-results/evidence/example/home.png");
     expect(prompts["pr-feedback"]).toContain('<thread id="t1" path="src/greet.ts">');
     expect(prompts["update-branch"]).toContain("src/greet.ts");
   });
