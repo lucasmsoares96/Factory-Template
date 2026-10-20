@@ -1,0 +1,49 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": { "correctness": "error" },
+  "ignorePatterns": [
+    "**/dist/**",
+    "**/.wrangler/**",
+    "**/worker-configuration.d.ts",
+    "**/src/gen/**",
+    "**/routeTree.gen.ts"
+  ],
+  "overrides": [
+    {
+      "files": ["apps/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "regex": "(^|/)packages/",
+                "message": "A Product imports the Skeleton by its package name (@workspace/skeleton), never by a relative path."
+              },
+              {
+                "regex": "^@workspace/skeleton/src(/|$)",
+                "message": "Import only the Skeleton's public exports (see packages/skeleton/package.json \"exports\"). If something is missing, grow the Skeleton's interface."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/skeleton/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "regex": "(^|/)apps/",
+                "message": "The Skeleton never imports from a Product (apps/). Take what it needs as configuration instead."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

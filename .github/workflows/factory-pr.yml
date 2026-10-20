@@ -1,0 +1,187 @@
+# Every pull request runs `verify` for the Products it affects, inside the
+# published Factory image, with no secret and no cache. `pull_request_target`
+# so a fork PR still gets a result, but the code of the PR only ever runs in
+# the `build`, `plan` and `ci-probe` jobs: read-only token, no secrets.
+name: PR
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  # A PR from this repository (pushed by someone with write access) that bumps a
+  # version is tested with the new image. A fork PR uses the image of the base:
+  # its setup.sh must not run with `packages: write`.
+  image:
+    uses: ./.github/workflows/factory-image.yml
+    permissions:
+      contents: read
+      packages: write
+    with:
+      ref: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.sha || github.event.pull_request.base.sha }}
+
+  # The Products and packages the PR affects (turbo), one `build` job each.
+  plan:
+    needs: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.image.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      empty: ${{ steps.matrix.outputs.empty }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+          filter: blob:none
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - id: matrix
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: node .factory/src/ci/matrix.ts --base "$BASE" --head "$HEAD"
+
+  build:
+    name: build (${{ matrix.name }})
+    needs: [image, plan]
+    if: needs.plan.outputs.empty == 'false'
+    runs-on: ${{ vars.FACTORY_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.image.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    services:
+      postgres:
+        image: ${{ vars.POSTGRES_IMAGE || 'postgres:18.6-alpine' }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      CI: "true"
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/postgres
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          filter: blob:none
+      - run: pnpm install --frozen-lockfile
+      - name: verify ${{ matrix.name }}
+        env:
+          PACKAGE: ${{ matrix.name }}
+        run: pnpm factory:verify --filter "$PACKAGE"
+
+  skills-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          filter: blob:none
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      # Restores .agents/skills from skills-lock.json: the committed skills must be exactly the locked ones.
+      - run: npx --yes skills@1.7.2 experimental_install
+      - run: git diff --exit-code
+      - name: No file left over
+        run: test -z "$(git status --porcelain)"
+      - name: .claude/skills links
+        run: node .factory/src/ci/skills.ts
+
+  # `new-product ci-probe` in a throwaway copy, then its `verify`; no deploy.
+  ci-probe:
+    needs: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.image.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    services:
+      postgres:
+        image: ${{ vars.POSTGRES_IMAGE || 'postgres:18.6-alpine' }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      CI: "true"
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/postgres
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          filter: blob:none
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm factory:ci-probe
+
+  # The one required check. Green when everything that had to run passed; a
+  # `build` skipped because no package is affected counts as passed.
+  verify:
+    if: ${{ always() }}
+    needs: [image, plan, build, skills-check, ci-probe]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: |
+          echo "A job failed or was cancelled." >&2
+          exit 1
+      - run: echo "verify passed"
