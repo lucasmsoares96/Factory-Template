@@ -42,7 +42,9 @@ Desvios e notas:
 - Triage local (`factory local` para `agent:explore`) fica para o ticket 17, que cria o comando `triage`.
 - O cache do BuildKit da imagem não foi apagado (é compartilhado com os outros worktrees); as tags foram.
 
-Pending (human): demonstração com o Claude de verdade, que precisa de `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`) ou `ANTHROPIC_API_KEY`. Na raiz do repo, com Docker rodando:
+Demonstração com Claude real (2026-10-20): `FACTORY_BASE_BRANCH=factory-base pnpm factory local 1 --issues .scratch/factory-demo/issues` terminou com `{"issue":1,"outcome":"ready","attempts":1}`. O branch `factory/issue-1` teve 3 commits, a Review achou 3 ressalvas e corrigiu os testes do rodapé, o E2E `@evidence` passou (5 specs) e o `stream-json` de cada sessão foi guardado. O Claude tocou `AGENTS.md`, então a PR local saiu com `harness-change`. Os containers, a rede, o volume, a imagem local, a issue de teste e a evidência foram apagados.
+
+Pending (human): apagar o branch de teste, que o hook do git bloqueia (`branch -D`): `git branch -D factory/issue-1`.
 
 ```bash
 mkdir -p .scratch/factory-demo/issues
@@ -62,8 +64,8 @@ The example Product's home page shows a footer with the text "Built by the Facto
 
 ## Acceptance criteria
 
-- [ ] The home page of `apps/example` shows "Built by the Factory" in a footer.
-- [ ] An `@evidence` Playwright test saves a print of the home page with the footer.
+- [x] The home page of `apps/example` shows "Built by the Factory" in a footer.
+- [x] An `@evidence` Playwright test saves a print of the home page with the footer.
 EOF
 export CLAUDE_CODE_OAUTH_TOKEN=...   # from `claude setup-token`
 FACTORY_BASE_BRANCH=factory-base pnpm factory local 1 --issues .scratch/factory-demo/issues
