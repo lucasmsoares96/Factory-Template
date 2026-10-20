@@ -15,6 +15,10 @@ export function cloudflareTokenUrl(accountId?: string): string {
     { key: "workers_scripts", type: "edit" },
     { key: "workers_kv_storage", type: "edit" },
     { key: "account_settings", type: "read" },
+    // For `pnpm bootstrap domain`: DNS records, zone lookup and the Workers Custom Domain.
+    { key: "dns", type: "edit" },
+    { key: "zone", type: "read" },
+    { key: "workers_routes", type: "edit" },
   ];
   const query = new URLSearchParams({
     permissionGroupKeys: JSON.stringify(permissions),

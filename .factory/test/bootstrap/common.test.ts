@@ -27,6 +27,13 @@ describe("pnpm bootstrap (common part)", () => {
     expect(keys).not.toContain("workers_r2");
   });
 
+  it("the token template also grants DNS edit, zone read and Workers Routes edit for the domain command", () => {
+    const keys = decodeURIComponent(cloudflareTokenUrl());
+    expect(keys).toContain('"key":"dns","type":"edit"');
+    expect(keys).toContain('"key":"zone","type":"read"');
+    expect(keys).toContain('"key":"workers_routes","type":"edit"');
+  });
+
   it("prints the token URL on one unwrapped, undecorated line, even in a 60-column terminal", async () => {
     const w = world({}, { CLOUDFLARE_ACCOUNT_ID: "d812538a70457573532f056032500cdb" });
     w.prompter.columns = 60;
@@ -45,6 +52,9 @@ describe("pnpm bootstrap (common part)", () => {
       { key: "workers_scripts", type: "edit" },
       { key: "workers_kv_storage", type: "edit" },
       { key: "account_settings", type: "read" },
+      { key: "dns", type: "edit" },
+      { key: "zone", type: "read" },
+      { key: "workers_routes", type: "edit" },
     ]);
     expect(u.searchParams.get("name")).toBe("Factory Template (Edit Cloudflare Workers)");
     expect(JSON.stringify([w.lines, w.prompter.printed, w.prompter.notes])).not.toContain(TOKEN);
