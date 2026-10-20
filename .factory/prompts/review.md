@@ -7,6 +7,8 @@ On a Product issue, check the diff for changes under `packages/skeleton/**` (the
 {{SCOPE}}
 {{FINDINGS}}
 
+Use inline comments only for a finding that needs a human decision and that you did not fix. Everything you fixed goes in the summary only, never inline. Leave `inline` empty when nothing needs a human decision.
+
 End your final message with the review, as JSON inside a tag:
 <review>{"summary": "What you checked and changed, in Markdown.", "inline": [{"path": "src/file.ts", "line": 1, "body": "A finding on that line of the diff."}]}</review>
 
