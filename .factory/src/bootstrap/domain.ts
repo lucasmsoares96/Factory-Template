@@ -22,12 +22,35 @@ export async function secretScope(ctx: StepContext, productId: string): Promise<
   return (await ctx.github.listEnvironments()).includes(name) ? { environment: name } : {};
 }
 
-/** The Resend key of this run: memory, then the environment, then (when allowed) a prompt. Never stored. */
-async function resendClient(ctx: StepContext, prompt: boolean): Promise<ResendClient | undefined> {
+const RESEND_KEYS_URL = "https://resend.com/api-keys"; // checked against the Resend docs 2026-10-20
+
+/** Resend is optional: ask before any key prompt. Returns the pasted key, or undefined (and marks Resend deferred). */
+async function askForResendKey(ctx: StepContext, productId: string): Promise<string | undefined> {
+  const defer = (why: string) => {
+    ctx.memory.resendDeferred = true;
+    ctx.log(`${why} ${productId} keeps the outbox (emails stored in the database, not sent). Run: pnpm bootstrap domain ${productId} when you want real email.`);
+    return undefined;
+  };
+  if (!ctx.interactive) return defer("No RESEND_API_KEY and no terminal to ask: Resend deferred.");
+  const choice = await ctx.prompter.select({
+    id: "resend-setup",
+    message: `Set up real email with Resend now? It is optional: without it, ${productId} keeps the outbox (emails are stored in the database, not sent). You can do it later with \`pnpm bootstrap domain ${productId}\`.`,
+    options: [
+      { value: "skip", label: "Skip for now (keep the outbox)" },
+      { value: "now", label: "Set it up now" },
+    ],
+  });
+  if (choice !== "now") return defer("Resend deferred:");
+  ctx.prompter.link("Create a Resend API key here (Add API Key, permission: Full access):", RESEND_KEYS_URL);
+  ctx.log("The key is used only during this run to create the domain, the DNS records and a sending-only key restricted to the domain. It is never stored.");
+  const key = (await ctx.prompter.password({ id: "resend-key", message: "Paste the full-access Resend API key (not stored; leave empty to skip)" })).trim();
+  return key || defer("No key given: Resend deferred.");
+}
+
+/** The Resend key of this run: memory, then the environment, then (when allowed and not deferred) the optional question. Never stored. */
+async function resendClient(ctx: StepContext, prompt: boolean, productId = "this Product"): Promise<ResendClient | undefined> {
   let key = ctx.memory.resendKey ?? (ctx.env.RESEND_API_KEY || undefined);
-  if (!key && prompt) {
-    key = (await ctx.prompter.password({ id: "resend-key", message: "Paste a full-access Resend API key (not stored)" })).trim();
-  }
+  if (!key && prompt && !ctx.memory.resendDeferred) key = await askForResendKey(ctx, productId);
   if (!key) return undefined;
   ctx.memory.resendKey = key;
   return ctx.resend(key);
@@ -39,7 +62,17 @@ export async function cloudflareHandle(
   prompt: boolean,
 ): Promise<{ client: CloudflareClient; accountId: string } | undefined> {
   let token = ctx.memory.cloudflareToken ?? (ctx.env.CLOUDFLARE_API_TOKEN || undefined);
-  if (!token && prompt) token = await promptMainToken(ctx, { message: "Paste the Cloudflare API token (not stored)", showLink: true });
+  if (!token && prompt && !ctx.memory.cloudflareDeclined) {
+    token = await promptMainToken(ctx, {
+      message: "Paste the Cloudflare API token, needed for the DNS records and the Worker's domain (not stored; leave empty to skip)",
+      showLink: true,
+      optional: true,
+    });
+    if (!token) {
+      ctx.memory.cloudflareDeclined = true;
+      ctx.log("No Cloudflare token given: the steps that need it are skipped. Run: pnpm bootstrap domain <id> to do them later.");
+    }
+  }
   if (!token) return undefined;
   ctx.memory.cloudflareToken = token;
   const client = ctx.cloudflare(token);
@@ -65,28 +98,15 @@ export function resendDomainStep(product: ProductIdentity): Step {
     id: "resend-domain",
     title: "Resend sending domain",
     async check(ctx) {
-      const resend = await resendClient(ctx, false);
+      const resend = await resendClient(ctx, false, product.id);
       if (!resend) return { done: false, detail: "export RESEND_API_KEY to look it up" };
       const found = await resend.findDomain(product.domain);
       return { done: found !== null, detail: found ? `${found.name}: ${found.status}` : undefined };
     },
     async run(ctx) {
-      const resend = await resendClient(ctx, true);
+      const resend = await resendClient(ctx, true, product.id);
       if (!resend) return;
       if ((await resend.findDomain(product.domain)) !== null) return;
-      const action = await ctx.prompter.select({
-        id: "resend-domain-action",
-        message: `Create ${product.domain} in Resend now? Skipping keeps ${product.id} on the outbox, with no real email.`,
-        options: [
-          { value: "create", label: "Create it now" },
-          { value: "skip", label: "Skip for now" },
-        ],
-      });
-      if (action === "skip") {
-        ctx.memory.resendDeferred = true;
-        ctx.log(`Resend domain deferred: ${product.id} keeps the outbox. Run: pnpm bootstrap domain ${product.id} when the domain is ready.`);
-        return;
-      }
       await resend.createDomain(product.domain);
     },
   };
@@ -129,7 +149,7 @@ export type DnsState =
 
 /** Read-only picture of the Resend domain against the zone; shared by the step and the doctor. */
 export async function readDnsState(ctx: StepContext, product: ProductIdentity, prompt: boolean): Promise<DnsState> {
-  const resend = await resendClient(ctx, prompt);
+  const resend = await resendClient(ctx, prompt, product.id);
   if (!resend) return { kind: "no-resend-key" };
   const domain = await resend.findDomain(product.domain);
   if (!domain) return { kind: "no-domain" };
@@ -186,7 +206,7 @@ export function dnsRecordsStep(product: ProductIdentity): Step {
         });
         ctx.log(`  created ${record.type} ${fqdn(record.name, state.zone.name)}`);
       }
-      const resend = (await resendClient(ctx, true))!;
+      const resend = (await resendClient(ctx, true, product.id))!;
       await resend.verifyDomain(state.domain.id);
       for (let attempt = 1; attempt <= POLLS; attempt++) {
         const status = (await resend.findDomain(product.domain))?.status ?? "unknown";
@@ -209,7 +229,7 @@ export function restrictedKeyStep(product: ProductIdentity): Step {
       return { done: (await ctx.github.listSecrets(await secretScope(ctx, product.id))).includes(secret) };
     },
     async run(ctx) {
-      const resend = await resendClient(ctx, true);
+      const resend = await resendClient(ctx, true, product.id);
       const domain = await resend?.findDomain(product.domain);
       if (!resend || !domain) {
         ctx.log("No Resend domain yet, so no key either.");
@@ -270,6 +290,11 @@ export function workerDomainStep(product: ProductIdentity): Step {
   };
 }
 
+/** The Resend chain; `bootstrap product` runs only this part (the Worker does not exist before the first deploy). */
+export function resendSteps(product: ProductIdentity): Step[] {
+  return [resendDomainStep(product), dnsRecordsStep(product), restrictedKeyStep(product)];
+}
+
 export function domainSteps(product: ProductIdentity): Step[] {
-  return [resendDomainStep(product), dnsRecordsStep(product), restrictedKeyStep(product), workerDomainStep(product)];
+  return [...resendSteps(product), workerDomainStep(product)];
 }

@@ -65,7 +65,7 @@ describe("one run is enough", () => {
   });
 
   it("`domain <id>` ends with the doctor too, using the Resend key and token it was given", async () => {
-    const w = world({ "resend-key": "re-full", "resend-domain-action": "create" });
+    const w = world({ "resend-setup": "now", "resend-key": "re-full" });
     w.deps.interactive = true;
     await w.run();
     w.prompter.asked.length = 0;
