@@ -39,8 +39,19 @@ export interface CloudflareAccount {
   name: string;
 }
 
+/** The API refused the call for lack of permission (HTTP 403 or error 10000): the token is valid but too narrow. */
+export class CloudflareRefused extends Error {}
+
 /** Bound to one API token, held in memory. */
 export interface CloudflareClient {
+  /** Read-only: the token is active (account-token verify, falling back to the user-token verify). */
+  verifyToken(accountId: string): Promise<void>;
+  /** Read-only probes of the main token, one per permission it must carry. Refusals throw `CloudflareRefused`. */
+  listWorkerScripts(accountId: string): Promise<string[]>;
+  listKvNamespaces(accountId: string): Promise<string[]>;
+  getAccount(accountId: string): Promise<CloudflareAccount>;
+  /** At most one zone of the account the token sees; probes Zone: Read without needing a domain. */
+  listZones(): Promise<CloudflareZone[]>;
   /** Accounts the token can see; a failure means the token is invalid. */
   listAccounts(): Promise<CloudflareAccount[]>;
   /** The `workers.dev` subdomain of the account, or null when none is registered. */
