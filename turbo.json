@@ -11,7 +11,7 @@
     "tsconfig.base.json"
   ],
   "globalEnv": ["LOCALE"],
-  "globalPassThroughEnv": ["CI", "DATABASE_URL", "DOCKER_*", "GITHUB_BASE_REF", "POSTGRES_IMAGE", "POSTGRES_PORT"],
+  "globalPassThroughEnv": ["CI", "DATABASE_URL", "DOCKER_*", "GITHUB_BASE_REF", "PLAYWRIGHT_BROWSERS_PATH", "POSTGRES_IMAGE", "POSTGRES_PORT"],
   "tasks": {
     "generate": {
       "dependsOn": ["^generate"],
