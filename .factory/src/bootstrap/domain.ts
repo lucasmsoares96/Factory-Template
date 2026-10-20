@@ -7,6 +7,21 @@ export function productSecretName(productId: string, name: string): string {
   return `${productId.toUpperCase().replace(/-/g, "_")}_${name}`;
 }
 
+/** The environment that holds a Product's production secrets. */
+export function productionEnvironment(productId: string): string {
+  return `${productId}-production`;
+}
+
+/**
+ * Where a Product's production secrets live: in its `<id>-production` environment when that exists, otherwise
+ * (the plan refused environments, or none was made yet) in the repo. A job with an environment also sees repo secrets,
+ * so the workflow reads the same names either way.
+ */
+export async function secretScope(ctx: StepContext, productId: string): Promise<{ environment?: string }> {
+  const name = productionEnvironment(productId);
+  return (await ctx.github.listEnvironments()).includes(name) ? { environment: name } : {};
+}
+
 /** The Resend key of this run: memory, then the environment, then (when allowed) a prompt. Never stored. */
 async function resendClient(ctx: StepContext, prompt: boolean): Promise<ResendClient | undefined> {
   let key = ctx.memory.resendKey ?? (ctx.env.RESEND_API_KEY || undefined);
@@ -191,7 +206,7 @@ export function restrictedKeyStep(product: ProductIdentity): Step {
     title: `Resend key restricted to the domain (${secret})`,
     async check(ctx) {
       if (ctx.memory.resendDeferred) return { done: true, detail: "Resend domain deferred" };
-      return { done: (await ctx.github.listSecrets()).includes(secret) };
+      return { done: (await ctx.github.listSecrets(await secretScope(ctx, product.id))).includes(secret) };
     },
     async run(ctx) {
       const resend = await resendClient(ctx, true);
@@ -201,7 +216,7 @@ export function restrictedKeyStep(product: ProductIdentity): Step {
         return;
       }
       // Secrets cannot be read back, so a redo makes a new key; the old one stays until deleted in the Resend dashboard.
-      await ctx.github.setSecret(secret, await resend.createRestrictedKey({ name: product.id, domainId: domain.id }));
+      await ctx.github.setSecret(secret, await resend.createRestrictedKey({ name: product.id, domainId: domain.id }), await secretScope(ctx, product.id));
     },
   };
 }

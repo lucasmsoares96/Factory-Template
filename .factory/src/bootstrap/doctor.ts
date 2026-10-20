@@ -1,7 +1,9 @@
+import { smokeEmail, smokeNames } from "./accounts.ts";
 import { promptMainToken } from "./common.ts";
 import { labelSpecs } from "./labels.ts";
-import { deployFirstMessage, productSecretName, readDnsState, readWorkerDomainState } from "./domain.ts";
-import type { BootstrapDeps, StepContext } from "./steps.ts";
+import { deployFirstMessage, productionEnvironment, productSecretName, readDnsState, readWorkerDomainState } from "./domain.ts";
+import { coversMain, DEPLOY_PRODUCTS, missingSecrets, neonHandle, neonOrgId, parseProductList, productionDatabaseUrl, productionSecrets, USE_ENVIRONMENTS } from "./product.ts";
+import type { BootstrapDeps, ProductIdentity, StepContext } from "./steps.ts";
 
 export type CheckStatus = "ok" | "missing" | "warn" | "off" | "skip";
 
@@ -28,7 +30,13 @@ const MODULE_SWITCHES = [
  * Read-only: lists and reads, never creates or sets anything. The credentials come from `memory` (what this run already
  * holds), then the environment, then, only when a person can answer (`deps.interactive`), a password prompt (not stored).
  */
-export async function doctor(deps: BootstrapDeps, productId?: string, memory: StepContext["memory"] = {}): Promise<DoctorReport> {
+export async function doctor(
+  deps: BootstrapDeps,
+  productId?: string,
+  memory: StepContext["memory"] = {},
+  /** `bootstrap domain <id>` checks the domain only: the Production section would fail it for what it never set up. */
+  sections: { production: boolean } = { production: true },
+): Promise<DoctorReport> {
   const { github, config } = deps;
   const ctx: StepContext = { ...deps, memory };
   const checks: Check[] = [];
@@ -102,13 +110,15 @@ export async function doctor(deps: BootstrapDeps, productId?: string, memory: St
     const group = `Domain (${productId})`;
     try {
       const product = await deps.product(productId);
+      if (sections.production) await productionChecks(ctx, product, variables, repo.defaultBranch, (status, name, detail) => add(`Production (${productId})`, status, name, detail));
       const domainAdd = (status: CheckStatus, name: string, detail?: string) => add(group, status, name, detail);
       if (!product.domain) {
         domainAdd("off", "Domain", `empty: set \`domain\` in apps/${productId}/product.config.ts`);
       } else {
         domainAdd("ok", "Domain", product.domain);
         const key = productSecretName(product.id, "RESEND_API_KEY");
-        domainAdd(secrets.includes(key) ? "ok" : "off", key, secrets.includes(key) ? undefined : `run \`pnpm bootstrap domain ${product.id}\``);
+        const keyMissing = (await missingSecrets(ctx, product.id, [key])).length > 0;
+        domainAdd(keyMissing ? "off" : "ok", key, keyMissing ? `run \`pnpm bootstrap domain ${product.id}\`` : undefined);
         if (deps.interactive && !memory.resendKey && !memory.resendDeferred && !deps.env.RESEND_API_KEY) {
           const key = (await deps.prompter.password({ id: "resend-key", message: "Paste a Resend API key to check the domain (not stored)" })).trim();
           if (key) memory.resendKey = key;
@@ -144,6 +154,90 @@ export async function doctor(deps: BootstrapDeps, productId?: string, memory: St
   }
 
   return { checks, ok: !checks.some((c) => c.status === "missing") };
+}
+
+/**
+ * The Production section of `doctor <id>`: what the deploy of the Product reads. Required (and so able to turn the
+ * exit code red and hold `DEPLOY_ENABLED` off): the three secrets and the id in `DEPLOY_PRODUCTS`. The rest is informative.
+ */
+async function productionChecks(
+  ctx: StepContext,
+  product: ProductIdentity,
+  variables: Record<string, string>,
+  defaultBranch: string,
+  add: (status: CheckStatus, name: string, detail?: string) => void,
+): Promise<void> {
+  const id = product.id;
+  const redo = `run \`pnpm bootstrap product ${id}\``;
+  const names = productionSecrets(id);
+  const missing = new Set(await missingSecrets(ctx, id, [names.databaseUrl, names.databaseUrlPooled, names.authSecret]));
+  for (const name of [names.databaseUrl, names.databaseUrlPooled, names.authSecret]) add(missing.has(name) ? "missing" : "ok", name, missing.has(name) ? redo : undefined);
+
+  const environment = productionEnvironment(id);
+  if ((await ctx.github.listEnvironments()).includes(environment)) add("ok", `Environment ${environment}`, "only the default branch may deploy");
+  else if (variables[USE_ENVIRONMENTS] === "false") add("off", `Environment ${environment}`, "refused by the plan or visibility: the secrets are at repo level");
+  else add("warn", `Environment ${environment}`, redo);
+
+  const listed = parseProductList(variables[DEPLOY_PRODUCTS]).includes(id);
+  add(listed ? "ok" : "missing", `${id} in ${DEPLOY_PRODUCTS}`, listed ? undefined : redo);
+
+  const ruleset = (await ctx.github.listRulesets()).find((r) => coversMain(r, defaultBranch));
+  add(ruleset ? "ok" : "off", "Ruleset on the default branch", ruleset ? `${ruleset.name} #${ruleset.id}` : "none (the plan may refuse it) or not made yet");
+
+  await accountChecks(ctx, product, variables, add, redo);
+
+  const neon = await neonHandle(ctx, false);
+  if (!neon) add("skip", "Neon project", "set NEON_API_KEY to look it up (the wizard signs in by itself)");
+  else {
+    try {
+      const orgId = await neonOrgId(ctx, neon);
+      const found = (await neon.listProjects(orgId)).filter((p) => p.name === id);
+      if (found.length === 1) add("ok", "Neon project", found[0]!.id);
+      else if (found.length > 1) add("warn", "Neon project", `${found.length} projects are named ${id}`);
+      else add("missing", "Neon project", redo);
+    } catch (error) {
+      add("warn", "Neon project", (error as Error).message);
+    }
+  }
+}
+
+/**
+ * The smoke account's secret and variable are required (the smoke job signs in with them). Whether the accounts exist
+ * is read from the production database when this run can reach it (a Neon session or `NEON_API_KEY`); otherwise `skip`.
+ */
+async function accountChecks(
+  ctx: StepContext,
+  product: ProductIdentity,
+  variables: Record<string, string>,
+  add: (status: CheckStatus, name: string, detail?: string) => void,
+  redo: string,
+): Promise<void> {
+  const names = smokeNames(product.id);
+  const missing = (await missingSecrets(ctx, product.id, [names.password])).length > 0;
+  add(missing ? "missing" : "ok", names.password, missing ? redo : undefined);
+  const email = variables[names.email];
+  add(email ? "ok" : "missing", names.email, email ?? redo);
+  const smoke = email ?? smokeEmail(product.id, product.domain);
+
+  let url: string | undefined;
+  try {
+    url = await productionDatabaseUrl(ctx, product, false);
+  } catch (error) {
+    add("warn", "Accounts", (error as Error).message);
+    return;
+  }
+  if (!url) {
+    for (const name of ["Default account", "Smoke account"]) add("skip", name, "set NEON_API_KEY to read the production database (the wizard signs in by itself)");
+    return;
+  }
+  try {
+    const hasDefault = await ctx.accounts.hasVerifiedUserOtherThan(url, smoke);
+    add(hasDefault ? "ok" : "missing", "Default account", hasDefault ? "a verified user besides the smoke account exists" : `none; ${redo}`);
+    const hasSmoke = await ctx.accounts.userExists(url, smoke);
+    add(hasSmoke ? "ok" : "missing", "Smoke account", hasSmoke ? smoke : `${smoke} not in the database; ${redo}`);
+  } catch (error) {
+    add("warn", "Accounts", (error as Error).message);
+  }
 }
 
 export function formatReport(report: DoctorReport): string {
