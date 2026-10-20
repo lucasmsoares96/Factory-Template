@@ -57,7 +57,7 @@ describe("CloudflareApi (fake fetch)", () => {
 
     expect(await client.listAccounts()).toEqual([{ id: "a", name: "N" }]);
     expect(seen[0]?.url).toBe("https://api.cloudflare.com/client/v4/accounts");
-    expect((seen[0]?.init.headers as Record<string, string>).Authorization).toBe("Bearer tok");
+    expect((seen[0]!.init.headers as Record<string, string>).Authorization).toBe("Bearer tok");
   });
 
   it("treats error 10007 as no subdomain and registers with PUT", async () => {

@@ -8,6 +8,7 @@ import { FakeAgent, type AgentStep } from "../src/adapters/fake/fake-agent.ts";
 import { FakeCodeHost, type FakePullRequestSeed } from "../src/adapters/fake/fake-code-host.ts";
 import { FakeTracker, type FakeIssueInput } from "../src/adapters/fake/fake-tracker.ts";
 import { FakeVerify, type VerifyStep } from "../src/adapters/fake/fake-verify.ts";
+import type { Stage } from "../src/seams/agent.ts";
 import { runFactory } from "../src/cli.ts";
 
 const exec = promisify(execFile);
@@ -131,7 +132,7 @@ export interface WorldOptions {
   now?: () => number;
   /** Working copy the fake Agent and Verify act on. */
   repo?: string;
-  agent?: Partial<Record<"development" | "review", AgentStep[]>>;
+  agent?: Partial<Record<Stage, AgentStep[]>>;
   verify?: VerifyStep[];
   env?: Record<string, string>;
 }

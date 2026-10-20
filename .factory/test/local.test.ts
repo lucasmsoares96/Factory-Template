@@ -6,6 +6,7 @@ import { FakeVerify, type VerifyStep } from "../src/adapters/fake/fake-verify.ts
 import { adaptersFromEnv } from "../src/adapters/index.ts";
 import { runFactory } from "../src/cli.ts";
 import { IN_BUNDLE, IN_TRACKER, type ContainerJob, type ContainerRunner } from "../src/local/container.ts";
+import type { Stage } from "../src/seams/agent.ts";
 import { checkout, commitFile, git, lastJson, tempDir } from "./helpers.ts";
 
 const SPEC = "# Spec: greetings\n\n## Testing Decisions\n\n1. CLI against the fakes.\n";
@@ -30,12 +31,14 @@ const develop: AgentStep = async ({ cwd }) => {
 };
 const reviewSays: AgentStep = () => ({ output: '<review>{"summary": "Looks right.", "inline": []}</review>' });
 
+const writesBody: AgentStep = () => ({ output: "<pull-request>## Summary\n\nGreets the user.\n\n## Merge Danger\n\n**Door:** two-way</pull-request>" });
+
 /**
  * The container of `pnpm factory local`, without Docker: clones the bundle it
  * was given and runs the real `work` with FACTORY_ADAPTERS=local, swapping
  * only the Agent and Verify for the scripted fakes.
  */
-function fakeContainer(script: { agent?: Partial<Record<"development" | "review", AgentStep[]>>; verify?: VerifyStep[]; exitCode?: number } = {}) {
+function fakeContainer(script: { agent?: Partial<Record<Stage, AgentStep[]>>; verify?: VerifyStep[]; exitCode?: number } = {}) {
   const jobs: (ContainerJob & { spec: string; tickets: string[] })[] = [];
   const runner: ContainerRunner = {
     async run(job) {
@@ -53,7 +56,7 @@ function fakeContainer(script: { agent?: Partial<Record<"development" | "review"
         log: () => {},
         adapters: (input) => ({
           ...adaptersFromEnv(env, input),
-          agent: new FakeAgent(repo, script.agent ?? { development: [develop], review: [reviewSays] }),
+          agent: new FakeAgent(repo, script.agent ?? { development: [develop], review: [reviewSays], "pull-request": [writesBody] }),
           verify: new FakeVerify(repo, "test-results/evidence", script.verify ?? [{ ok: true, evidence: [{ product: "example", name: "home.png" }] }]),
         }),
       });
@@ -99,6 +102,8 @@ describe("pnpm factory local", () => {
     const ticket = await h.ticket();
     expect(ticket).toContain("**Status:** in-progress");
     expect(ticket).toContain("**Pull request (local, ready):** `factory/issue-7` → `main`");
+    expect(ticket).toContain("Greets the user.\n\n## Merge Danger");
+    expect(ticket).toContain("Closes #7");
     expect(ticket).toContain("**Factory review**");
     expect(ticket).toContain("Looks right.");
     expect(ticket).toContain("![home.png](../evidence/07/example/home.png)");

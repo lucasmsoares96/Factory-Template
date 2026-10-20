@@ -1,7 +1,7 @@
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { listProducts, newProduct, resolveDevProduct } from "../src/node/index.ts";
@@ -18,28 +18,35 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(workspace, { recursive: true, force: true }));
 
-const filesUnder = (dir: string) =>
-  (readdirSync(dir, { recursive: true, withFileTypes: true }) as import("node:fs").Dirent[])
-    .filter((entry) => entry.isFile())
-    .map((entry) => relative(dir, join(entry.parentPath, entry.name)))
-    .sort();
+test("the template's Product passes generate, typecheck and lint, and has a place for its own E2E specs", () => {
+  // Generated inside the repo so it resolves the workspace's dependencies (it reuses `example`'s node_modules).
+  const id = "zz-template-check";
+  const dir = join(repoRoot, "apps", id);
+  rmSync(dir, { recursive: true, force: true });
+  try {
+    newProduct({ root: repoRoot, id, install: false });
+    symlinkSync("../example/node_modules", join(dir, "node_modules"));
+    expect(existsSync(join(dir, "e2e/.gitkeep"))).toBe(true);
+    expect(readFileSync(join(dir, "AGENTS.md"), "utf8")).toContain("`e2e/`");
 
-test("`example` is exactly what the template generates for `example`, apart from generated files", () => {
-  const { dir } = newProduct({ root: workspace, id: "example", install: false });
-
-  // The committed Product (tracked, or new and not ignored); generated files (`*.gen.*`) come from `pnpm generate`.
-  const tracked = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "apps/example"], { cwd: repoRoot, encoding: "utf8" })
-    .split("\n")
-    .filter((file) => file && !/\.gen\./.test(file))
-    .map((file) => relative("apps/example", file))
-    .sort();
-  const generated = filesUnder(dir).filter((file) => !/\.gen\./.test(file));
-
-  expect(generated).toEqual(tracked);
-  for (const file of tracked) {
-    expect(readFileSync(join(dir, file), "utf8"), file).toBe(readFileSync(join(repoRoot, "apps/example", file), "utf8"));
+    const bin = (name: string) => join(repoRoot, name === "wrangler" ? "apps/example" : "", "node_modules/.bin", name);
+    const steps: [string, string[]][] = [
+      [bin("wrangler"), ["types"]],
+      [process.execPath, [fileURLToPath(new URL("../bin/skeleton.ts", import.meta.url)), "generate", "--product", "."]],
+      [bin("tsc"), ["-p", "tsconfig.worker.json"]],
+      [bin("tsc"), ["-p", "tsconfig.app.json"]],
+      [bin("tsc"), ["-p", "tsconfig.json"]],
+      [bin("oxlint"), []],
+    ];
+    for (const [command, args] of steps) {
+      const run = spawnSync(command, args, { cwd: dir, encoding: "utf8" });
+      expect(run.error, String(run.error)).toBeUndefined();
+      expect(run.status, `${basename(command)} ${args.join(" ")}\n${run.stdout}${run.stderr}`).toBe(0);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
-});
+}, 240_000);
 
 test("the new Product carries its id, title and sender, and leaves no placeholder behind", () => {
   const { dir, files } = newProduct({ root: workspace, id: "pet-shop", title: "Pet Shop", domain: "petshop.dev", install: false });

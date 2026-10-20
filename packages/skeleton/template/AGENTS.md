@@ -8,7 +8,7 @@ A Product built on the Skeleton (`packages/skeleton/`). This file is generated b
 - `src/client/styles.css`: theme (shadcn tokens). `src/worker.ts`: the Worker, a `createApp` call.
 - `src/features/<feature>/`: product behaviour, listed in `src/features/index.ts`.
 - `drizzle/`: this Product's migrations (they run after the Skeleton's).
-- `test/`: Worker tests; `playwright.config.ts` runs the Skeleton's E2E specs plus this Product's.
+- `test/`: Worker tests. `e2e/`: this Product's own Playwright specs (`*.spec.ts`, import `test` and `expect` from `@workspace/skeleton/e2e`); `playwright.config.ts` runs them after the Skeleton's.
 - `src/mcp-tools.gen.json`: snapshot of the MCP tools, written by `pnpm generate`.
 
 ## Commands
