@@ -52,3 +52,5 @@ O `doctor <id>` (só leitura) mostra: `domain` no config, secret `<ID>_RESEND_AP
 
 Pending (human): rodar `pnpm bootstrap domain example` na conta real (com `RESEND_API_KEY` completa e um token Cloudflare refeito pelo template novo) e, depois do primeiro deploy, `pnpm bootstrap domain example --redo worker-domain`; conferir com `pnpm bootstrap doctor example`. A chave `zone` (read) do template e o campo `priority` do MX no Cloudflare só foram conferidos na doc, não na conta. O adaptador real do Resend e as novas chamadas da Cloudflare só foram exercitados por fetch falso.
 
+
+Confirmado na conta real (2026-10-20): com o link de cinco permissões, o formulário mostra marcadas só DNS (edit) e Zone (read), mas o resumo lista as cinco (zonas: DNS Write, Zone Read; conta: Workers Scripts Write, Workers KV Storage Write, Account Settings Read). A causa era só o bug de renderização da primeira carga (cloudflare-docs#29825), não a mistura de escopos. O aviso antes do link cobre isso.
