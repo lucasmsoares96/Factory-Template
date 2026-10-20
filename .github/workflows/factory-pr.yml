@@ -99,6 +99,8 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
+          # History without blobs: the published-migrations check compares with the base branch.
+          fetch-depth: 0
           filter: blob:none
       - run: pnpm install --frozen-lockfile
       - name: verify ${{ matrix.name }}
@@ -167,6 +169,8 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
+          # History without blobs: the published-migrations check compares with the base branch.
+          fetch-depth: 0
           filter: blob:none
       - run: pnpm install --frozen-lockfile
       - run: pnpm factory:ci-probe
