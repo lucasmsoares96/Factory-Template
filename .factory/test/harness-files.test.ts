@@ -3,7 +3,7 @@ import { accessSync, constants, existsSync, lstatSync, readFileSync, readdirSync
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { defaultConfig } from "../src/config.ts";
-import { PROTECTED_PATHS } from "../src/paths.ts";
+import { PROTECTED_PATHS, isHarnessPath } from "../src/paths.ts";
 
 // Seam 2: the harness files are read as data and checked against the config.
 const repo = join(import.meta.dirname, "../..");
@@ -91,11 +91,18 @@ describe("skills", () => {
   const MATT = [
     "tdd", "code-review", "triage", "implement", "diagnosing-bugs", "codebase-design", "domain-modeling", "grilling", "wayfinder",
     "research", "prototype", "to-spec", "to-tickets", "setup-matt-pocock-skills", "wizard", "pr", "writing-for-agents", "handoff",
-    "git-guardrails-claude-code",
+    "git-guardrails-claude-code", "retro",
   ];
   const VENDOR = ["playwright-cli", "workers-best-practices"];
   const OWN = ["skeleton-add-endpoint", "skeleton-add-migration", "skeleton-add-feature", "skeleton-evidence-test"];
   const dirs = (path: string) => readdirSync(join(repo, path)).sort();
+
+  it("documents where /retro finds the primary sources of a run", () => {
+    const doc = read("docs/agents/retro-sources.md");
+    for (const source of ["stream-json", "gh run download", ".jsonl", "evidence/NN/sessions", "Escalation", "Merge Gate", "threads", "reviews"]) {
+      expect(doc, source).toContain(source);
+    }
+  });
 
   it("ships exactly the decided skills", () => {
     expect(dirs(".agents/skills")).toEqual([...MATT, ...VENDOR, ...OWN].sort());
@@ -305,5 +312,27 @@ describe("git guardrails hook", () => {
   it("ignores input that is not a Bash command", () => {
     expect(spawnSync("node", [hook], { input: "not json", encoding: "utf8" }).status).toBe(0);
     expect(spawnSync("node", [hook], { input: JSON.stringify({ tool_input: { file_path: "a" } }), encoding: "utf8" }).status).toBe(0);
+  });
+});
+
+describe("CODING_STANDARDS.md", () => {
+  it("exists at the root with the header comment and the three empty sections", () => {
+    const text = read("CODING_STANDARDS.md");
+    expect(text).toMatch(/^# Coding Standards\n/);
+    expect(text).toMatch(/Review/);
+    expect(text).toMatch(/not (by )?(the )?Development/i);
+    expect(text).toContain("/retro");
+    const sections = text.split(/^## /m).slice(1);
+    expect(sections.map((s) => s.split("\n")[0])).toEqual(["Style", "Testing", "Architecture"]);
+    for (const section of sections) expect(section.split("\n").slice(1).join("\n").trim(), section).toBe("");
+    expect(text).not.toMatch(/Example/);
+  });
+
+  it("is a harness path", () => {
+    expect(isHarnessPath("CODING_STANDARDS.md")).toBe(true);
+  });
+
+  it("is not pointed to by any AGENTS.md", () => {
+    for (const file of AGENTS_FILES) expect(read(file), file).not.toContain("CODING_STANDARDS");
   });
 });
