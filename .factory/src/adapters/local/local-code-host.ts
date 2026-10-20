@@ -82,6 +82,10 @@ export class LocalCodeHost implements CodeHost {
     return this.view(pr);
   }
 
+  async updatePrBody(pr: number, body: string): Promise<void> {
+    await this.update(pr, (p) => (p.body = body));
+  }
+
   async markReady(pr: number): Promise<void> {
     await this.update(pr, (p) => (p.draft = false));
   }

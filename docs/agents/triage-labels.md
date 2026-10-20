@@ -22,6 +22,6 @@ The Factory adds these to the five above. Their names live in `.factory/src/conf
 | --- | --- | --- |
 | `in-progress` | the Factory (`claim`) | The Factory holds the lock on this issue. Replaced by `ready-for-human` on an Escalation. |
 | `agent:explore` | a human | Ask the Factory to triage this issue: it explores and comments, and changes no code. |
-| `harness-change` | the Factory (`publish`) | The pull request touches `AGENTS.md`, `docs/agents/`, `GLOSSARY.md`, `docs/adr/` or `.factory/`. Review it with care. |
+| `harness-change` | the Factory (`publish`) | The pull request touches `AGENTS.md`, `docs/agents/`, `GLOSSARY.md`, `CODING_STANDARDS.md`, `docs/adr/` or `.factory/`. Review it with care. |
 | `preview` | a human with `write`+ access (CI removes it on each push) | Asks CI to deploy a preview of a pull request whose author has no `write` access. It must be re-applied after each push. |
 | `product:<id>` | a human or the Factory | The issue or pull request concerns the Product `<id>`. One label per Product (for example `product:example`). |

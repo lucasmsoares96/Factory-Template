@@ -5,7 +5,7 @@ description: Write a Playwright E2E test that proves a screen works and saves a 
 
 # Write an evidence test
 
-E2E specs run on the local stack (Worker + Postgres + intercepted Resend). The model is `packages/skeleton/e2e/specs/home.spec.ts`. Specs import `test` and `expect` from the Skeleton's `e2e/index.ts` (`@workspace/skeleton/e2e`). Today `defineE2EConfig` runs only the specs in `packages/skeleton/e2e/specs/` against each Product's build; there is no per-Product spec directory yet. If a Product needs its own specs, grow `defineE2EConfig` (a `testDir` option) in a separate change, or end with `needs-human`.
+E2E specs run on the local stack (Worker + Postgres + intercepted Resend). The model is `packages/skeleton/e2e/specs/home.spec.ts`. Specs import `test` and `expect` from the Skeleton's `e2e/index.ts` (`@workspace/skeleton/e2e`). `defineE2EConfig` runs those Skeleton specs in every Product, then the Product's own specs in `apps/<id>/e2e/*.spec.ts` (same `test`/`expect` import, same fixtures, same evidence folder). A Product's feature gets its spec there; never add Product specs to the Skeleton.
 
 ## Locating elements
 

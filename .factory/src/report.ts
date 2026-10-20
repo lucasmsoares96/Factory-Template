@@ -39,10 +39,21 @@ export function lastFailure(result: FactoryResult): StageRecord | null {
 
 /** `Tokens: 30,000 in / 3,000 out. Estimated cost: $0.18.` */
 export function usageLine(usage: FactoryResult["usage"], pricing: FactoryConfig["pricing"]): string {
-  const input = usage.development.inputTokens + usage.review.inputTokens;
-  const output = usage.development.outputTokens + usage.review.outputTokens;
+  const stages = [usage.development, usage.review, usage.pullRequest];
+  const input = stages.reduce((sum, u) => sum + u.inputTokens, 0);
+  const output = stages.reduce((sum, u) => sum + u.outputTokens, 0);
   const cost = (input * pricing.inputPerMTok + output * pricing.outputPerMTok) / 1_000_000;
   return `Tokens: ${count(input)} in / ${count(output)} out. Estimated cost: $${cost.toFixed(2)}.`;
+}
+
+/**
+ * The usage line, plus why the Pull Request Stage left the PR with the
+ * minimal body when it did not write one.
+ */
+export function costFooter(result: FactoryResult, pricing: FactoryConfig["pricing"]): string {
+  const stage = result.pullRequestStage;
+  const note = stage && stage.outcome !== "ok" ? ` The Pull Request Stage ${stage.outcome === "skipped" ? "did not run" : stage.outcome === "timeout" ? "timed out" : "failed"}: ${stage.reason ?? "no reason recorded"}; the pull request has the minimal body.` : "";
+  return usageLine(result.usage, pricing) + note;
 }
 
 /** Job summary: one row per attempt and Stage, then the token/cost line. */
@@ -59,10 +70,15 @@ export function summaryMarkdown(result: FactoryResult, config: FactoryConfig): s
     "| Attempt | Stage | Outcome | Duration | Commits | Tokens (in / out) |",
     "| --- | --- | --- | --- | --- | --- |",
     ...rows.map((r) => `| ${r} |`),
+    ...(result.pullRequestStage ? [`| – | Pull Request | ${pullRequestOutcome(result.pullRequestStage)} | ${duration(result.pullRequestStage.durationMs)} | | ${tokens(result.pullRequestStage.usage)} |`] : []),
     "",
-    usageLine(result.usage, config.pricing),
+    costFooter(result, config.pricing),
     "",
   ].join("\n");
+}
+
+function pullRequestOutcome(stage: NonNullable<FactoryResult["pullRequestStage"]>): string {
+  return stage.reason ? `${stage.outcome}: ${stage.reason}` : stage.outcome;
 }
 
 function tokens(usage: Usage): string {
@@ -127,6 +143,7 @@ export function escalationComment(report: EscalationReport, config: FactoryConfi
   }
   if (result && result.attempts.length > 0) {
     lines.push("", "**Attempts**", ...result.attempts.map((a) => `- ${attemptLine(a)}`));
+    if (result.pullRequestStage) lines.push(`- Pull Request Stage (not an attempt): ${pullRequestOutcome(result.pullRequestStage)}`);
     const failure = lastFailure(result);
     if (failure?.output) {
       const label = failure.failedCommand ? ` (\`${failure.failedCommand}\`)` : "";
@@ -142,7 +159,7 @@ export function escalationComment(report: EscalationReport, config: FactoryConfi
     "",
     `To try again, re-add the \`${config.labels.readyForAgent}\` label: the Factory closes the draft pull request and starts over from \`${config.baseBranch}\`.`,
   );
-  if (result) lines.push("", usageLine(result.usage, config.pricing));
+  if (result) lines.push("", costFooter(result, config.pricing));
   return lines.join("\n");
 }
 

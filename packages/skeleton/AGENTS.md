@@ -10,7 +10,7 @@ The shared package every Product builds on: a Hono + OpenAPI Worker, Better Auth
 - `src/db/schema.ts` and `drizzle/`: Skeleton tables and their migrations (a Product's migrations come after these).
 - `src/node/`: Node-only tooling (`skeleton generate`, `db`, `migrations`, Postgres helper, test helpers).
 - `src/vite/`: the Vite plugin and route generation. `template/`: what `new-product` copies.
-- `test/`: Vitest. `test/browser/`: Browser Mode screens. `e2e/`: Playwright specs that every Product runs.
+- `test/`: Vitest. `test/browser/`: Browser Mode screens. `e2e/`: Playwright specs that every Product runs (a Product adds its own in `apps/<id>/e2e/`, run after these).
 
 ## Rules
 

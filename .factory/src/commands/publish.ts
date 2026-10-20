@@ -3,7 +3,7 @@ import { issueBranch } from "../config.ts";
 import { diffLines, filterToDiff, type DiffLines } from "../diff.ts";
 import { Git } from "../git.ts";
 import { isHarnessPath, isProtectedPath } from "../paths.ts";
-import { escalationComment, followUpComment, usageLine, type EscalationReason, type FollowUpRef } from "../report.ts";
+import { costFooter, escalationComment, followUpComment, type EscalationReason, type FollowUpRef } from "../report.ts";
 import { BUNDLE_FILE, EVIDENCE_DIR, RESULT_FILE, readResult, type FactoryResult } from "../result.ts";
 import type { EvidenceGroup, PullRequest } from "../seams/code-host.ts";
 import type { Issue } from "../seams/tracker.ts";
@@ -68,7 +68,7 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
   const lines = await diffLines(git, result.base, head);
   const harnessPaths = changed.filter(isHarnessPath);
   const escalated = result.outcome === "escalated" ? (result.reason ?? "infra") : null;
-  const pr = await pullRequest(ctx, issue, { branch, openPr, continues: options.pr !== null, harnessPaths, escalated, followUps });
+  const pr = await pullRequest(ctx, issue, { branch, openPr, continues: options.pr !== null, harnessPaths, escalated, followUps, text: result.pullRequestBody });
   if (!escalated || result.review.summary !== "") await submitReview(ctx, pr.number, result, lines);
 
   if (escalated) return escalate(ctx, issue, { reason: escalated, result, pr, runUrl: options.runUrl, followUps });
@@ -132,12 +132,14 @@ async function changedFiles(git: Git, base: string, head: string): Promise<strin
 async function pullRequest(
   ctx: CommandContext,
   issue: Issue,
-  input: { branch: string; openPr: PullRequest | null; continues: boolean; harnessPaths: string[]; escalated: EscalationReason | null; followUps: FollowUpRef[] },
+  input: { branch: string; openPr: PullRequest | null; continues: boolean; harnessPaths: string[]; escalated: EscalationReason | null; followUps: FollowUpRef[]; text: string | null },
 ): Promise<PullRequest> {
   const { codeHost, config } = ctx;
   let pr: PullRequest;
   if (input.continues && input.openPr) {
     pr = input.openPr;
+    // The run may have changed the PR: its body is written again.
+    if (input.text !== null) await codeHost.updatePrBody(pr.number, prBody(issue, input));
   } else {
     if (input.openPr) {
       await codeHost.closePr(
@@ -145,38 +147,61 @@ async function pullRequest(
         `Superseded by a new Factory run for #${issue.number}, which starts over from \`${config.baseBranch}\`.`,
       );
     }
-    const warnings: string[] = [];
-    if (input.escalated) {
-      warnings.push(
-        "> [!WARNING]",
-        `> The Factory escalated this work (\`${input.escalated}\`): this draft holds its progress. See the comment on #${issue.number}.`,
-        "",
-      );
-    }
-    if (input.harnessPaths.length > 0) {
-      warnings.push(
-        "> [!CAUTION]",
-        `> This pull request changes files that steer the Factory: ${input.harnessPaths.map((p) => `\`${p}\``).join(", ")}. Review them with care.`,
-        "",
-      );
-    }
-    if (input.followUps.length > 0) warnings.push("> [!NOTE]", `> ${followUpComment(input.followUps).replaceAll("\n", "\n> ")}`, "");
     pr = await codeHost.openDraftPr({
       branch: input.branch,
       base: config.baseBranch,
       title: `Fix #${issue.number}: ${issue.title}`,
-      body: [...warnings, `Closes #${issue.number}`, "", "Implemented by the Factory."].join("\n"),
+      body: prBody(issue, input),
     });
   }
   if (input.harnessPaths.length > 0) await codeHost.labelPr(pr.number, config.labels.harnessChange);
   return pr;
 }
 
+/**
+ * The body in three parts: the warnings and the follow-up note (deterministic),
+ * the Pull Request Stage text (or the minimal sentence), `Closes #N`. The agent
+ * never writes the first and last parts; a closing keyword in its text is dropped.
+ */
+function prBody(
+  issue: Issue,
+  input: { harnessPaths: string[]; escalated: EscalationReason | null; followUps: FollowUpRef[]; text: string | null },
+): string {
+  const warnings: string[] = [];
+  if (input.escalated) {
+    warnings.push(
+      "> [!WARNING]",
+      `> The Factory escalated this work (\`${input.escalated}\`): this draft holds its progress. See the comment on #${issue.number}.`,
+      "",
+    );
+  }
+  if (input.harnessPaths.length > 0) {
+    warnings.push(
+      "> [!CAUTION]",
+      `> This pull request changes files that steer the Factory: ${input.harnessPaths.map((p) => `\`${p}\``).join(", ")}. Review them with care.`,
+      "",
+    );
+  }
+  if (input.followUps.length > 0) warnings.push("> [!NOTE]", `> ${followUpComment(input.followUps).replaceAll("\n", "\n> ")}`, "");
+  const middle = input.text ? withoutAttribution(withoutClosingKeywords(input.text)) : "Implemented by the Factory.";
+  return [...warnings, middle, "", `Closes #${issue.number}`].join("\n");
+}
+
+/** The `pr` skill's template ends with a tool attribution line; the Factory's body is the harness's, not the tool's. */
+function withoutAttribution(text: string): string {
+  return text.replace(/^[ \t]*(?:🤖[ \t]*)?Generated with \[?Claude Code\]?.*$\n?|^[ \t]*Co-Authored-By:.*$\n?/gim, "").trim();
+}
+
+/** `Closes #9` written by the agent would close the wrong issue: only `publish` writes it. */
+function withoutClosingKeywords(text: string): string {
+  return text.replace(/^[ \t>*-]*\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b:?[ \t]+(?:[\w.-]+\/[\w.-]+)?#\d+\.?[ \t]*$\n?/gim, "").trim();
+}
+
 /** The review of every attempt, inline comments filtered to the diff, tokens and cost in the footer. */
 async function submitReview(ctx: CommandContext, pr: number, result: FactoryResult, lines: DiffLines): Promise<void> {
   await ctx.codeHost.submitReview(pr, {
     event: "COMMENT",
-    body: `${result.review.summary || "No findings."}\n\n---\n${usageLine(result.usage, ctx.config.pricing)}`,
+    body: `${result.review.summary || "No findings."}\n\n---\n${costFooter(result, ctx.config.pricing)}`,
     comments: filterToDiff(result.review.inline, lines),
   });
 }

@@ -15,7 +15,7 @@ export const PROTECTED_PATHS = [
 ];
 
 /** A diff here gets the `harness-change` label and a warning on top of the pull request. */
-export const HARNESS_PATHS = ["AGENTS.md", "docs/agents/", "GLOSSARY.md", "docs/adr/", ".factory/"];
+export const HARNESS_PATHS = ["AGENTS.md", "docs/agents/", "GLOSSARY.md", "CODING_STANDARDS.md", "docs/adr/", ".factory/"];
 
 export function isProtectedPath(path: string): boolean {
   return PROTECTED_PATHS.some((p) => matches(path, p));
