@@ -27,7 +27,7 @@ The application base shared by every Product in a repository: the stack wired en
 _Avoid_: Boilerplate, base app
 
 **Stage**:
-One step of the factory's work on an issue: Development, Review, or E2E. A failing E2E stage sends the work back to Development; Review fixes what it finds itself and never sends the work back.
+One step of the factory's work on an issue: Development, Review, E2E, or Pull Request. A failing E2E stage sends the work back to Development; Review fixes what it finds itself and never sends the work back. Pull Request runs once at the end, changes no code, and writes the pull request's description, Merge Danger included.
 _Avoid_: Phase, step
 
 **Triage**:
@@ -40,6 +40,14 @@ The point where a human reviews and merges the factory's pull request; the facto
 **Escalation**:
 What the factory does when an issue fails E2E five times, runs out of time, or needs a human decision: opens a draft pull request with its progress, explains the failure on the issue, and hands it to a human.
 _Avoid_: Failure, abort
+
+**Merge Danger**:
+The risk of merging a Factory pull request, stated as a door (one-way, hard to walk back, or two-way, cheap to roll back) and a blast radius (what the change could break).
+_Avoid_: Merge risk, risk summary
+
+**Retro**:
+A human-led look back at an Escalation, or at a pull request where a human found something at the Merge Gate, that changes the Factory's environment (automated checks, coding standards, navigation) rather than the code.
+_Avoid_: Postmortem, retrospective
 
 **Blocked Issue**:
 A ready issue that the factory will not start until every issue blocking it has been merged.
