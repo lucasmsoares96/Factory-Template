@@ -18,6 +18,8 @@ export const stageRecordSchema = z.object({
   commits: z.number().int().nonnegative().optional(),
   usage: usageSchema.optional(),
   failedCommand: z.string().nullable().optional(),
+  /** Resumes of the session to extract its output block (Review). */
+  retries: z.number().int().nonnegative().optional(),
   /** Tail of the Stage output, only for a failed Stage. */
   output: z.string().optional(),
 });

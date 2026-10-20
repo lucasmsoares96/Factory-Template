@@ -17,6 +17,8 @@ export interface SessionRequest {
   streamFile: string;
   /** Sandcastle's own progress log. */
   logFile: string;
+  /** Resume this Claude Code session instead of starting a fresh one (output extraction only). */
+  resumeSession?: string;
   /** Sandcastle stops a silent agent after this long; the parent enforces the Stage timeout. */
   idleTimeoutSeconds: number;
 }
@@ -39,6 +41,7 @@ async function main(): Promise<SessionResponse> {
       // Commit straight on the branch the harness checked out.
       branchStrategy: { type: "head" },
       maxIterations: 1,
+      ...(request.resumeSession ? { resumeSession: request.resumeSession } : {}),
       idleTimeoutSeconds: request.idleTimeoutSeconds,
       logging: {
         type: "file",
