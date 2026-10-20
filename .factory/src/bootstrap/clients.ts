@@ -158,8 +158,8 @@ export interface AccountsClient {
   /** The Skeleton's migrations and then the Product's (the same code the deploy runs); idempotent. */
   migrate(databaseUrl: string, productId: string): Promise<void>;
   userExists(databaseUrl: string, email: string): Promise<boolean>;
-  /** Whether a verified user other than `email` exists: someone besides the CI smoke account can already enter. */
-  hasVerifiedUserOtherThan(databaseUrl: string, email: string): Promise<boolean>;
+  /** Whether a user with this email exists and is verified (so it can sign in). */
+  verifiedUserExists(databaseUrl: string, email: string): Promise<boolean>;
   /** A verified user who signs in with `password`; an existing email gets verified and its password reset. */
   upsertUser(databaseUrl: string, user: { email: string; name: string; password: string }): Promise<"created" | "password-reset">;
 }

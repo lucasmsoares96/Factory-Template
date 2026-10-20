@@ -199,11 +199,11 @@ describe.each([[WORKFLOWS_DIR]])("deploy workflow in %s", (dir) => {
     expect(String(jobs.deploy!.environment)).toContain("-production");
   });
 
-  it("`smoke` holds only the smoke account's password, in the Product's environment, and waits for the deploy", () => {
+  it("`smoke` holds only the account's password, in the Product's environment, and waits for the deploy", () => {
     const text = textOf(jobs.smoke!);
-    // Every `secrets` reference of the job: exactly one, the `<ID>_SMOKE_PASSWORD` (the email is a variable).
-    expect(text.match(/secrets\[[^\]]*\]|secrets\.\w+/g)).toEqual(["secrets[format('{0}SMOKE_PASSWORD', matrix.prefix)]"]);
-    expect(text).toContain("vars[format('{0}SMOKE_EMAIL', matrix.prefix)]");
+    // Every `secrets` reference of the job: exactly one, the `<ID>_ACCOUNT_PASSWORD` (the email is a variable).
+    expect(text.match(/secrets\[[^\]]*\]|secrets\.\w+/g)).toEqual(["secrets[format('{0}ACCOUNT_PASSWORD', matrix.prefix)]"]);
+    expect(text).toContain("vars[format('{0}ACCOUNT_EMAIL', matrix.prefix)]");
     expect(text).not.toMatch(/CLOUDFLARE|DATABASE_URL|BETTER_AUTH|RESEND|wrangler|GITHUB_TOKEN|github\.token/);
     expect(String(jobs.smoke!.environment)).toBe(String(jobs.deploy!.environment));
     expect(jobs.smoke!.permissions).toEqual({ contents: "read" });

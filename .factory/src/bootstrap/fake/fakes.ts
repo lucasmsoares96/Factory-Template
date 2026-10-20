@@ -270,8 +270,8 @@ export class FakeAccounts implements AccountsClient {
   async userExists(url: string, email: string): Promise<boolean> {
     return this.database(url).users.has(email.toLowerCase());
   }
-  async hasVerifiedUserOtherThan(url: string, email: string): Promise<boolean> {
-    return [...this.database(url).users].some(([address, user]) => address !== email.toLowerCase() && user.verified);
+  async verifiedUserExists(url: string, email: string): Promise<boolean> {
+    return this.database(url).users.get(email.toLowerCase())?.verified === true;
   }
   async upsertUser(url: string, user: { email: string; name: string; password: string }) {
     const db = this.database(url);
