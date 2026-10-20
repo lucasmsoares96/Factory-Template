@@ -5,7 +5,8 @@ import { TOKEN, world } from "./helpers.ts";
 const ENV = { CLOUDFLARE_API_TOKEN: TOKEN, CLOUDFLARE_ACCOUNT_ID: "acc-1", RESEND_API_KEY: "re-full" };
 
 function domainWorld(answers: Record<string, string | boolean> = {}, env: Record<string, string | undefined> = ENV) {
-  const w = world({ "resend-domain-action": "create", ...answers }, env);
+  const w = world({ ...answers }, env);
+  w.deps.interactive = true;
   // The common part ran before: the final doctor only fails on what is really missing.
   w.github.secrets.set("CLOUDFLARE_API_TOKEN", TOKEN);
   w.github.secrets.set("CLOUDFLARE_ACCOUNT_ID", "acc-1");
@@ -36,25 +37,76 @@ describe("pnpm bootstrap domain: resend-domain", () => {
     expect({ resend: w.resend.writes, cloudflare: w.cloudflare.writes, github: w.github.writes }).toEqual(before);
   });
 
-  it("asks for the Resend key when it is not in the environment, and does not keep it", async () => {
-    const w = domainWorld({ "resend-key": "re-full" }, { ...ENV, RESEND_API_KEY: undefined });
+  it("with the key in the environment asks nothing about Resend", async () => {
+    const w = domainWorld();
 
     await w.run("domain", "example");
 
-    expect(w.prompter.asked).toContain("resend-key");
+    expect(w.prompter.asked).not.toContain("resend-setup");
+    expect(w.prompter.asked).not.toContain("resend-key");
     expect(w.resend.domains).toHaveLength(1);
-    expect(JSON.stringify([w.lines, w.prompter.notes, [...w.github.secrets.values()]])).not.toContain("re-full");
   });
 
-  it("can be deferred: the Product stays on the outbox and nothing is recorded", async () => {
-    const w = domainWorld({ "resend-domain-action": "skip" });
+  it("asks the optional question before any key prompt; setting it up prints the keys URL, then asks for the key, and keeps it nowhere", async () => {
+    const w = domainWorld({ "resend-setup": "now", "resend-key": "re-full" }, { ...ENV, RESEND_API_KEY: undefined });
+
+    await w.run("domain", "example");
+
+    expect(w.prompter.asked.slice(0, 2)).toEqual(["resend-setup", "resend-key"]);
+    expect(w.prompter.printed).toContain("https://resend.com/api-keys");
+    expect(w.resend.domains).toHaveLength(1);
+    expect(JSON.stringify([w.lines, w.prompter.notes, w.prompter.printed, [...w.github.secrets.values()]])).not.toContain("re-full");
+  });
+
+  it("skipping never asks for a key: the chain is deferred and the doctor is green", async () => {
+    const w = domainWorld({ "resend-setup": "skip" }, { ...ENV, RESEND_API_KEY: undefined });
 
     const { code, output } = await w.run("domain", "example");
 
     expect(code).toBe(0);
-    expect(output).toContain("Resend domain deferred");
+    expect(w.prompter.asked).toEqual(["resend-setup"]);
+    expect(output).toContain("Resend deferred");
+    expect(output).toMatch(/off\s+Resend domain/);
+    expect(output).not.toMatch(/missing\s+Resend/);
+    expect(w.resend.writes + w.github.writes).toBe(0);
+  });
+
+  it("an empty key at the key prompt means skip", async () => {
+    const w = domainWorld({ "resend-setup": "now", "resend-key": "  " }, { ...ENV, RESEND_API_KEY: undefined });
+
+    const { code, output } = await w.run("domain", "example");
+
+    expect(code).toBe(0);
+    expect(output).toContain("Resend deferred");
     expect(w.resend.domains).toEqual([]);
-    expect(w.resend.writes + w.cloudflare.writes + w.github.writes).toBe(0);
+  });
+
+  it("a rerun after deferring asks the optional question again", async () => {
+    const w = domainWorld({ "resend-setup": "skip" }, { ...ENV, RESEND_API_KEY: undefined });
+    await w.run("domain", "example");
+    await w.run("domain", "example");
+
+    expect(w.prompter.asked.filter((id) => id === "resend-setup")).toHaveLength(2);
+  });
+
+  it("without a terminal and without the env key it defers and asks nothing", async () => {
+    const w = domainWorld({}, { ...ENV, RESEND_API_KEY: undefined });
+    w.deps.interactive = false;
+
+    const { code, output } = await w.run("domain", "example");
+
+    expect(code).toBe(0);
+    expect(w.prompter.asked).toEqual([]);
+    expect(output).toContain("Resend deferred");
+  });
+
+  it("a blank Cloudflare token is asked once, says why, and skips what needs it", async () => {
+    const w = domainWorld({ "cloudflare-token": "" }, { RESEND_API_KEY: "re-full" });
+
+    const { output } = await w.run("domain", "example");
+
+    expect(w.prompter.asked.filter((id) => id === "cloudflare-token")).toHaveLength(1);
+    expect(output).toContain("No Cloudflare token given");
   });
 
   it("redoes a step by name and refuses unknown ones", async () => {
@@ -170,7 +222,7 @@ describe("pnpm bootstrap domain: dns-records", () => {
   });
 
   it("does nothing here when the Resend domain was deferred", async () => {
-    const w = withZone(domainWorld({ "resend-domain-action": "skip" }));
+    const w = withZone(domainWorld({ "resend-setup": "skip" }, { ...ENV, RESEND_API_KEY: undefined }));
 
     const { output } = await w.run("domain", "example");
 
@@ -219,7 +271,7 @@ describe("pnpm bootstrap domain: restricted-resend-key", () => {
   });
 
   it("makes no key while the Resend domain is deferred", async () => {
-    const w = domainWorld({ "resend-domain-action": "skip" });
+    const w = domainWorld({ "resend-setup": "skip" }, { ...ENV, RESEND_API_KEY: undefined });
 
     await w.run("domain", "example");
 

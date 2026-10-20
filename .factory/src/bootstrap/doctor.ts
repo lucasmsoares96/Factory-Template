@@ -83,9 +83,9 @@ export async function doctor(
 
   let token = memory.cloudflareToken ?? (deps.env.CLOUDFLARE_API_TOKEN || undefined);
   let promptError: string | undefined;
-  if (!token && deps.interactive) {
+  if (!token && deps.interactive && !memory.cloudflareDeclined) {
     try {
-      token = await promptMainToken(ctx, { message: "Paste the Cloudflare API token to check workers.dev (not stored)", showLink: false });
+      token = await promptMainToken(ctx, { message: "Paste the Cloudflare API token to check workers.dev (not stored; leave empty to skip)", showLink: false, optional: true });
     } catch (error) {
       promptError = (error as Error).message;
     }
@@ -120,7 +120,7 @@ export async function doctor(
         const keyMissing = (await missingSecrets(ctx, product.id, [key])).length > 0;
         domainAdd(keyMissing ? "off" : "ok", key, keyMissing ? `run \`pnpm bootstrap domain ${product.id}\`` : undefined);
         if (deps.interactive && !memory.resendKey && !memory.resendDeferred && !deps.env.RESEND_API_KEY) {
-          const key = (await deps.prompter.password({ id: "resend-key", message: "Paste a Resend API key to check the domain (not stored)" })).trim();
+          const key = (await deps.prompter.password({ id: "resend-key", message: "Paste a Resend API key to check the domain (not stored; leave empty to skip)" })).trim();
           if (key) memory.resendKey = key;
         }
         try {
