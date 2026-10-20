@@ -174,19 +174,63 @@ describe("deploy config and secrets", () => {
 });
 
 describe("smoke", () => {
-  const responder = (routes: { health?: Response; mcp?: Response }) =>
-    (async (input: URL | string) => (String(input).endsWith("/api/health") ? routes.health : routes.mcp)!.clone()) as typeof fetch;
-  const challenge = new Response("", { status: 401, headers: { "www-authenticate": 'Bearer resource_metadata="https://x/.well-known/oauth-protected-resource"' } });
-  const healthy = Response.json({ status: "ok" });
+  const account = { email: "smoke@example.com", password: "smoke-secret-password-9" };
+  const challenge = () => new Response("", { status: 401, headers: { "www-authenticate": 'Bearer resource_metadata="https://x/.well-known/oauth-protected-resource"' } });
+  interface Routes {
+    health?: Response;
+    mcp?: Response;
+    signIn?: Response;
+    me?: Response;
+  }
+  /** A fake Worker; `seen` records what the smoke sent. */
+  function worker(routes: Routes = {}) {
+    const seen: { path: string; method: string; cookie: string | null; body: string }[] = [];
+    const fetchFn = (async (input: URL | string, init: RequestInit = {}) => {
+      const path = new URL(String(input)).pathname;
+      seen.push({ path, method: init.method ?? "GET", cookie: new Headers(init.headers).get("cookie"), body: String(init.body ?? "") });
+      const response =
+        path === "/api/health" ? (routes.health ?? Response.json({ status: "ok" }))
+        : path === "/mcp" ? (routes.mcp ?? challenge())
+        : path === "/api/auth/sign-in/email" ? (routes.signIn ?? new Response("{}", { status: 200, headers: { "set-cookie": "session=abc; Path=/; HttpOnly" } }))
+        : (routes.me ?? Response.json({ email: account.email }));
+      return response;
+    }) as typeof fetch;
+    return { fetchFn, seen };
+  }
 
-  it("passes with a healthy Worker and a challenged /mcp", async () => {
-    expect(await smoke("https://x", responder({ health: healthy, mcp: challenge }))).toEqual({ ok: true, problems: [] });
+  it("passes with a healthy Worker, a real sign-in, GET /api/me with the session cookie, and a challenged /mcp", async () => {
+    const w = worker();
+
+    expect(await smoke("https://x", { account, fetchFn: w.fetchFn })).toEqual({ ok: true, problems: [] });
+
+    const signIn = w.seen.find((r) => r.path === "/api/auth/sign-in/email")!;
+    expect(signIn.method).toBe("POST");
+    expect(JSON.parse(signIn.body)).toEqual(account);
+    expect(w.seen.find((r) => r.path === "/api/me")!.cookie).toBe("session=abc");
   });
 
   it("fails on a 500 health, an open /mcp and a 401 with no challenge", async () => {
-    expect((await smoke("https://x", responder({ health: new Response("", { status: 500 }), mcp: challenge }))).problems).toEqual(["/api/health answered 500"]);
-    expect((await smoke("https://x", responder({ health: healthy, mcp: new Response("{}", { status: 200 }) }))).problems[0]).toContain("answered 200");
-    expect((await smoke("https://x", responder({ health: healthy, mcp: new Response("", { status: 401 }) }))).problems[0]).toContain("WWW-Authenticate");
+    expect((await smoke("https://x", { account, fetchFn: worker({ health: new Response("", { status: 500 }) }).fetchFn })).problems).toEqual(["/api/health answered 500"]);
+    expect((await smoke("https://x", { account, fetchFn: worker({ mcp: new Response("{}", { status: 200 }) }).fetchFn })).problems[0]).toContain("answered 200");
+    expect((await smoke("https://x", { account, fetchFn: worker({ mcp: new Response("", { status: 401 }) }).fetchFn })).problems[0]).toContain("WWW-Authenticate");
+  });
+
+  it("fails when the sign-in is refused, answers no cookie, or /api/me names another user, and never prints the password", async () => {
+    const refused = await smoke("https://x", { account, fetchFn: worker({ signIn: Response.json({ code: "INVALID_EMAIL_OR_PASSWORD" }, { status: 401 }) }).fetchFn });
+    expect(refused.problems).toEqual(["sign-in answered 401"]);
+    const noCookie = await smoke("https://x", { account, fetchFn: worker({ signIn: new Response("{}", { status: 200 }) }).fetchFn });
+    expect(noCookie.problems).toEqual(["sign-in answered no session cookie"]);
+    const other = await smoke("https://x", { account, fetchFn: worker({ me: Response.json({ email: "someone@else.com" }) }).fetchFn });
+    expect(other.problems).toEqual(["/api/me answered another user than the smoke account"]);
+    const down = await smoke("https://x", { account, fetchFn: worker({ me: new Response("", { status: 500 }) }).fetchFn });
+    expect(down.problems).toEqual(["/api/me answered 500"]);
+    expect(JSON.stringify([refused, noCookie, other, down])).not.toContain(account.password);
+  });
+
+  it("fails, saying what to run, when the smoke account is not configured", async () => {
+    const result = await smoke("https://x", { account: undefined, fetchFn: worker().fetchFn });
+    expect(result.ok).toBe(false);
+    expect(result.problems.join()).toContain("pnpm bootstrap product");
   });
 
   it("retries while the deploy propagates, then gives up with the last problem", async () => {
@@ -195,7 +239,7 @@ describe("smoke", () => {
       calls++;
       throw new Error("connect refused");
     }) as typeof fetch;
-    const result = await smokeWithRetry("https://x", { attempts: 3, waitMs: 1, fetchFn: flaky, sleep: async () => {} });
+    const result = await smokeWithRetry("https://x", { account, attempts: 3, waitMs: 1, fetchFn: flaky, sleep: async () => {} });
     expect(result).toEqual({ ok: false, problems: ["connect refused"] });
     expect(calls).toBe(3);
   });

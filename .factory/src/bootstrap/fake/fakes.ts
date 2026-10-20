@@ -1,5 +1,6 @@
 import {
   CloudflareRefused,
+  type AccountsClient,
   type CloudflareAccount,
   type CloudflareClient,
   type CloudflareDnsRecord,
@@ -245,6 +246,41 @@ export class FakeNeon {
         session.closed++;
       },
     };
+  }
+}
+
+/**
+ * The production databases, by connection string. `events` is the order of calls, so a test can prove the migrations
+ * ran before the first insert; an insert into a database nobody migrated fails like Postgres would (no table).
+ */
+export class FakeAccounts implements AccountsClient {
+  readonly databases = new Map<string, { migrated: boolean; users: Map<string, { password: string; verified: boolean }> }>();
+  readonly events: string[] = [];
+  writes = 0;
+
+  private database(url: string) {
+    let found = this.databases.get(url);
+    if (!found) this.databases.set(url, (found = { migrated: false, users: new Map() }));
+    return found;
+  }
+  async migrate(url: string, productId: string): Promise<void> {
+    this.events.push(`migrate ${productId}`);
+    this.database(url).migrated = true;
+  }
+  async userExists(url: string, email: string): Promise<boolean> {
+    return this.database(url).users.has(email.toLowerCase());
+  }
+  async hasVerifiedUserOtherThan(url: string, email: string): Promise<boolean> {
+    return [...this.database(url).users].some(([address, user]) => address !== email.toLowerCase() && user.verified);
+  }
+  async upsertUser(url: string, user: { email: string; name: string; password: string }) {
+    const db = this.database(url);
+    if (!db.migrated) throw new Error('relation "skeleton.users" does not exist');
+    this.events.push(`upsert ${user.email.toLowerCase()}`);
+    this.writes++;
+    const existed = db.users.has(user.email.toLowerCase());
+    db.users.set(user.email.toLowerCase(), { password: user.password, verified: true });
+    return existed ? ("password-reset" as const) : ("created" as const);
   }
 }
 

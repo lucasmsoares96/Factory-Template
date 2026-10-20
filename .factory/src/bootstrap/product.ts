@@ -1,5 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { NeonClient, NeonProject, RulesetInfo, RulesetSpec } from "./clients.ts";
+import { passwordProblem } from "../../../packages/skeleton/src/platform/password-rules.ts";
+import { generatePassword, smokeEmail, smokeNames } from "./accounts.ts";
 import { domainSteps, productionEnvironment, productSecretName, secretScope } from "./domain.ts";
 import type { ProductIdentity, Step, StepContext } from "./steps.ts";
 
@@ -79,7 +81,7 @@ export async function neonOrgId(ctx: StepContext, neon: NeonClient): Promise<str
 }
 
 /** The project named `name` in the org. Names are not unique in Neon: with duplicates the person picks (or the check cannot say). */
-async function findProject(ctx: StepContext, neon: NeonClient, name: string, prompt: boolean): Promise<NeonProject | null | "ambiguous"> {
+export async function findProject(ctx: StepContext, neon: NeonClient, name: string, prompt: boolean): Promise<NeonProject | null | "ambiguous"> {
   const found = (await neon.listProjects(await neonOrgId(ctx, neon))).filter((p) => p.name === name);
   if (found.length <= 1) return found[0] ?? null;
   if (!prompt) return "ambiguous";
@@ -165,8 +167,103 @@ export function databaseSecretsStep(product: ProductIdentity): Step {
       const orgId = await neonOrgId(ctx, neon);
       const scope = await secretScope(ctx, product.id);
       // Each string goes from the CLI's stdout to the forge's stdin and is never held longer than this call.
-      await ctx.github.setSecret(databaseUrl, await neon.connectionString(project.id, { pooled: false, orgId }), scope);
+      // The direct string also stays in memory for this run only: the account steps migrate and insert through it.
+      ctx.memory.databaseUrl = await neon.connectionString(project.id, { pooled: false, orgId });
+      await ctx.github.setSecret(databaseUrl, ctx.memory.databaseUrl, scope);
       await ctx.github.setSecret(databaseUrlPooled, await neon.connectionString(project.id, { pooled: true, orgId }), scope);
+    },
+  };
+}
+
+/**
+ * The direct connection string of the Product's production database, held in memory for the run: the one the Neon steps
+ * already fetched, else asked of Neon (signing in unless `prompt` is false). `undefined` when Neon cannot be reached
+ * or has no (single) project of that name. It is never logged, stored or sent to the forge from here.
+ */
+export async function productionDatabaseUrl(ctx: StepContext, product: ProductIdentity, prompt: boolean): Promise<string | undefined> {
+  if (ctx.memory.databaseUrl) return ctx.memory.databaseUrl;
+  const neon = await neonHandle(ctx, prompt);
+  if (!neon) return undefined;
+  const found = await findProject(ctx, neon, product.id, prompt);
+  if (!found || found === "ambiguous") return undefined;
+  ctx.memory.databaseUrl = await neon.connectionString(found.id, { pooled: false, orgId: await neonOrgId(ctx, neon) });
+  return ctx.memory.databaseUrl;
+}
+
+async function requireDatabaseUrl(ctx: StepContext, product: ProductIdentity): Promise<string> {
+  const url = await productionDatabaseUrl(ctx, product, true);
+  if (!url) throw new Error(`No production database for ${product.id}: run the neon-project step first.`);
+  return url;
+}
+
+/** Skeleton migrations, then the Product's, then the user: the tables exist before the first insert. */
+async function createAccount(ctx: StepContext, url: string, product: ProductIdentity, user: { email: string; name: string; password: string }) {
+  await ctx.accounts.migrate(url, product.id);
+  return ctx.accounts.upsertUser(url, user);
+}
+
+const PASSWORD_ATTEMPTS = 3;
+
+/** Asks twice (hidden) and applies the sign-up's password rules. The answer lives in the caller's frame only. */
+async function askPassword(ctx: StepContext, id: string): Promise<string> {
+  for (let attempt = 1; attempt <= PASSWORD_ATTEMPTS; attempt++) {
+    const password = await ctx.prompter.password({ id, message: "Password of the default account (hidden, never stored)" });
+    const problem = passwordProblem(password);
+    if (problem) ctx.log(`  ${problem}`);
+    else if ((await ctx.prompter.password({ id: `${id}-confirm`, message: "Type it again" })) === password) return password;
+    else ctx.log("  The two passwords differ.");
+  }
+  throw new Error(`No valid password after ${PASSWORD_ATTEMPTS} tries.`);
+}
+
+/** The email the person types for the default account. */
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export function defaultAccountStep(product: ProductIdentity): Step {
+  const smoke = smokeEmail(product.id, product.domain);
+  return {
+    id: "default-account",
+    title: `Default account in the ${product.id} production database (the app can be entered without signing up)`,
+    async check(ctx) {
+      // Done when anyone besides the smoke account can already enter; telling that needs the database, so Neon is asked.
+      const url = await productionDatabaseUrl(ctx, product, true);
+      return { done: url ? await ctx.accounts.hasVerifiedUserOtherThan(url, smoke) : false };
+    },
+    async run(ctx) {
+      const url = await requireDatabaseUrl(ctx, product);
+      const email = (await ctx.prompter.text({ id: "default-account-email", message: "Email of the default account (created already verified)" })).trim().toLowerCase();
+      if (!EMAIL.test(email)) throw new Error(`"${email}" is not an email.`);
+      if (!ctx.redo?.includes("default-account") && (await ctx.accounts.userExists(url, email))) {
+        return ctx.log(`  ${email} already exists: left alone (--redo default-account resets its password).`);
+      }
+      const password = await askPassword(ctx, "default-account-password");
+      const result = await createAccount(ctx, url, product, { email, name: email.split("@")[0]!, password });
+      ctx.log(result === "created" ? `  created ${email}` : `  reset the password of ${email}`);
+    },
+  };
+}
+
+export function smokeAccountStep(product: ProductIdentity): Step {
+  const { password: passwordName, email: emailName } = smokeNames(product.id);
+  const email = smokeEmail(product.id, product.domain);
+  return {
+    id: "smoke-account",
+    title: `Smoke account ${email} (${passwordName}, ${emailName})`,
+    async check(ctx) {
+      const stored = (await missingSecrets(ctx, product.id, [passwordName])).length === 0 && (await ctx.github.listVariables())[emailName] === email;
+      // The forge cannot be read back for the password, so the database is only consulted when this run already holds its URL.
+      const url = ctx.memory.databaseUrl;
+      return { done: stored && (url ? await ctx.accounts.userExists(url, email) : true), detail: email };
+    },
+    async run(ctx) {
+      const url = await requireDatabaseUrl(ctx, product);
+      // The password is never printed or kept: it goes into the database (hashed) and into the secret, once. An account
+      // that exists without a stored secret cannot be signed in to, so it gets a new password.
+      const password = generatePassword();
+      const result = await createAccount(ctx, url, product, { email, name: "Smoke", password });
+      await ctx.github.setSecret(passwordName, password, await secretScope(ctx, product.id));
+      await ctx.github.setVariable(emailName, email);
+      ctx.log(result === "created" ? `  created ${email}` : `  rotated the password of ${email}`);
     },
   };
 }
@@ -229,6 +326,8 @@ export function productionSteps(product: ProductIdentity): Step[] {
     githubEnvironmentStep(product),
     databaseSecretsStep(product),
     authSecretStep(product),
+    defaultAccountStep(product),
+    smokeAccountStep(product),
     ...domainSteps(product),
     mainRulesetStep(),
     deployProductsStep(product),
