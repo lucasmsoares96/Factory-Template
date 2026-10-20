@@ -69,6 +69,7 @@ describe("factory work", () => {
     expect(w.agent.calls.map((c) => [c.stage, c.model, c.timeoutMs])).toEqual([
       ["development", "claude-opus-5-5", 60 * 60_000],
       ["review", "claude-opus-5-5", 30 * 60_000],
+      ["pull-request", "claude-opus-5-5", 15 * 60_000],
     ]);
     const [development, review] = w.agent.calls;
     expect(development!.prompt).toContain("Greet the user");
@@ -88,6 +89,7 @@ describe("factory work", () => {
     expect(w.agent.calls.map((c) => [c.stage, c.model, c.timeoutMs])).toEqual([
       ["development", "claude-opus-5-5", 90 * 60_000],
       ["review", "claude-sonnet-5-5", 30 * 60_000],
+      ["pull-request", "claude-opus-5-5", 15 * 60_000],
     ]);
   });
 
@@ -128,7 +130,7 @@ describe("factory work", () => {
       ["development:no-commits"],
       ["development:ok", "review:ok", "e2e:ok"],
     ]);
-    expect(w.agent.calls.map((c) => c.stage)).toEqual(["development", "development", "review"]);
+    expect(w.agent.calls.map((c) => c.stage)).toEqual(["development", "development", "review", "pull-request"]);
     expect(w.agent.calls[1]!.prompt).toContain("made no commits");
     expect(w.verify.runs).toBe(1);
   });

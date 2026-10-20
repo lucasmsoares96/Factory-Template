@@ -12,12 +12,14 @@ export const defaultConfig = {
     development: "claude-opus-5-5",
     review: "claude-opus-5-5",
     triage: "claude-opus-5-5",
+    pullRequest: "claude-opus-5-5",
   },
   /** Minutes. A Stage timeout counts as a failure; `total` leads to Escalation "time". */
   timeouts: {
     development: 60,
     review: 30,
     e2e: 20,
+    pullRequest: 15,
     total: 330,
   },
   /**
@@ -73,8 +75,8 @@ const positiveInt = z.coerce.number().int().positive();
 const nonEmpty = z.string().min(1);
 
 const configSchema = z.object({
-  models: z.object({ development: nonEmpty, review: nonEmpty, triage: nonEmpty }),
-  timeouts: z.object({ development: positiveInt, review: positiveInt, e2e: positiveInt, total: positiveInt }),
+  models: z.object({ development: nonEmpty, review: nonEmpty, triage: nonEmpty, pullRequest: nonEmpty }),
+  timeouts: z.object({ development: positiveInt, review: positiveInt, e2e: positiveInt, pullRequest: positiveInt, total: positiveInt }),
   pricing: z.object({ inputPerMTok: z.coerce.number().nonnegative(), outputPerMTok: z.coerce.number().nonnegative() }),
   claudeCode: z.object({ version: z.string().regex(/^\d+\.\d+\.\d+$/) }),
   image: z.object({ name: z.string() }),

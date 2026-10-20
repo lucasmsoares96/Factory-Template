@@ -2,17 +2,19 @@ import { cp, mkdir, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { issueBranch } from "../config.ts";
 import { Git } from "../git.ts";
-import { developmentPrompt, reviewPrompt } from "../prompts.ts";
+import { developmentPrompt, pullRequestPrompt, reviewPrompt } from "../prompts.ts";
 import {
   BUNDLE_FILE,
   EVIDENCE_DIR,
   RESULT_FILE,
   writeResult,
   type FactoryResult,
+  type PullRequestStageRecord,
   type ReviewOutput,
   type StageRecord,
 } from "../result.ts";
-import { summaryMarkdown } from "../report.ts";
+import { fence, summaryMarkdown } from "../report.ts";
+import { parsePullRequestBody, pullRequestExtraction } from "../pull-request-output.ts";
 import { changedSkeletonPaths, followUpTicket, productOf, revertToBase, skeletonGaps } from "../scope.ts";
 import { parseReviewOutput, reviewExtraction } from "../review-output.ts";
 import type { Usage } from "../seams/agent.ts";
@@ -40,7 +42,7 @@ export async function work(ctx: CommandContext, number: number, options: { repo:
   const base = await resolveBase(git, config.baseBranch);
   await git.run("checkout", "--quiet", "-B", branch, base);
 
-  const usage = { development: zeroUsage(), review: zeroUsage() };
+  const usage = { development: zeroUsage(), review: zeroUsage(), pullRequest: zeroUsage() };
   const attempts: FactoryResult["attempts"] = [];
   const reviews: (ReviewOutput & { attempt: number })[] = [];
   let feedback: string | null = null;
@@ -183,6 +185,46 @@ export async function work(ctx: CommandContext, number: number, options: { repo:
   if (head) await git.run("bundle", "create", "--quiet", join(options.out, BUNDLE_FILE), `refs/heads/${branch}`, `^${base}`);
   const evidence = ready ? await collectEvidence(join(options.repo, config.evidenceDir), join(options.out, EVIDENCE_DIR)) : [];
 
+  // Pull Request Stage: once, outside the attempts, only for a run that left commits.
+  let pullRequestBody: string | null = null;
+  let pullRequestStage: PullRequestStageRecord | null = null;
+  if (head) {
+    const timeoutMs = budget(config.timeouts.pullRequest);
+    if (timeoutMs === null) {
+      pullRequestStage = { outcome: "skipped", durationMs: 0, usage: zeroUsage(), retries: 0, reason: "no time left in the global limit" };
+    } else {
+      const started = ctx.now();
+      let stage: PullRequestStageRecord;
+      try {
+        const run = await agent.run(
+          "pull-request",
+          pullRequestPrompt({
+            issue,
+            base: config.baseBranch,
+            log: await git.log(base, "HEAD"),
+            result: runOutcome({ ready, reason, question, attempts }),
+            prints: evidence.map((e) => ({ product: e.product, path: `${config.evidenceDir}/${e.product}/${e.name}` })),
+          }),
+          { timeoutMs, model: config.models.pullRequest, extract: pullRequestExtraction },
+        );
+        add(usage.pullRequest, run.usage);
+        const text = run.timedOut ? null : parsePullRequestBody(run.output);
+        pullRequestBody = text;
+        const failure = run.timedOut
+          ? { outcome: "timeout" as const, reason: `timed out after ${minutes(timeoutMs)} min` }
+          : text === null
+            ? { outcome: "failed" as const, reason: `the session ended without a valid <pull-request> block after ${run.retries} ${run.retries === 1 ? "resume" : "resumes"}` }
+            : { outcome: "ok" as const };
+        stage = { ...failure, durationMs: ctx.now() - started, usage: run.usage, retries: run.retries };
+      } catch (error) {
+        stage = { outcome: "failed", durationMs: ctx.now() - started, usage: zeroUsage(), retries: 0, reason: (error as Error).message };
+      }
+      // The session never changes the branch: what the E2E validated is what is published.
+      await git.run("reset", "--hard", "--quiet", head);
+      pullRequestStage = stage;
+    }
+  }
+
   const result: FactoryResult = {
     version: 1,
     issue: number,
@@ -198,10 +240,22 @@ export async function work(ctx: CommandContext, number: number, options: { repo:
     usage,
     evidence,
     followUps,
+    pullRequestBody,
+    pullRequestStage,
   };
   await writeResult(join(options.out, RESULT_FILE), result);
   await ctx.stepSummary(summaryMarkdown(result, config));
   return result;
+}
+
+/** What the run ended with, for the Pull Request Stage: green and when, or why it escalated and the last failing E2E. */
+function runOutcome(run: { ready: boolean; reason: Reason; question: string | null; attempts: FactoryResult["attempts"] }): string {
+  if (run.ready) return `E2E passed on attempt ${run.attempts.length}.`;
+  const lines = [`The run escalated (${run.reason}) after ${run.attempts.length} ${run.attempts.length === 1 ? "attempt" : "attempts"}; this is the progress so far.`];
+  if (run.question) lines.push(`Question for a human: ${run.question}`);
+  const failed = run.attempts.flatMap((a) => a.stages).findLast((s) => s.stage === "e2e" && s.output);
+  if (failed) lines.push(`Last failing E2E (\`${failed.failedCommand ?? "factory:verify"}\`), truncated:`, fence(failed.output!, "text"));
+  return lines.join("\n");
 }
 
 /** The question of a Development session that ends with `<needs-human>…</needs-human>`. */
