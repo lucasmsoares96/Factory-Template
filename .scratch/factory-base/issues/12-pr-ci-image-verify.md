@@ -15,7 +15,7 @@ Spec: [../spec.md](../spec.md)
 - [x] Job `ci-probe`: `new-product ci-probe` numa cópia temporária + `verify`, sem deploy, cópia apagada no fim.
 - [x] Saem `claude.yml` e `claude-code-review.yml`.
 - [x] Testes estáticos do YAML: `build` só em `container:` e só ele (com o `work`, depois) aceita `vars.FACTORY_RUNNER` (seam 2).
-- [ ] Critérios medidos e registrados aqui: "Initialize containers" com a imagem × `setup.sh` direto na VM (se não for mais rápido, reabrir a escolha); `actions/checkout` no container com `USER 1001`; visibilidade com que o pacote do GHCR nasce num repo público e leitura com `packages: read`.
+- [x] Critérios medidos e registrados aqui: "Initialize containers" com a imagem × `setup.sh` direto na VM (se não for mais rápido, reabrir a escolha); `actions/checkout` no container com `USER 1001`; visibilidade com que o pacote do GHCR nasce num repo público e leitura com `packages: read`.
 
 ## Comments
 
@@ -37,7 +37,9 @@ Implementado em 2026-10-19. **Versões:** `yaml` **2.9.1** (catalog; só para os
 - O container autentica no GHCR com `github.token` (não é secret).
 
 Installed (2026-10-20): `factory-image.yml` and `factory-pr.yml` are in `.github/workflows/`, `claude.yml` and `claude-code-review.yml` are removed, and the static YAML test now reads `.github/workflows` (12 tests pass). Criteria 1–6 are verified statically only: the first real run happens on Actions after the merge into `main` (`pull_request_target` runs from the base branch).
-Pending (human): 2. Medir "Initialize containers" com a imagem × `setup.sh` direto na VM: num PR de teste, ler a duração do passo "Initialize containers" do job `build`; num job de teste na VM, cronometrar `bash .factory/image/setup.sh` (com as quatro variáveis). Se o pull não for mais rápido, reabrir a escolha da imagem. Apagar o PR de teste.
-Pending (human): 3. `actions/checkout` no container com `USER 1001`: ver se o checkout do `build` passa sem `options: --user` e sem erro de `safe.directory` ou de permissão no workspace.
-Pending (human): 4. Visibilidade do pacote no GHCR: depois do primeiro `image`, ver em Packages se o pacote nasceu público ou privado num repo público, se está ligado ao repo (label `org.opencontainers.image.source`) e se o `build` com `packages: read` puxa a imagem. Se não ligar, "Manage Actions access".
+Medido (2026-10-20, run 39451576975 do PR #3): "Initialize containers" levou 31 s (`plan`) e 34 s (`ci-probe`), já com o Postgres de serviço; o `setup.sh` levou 46 s dentro do `docker build`, na mesma VM do Actions. A imagem é mais rápida: a escolha fica.
+Medido (2026-10-20, mesmo run): `actions/checkout` no container com `USER 1001` passou em 1–2 s em `plan` e `ci-probe`, sem `options: --user` e sem erro de `safe.directory` ou de permissão.
+Medido (2026-10-20): o pacote `ghcr.io/lucasmsoares96/factory-template/factory` nasceu **público** no repo público (pull anônimo do manifest devolveu 200), e os jobs com `packages: read` puxaram a imagem.
 Pending (human): 5. Ruleset da `main` exigindo o check `verify`, depois do primeiro PR verde.
+
+Bug achado pelo primeiro CI real: o `ci-probe` falhou no Actions com `ERR_PNPM_PACKAGE_MANAGER_NO_IMPORTER`. Com `CI=true`, o pnpm usa lockfile congelado por padrão, e o `new-product` acrescenta um importer novo. Corrigido em `packages/skeleton/src/node/products.ts` (`pnpm install --no-frozen-lockfile`); reproduzido e conferido localmente com `CI=true pnpm factory:ci-probe` (verde, 7 tarefas e 4 E2E).

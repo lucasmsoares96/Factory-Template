@@ -124,7 +124,9 @@ export function newProduct({ root, id, title, domain, install = true, outDir }: 
       const { status } = spawnSync("pnpm", args, { cwd: root, stdio: "inherit" });
       if (status !== 0) throw new Error(`\`pnpm ${args.join(" ")}\` failed.`);
     };
-    run("install");
+    // A new Product adds a lockfile importer, so the install must update the lockfile even where
+    // pnpm defaults to a frozen one (CI=true, as in the `ci-probe` job).
+    run("install", "--no-frozen-lockfile");
     run("--filter", `./apps/${id}`, "run", "generate");
   }
   return { dir: target, files };
