@@ -13,7 +13,7 @@ Spec: [../spec.md](../spec.md)
 - [x] Workflow de deploy da `main`: `build` sem secrets → `deploy` (código da `main`, config gerado com o id, migrations do Skeleton e do Product, `wrangler deploy --name <id>`, KV de produção pelo provisionamento automático) → `smoke` (login real, 401 com `WWW-Authenticate` no `/mcp`) (seam 7).
 - [ ] O deploy da `main` também migra o branch `base` do preview quando o módulo Previews existir.
 - [x] Testes do módulo contra os falsos: queda para o nível do repo, prefixo `<ID>_` (seam 8).
-- [ ] Deploy de teste do `example` pelo Actions.
+- [x] Deploy de teste do `example` pelo Actions.
 - [ ] Medidos também aqui, vindos dos tickets 03 e 04: 429 do rate limit por IP atrás da Cloudflare (`cf-connecting-ip`); linhas do `RateLimiter` dentro das cotas de DO do Free; CPU do render do email no Worker.
 - [ ] Critérios medidos e registrados aqui: login real sem `exceededCpu` no `PasswordHasher`; CPU por request do `/mcp` no Free; resposta da API a environment e ruleset num repo privado no Free. O que for criado só para medir é apagado.
 
@@ -61,3 +61,13 @@ Pending (human): `pnpm bootstrap product example` na conta real (login do Neon n
 
 
 Primeiro deploy pelo Actions (2026-10-20, run 39513212945, `workflow_dispatch` na `main`): `image`, `plan` e `build` passaram; no `deploy`, o checkout, o artefato, o config e as migrations no Neon de produção passaram, e o `wrangler deploy` falhou com `Command "wrangler" not found`. Causa: `pnpm exec wrangler` rodava na raiz, onde o `wrangler` não é dependência (só o `.factory` e os Products o declaram); o `--dry-run` local tinha rodado de dentro do pacote. Corrigido para `pnpm --filter @factory/harness exec wrangler deploy`, com um teste que falha para qualquer `pnpm exec <bin>` de um binário que a raiz não declara. O doctor também mostrava `DEPLOY_ENABLED off` no fim da execução que acabava de ligá-lo (lido antes de ligar): a corrigir.
+
+
+Deploy de produção (2026-10-20, run 39515266297, `workflow_dispatch` na `main` em `d36051c`): `image`, `plan`, `build`, `deploy` e `smoke` verdes. O `example` está em https://example.bytewer.workers.dev. O smoke fez login real com a conta padrão, leu `/api/me` com o cookie da sessão e conferiu o `/mcp` 401 com `WWW-Authenticate` (`resource_metadata`). Conferido também de fora do CI: `/api/health` 200 `{"status":"ok"}`, `/mcp` 401 com o desafio, `/sign-in` 200, `/api/me` sem sessão 401.
+
+O merge do PR #6 disparou um deploy por push (run 39515038134) que pulou `build`/`deploy`/`smoke`: o `plan` de um push só pega os Products afetados, e o PR mexia só em `.factory/` e no workflow. Um Product em `DEPLOY_PRODUCTS` que nunca foi publicado fica de fora até um merge que o afete; o deploy manual pega todos.
+
+Medido na conta (Cloudflare GraphQL Analytics, `workersInvocationsAdaptive`, script `example`, 3 h após o deploy, 2026-10-20):
+- Login real sem `exceededCpu`: sim. O smoke só passa se o login com a conta padrão funcionar, e o hash roda no `PasswordHasher`; 8 requests, 0 erros, status `success`.
+- CPU do Worker (todas as rotas juntas, incluindo o smoke e as checagens de fora): p50 14,8 ms, p99 63,9 ms.
+- Não medido em separado: o CPU por request só do `/mcp` e o CPU do `PasswordHasher` (as consultas `durableObjectsInvocationsAdaptiveGroups` e `durableObjectsPeriodicGroups` voltaram vazias, sem erro); o 429 do rate limit por IP; as cotas do `RateLimiter`; o CPU do render do email (Resend adiado, outbox). Esses ficam abertos.
