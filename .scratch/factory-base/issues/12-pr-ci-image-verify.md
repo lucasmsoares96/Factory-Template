@@ -8,12 +8,12 @@ Spec: [../spec.md](../spec.md)
 
 **Status:** ready-for-human
 
-- [ ] Job reaproveitável `image` (`packages: write`): calcula o hash, confere a tag no GHCR, constrói e publica só se faltar, devolve a tag. O PR que sobe uma versão testa com a imagem nova.
-- [ ] Job `build` em `container:` da imagem, `contents: read`, `packages: read`, `persist-credentials: false`, sem cache e sem secrets, Postgres por `services:`, `runs-on` aceita `vars.FACTORY_RUNNER`.
-- [ ] Checkout com `--filter=blob:none`; `turbo query affected --packages` monta a matrix (`fail-fast: false`); arquivos da raiz em `globalDependencies`; mudanças só em `.factory/` ou `.github/` rodam os testes do harness.
-- [ ] Job `skills-check` com o CLI `skills` fixado: restaura do lock, `git diff --exit-code`, confere symlinks.
-- [ ] Job `ci-probe`: `new-product ci-probe` numa cópia temporária + `verify`, sem deploy, cópia apagada no fim.
-- [ ] Saem `claude.yml` e `claude-code-review.yml`.
+- [x] Job reaproveitável `image` (`packages: write`): calcula o hash, confere a tag no GHCR, constrói e publica só se faltar, devolve a tag. O PR que sobe uma versão testa com a imagem nova.
+- [x] Job `build` em `container:` da imagem, `contents: read`, `packages: read`, `persist-credentials: false`, sem cache e sem secrets, Postgres por `services:`, `runs-on` aceita `vars.FACTORY_RUNNER`.
+- [x] Checkout com `--filter=blob:none`; `turbo query affected --packages` monta a matrix (`fail-fast: false`); arquivos da raiz em `globalDependencies`; mudanças só em `.factory/` ou `.github/` rodam os testes do harness.
+- [x] Job `skills-check` com o CLI `skills` fixado: restaura do lock, `git diff --exit-code`, confere symlinks.
+- [x] Job `ci-probe`: `new-product ci-probe` numa cópia temporária + `verify`, sem deploy, cópia apagada no fim.
+- [x] Saem `claude.yml` e `claude-code-review.yml`.
 - [x] Testes estáticos do YAML: `build` só em `container:` e só ele (com o `work`, depois) aceita `vars.FACTORY_RUNNER` (seam 2).
 - [ ] Critérios medidos e registrados aqui: "Initialize containers" com a imagem × `setup.sh` direto na VM (se não for mais rápido, reabrir a escolha); `actions/checkout` no container com `USER 1001`; visibilidade com que o pacote do GHCR nasce num repo público e leitura com `packages: read`.
 
@@ -36,7 +36,7 @@ Implementado em 2026-10-19. **Versões:** `yaml` **2.9.1** (catalog; só para os
 - `plan` roda no container (precisa do turbo); `skills-check` na VM, só com `setup-node`; `ci-probe` na imagem (precisa do Chromium do e2e), com Postgres por `services:`.
 - O container autentica no GHCR com `github.token` (não é secret).
 
-Pending (human): 1. Instalar os workflows e remover os dois antigos: os três comandos em `.scratch/factory-base/pending/ticket-12/README.md`, depois trocar `WORKFLOWS_DIR` para `.github/workflows` no teste. Fecha os critérios de `image`, `build`, checkout/matrix, `skills-check`, `ci-probe` e a saída de `claude.yml`/`claude-code-review.yml`.
+Installed (2026-10-20): `factory-image.yml` and `factory-pr.yml` are in `.github/workflows/`, `claude.yml` and `claude-code-review.yml` are removed, and the static YAML test now reads `.github/workflows` (12 tests pass). Criteria 1–6 are verified statically only: the first real run happens on Actions after the merge into `main` (`pull_request_target` runs from the base branch).
 Pending (human): 2. Medir "Initialize containers" com a imagem × `setup.sh` direto na VM: num PR de teste, ler a duração do passo "Initialize containers" do job `build`; num job de teste na VM, cronometrar `bash .factory/image/setup.sh` (com as quatro variáveis). Se o pull não for mais rápido, reabrir a escolha da imagem. Apagar o PR de teste.
 Pending (human): 3. `actions/checkout` no container com `USER 1001`: ver se o checkout do `build` passa sem `options: --user` e sem erro de `safe.directory` ou de permissão no workspace.
 Pending (human): 4. Visibilidade do pacote no GHCR: depois do primeiro `image`, ver em Packages se o pacote nasceu público ou privado num repo público, se está ligado ao repo (label `org.opencontainers.image.source`) e se o `build` com `packages: read` puxa a imagem. Se não ligar, "Manage Actions access".
