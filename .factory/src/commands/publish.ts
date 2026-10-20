@@ -3,7 +3,7 @@ import { issueBranch } from "../config.ts";
 import { diffLines, filterToDiff, type DiffLines } from "../diff.ts";
 import { Git } from "../git.ts";
 import { isHarnessPath, isProtectedPath } from "../paths.ts";
-import { escalationComment, usageLine, type EscalationReason } from "../report.ts";
+import { escalationComment, followUpComment, usageLine, type EscalationReason, type FollowUpRef } from "../report.ts";
 import { BUNDLE_FILE, EVIDENCE_DIR, RESULT_FILE, readResult, type FactoryResult } from "../result.ts";
 import type { EvidenceGroup, PullRequest } from "../seams/code-host.ts";
 import type { Issue } from "../seams/tracker.ts";
@@ -56,18 +56,23 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
     const patch = await git.run("diff", "--no-color", "--no-ext-diff", `${result.base}...${head}`);
     return escalate(ctx, issue, { reason: "protected-paths", result, protectedPaths, patch, pr: null, runUrl: options.runUrl });
   }
-  if (!head) return escalate(ctx, issue, { reason: result.reason ?? "infra", result, pr: null, runUrl: options.runUrl });
+  if (!head) {
+    const followUps = await openFollowUps(ctx, issue, result);
+    return escalate(ctx, issue, { reason: result.reason ?? "infra", result, pr: null, runUrl: options.runUrl, followUps });
+  }
 
   const push = await ctx.codeHost.push({ branch, sha: head, expectedSha: options.startSha });
   if (!push.ok) return discard(ctx, number, `branch ${branch} moved since the run started`);
 
+  const followUps = await openFollowUps(ctx, issue, result);
   const lines = await diffLines(git, result.base, head);
   const harnessPaths = changed.filter(isHarnessPath);
   const escalated = result.outcome === "escalated" ? (result.reason ?? "infra") : null;
-  const pr = await pullRequest(ctx, issue, { branch, openPr, continues: options.pr !== null, harnessPaths, escalated });
+  const pr = await pullRequest(ctx, issue, { branch, openPr, continues: options.pr !== null, harnessPaths, escalated, followUps });
   if (!escalated || result.review.summary !== "") await submitReview(ctx, pr.number, result, lines);
 
-  if (escalated) return escalate(ctx, issue, { reason: escalated, result, pr, runUrl: options.runUrl });
+  if (escalated) return escalate(ctx, issue, { reason: escalated, result, pr, runUrl: options.runUrl, followUps });
+  if (followUps.length > 0) await ctx.tracker.comment(number, followUpComment(followUps));
   if (result.evidence.length > 0) await ctx.codeHost.postEvidence(pr.number, evidenceGroups(result, options.in));
   await ctx.codeHost.markReady(pr.number);
   return { issue: number, outcome: "ready", pr: pr.number, url: pr.url };
@@ -127,7 +132,7 @@ async function changedFiles(git: Git, base: string, head: string): Promise<strin
 async function pullRequest(
   ctx: CommandContext,
   issue: Issue,
-  input: { branch: string; openPr: PullRequest | null; continues: boolean; harnessPaths: string[]; escalated: EscalationReason | null },
+  input: { branch: string; openPr: PullRequest | null; continues: boolean; harnessPaths: string[]; escalated: EscalationReason | null; followUps: FollowUpRef[] },
 ): Promise<PullRequest> {
   const { codeHost, config } = ctx;
   let pr: PullRequest;
@@ -155,6 +160,7 @@ async function pullRequest(
         "",
       );
     }
+    if (input.followUps.length > 0) warnings.push("> [!NOTE]", `> ${followUpComment(input.followUps).replaceAll("\n", "\n> ")}`, "");
     pr = await codeHost.openDraftPr({
       branch: input.branch,
       base: config.baseBranch,
@@ -173,6 +179,21 @@ async function submitReview(ctx: CommandContext, pr: number, result: FactoryResu
     body: `${result.review.summary || "No findings."}\n\n---\n${usageLine(result.usage, ctx.config.pricing)}`,
     comments: filterToDiff(result.review.inline, lines),
   });
+}
+
+/** Opens the Skeleton tickets the run asked for, linked to the issue; they wait for triage. */
+async function openFollowUps(ctx: CommandContext, issue: Issue, result: FactoryResult): Promise<FollowUpRef[]> {
+  const refs: FollowUpRef[] = [];
+  for (const followUp of result.followUps) {
+    const created = await ctx.tracker.createIssue({
+      title: followUp.title,
+      body: followUp.body,
+      labels: [ctx.config.labels.needsTriage],
+      relatedTo: issue.number,
+    });
+    refs.push({ number: created.number, title: followUp.title });
+  }
+  return refs;
 }
 
 /** Escalation: the report on the issue, then in-progress → ready-for-human. */

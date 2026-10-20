@@ -38,6 +38,14 @@ export const evidenceSchema = z.object({
   name: z.string().regex(/^[\w][\w.-]*\.(png|jpe?g|webp)$/),
 });
 
+/** A ticket for a Skeleton change a Product issue needs; `publish` opens it through the Tracker. */
+export const followUpSchema = z.object({
+  title: z.string().min(1),
+  body: z.string().min(1),
+  /** Skeleton files the run changed and the Review reverted. */
+  files: z.array(z.string()),
+});
+
 export const resultSchema = z.object({
   version: z.literal(1),
   issue: z.number().int().positive(),
@@ -54,6 +62,8 @@ export const resultSchema = z.object({
   threadReplies: z.array(z.object({ threadId: z.string().min(1), body: z.string().min(1) })),
   usage: z.object({ development: usageSchema, review: usageSchema }),
   evidence: z.array(evidenceSchema),
+  /** Skeleton tickets to open; empty when the issue needs none. */
+  followUps: z.array(followUpSchema).default([]),
 });
 
 export type FactoryResult = z.infer<typeof resultSchema>;
