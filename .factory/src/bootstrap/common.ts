@@ -100,13 +100,14 @@ const ATTEMPTS = 3;
  * Asks for the token (printing the template link first when `showLink`, always on a retry), checks it with read-only
  * calls and only then keeps it in memory. A token that lacks a permission is named, dropped and asked for again.
  */
-export async function promptMainToken(ctx: StepContext, input: { message: string; showLink: boolean }): Promise<string> {
+export async function promptMainToken(ctx: StepContext, input: { message: string; showLink: boolean; optional?: boolean }): Promise<string> {
   for (let attempt = 1; ; attempt++) {
     if (input.showLink || attempt > 1) {
       ctx.log(SUMMARY_HINT);
       ctx.prompter.link("Create the API token from this template:", cloudflareTokenUrl(ctx.env.CLOUDFLARE_ACCOUNT_ID || undefined));
     }
     const token = (await ctx.prompter.password({ id: "cloudflare-token", message: input.message })).trim();
+    if (!token && input.optional) return "";
     delete ctx.memory.accountId;
     let missing: string[];
     try {
