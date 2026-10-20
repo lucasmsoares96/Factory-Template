@@ -12,7 +12,7 @@ import { clackPrompter } from "./prompter.ts";
 import { domainSteps } from "./domain.ts";
 import { ResendApi } from "./resend.ts";
 import { NeonCli } from "./services.ts";
-import { runSteps, type BootstrapDeps, type ProductIdentity } from "./steps.ts";
+import { runSteps, type BootstrapDeps, type ProductIdentity, type StepContext } from "./steps.ts";
 
 export type { BootstrapDeps } from "./steps.ts";
 
@@ -30,7 +30,9 @@ Options:
   --redo <step>          Redo one step even if it looks done (repeatable): cloudflare-token, workers-dev, labels;
                          for the domain command: resend-domain, dns-records, restricted-resend-key, worker-domain.
 
-Run \`pnpm bootstrap doctor\` after the wizard and whenever something looks off.
+The wizard ends by running the doctor with the credentials it already holds, so one run is enough.
+Run \`pnpm bootstrap doctor [<id>]\` on its own whenever something looks off; with no CLOUDFLARE_API_TOKEN (or
+RESEND_API_KEY) in the environment it asks for it once, hidden and not stored (without a terminal it says \`skip\`).
 Only \`gh\` (logged in with \`gh auth login\`) must be installed. Nothing is written to disk, secrets included.`;
 
 /** Entry point; returns the process exit code. */
@@ -58,9 +60,9 @@ export async function runBootstrap(argv: string[], deps: BootstrapDeps): Promise
       deps.prompter.note(`apps/${productId}/product.config.ts has no \`domain\`. Set it there (the wizard never rewrites that file); using the answer below for this run only.`);
       product = { ...product, domain: (await deps.prompter.text({ id: "product-domain", message: `Domain of ${productId} (e.g. example.com)` })).trim() };
     }
-    await runSteps(domainSteps(product), { ...deps, memory: {} }, values.redo ?? []);
-    deps.log(`Domain part done. Run \`pnpm bootstrap doctor ${productId}\` to check it.`);
-    return 0;
+    const memory: StepContext["memory"] = {};
+    await runSteps(domainSteps(product), { ...deps, memory }, values.redo ?? []);
+    return finish(deps, productId, memory);
   }
   if (command === "doctor") {
     const report = await doctor(deps, productId);
@@ -72,9 +74,17 @@ export async function runBootstrap(argv: string[], deps: BootstrapDeps): Promise
     return 1;
   }
 
-  await runSteps(commonSteps, { ...deps, memory: {} }, values.redo ?? []);
-  deps.log("Common part done. Run `pnpm bootstrap doctor` to check it.");
-  return 0;
+  const memory: StepContext["memory"] = {};
+  await runSteps(commonSteps, { ...deps, memory }, values.redo ?? []);
+  return finish(deps, undefined, memory);
+}
+
+/** The last step of a wizard run: the doctor, with the credentials this run holds. The exit code is its verdict. */
+async function finish(deps: BootstrapDeps, productId: string | undefined, memory: StepContext["memory"]): Promise<number> {
+  deps.log("\nChecking everything:\n");
+  const report = await doctor(deps, productId, memory);
+  deps.log(formatReport(report));
+  return report.ok ? 0 : 1;
 }
 
 const ProductFile = z.object({ id: z.string(), title: z.string(), emailFrom: z.string(), domain: z.string() });
@@ -103,6 +113,7 @@ if (import.meta.main) {
       env,
       log: (line) => console.log(line),
       config: loadConfig(env),
+      interactive: Boolean(process.stdin.isTTY),
     });
   } catch (error) {
     console.error(`bootstrap: ${(error as Error).message}`);
