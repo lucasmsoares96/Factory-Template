@@ -183,8 +183,13 @@ function prBody(
     );
   }
   if (input.followUps.length > 0) warnings.push("> [!NOTE]", `> ${followUpComment(input.followUps).replaceAll("\n", "\n> ")}`, "");
-  const middle = input.text ? withoutClosingKeywords(input.text) : "Implemented by the Factory.";
+  const middle = input.text ? withoutAttribution(withoutClosingKeywords(input.text)) : "Implemented by the Factory.";
   return [...warnings, middle, "", `Closes #${issue.number}`].join("\n");
+}
+
+/** The `pr` skill's template ends with a tool attribution line; the Factory's body is the harness's, not the tool's. */
+function withoutAttribution(text: string): string {
+  return text.replace(/^[ \t]*(?:🤖[ \t]*)?Generated with \[?Claude Code\]?.*$\n?|^[ \t]*Co-Authored-By:.*$\n?/gim, "").trim();
 }
 
 /** `Closes #9` written by the agent would close the wrong issue: only `publish` writes it. */

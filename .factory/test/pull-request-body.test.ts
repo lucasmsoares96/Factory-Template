@@ -75,6 +75,17 @@ describe("pull request body assembled by publish", () => {
     expect(body.match(/Closes #/g)).toHaveLength(1);
   });
 
+  it("drops the tool attribution footer the agent appends (the pr skill's own template ends with one)", async () => {
+    const footer = "🤖 Generated with [Claude Code](https://claude.com/claude-code)";
+    const { w } = await pipeline(ready(writes(`${text}\n\n${footer}\n\nCo-Authored-By: Claude <noreply@anthropic.com>`)));
+
+    const body = w.codeHost.prs[0]!.body;
+    expect(body).not.toContain("Generated with");
+    expect(body).not.toContain("Co-Authored-By");
+    expect(body).toContain("## Merge Danger");
+    expect(body.trimEnd().endsWith("Closes #7")).toBe(true);
+  });
+
   it("falls back to the minimal body and tells why in the review footer", async () => {
     const { w } = await pipeline(ready(noBlock));
 
