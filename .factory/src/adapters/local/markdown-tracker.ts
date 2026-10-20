@@ -1,4 +1,4 @@
-import type { Blocker, Issue, Tracker } from "../../seams/tracker.ts";
+import type { Blocker, Issue, NewIssue, Tracker } from "../../seams/tracker.ts";
 import { comments, isClosed, MarkdownIssues } from "./markdown-issues.ts";
 
 export interface MarkdownTrackerOptions {
@@ -65,6 +65,10 @@ export class MarkdownTracker implements Tracker {
 
   async comment(number: number, body: string): Promise<void> {
     await this.files.appendComment(number, this.self, body);
+  }
+
+  async createIssue(input: NewIssue): Promise<{ number: number; url: string | null }> {
+    return { number: (await this.files.create(input)).number, url: null };
   }
 
   async canWrite(_login: string): Promise<boolean> {
