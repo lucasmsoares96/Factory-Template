@@ -6,7 +6,7 @@ Spec: [../spec.md](../spec.md)
 
 **Blocked by:** 10, 11
 
-**Status:** ready-for-human
+**Status:** done
 
 - [x] Job reaproveitável `image` (`packages: write`): calcula o hash, confere a tag no GHCR, constrói e publica só se faltar, devolve a tag. O PR que sobe uma versão testa com a imagem nova.
 - [x] Job `build` em `container:` da imagem, `contents: read`, `packages: read`, `persist-credentials: false`, sem cache e sem secrets, Postgres por `services:`, `runs-on` aceita `vars.FACTORY_RUNNER`.
@@ -40,6 +40,6 @@ Installed (2026-10-20): `factory-image.yml` and `factory-pr.yml` are in `.github
 Medido (2026-10-20, run 39451576975 do PR #3): "Initialize containers" levou 31 s (`plan`) e 34 s (`ci-probe`), já com o Postgres de serviço; o `setup.sh` levou 46 s dentro do `docker build`, na mesma VM do Actions. A imagem é mais rápida: a escolha fica.
 Medido (2026-10-20, mesmo run): `actions/checkout` no container com `USER 1001` passou em 1–2 s em `plan` e `ci-probe`, sem `options: --user` e sem erro de `safe.directory` ou de permissão.
 Medido (2026-10-20): o pacote `ghcr.io/lucasmsoares96/factory-template/factory` nasceu **público** no repo público (pull anônimo do manifest devolveu 200), e os jobs com `packages: read` puxaram a imagem.
-Pending (human): 5. Ruleset da `main` exigindo o check `verify`, depois do primeiro PR verde.
+Feito (2026-10-20): ruleset `main` (id 25500591), ativo na branch padrão: PR obrigatório com 0 aprovações (o GitHub não deixa aprovar o próprio PR), sem force-push, sem apagar a branch, e o check `verify` do GitHub Actions obrigatório. O papel de admin pode ignorar a regra, para emergências. O primeiro PR verde foi o #4.
 
 Bug achado pelo primeiro CI real: o `ci-probe` falhou no Actions com `ERR_PNPM_PACKAGE_MANAGER_NO_IMPORTER`. Com `CI=true`, o pnpm usa lockfile congelado por padrão, e o `new-product` acrescenta um importer novo. Corrigido em `packages/skeleton/src/node/products.ts` (`pnpm install --no-frozen-lockfile`); reproduzido e conferido localmente com `CI=true pnpm factory:ci-probe` (verde, 7 tarefas e 4 E2E).
