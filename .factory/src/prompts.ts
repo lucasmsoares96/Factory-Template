@@ -14,7 +14,7 @@ import type { Issue } from "./seams/tracker.ts";
 
 export const PROMPTS_DIR = fileURLToPath(new URL("../prompts/", import.meta.url));
 
-export type Template = "development" | "review" | "triage" | "pr-feedback" | "update-branch";
+export type Template = "development" | "review" | "triage" | "pull-request" | "pr-feedback" | "update-branch";
 
 const cache = new Map<string, string>();
 function load(name: string): string {
@@ -80,6 +80,27 @@ export function reviewPrompt(ctx: ReviewContext): string {
     FINDINGS: findings.length > 0 ? `\nPrevious findings:\n${findings.join("\n")}` : "",
     ISSUE: issueBlock(ctx.issue),
     LOG: ctx.log || "(none)",
+  });
+}
+
+export interface PullRequestContext extends Omit<StageContext, "feedback"> {
+  base: string;
+  /** What the run ended with: E2E green and in which attempt, or why it escalated and the last E2E output. */
+  result: string;
+  /** Local paths of the prints, grouped by Product. */
+  prints: { product: string; path: string }[];
+}
+
+export function pullRequestPrompt(ctx: PullRequestContext): string {
+  const byProduct = Map.groupBy(ctx.prints, (p) => p.product);
+  const prints = [...byProduct].map(([product, files]) => [`${product}:`, ...files.map((f) => `- ${f.path}`)].join("\n"));
+  return renderTemplate("pull-request", {
+    NUMBER: String(ctx.issue.number),
+    BASE: ctx.base,
+    ISSUE: issueBlock(ctx.issue),
+    LOG: ctx.log || "(none)",
+    RESULT: ctx.result,
+    PRINTS: prints.join("\n") || "(none)",
   });
 }
 

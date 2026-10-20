@@ -53,6 +53,8 @@ export interface CodeHost {
   /** The open pull request whose head is `branch`, if any. */
   openPrFor(branch: string): Promise<PullRequest | null>;
   openDraftPr(input: { branch: string; base: string; title: string; body: string }): Promise<PullRequest>;
+  /** Replaces the body of the pull request. */
+  updatePrBody(pr: number, body: string): Promise<void>;
   markReady(pr: number): Promise<void>;
   /** Closes the pull request, leaving `comment` on it first when given. */
   closePr(pr: number, comment?: string): Promise<void>;

@@ -75,6 +75,11 @@ export class FakeCodeHost implements CodeHost {
     return { ...pr };
   }
 
+  async updatePrBody(pr: number, body: string): Promise<void> {
+    this.pr(pr).body = body;
+    this.writes.push(`updatePrBody #${pr}`);
+  }
+
   async markReady(pr: number): Promise<void> {
     this.pr(pr).draft = false;
     this.writes.push(`markReady #${pr}`);

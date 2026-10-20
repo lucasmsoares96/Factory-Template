@@ -36,7 +36,11 @@ export class FakeAgent implements Agent {
 
   constructor(cwd: string, script: Partial<Record<Stage, AgentStep[]>>) {
     this.cwd = cwd;
-    this.steps = { development: [...(script.development ?? [])], review: [...(script.review ?? [])] };
+    this.steps = {
+      development: [...(script.development ?? [])],
+      review: [...(script.review ?? [])],
+      "pull-request": [...(script["pull-request"] ?? [])],
+    };
   }
 
   async run(stage: Stage, prompt: string, options: { timeoutMs: number; model: string; extract?: Extraction }): Promise<AgentRun> {

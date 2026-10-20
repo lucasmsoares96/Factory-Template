@@ -24,6 +24,20 @@ export const stageRecordSchema = z.object({
   output: z.string().optional(),
 });
 
+/**
+ * The Pull Request Stage: outside the attempts. `skipped` means the run had
+ * commits but no time left for it.
+ */
+export const pullRequestStageSchema = z.object({
+  outcome: z.enum(["ok", "failed", "timeout", "skipped"]),
+  durationMs: z.number().int().nonnegative(),
+  usage: usageSchema,
+  /** Resumes of the session to extract the body block. */
+  retries: z.number().int().nonnegative(),
+  /** Why there is no body; absent when `ok`. */
+  reason: z.string().optional(),
+});
+
 export const inlineCommentSchema = z.object({
   path: z.string().min(1),
   line: z.number().int().positive(),
@@ -62,13 +76,22 @@ export const resultSchema = z.object({
   attempts: z.array(z.object({ number: z.number().int().positive(), stages: z.array(stageRecordSchema) })),
   review: reviewSchema,
   threadReplies: z.array(z.object({ threadId: z.string().min(1), body: z.string().min(1) })),
-  usage: z.object({ development: usageSchema, review: usageSchema }),
+  usage: z.object({
+    development: usageSchema,
+    review: usageSchema,
+    pullRequest: usageSchema.default({ inputTokens: 0, outputTokens: 0 }),
+  }),
+  /** Body the Pull Request Stage wrote (Summary, Evidence, Merge Danger); null when there is none. */
+  pullRequestBody: z.string().nullable().default(null),
+  /** Null when the Stage did not apply (no commits). */
+  pullRequestStage: pullRequestStageSchema.nullable().default(null),
   evidence: z.array(evidenceSchema),
   /** Skeleton tickets to open; empty when the issue needs none. */
   followUps: z.array(followUpSchema).default([]),
 });
 
 export type FactoryResult = z.infer<typeof resultSchema>;
+export type PullRequestStageRecord = z.infer<typeof pullRequestStageSchema>;
 export type StageRecord = z.infer<typeof stageRecordSchema>;
 export type ReviewOutput = z.infer<typeof reviewSchema>;
 
