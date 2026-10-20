@@ -76,7 +76,9 @@ export async function runBootstrap(argv: string[], deps: BootstrapDeps): Promise
     const memory: StepContext["memory"] = {};
     try {
       await runSteps(productionSteps(product), { ...deps, memory }, values.redo ?? []);
-      return await finish(deps, productId, memory, { production: true }, true);
+      const code = await finish(deps, productId, memory, { production: true }, true);
+      deps.log(`After the first deploy, attach the domain with: pnpm bootstrap domain ${productId} --redo worker-domain`);
+      return code;
     } finally {
       await memory.neon?.close();
     }
@@ -126,7 +128,7 @@ async function finish(
   enableDeploy = false,
 ): Promise<number> {
   deps.log("\nChecking everything:\n");
-  const report = await doctor(deps, productId, memory, sections);
+  const report = await doctor(deps, productId, memory, sections, { prompt: false });
   deps.log(formatReport(report));
   // Only a Product whose doctor passes gets the deploy switched on; the workflow shows as skipped until then.
   if (enableDeploy && report.ok && (await deps.github.listVariables()).DEPLOY_ENABLED !== "true") {
