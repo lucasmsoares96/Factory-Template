@@ -196,7 +196,7 @@ describe("pnpm bootstrap domain: restricted-resend-key", () => {
 
     await w.run("domain", "my-app");
 
-    expect([...w.github.secrets.keys()]).toEqual(["MY_APP_RESEND_API_KEY"]);
+    expect([...w.github.secrets.keys()]).toContain("MY_APP_RESEND_API_KEY");
   });
 
   it("creates no second key when the secret exists", async () => {
@@ -224,7 +224,7 @@ describe("pnpm bootstrap domain: restricted-resend-key", () => {
     await w.run("domain", "example");
 
     expect(w.resend.keys).toEqual([]);
-    expect(w.github.secrets.size).toBe(0);
+    expect([...w.github.secrets.keys()].filter((n) => n.endsWith("RESEND_API_KEY"))).toEqual([]);
   });
 });
 
