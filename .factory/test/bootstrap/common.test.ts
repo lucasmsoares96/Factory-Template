@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cloudflareTokenUrl } from "../../src/bootstrap/common.ts";
+import { cloudflareTokenUrl, DOMAIN_PERMISSIONS } from "../../src/bootstrap/common.ts";
 import { TOKEN, staticLabelNames, world } from "./helpers.ts";
 
 describe("pnpm bootstrap (common part)", () => {
@@ -27,11 +27,20 @@ describe("pnpm bootstrap (common part)", () => {
     expect(keys).not.toContain("workers_r2");
   });
 
-  it("the token template also grants DNS edit, zone read and Workers Routes edit for the domain command", () => {
+  it("the default token template is exactly the three permissions the dashboard pre-selects, encoded as before", () => {
+    expect(cloudflareTokenUrl()).toBe(
+      "https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=%5B%7B%22key%22%3A%22workers_scripts%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22workers_kv_storage%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22account_settings%22%2C%22type%22%3A%22read%22%7D%5D&name=Factory%20Template%20(Edit%20Cloudflare%20Workers)",
+    );
+  });
+
+  it("the domain permissions are not in the default link, but can be requested", () => {
     const keys = decodeURIComponent(cloudflareTokenUrl());
-    expect(keys).toContain('"key":"dns","type":"edit"');
-    expect(keys).toContain('"key":"zone","type":"read"');
-    expect(keys).toContain('"key":"workers_routes","type":"edit"');
+    expect(keys).not.toContain("dns");
+    expect(keys).not.toContain("workers_routes");
+    const withDomain = decodeURIComponent(cloudflareTokenUrl(undefined, DOMAIN_PERMISSIONS));
+    expect(withDomain).toContain('"key":"dns","type":"edit"');
+    expect(withDomain).toContain('"key":"zone","type":"read"');
+    expect(withDomain).toContain('"key":"workers_routes","type":"edit"');
   });
 
   it("prints the token URL on one unwrapped, undecorated line, even in a 60-column terminal", async () => {
@@ -52,9 +61,6 @@ describe("pnpm bootstrap (common part)", () => {
       { key: "workers_scripts", type: "edit" },
       { key: "workers_kv_storage", type: "edit" },
       { key: "account_settings", type: "read" },
-      { key: "dns", type: "edit" },
-      { key: "zone", type: "read" },
-      { key: "workers_routes", type: "edit" },
     ]);
     expect(u.searchParams.get("name")).toBe("Factory Template (Edit Cloudflare Workers)");
     expect(JSON.stringify([w.lines, w.prompter.printed, w.prompter.notes])).not.toContain(TOKEN);
@@ -73,7 +79,7 @@ describe("pnpm bootstrap (common part)", () => {
     const direct = cloudflareTokenUrl("acc123");
     const picker = cloudflareTokenUrl();
     expect(direct.startsWith("https://dash.cloudflare.com/acc123/api-tokens/create?permissionGroupKeys=%5B%7B%22key%22%3A%22workers_scripts%22")).toBe(true);
-    expect(direct.endsWith("&name=Factory+Template+%28Edit+Cloudflare+Workers%29")).toBe(true);
+    expect(direct.endsWith("&name=Factory%20Template%20(Edit%20Cloudflare%20Workers)")).toBe(true);
     expect(picker.startsWith("https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=%5B")).toBe(true);
     expect(new URL(picker).searchParams.get("name")).toBe("Factory Template (Edit Cloudflare Workers)");
     expect(direct).not.toContain("%25");
