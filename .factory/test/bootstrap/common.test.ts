@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cloudflareTokenUrl } from "../../src/bootstrap/common.ts";
+import { cloudflareTokenUrl, TOKEN_PERMISSIONS } from "../../src/bootstrap/common.ts";
 import { TOKEN, staticLabelNames, world } from "./helpers.ts";
 
 describe("pnpm bootstrap (common part)", () => {
@@ -27,11 +27,21 @@ describe("pnpm bootstrap (common part)", () => {
     expect(keys).not.toContain("workers_r2");
   });
 
-  it("the token template also grants DNS edit, zone read and Workers Routes edit for the domain command", () => {
-    const keys = decodeURIComponent(cloudflareTokenUrl());
-    expect(keys).toContain('"key":"dns","type":"edit"');
-    expect(keys).toContain('"key":"zone","type":"read"');
-    expect(keys).toContain('"key":"workers_routes","type":"edit"');
+  it("the token template is exactly these five permissions, encoded like the version the dashboard pre-selected", () => {
+    const encoded = encodeURIComponent(
+      JSON.stringify([
+        { key: "workers_scripts", type: "edit" },
+        { key: "workers_kv_storage", type: "edit" },
+        { key: "account_settings", type: "read" },
+        { key: "dns", type: "edit" },
+        { key: "zone", type: "read" },
+      ]),
+    );
+    expect(cloudflareTokenUrl()).toBe(
+      `https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=${encoded}&name=Factory%20Template%20(Edit%20Cloudflare%20Workers)`,
+    );
+    expect(TOKEN_PERMISSIONS).toHaveLength(5);
+    expect(decodeURIComponent(cloudflareTokenUrl())).not.toContain("workers_routes");
   });
 
   it("prints the token URL on one unwrapped, undecorated line, even in a 60-column terminal", async () => {
@@ -54,7 +64,6 @@ describe("pnpm bootstrap (common part)", () => {
       { key: "account_settings", type: "read" },
       { key: "dns", type: "edit" },
       { key: "zone", type: "read" },
-      { key: "workers_routes", type: "edit" },
     ]);
     expect(u.searchParams.get("name")).toBe("Factory Template (Edit Cloudflare Workers)");
     expect(JSON.stringify([w.lines, w.prompter.printed, w.prompter.notes])).not.toContain(TOKEN);
@@ -73,7 +82,7 @@ describe("pnpm bootstrap (common part)", () => {
     const direct = cloudflareTokenUrl("acc123");
     const picker = cloudflareTokenUrl();
     expect(direct.startsWith("https://dash.cloudflare.com/acc123/api-tokens/create?permissionGroupKeys=%5B%7B%22key%22%3A%22workers_scripts%22")).toBe(true);
-    expect(direct.endsWith("&name=Factory+Template+%28Edit+Cloudflare+Workers%29")).toBe(true);
+    expect(direct.endsWith("&name=Factory%20Template%20(Edit%20Cloudflare%20Workers)")).toBe(true);
     expect(picker.startsWith("https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=%5B")).toBe(true);
     expect(new URL(picker).searchParams.get("name")).toBe("Factory Template (Edit Cloudflare Workers)");
     expect(direct).not.toContain("%25");
@@ -109,6 +118,77 @@ describe("pnpm bootstrap (common part)", () => {
 
     await expect(w.run()).rejects.toThrow(/Cloudflare rejected the token/);
     expect(w.github.secrets.size).toBe(0);
+  });
+
+  describe("checks the token before storing it", () => {
+    function narrow(denied: string[], zone = false) {
+      const w = world({ "cloudflare-token": ["narrow-token", TOKEN] });
+      w.cloudflare.validTokens.add("narrow-token");
+      w.cloudflare.deny("narrow-token", ...denied);
+      if (zone) w.cloudflare.zones.push({ id: "zone-1", name: "example.com" });
+      return w;
+    }
+
+    it.each([
+      ["kv", "Workers KV Storage"],
+      ["workers", "Workers Scripts"],
+      ["account", "Account Settings"],
+      ["zone", "Zone"],
+    ])("names %s (%s) when the token lacks it, asks again and stores only the good token", async (denied, name) => {
+      const w = narrow([denied]);
+
+      const { code, output } = await w.run();
+
+      expect(code).toBe(0);
+      expect(output).toContain(`The token is missing: ${name}`);
+      expect(output).toContain("Nothing was stored");
+      expect(w.prompter.asked.filter((id) => id === "cloudflare-token")).toHaveLength(2);
+      expect(w.github.secrets.get("CLOUDFLARE_API_TOKEN")).toBe(TOKEN);
+      expect(JSON.stringify([w.lines, w.prompter.printed, [...w.github.secrets.values()]])).not.toContain("narrow-token");
+    });
+
+    it("names DNS when the account has a zone but the token cannot read its records", async () => {
+      const w = narrow(["dns"], true);
+
+      const { output } = await w.run();
+
+      expect(output).toContain("The token is missing: DNS");
+      expect(w.github.secrets.get("CLOUDFLARE_API_TOKEN")).toBe(TOKEN);
+    });
+
+    it("names every missing permission at once", async () => {
+      const w = narrow(["kv", "zone"]);
+
+      const { output } = await w.run();
+
+      expect(output).toContain("The token is missing: Workers KV Storage, Zone");
+    });
+
+    it("gives up after three refused tokens without storing anything", async () => {
+      const w = world({ "cloudflare-token": "narrow-token" });
+      w.cloudflare.validTokens.add("narrow-token");
+      w.cloudflare.deny("narrow-token", "kv");
+
+      await expect(w.run()).rejects.toThrow(/still missing: Workers KV Storage/);
+      expect(w.github.secrets.size).toBe(0);
+    });
+
+    it("tells the person, right before every link, to check the summary page", async () => {
+      const w = narrow(["kv"]);
+
+      const { output } = await w.run();
+
+      expect(output.match(/continue to the summary page and check it there/g)).toHaveLength(2);
+      expect(w.prompter.printed.filter((l) => l.startsWith("https://dash.cloudflare.com/"))).toHaveLength(2);
+    });
+
+    it("probes read-only: the first refused write is what proves edit vs read", async () => {
+      const w = world();
+
+      await w.run();
+
+      expect(w.cloudflare.writes).toBe(1); // only the workers.dev registration, after the check
+    });
   });
 
   it("repairs a label whose colour drifted and leaves other labels alone", async () => {

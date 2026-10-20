@@ -1,4 +1,5 @@
 import type { CloudflareClient, CloudflareDnsRecord, CloudflareZone, ResendClient, ResendDnsRecord, ResendDomain } from "./clients.ts";
+import { promptMainToken } from "./common.ts";
 import type { ProductIdentity, Step, StepContext } from "./steps.ts";
 
 /** `<ID>_NAME`: the prefix every per-Product secret carries, e.g. `my-app` + `RESEND_API_KEY` = `MY_APP_RESEND_API_KEY`. */
@@ -23,9 +24,7 @@ export async function cloudflareHandle(
   prompt: boolean,
 ): Promise<{ client: CloudflareClient; accountId: string } | undefined> {
   let token = ctx.memory.cloudflareToken ?? (ctx.env.CLOUDFLARE_API_TOKEN || undefined);
-  if (!token && prompt) {
-    token = (await ctx.prompter.password({ id: "cloudflare-token", message: "Paste the Cloudflare API token (not stored)" })).trim();
-  }
+  if (!token && prompt) token = await promptMainToken(ctx, { message: "Paste the Cloudflare API token (not stored)", showLink: true });
   if (!token) return undefined;
   ctx.memory.cloudflareToken = token;
   const client = ctx.cloudflare(token);

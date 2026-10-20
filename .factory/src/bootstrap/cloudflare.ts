@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { CloudflareAccount, CloudflareClient, CloudflareDnsRecord, CloudflareZone, NewDnsRecord, WorkerDomain } from "./clients.ts";
+import { CloudflareRefused, type CloudflareAccount, type CloudflareClient, type CloudflareDnsRecord, type CloudflareZone, type NewDnsRecord, type WorkerDomain } from "./clients.ts";
 
 type Fetch = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
@@ -14,6 +14,9 @@ interface Envelope<T> {
 
 const zones = z.array(z.object({ id: z.string(), name: z.string() }));
 const dnsRecords = z.array(z.object({ type: z.string(), name: z.string(), content: z.string() }));
+const kvNamespaces = z.array(z.object({ id: z.string() }));
+const account = z.object({ id: z.string(), name: z.string() });
+const tokenStatus = z.object({ status: z.string() });
 const scripts = z.array(z.object({ id: z.string() }));
 const workerDomains = z.array(z.object({ hostname: z.string(), service: z.string() }));
 
@@ -39,7 +42,9 @@ export class CloudflareApi implements CloudflareClient {
 
   private static fail(method: string, path: string, status: number, envelope: Envelope<unknown>): never {
     const reasons = (envelope.errors ?? []).map((e) => `${e.code} ${e.message}`).join("; ");
-    throw new Error(`Cloudflare rejected the token or request (${method} ${path} → ${status})${reasons ? `: ${reasons}` : ""}`);
+    const message = `Cloudflare rejected the token or request (${method} ${path} → ${status})${reasons ? `: ${reasons}` : ""}`;
+    // 403 / 10000: authenticated but not allowed, i.e. a permission is missing on the token.
+    throw status === 403 || envelope.errors?.some((e) => e.code === 10000) ? new CloudflareRefused(message) : new Error(message);
   }
 
   async listAccounts(): Promise<CloudflareAccount[]> {
@@ -72,6 +77,10 @@ export class CloudflareApi implements CloudflareClient {
     return { result: parsed.data, pages: envelope.result_info?.total_pages ?? 1 };
   }
 
+  async listZones(): Promise<CloudflareZone[]> {
+    return (await this.request("GET", "/zones?per_page=1", zones)).result.map(({ id, name }) => ({ id, name }));
+  }
+
   async findZone(name: string): Promise<CloudflareZone | null> {
     const { result } = await this.request("GET", `/zones?name=${encodeURIComponent(name)}`, zones);
     return result.find((z) => z.name === name) ?? null;
@@ -93,9 +102,33 @@ export class CloudflareApi implements CloudflareClient {
     await this.request("POST", `/zones/${zoneId}/dns_records`, z.unknown(), body);
   }
 
-  async workerExists(accountId: string, name: string): Promise<boolean> {
+  async listWorkerScripts(accountId: string): Promise<string[]> {
     const { result } = await this.request("GET", `/accounts/${accountId}/workers/scripts`, scripts);
-    return result.some((script) => script.id === name);
+    return result.map((script) => script.id);
+  }
+
+  async workerExists(accountId: string, name: string): Promise<boolean> {
+    return (await this.listWorkerScripts(accountId)).includes(name);
+  }
+
+  async listKvNamespaces(accountId: string): Promise<string[]> {
+    const { result } = await this.request("GET", `/accounts/${accountId}/storage/kv/namespaces`, kvNamespaces);
+    return result.map((ns) => ns.id);
+  }
+
+  async getAccount(accountId: string): Promise<CloudflareAccount> {
+    return (await this.request("GET", `/accounts/${accountId}`, account)).result;
+  }
+
+  /** Docs "Verify token" (account-owned: `GET /accounts/{id}/tokens/verify`; user tokens: `GET /user/tokens/verify`), read 2026-10-20. */
+  async verifyToken(accountId: string): Promise<void> {
+    let status: string;
+    try {
+      status = (await this.request("GET", `/accounts/${accountId}/tokens/verify`, tokenStatus)).result.status;
+    } catch {
+      status = (await this.request("GET", "/user/tokens/verify", tokenStatus)).result.status;
+    }
+    if (status !== "active") throw new Error(`The Cloudflare token is ${status}, not active.`);
   }
 
   async listWorkerDomains(accountId: string, service: string): Promise<WorkerDomain[]> {

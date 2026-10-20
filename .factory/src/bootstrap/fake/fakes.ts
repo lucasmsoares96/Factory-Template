@@ -1,19 +1,20 @@
-import type {
-  CloudflareAccount,
-  CloudflareClient,
-  CloudflareDnsRecord,
-  CloudflareZone,
-  GitHubClient,
-  LabelSpec,
-  NewDnsRecord,
-  NeonClient,
-  NeonProject,
-  Prompter,
-  RepoInfo,
-  ResendClient,
-  ResendDnsRecord,
-  ResendDomain,
-  WorkerDomain,
+import {
+  CloudflareRefused,
+  type CloudflareAccount,
+  type CloudflareClient,
+  type CloudflareDnsRecord,
+  type CloudflareZone,
+  type GitHubClient,
+  type LabelSpec,
+  type NewDnsRecord,
+  type NeonClient,
+  type NeonProject,
+  type Prompter,
+  type RepoInfo,
+  type ResendClient,
+  type ResendDnsRecord,
+  type ResendDomain,
+  type WorkerDomain,
 } from "../clients.ts";
 
 /** In-memory forge. `writes` counts every mutation so tests can prove a run created nothing. */
@@ -63,52 +64,80 @@ export class FakeCloudflare {
   readonly workers = new Set<string>();
   readonly workerDomains: (WorkerDomain & { zoneId: string })[] = [];
   validTokens = new Set<string>(["good-token"]);
+  /** Per token, the permissions it lacks: `workers`, `kv`, `account`, `dns`, `zone`. A call needing one is refused (403). */
+  readonly denied = new Map<string, Set<string>>();
   writes = 0;
+
+  deny(token: string, ...permissions: string[]): void {
+    this.denied.set(token, new Set([...(this.denied.get(token) ?? []), ...permissions]));
+  }
 
   /** The client a real run would build once it has the token. */
   forToken(token: string): CloudflareClient {
-    const fail = () => {
+    const fail = (permission?: string) => {
       if (!this.validTokens.has(token)) throw new Error("Cloudflare rejected the token (401).");
+      if (permission && this.denied.get(token)?.has(permission)) throw new CloudflareRefused(`Cloudflare rejected the token or request (403): needs ${permission}`);
     };
     return {
-      listAccounts: async () => {
+      verifyToken: async () => {
         fail();
+      },
+      listWorkerScripts: async () => {
+        fail("workers");
+        return [...this.workers];
+      },
+      listKvNamespaces: async () => {
+        fail("kv");
+        return [];
+      },
+      getAccount: async (accountId) => {
+        fail("account");
+        const found = this.accounts.find((a) => a.id === accountId);
+        if (!found) throw new Error("Cloudflare: account not found");
+        return found;
+      },
+      listAccounts: async () => {
+        fail("account");
         return this.accounts;
       },
       getWorkersSubdomain: async (accountId) => {
-        fail();
+        fail("workers");
         return this.subdomains.get(accountId) ?? null;
       },
       registerWorkersSubdomain: async (accountId, subdomain) => {
-        fail();
+        fail("workers");
         this.writes++;
         this.subdomains.set(accountId, subdomain);
       },
+      listZones: async () => {
+        fail("zone");
+        return this.zones.slice(0, 1);
+      },
       findZone: async (name) => {
-        fail();
+        fail("zone");
         return this.zones.find((z) => z.name === name) ?? null;
       },
       listDnsRecords: async (zoneId) => {
-        fail();
+        fail("dns");
         return [...(this.dnsRecords.get(zoneId) ?? [])];
       },
       createDnsRecord: async (zoneId, record) => {
-        fail();
+        fail("dns");
         this.writes++;
         this.created.push(record);
         const { type, name, content } = record;
         this.dnsRecords.set(zoneId, [...(this.dnsRecords.get(zoneId) ?? []), { type, name, content }]);
       },
       workerExists: async (_accountId, name) => {
-        fail();
+        fail("workers");
         return this.workers.has(name);
       },
       listWorkerDomains: async (_accountId, service) => {
-        fail();
+        fail("workers");
         return this.workerDomains.filter((d) => d.service === service);
       },
       attachWorkerDomain: async (_accountId, domain) => {
-        fail();
+        fail("workers");
         this.writes++;
         this.workerDomains.push({ hostname: domain.hostname, service: domain.service, zoneId: domain.zoneId });
       },
@@ -182,9 +211,9 @@ export class FakePrompter implements Prompter {
   /** Lines through `link`: written verbatim, one per entry. */
   readonly printed: string[] = [];
   columns = 80;
-  private readonly answers: Record<string, string | boolean>;
+  private readonly answers: Record<string, string | boolean | string[]>;
 
-  constructor(answers: Record<string, string | boolean>) {
+  constructor(answers: Record<string, string | boolean | string[]>) {
     this.answers = answers;
   }
 
@@ -200,6 +229,8 @@ export class FakePrompter implements Prompter {
     this.asked.push(id);
     const value = this.answers[id];
     if (value === undefined) throw new Error(`Unscripted prompt: ${id}`);
+    // A list is a queue: each ask takes the next answer; the last one repeats.
+    if (Array.isArray(value)) return (value.length > 1 ? value.shift() : value[0]) as string;
     return value;
   }
   async text(input: { id: string }): Promise<string> {
