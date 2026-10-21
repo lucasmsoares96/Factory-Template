@@ -57,6 +57,36 @@ export class FakeGitHub implements GitHubClient {
     return this.collaborators.get(login) ?? "none";
   }
 
+  /** Names of the deletes that must fail (`secret:NAME`, `variable:NAME`, `environment:NAME`, `ruleset`, `collaborator`). */
+  readonly failDeletes = new Set<string>();
+  private deleting(key: string): void {
+    if (this.failDeletes.has(key)) throw new Error(`gh delete failed: ${key} (HTTP 500)`);
+    this.writes++;
+  }
+  async deleteSecret(name: string, options: { environment?: string } = {}): Promise<void> {
+    this.deleting(`secret:${name}`);
+    (options.environment ? this.environmentSecrets.get(options.environment) : this.secrets)?.delete(name);
+  }
+  async deleteVariable(name: string): Promise<void> {
+    this.deleting(`variable:${name}`);
+    this.variables.delete(name);
+  }
+  async deleteEnvironment(name: string): Promise<void> {
+    this.deleting(`environment:${name}`);
+    this.environments.delete(name);
+    this.environmentSecrets.delete(name);
+  }
+  async deleteRuleset(id: number): Promise<void> {
+    this.deleting("ruleset");
+    const at = this.rulesets.findIndex((r) => r.id === id);
+    if (at >= 0) this.rulesets.splice(at, 1);
+  }
+  async removeCollaborator(login: string): Promise<void> {
+    this.deleting("collaborator");
+    this.collaborators.delete(login);
+    this.invitations.delete(login);
+  }
+
   async repo(): Promise<RepoInfo> {
     return this.info;
   }
@@ -129,6 +159,8 @@ export class FakeCloudflare {
   readonly kvNamespaces: { id: string; title: string }[] = [];
   readonly workerDomains: (WorkerDomain & { zoneId: string })[] = [];
   validTokens = new Set<string>(["good-token"]);
+  /** Deletes that must fail: `worker:<name>`, `kv:<id>`. */
+  readonly failDeletes = new Set<string>();
   /** Per token, the permissions it lacks: `workers`, `kv`, `account`, `dns`, `zone`. A call needing one is refused (403). */
   readonly denied = new Map<string, Set<string>>();
   writes = 0;
@@ -212,6 +244,24 @@ export class FakeCloudflare {
         fail("workers");
         return this.workerDomains.filter((d) => d.service === service);
       },
+      deleteWorkerDomains: async (_accountId, service) => {
+        fail("workers");
+        this.writes++;
+        for (let i = this.workerDomains.length - 1; i >= 0; i--) if (this.workerDomains[i]!.service === service) this.workerDomains.splice(i, 1);
+      },
+      deleteWorker: async (_accountId, name) => {
+        fail("workers");
+        if (this.failDeletes.has(`worker:${name}`)) throw new Error(`Cloudflare: delete of ${name} failed (500)`);
+        this.writes++;
+        this.workers.delete(name);
+      },
+      deleteKvNamespace: async (_accountId, id) => {
+        fail("kv");
+        if (this.failDeletes.has(`kv:${id}`)) throw new Error(`Cloudflare: delete of ${id} failed (500)`);
+        this.writes++;
+        const at = this.kvNamespaces.findIndex((ns) => ns.id === id);
+        if (at >= 0) this.kvNamespaces.splice(at, 1);
+      },
       attachWorkerDomain: async (_accountId, domain) => {
         fail("workers");
         this.writes++;
@@ -254,6 +304,8 @@ export class FakeNeon {
   /** The next `login()` fails (the person closed the browser). */
   failLogin = false;
   validKeys = new Set<string>(["neon-full"]);
+  /** Project ids whose delete must fail. */
+  readonly failDeletes = new Set<string>();
   writes = 0;
 
   forSession(options: { apiKey?: string }): NeonClient {
@@ -298,6 +350,13 @@ export class FakeNeon {
       defaultBranchName: async (projectId) => {
         authed();
         return this.projects.find((p) => p.id === projectId)?.defaultBranch ?? "main";
+      },
+      deleteProject: async (projectId) => {
+        authed();
+        if (this.failDeletes.has(projectId)) throw new Error(`neonctl projects failed: could not delete ${projectId}`);
+        this.writes++;
+        const at = this.projects.findIndex((p) => p.id === projectId);
+        if (at >= 0) this.projects.splice(at, 1);
       },
       renameBranch: async (projectId, _from, to) => {
         authed();
@@ -393,6 +452,12 @@ export class FakeResend {
         this.verifyCalls++;
         const domain = this.domains.find((d) => d.id === id);
         if (domain) domain.status = this.verifyResult;
+      },
+      deleteDomain: async (id) => {
+        fail();
+        this.writes++;
+        const at = this.domains.findIndex((d) => d.id === id);
+        if (at >= 0) this.domains.splice(at, 1);
       },
       createRestrictedKey: async ({ name, domainId }) => {
         fail();
