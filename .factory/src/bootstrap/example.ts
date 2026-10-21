@@ -178,24 +178,38 @@ async function runExample(ctx: StepContext, product: ProductIdentity): Promise<n
     outcome = "error";
     reason = `The example stopped on an error: ${(error as Error).message}`;
   } finally {
-    // Always: pass, fail, timeout or error.
+    // Always: pass, fail, timeout or error. Deleting is the default, and also what Ctrl-C picks; keeping is a choice.
+    let keep = false;
     try {
       if (pr && outcome !== "interrupted") {
         log(`Pull request: ${pr.url}`);
         if (previewUrls.length) log(`Preview: ${previewUrls.join(" ")}`);
-        await ctx.prompter.pause({ id: "example-delete", message: "Press Enter to delete the example" });
+        keep =
+          (await ctx.prompter.choose({
+            id: "example-delete",
+            message: "What should happen to the example?",
+            options: [
+              { value: "delete", label: "Delete it: the issues, the pull request, its branch and its preview (recommended)" },
+              { value: "keep", label: "Keep it: review or merge the pull request yourself, and delete the rest later" },
+            ],
+            onCancel: "delete",
+          })) === "keep";
       }
     } catch (error) {
-      log(`Skipping the pause: ${(error as Error).message}`);
+      log(`Skipping the question, deleting the example: ${(error as Error).message}`);
     }
-    const left = await cleanUp(ctx, created, knownRuns, pollMs);
+    if (keep && created.child && created.parent && pr) {
+      keptReport(ctx, created.parent, created.child, pr);
+    } else {
+      const left = await cleanUp(ctx, created, knownRuns, pollMs);
+      if (left.length > 0) {
+        log("Some of the example is still there. Remove it by hand:");
+        for (const item of left) log(`  ${item.what}: ${item.command}`);
+      } else if (created.parent) {
+        log("The example is deleted: the issues, the pull request, its branch and its preview.");
+      }
+    }
     ctx.example?.interrupt?.hold(false);
-    if (left.length > 0) {
-      log("Some of the example is still there. Remove it by hand:");
-      for (const item of left) log(`  ${item.what}: ${item.command}`);
-    } else if (created.parent) {
-      log("The example is deleted: the issues, the pull request, its branch and its preview.");
-    }
   }
   if (outcome === "ready") {
     log("The Factory solved the example: the pull request is ready for review.");
@@ -204,6 +218,22 @@ async function runExample(ctx: StepContext, product: ProductIdentity): Promise<n
   log(`${reason || `The example ended with: ${outcome}.`}`);
   log("The example did not come out ready. Your Factory setup itself is fine; look at the run above, or try again later.");
   return 1;
+}
+
+/** The example stays: what is left and the commands that delete it later. */
+function keptReport(ctx: StepContext, parent: IssueRef, child: IssueRef, pr: PullRequestInfo) {
+  const branch = `factory/issue-${child.number}`;
+  ctx.log(
+    [
+      "The example stays. What is left:",
+      `  pull request #${pr.number} (${branch}) with its preview: ${pr.url}`,
+      `  issue #${child.number} and its parent spec #${parent.number}`,
+      "Merging the pull request closes the issue and deletes its preview. To delete it all instead:",
+      `  gh pr close ${pr.number} --delete-branch   (factory-pr-cleanup.yml then deletes the preview and its Neon branch)`,
+      `  gh issue delete ${child.number} --yes && gh issue delete ${parent.number} --yes`,
+      `  and any "The Skeleton must grow" issue that mentions #${child.number}.`,
+    ].join("\n"),
+  );
 }
 
 /** Deletes everything the example made, one thing at a time, so a failure leaves only that thing. */
