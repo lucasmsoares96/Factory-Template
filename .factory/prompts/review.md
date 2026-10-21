@@ -13,7 +13,7 @@ End your final message with the review, as JSON inside a tag:
 <review>{"summary": "What you checked and changed, in Markdown.", "inline": [{"path": "src/file.ts", "line": 1, "body": "A finding on that line of the diff."}]}</review>
 
 {{RULES}}
-
+{{ROUND}}
 {{ISSUE}}
 
 Commits on this branch:
