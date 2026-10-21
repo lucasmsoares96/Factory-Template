@@ -20,9 +20,10 @@ const develop: AgentStep = async ({ cwd }) => {
   return { output: "Done." };
 };
 
-const review: AgentStep = () => ({
-  output: `Reviewed.\n<skeleton-gap>The root layout needs a footer slot.</skeleton-gap>\n<review>${JSON.stringify({ summary: "Looks fine.", inline: [] })}</review>`,
+const reviewing = (extra: object): AgentStep => () => ({
+  output: `Reviewed.\n<skeleton-gap>The root layout needs a footer slot.</skeleton-gap>\n<review>${JSON.stringify({ summary: "Looks fine.", inline: [], ...extra })}</review>`,
 });
+const review = reviewing({ criteriaMetWithoutSkeleton: true });
 
 /** A checkout whose base commit holds the Skeleton files; the commit is made once per file and copied. */
 const skeletonCheckout = () =>
@@ -31,7 +32,7 @@ const skeletonCheckout = () =>
   );
 
 /** claim → work → publish on two checkouts that share a base commit holding the Skeleton files. */
-async function run(options: { labels: Record<string, string>; body?: string; develop?: AgentStep; verify?: VerifyStep[]; attempts?: number }) {
+async function run(options: { labels: Record<string, string>; body?: string; develop?: AgentStep; verify?: VerifyStep[]; attempts?: number; review?: AgentStep }) {
   const workCheckout = await skeletonCheckout();
   const publishCheckout = await skeletonCheckout();
   const artifacts = await tempDir("factory-artifacts-");
@@ -43,7 +44,7 @@ async function run(options: { labels: Record<string, string>; body?: string; dev
     ],
     agent: {
       development: Array.from({ length: options.attempts ?? 1 }, () => options.develop ?? develop),
-      review: Array.from({ length: options.attempts ?? 1 }, () => review),
+      review: Array.from({ length: options.attempts ?? 1 }, () => options.review ?? review),
     },
     env: { FACTORY_MAX_ATTEMPTS: String(options.attempts ?? 5) },
     verify: options.verify ?? [{ ok: true }],
@@ -87,6 +88,19 @@ describe("Skeleton scope of a Product issue", () => {
     expect(w.codeHost.prs[0]).toMatchObject({ draft: false });
     expect(w.tracker.commentsOn(7).some((c) => c.body.includes("#8"))).toBe(true);
     expect(lastJson(w.logs)).toMatchObject({ issue: 7, outcome: "ready" });
+  });
+
+  it("is needs-human, not ready, when E2E is green but the Review does not say the criteria are met without the Skeleton", async () => {
+    const silent = await run({ labels: { "ready-for-agent": HUMAN, "product:example": HUMAN }, review: reviewing({}) });
+    expect(silent.result).toMatchObject({ outcome: "escalated", reason: "needs-human", evidence: [] });
+    expect(silent.result.question).toContain("could not be met without a change in the Skeleton");
+    expect(silent.result.review.criteriaMetWithoutSkeleton).toBe(false);
+    expect(silent.w.codeHost.prs[0]).toMatchObject({ draft: true });
+    expect(silent.w.tracker.labelsOf(7)).toContain("ready-for-human");
+    expect(silent.w.tracker.issues.get(8)?.relatedTo).toBe(7);
+
+    const no = await run({ labels: { "ready-for-agent": HUMAN, "product:example": HUMAN }, review: reviewing({ criteriaMetWithoutSkeleton: false }) });
+    expect(no.result).toMatchObject({ outcome: "escalated", reason: "needs-human" });
   });
 
   it("recognises a Product issue by `apps/<id>` in its text", async () => {
