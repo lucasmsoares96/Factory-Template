@@ -41,3 +41,26 @@ test("the sign-in screen shows the Product's tagline right below its title", { t
   await expect(heading.locator("xpath=..").locator("xpath=following-sibling::*[1]")).toHaveText(t.auth.signIn.description);
   await evidence("sign-in-tagline");
 });
+
+test("the sign-up tagline is the agreed copy in each locale", () => {
+  expect(messagesFor("en", productConfig.messages).auth.signUp.description).toBe("Create your Example workspace in a minute.");
+  expect(messagesFor("pt-BR", productConfig.messages).auth.signUp.description).toBe("Crie seu espaço no Example em um minuto.");
+});
+
+test("overriding the sign-up tagline keeps the Skeleton's other sign-up texts in every locale", () => {
+  for (const locale of locales) {
+    const { description: _product, ...productSignUp } = messagesFor(locale, productConfig.messages).auth.signUp;
+    const { description: _skeleton, ...skeletonSignUp } = messagesFor(locale).auth.signUp;
+    expect(productSignUp, locale).toEqual(skeletonSignUp);
+  }
+});
+
+test("the sign-up screen shows the Product's tagline right below its title", { tag: "@evidence" }, async ({ page, t, evidence }) => {
+  await page.goto("/sign-up");
+
+  const heading = page.getByRole("heading", { name: t.auth.signUp.title });
+  await expect(heading).toBeVisible();
+  // Right below the title: the element that follows the card title wrapping the heading.
+  await expect(heading.locator("xpath=..").locator("xpath=following-sibling::*[1]")).toHaveText(t.auth.signUp.description);
+  await evidence("sign-up-tagline");
+});
