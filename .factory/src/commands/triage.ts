@@ -116,15 +116,16 @@ export async function apply(ctx: CommandContext, options: { in: string; repo: st
     const target = { "easy-call": labels.readyForAgent, "needs-a-human": labels.readyForHuman, blocked: labels.needsInfo }[tag];
 
     await tracker.comment(number, triageComment(verdict, tag));
-    if (!(await tracker.swapLabel(number, labels.agentExplore, target))) {
-      run.skipped.push({ issue: number, reason: "lost the label while applying" });
-      continue;
-    }
+    // The product label goes first: `ready-for-agent` starts a run, which must already find its Product.
     let product: string | null = null;
     const has = issue.labels.some((l) => l.startsWith(labels.productPrefix));
     if (!has && verdict.product !== null && PRODUCT_ID.test(verdict.product) && products.has(verdict.product)) {
       product = verdict.product;
       await tracker.addLabel(number, `${labels.productPrefix}${product}`);
+    }
+    if (!(await tracker.swapLabel(number, labels.agentExplore, target))) {
+      run.skipped.push({ issue: number, reason: "lost the label while applying" });
+      continue;
     }
     run.applied.push({ issue: number, tag, label: target, product });
   }

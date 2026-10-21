@@ -142,6 +142,19 @@ describe("factory triage + apply", () => {
   });
 
   describe("product label", () => {
+    it("is added before the issue becomes ready-for-agent, so no run starts without it", async () => {
+      const s = await setup({ triage: [says(verdict(5, { product: "example" }))] });
+      await triage(s);
+      const order: string[] = [];
+      const { addLabel, swapLabel } = s.w.tracker;
+      s.w.tracker.addLabel = async (n, label) => (order.push(`add ${label}`), addLabel.call(s.w.tracker, n, label));
+      s.w.tracker.swapLabel = async (n, from, to) => (order.push(`swap ${to}`), swapLabel.call(s.w.tracker, n, from, to));
+
+      await apply(s);
+
+      expect(order).toEqual(["add product:example", "swap ready-for-agent"]);
+    });
+
     it("is added when the Triage names a Product that exists", async () => {
       const s = await setup({ triage: [says(verdict(5, { product: "example" }))] });
       await triage(s);

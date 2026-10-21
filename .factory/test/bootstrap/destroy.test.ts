@@ -4,7 +4,7 @@ import { TOKEN, WRANGLER_TOKEN, world } from "./helpers.ts";
 
 // Seam 8 for `destroy`: everything runs against the fake clients. A world is built by the real wizard commands, so the
 // names `destroy` removes are the names the wizard made, not names this file invented.
-const ENV = { CLOUDFLARE_API_TOKEN: TOKEN, CLOUDFLARE_ACCOUNT_ID: "acc-1", CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat-x", RESEND_API_KEY: "re-full" };
+const ENV = { CLOUDFLARE_API_TOKEN: TOKEN, CLOUDFLARE_ACCOUNT_ID: "acc-1", CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat-x", RESEND_API_KEY: "re-full", NEON_API_KEY: "neon-full" };
 const PAT = "ghp_machine_user_pat";
 const PASSWORD = "admin password 123";
 
@@ -80,6 +80,15 @@ describe("pnpm bootstrap destroy: refusals", () => {
     expect(w.prompter.asked.includes("destroy-confirm")).toBe(false);
     expect(writes(w)).toEqual(before);
     expect(left(w)).toEqual(state);
+  });
+
+  it("refuses when CI is defined at all, even empty", async () => {
+    const w = await built();
+    w.deps.env = { ...ENV, CI: "" };
+    const { code, output } = await w.run("destroy", "product", "example");
+    expect(code).not.toBe(0);
+    expect(output).toMatch(/CI/);
+    expect(w.prompter.asked.includes("destroy-confirm")).toBe(false);
   });
 
   it("rejects an unknown scope or a missing id", async () => {
@@ -191,6 +200,28 @@ describe("pnpm bootstrap destroy: wrong confirmation", () => {
   });
 });
 
+describe("pnpm bootstrap destroy: no login before the confirmation", () => {
+  it.each(["", "nope"])("opens no login and asks nothing but the confirmation (typed %j), and says what it could not list", async (typed) => {
+    const w = await built({ "destroy-confirm": typed });
+    // Nothing known on this machine: no Cloudflare, Neon or Resend credential in the environment, no saved wrangler login.
+    w.deps.env = {};
+    w.wrangler.saved = undefined;
+    w.wrangler.logins = 0;
+    const neonSessions = w.neon.sessions.length;
+    const askedBefore = w.prompter.asked.length;
+
+    const { code, output } = await w.run("destroy", "product", "example");
+
+    expect(code).toBe(1);
+    expect(w.wrangler.logins).toBe(0);
+    expect(w.neon.sessions.slice(neonSessions).filter((s) => s.loggedIn)).toEqual([]);
+    expect(w.prompter.asked.slice(askedBefore)).toEqual(["destroy-confirm"]);
+    expect(output).toMatch(/Not listed: no Cloudflare login/);
+    expect(output).toMatch(/Not listed: .*Neon/);
+    expect(output).toMatch(/Nothing was deleted/);
+  });
+});
+
 describe("pnpm bootstrap destroy previews <id>", () => {
   it("removes only the previews of the Product and keeps production", async () => {
     const w = await built({ "destroy-confirm": "example" });
@@ -270,8 +301,8 @@ describe("pnpm bootstrap destroy (everything)", () => {
 });
 
 describe("pnpm bootstrap destroy: credentials and partial failures", () => {
-  it("asks for nothing but the confirmation: wrangler's saved login, one Neon login, the Resend key from the environment", async () => {
-    const w = await built({ "destroy-confirm": "example" }, { RESEND_API_KEY: "re-full" });
+  it("asks for nothing but the confirmation: wrangler's saved login, the Neon key and the Resend key from the environment", async () => {
+    const w = await built({ "destroy-confirm": "example" }, { RESEND_API_KEY: "re-full", NEON_API_KEY: "neon-full" });
     w.wrangler.saved = WRANGLER_TOKEN;
     w.cloudflare.validTokens.add(WRANGLER_TOKEN);
     const sessions = w.neon.sessions.length;
@@ -287,8 +318,8 @@ describe("pnpm bootstrap destroy: credentials and partial failures", () => {
     expect(w.neon.sessions.at(-1)!.closed).toBe(1);
   });
 
-  it("asks once, optionally, for a Resend key when the Product has a Resend secret and none is at hand", async () => {
-    const w = await built({ "destroy-confirm": "example", "resend-key": "" }, { CLOUDFLARE_API_TOKEN: TOKEN, CLOUDFLARE_ACCOUNT_ID: "acc-1" });
+  it("never asks for a Resend key: with a Resend secret and no key at hand it says how to delete the domain too", async () => {
+    const w = await built({ "destroy-confirm": "example" }, { CLOUDFLARE_API_TOKEN: TOKEN, CLOUDFLARE_ACCOUNT_ID: "acc-1", NEON_API_KEY: "neon-full" });
     // Resend was deferred when this world was built; a domain made by hand and its key secret exist anyway.
     w.resend.domains.push({ id: "dom-x", name: "example.com", status: "verified", records: [] });
     w.github.environmentSecrets.get("example-production")!.set("EXAMPLE_RESEND_API_KEY", "re_restricted");
@@ -296,9 +327,9 @@ describe("pnpm bootstrap destroy: credentials and partial failures", () => {
 
     const { code, output } = await w.run("destroy", "product", "example");
 
-    expect(w.prompter.asked.slice(asked)).toEqual(["resend-key", "destroy-confirm"]);
+    expect(w.prompter.asked.slice(asked)).toEqual(["destroy-confirm"]);
     expect(code).toBe(0);
-    expect(output).toMatch(/Resend.*not deleted|skipped/i);
+    expect(output).toMatch(/Note: .*Resend.*export RESEND_API_KEY/);
     expect(left(w).domains).toEqual(["example.com"]);
   });
 
