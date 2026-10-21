@@ -1,7 +1,7 @@
 import { accountNames } from "./accounts.ts";
-import { promptMainToken } from "./common.ts";
+import { cloudflareAccountId, cloudflareCredential } from "./common.ts";
 import { labelSpecs } from "./labels.ts";
-import { deployFirstMessage, productionEnvironment, productSecretName, readDnsState, readWorkerDomainState } from "./domain.ts";
+import { NO_DNS, NO_LOGIN, deployFirstMessage, productionEnvironment, productSecretName, readDnsState, readWorkerDomainState } from "./domain.ts";
 import { hasPreviewTrace, previewEnvironment, previewNames, previewProjectName, previewSecretPresent, PREVIEW_PRODUCTS, BASE_BRANCH } from "./previews.ts";
 import { coversMain, DEPLOY_PRODUCTS, missingSecrets, neonHandle, neonOrgId, parseProductList, productionDatabaseUrl, productionSecrets, USE_ENVIRONMENTS } from "./product.ts";
 import type { BootstrapDeps, ProductIdentity, StepContext } from "./steps.ts";
@@ -93,27 +93,20 @@ export async function doctor(
     add("Labels", same ? "ok" : "missing", want.name, same ? undefined : found ? "differs from config.ts" : "run `pnpm bootstrap`");
   }
 
-  let token = memory.cloudflareToken ?? (deps.env.CLOUDFLARE_API_TOKEN || undefined);
-  let promptError: string | undefined;
-  if (!token && options.prompt && deps.interactive && !memory.cloudflareDeclined) {
-    try {
-      token = await promptMainToken(ctx, { message: "Paste the Cloudflare API token to check workers.dev (not stored; leave empty to skip)", showLink: true, optional: true });
-    } catch (error) {
-      promptError = (error as Error).message;
-    }
+  // The doctor never opens a browser: it uses what this machine already has (memory, env, wrangler's saved login).
+  let token: string | undefined;
+  try {
+    token = await cloudflareCredential(ctx, { login: false });
+  } catch {
+    token = undefined;
   }
-  if (promptError) {
-    add("Resources", "missing", "workers.dev", promptError);
-  } else if (!token) {
+  if (!token) {
     // Secrets cannot be read back: their presence on the forge stands in for the check.
-    if (secrets.includes("CLOUDFLARE_API_TOKEN") && secrets.includes("CLOUDFLARE_ACCOUNT_ID")) add("Resources", "ok", "workers.dev", "not re-checked (token not in this run)");
-    else add("Resources", "skip", "workers.dev", "export CLOUDFLARE_API_TOKEN to check it (secrets cannot be read back)");
+    if (secrets.includes("CLOUDFLARE_API_TOKEN") && secrets.includes("CLOUDFLARE_ACCOUNT_ID")) add("Resources", "ok", "workers.dev", "not re-checked (no saved Cloudflare login on this machine)");
+    else add("Resources", "skip", "workers.dev", "run `pnpm --filter @factory/harness exec wrangler login` to check it");
   } else {
     try {
-      memory.cloudflareToken = token;
-      const client = deps.cloudflare(token);
-      const accountId = memory.accountId ?? (deps.env.CLOUDFLARE_ACCOUNT_ID || undefined) ?? (await client.listAccounts())[0]?.id;
-      const subdomain = accountId ? await client.getWorkersSubdomain(accountId) : null;
+      const subdomain = await deps.cloudflare(token).getWorkersSubdomain(await cloudflareAccountId(ctx, token));
       add("Resources", subdomain ? "ok" : "missing", "workers.dev", subdomain ?? "no subdomain registered; run `pnpm bootstrap`");
     } catch (error) {
       add("Resources", "missing", "workers.dev", (error as Error).message);
@@ -153,13 +146,14 @@ export async function doctor(
             domainAdd("skip", "DNS records", "needs the Resend domain");
           } else {
             domainAdd(dns.domain.status === "verified" ? "ok" : "warn", "Resend domain", `${dns.domain.name}: ${dns.domain.status}`);
-            if (dns.kind === "no-cloudflare") domainAdd("skip", "DNS records", "export CLOUDFLARE_API_TOKEN to check them");
+            if (dns.kind === "no-cloudflare") domainAdd("skip", "DNS records", NO_LOGIN);
             else if (dns.kind === "no-zone") domainAdd("warn", "DNS records", "zone not in this Cloudflare account: create the records by hand");
+            else if (dns.kind === "no-dns-permission") domainAdd("skip", "DNS records", NO_DNS);
             else if (dns.missing.length > 0) domainAdd("warn", "DNS records", `${dns.missing.length} missing in ${dns.zone.name}; run \`pnpm bootstrap domain ${product.id} --redo dns-records\``);
             else domainAdd("ok", "DNS records", dns.different.length > 0 ? `all present (${dns.different.length} with another value, left alone)` : "all present");
           }
           const worker = await readWorkerDomainState(ctx, product, false);
-          if (worker.kind === "no-cloudflare") domainAdd("skip", "Worker Custom Domain", "export CLOUDFLARE_API_TOKEN to check it");
+          if (worker.kind === "no-cloudflare") domainAdd("skip", "Worker Custom Domain", NO_LOGIN);
           else if (worker.kind === "no-worker") domainAdd("off", "Worker Custom Domain", deployFirstMessage(product.id));
           else if (worker.kind === "no-zone") domainAdd("warn", "Worker Custom Domain", "zone not in this Cloudflare account");
           else if (worker.kind === "attached") domainAdd("ok", "Worker Custom Domain", product.domain);

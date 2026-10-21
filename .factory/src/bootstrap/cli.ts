@@ -15,6 +15,7 @@ import { productionSteps } from "./product.ts";
 import { PREVIEWS_ENABLED, previewSteps } from "./previews.ts";
 import { ResendApi } from "./resend.ts";
 import { NeonCli } from "./neon.ts";
+import { WranglerCli } from "./wrangler.ts";
 import { runSteps, type BootstrapDeps, type ProductIdentity, type StepContext } from "./steps.ts";
 
 export type { BootstrapDeps } from "./steps.ts";
@@ -49,8 +50,8 @@ Options:
                          for the previews command: preview-environment, preview-neon-project, preview-neon-key, preview-kv, preview-products.
 
 The wizard ends by running the doctor with the credentials it already holds, so one run is enough.
-Run \`pnpm bootstrap doctor [<id>]\` on its own whenever something looks off; with no CLOUDFLARE_API_TOKEN (or
-RESEND_API_KEY) in the environment it asks for it once, hidden and not stored (without a terminal it says \`skip\`).
+Run \`pnpm bootstrap doctor [<id>]\` on its own whenever something looks off; it checks Cloudflare with
+wrangler's saved login (or CLOUDFLARE_API_TOKEN) and never opens a browser; with no RESEND_API_KEY it asks once, hidden and not stored.
 Only \`gh\` (logged in with \`gh auth login\`) must be installed. Nothing is written to disk, secrets included.`;
 
 /** Entry point; returns the process exit code. */
@@ -201,6 +202,7 @@ if (import.meta.main) {
     process.exitCode = await runBootstrap(process.argv.slice(2), {
       github: new GhCli(),
       cloudflare: (token) => new CloudflareApi(token),
+      wrangler: new WranglerCli({ env }),
       neon: (options) => {
         const client = new NeonCli({ ...options, env });
         openNeon.add(client);

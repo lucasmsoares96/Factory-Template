@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TOKEN, world } from "./helpers.ts";
+import { TOKEN, WRANGLER_TOKEN, world } from "./helpers.ts";
 
 const everything = (w: ReturnType<typeof world>) => [w.lines.join("\n"), ...w.prompter.notes, ...w.prompter.printed].join("\n");
 
@@ -81,10 +81,11 @@ describe("one run is enough", () => {
 });
 
 describe("standalone doctor", () => {
-  it("in a terminal, asks for the token once, checks it read-only and stores nothing", async () => {
+  it("with wrangler's saved login, checks workers.dev read-only, asks nothing and stores nothing", async () => {
     const w = world();
     await w.run();
     w.deps.interactive = true;
+    w.wrangler.saved = WRANGLER_TOKEN;
     w.prompter.asked.length = 0;
     const secrets = new Map(w.github.secrets);
     w.github.writes = 0;
@@ -93,26 +94,27 @@ describe("standalone doctor", () => {
     const { code, output } = await w.run("doctor");
 
     expect(code).toBe(0);
-    expect(w.prompter.asked).toEqual(["cloudflare-token"]);
-    expect(w.prompter.printed.join("\n")).toContain("Create the API token from this template");
+    expect(w.prompter.asked).toEqual([]);
+    expect(w.wrangler.logins).toBe(0);
     expect(output).toMatch(/ok\s+workers\.dev/);
     expect(w.github.writes + w.cloudflare.writes).toBe(0);
     expect(w.github.secrets).toEqual(secrets);
-    expect(everything(w)).not.toContain(TOKEN);
+    expect(everything(w)).not.toContain(WRANGLER_TOKEN);
   });
 
-  it("a token without a needed permission is refused and named, never used", async () => {
-    const w = world({ "cloudflare-token": [TOKEN, "weak"] });
+  it("a wrangler login without a needed permission is named, never prompted for", async () => {
+    const w = world();
     await w.run();
-    w.cloudflare.validTokens.add("weak");
-    w.cloudflare.deny("weak", "workers");
+    w.wrangler.saved = WRANGLER_TOKEN;
+    w.cloudflare.deny(WRANGLER_TOKEN, "workers");
     w.deps.interactive = true;
+    w.prompter.asked.length = 0;
 
     const { code, output } = await w.run("doctor");
 
     expect(code).toBe(1);
     expect(output).toMatch(/missing\s+workers\.dev/);
-    expect(output).toContain("Workers Scripts");
+    expect(w.prompter.asked).toEqual([]);
   });
 
   it("without a terminal reports presence and asks nothing", async () => {
@@ -123,7 +125,7 @@ describe("standalone doctor", () => {
     const { code, output } = await w.run("doctor");
 
     expect(code).toBe(0);
-    expect(output).toMatch(/ok\s+workers\.dev\s+not re-checked \(token not in this run\)/);
+    expect(output).toMatch(/ok\s+workers\.dev\s+not re-checked \(no saved Cloudflare login/);
     expect(w.prompter.asked).toEqual([]);
   });
 

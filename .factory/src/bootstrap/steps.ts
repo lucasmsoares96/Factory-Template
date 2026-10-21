@@ -1,5 +1,5 @@
 import type { FactoryConfig } from "../config.ts";
-import type { AccountsClient, CloudflareClient, GitHubClient, NeonClient, Prompter, ResendClient } from "./clients.ts";
+import type { AccountsClient, CloudflareClient, GitHubClient, NeonClient, Prompter, ResendClient, WranglerAuth } from "./clients.ts";
 
 /** The part of a Product's identity (ticket 07) the wizard reads; it never rewrites the file. */
 export interface ProductIdentity {
@@ -14,6 +14,8 @@ export interface BootstrapDeps {
   github: GitHubClient;
   /** Builds the Cloudflare client once a token is at hand. */
   cloudflare: (token: string) => CloudflareClient;
+  /** wrangler's saved login: the Cloudflare credential on this machine once the CI secret is set. */
+  wrangler: WranglerAuth;
   /** Builds a Neon client: with the API key of the environment, or without one (then `login()` opens the browser). */
   neon: (options: { apiKey?: string }) => NeonClient;
   /** The production database, for the accounts the Production module creates. */
@@ -35,7 +37,7 @@ export interface BootstrapDeps {
 export interface StepContext extends BootstrapDeps {
   /** The steps named by `--redo` in this run (set by `runSteps`). */
   redo?: string[];
-  memory: { cloudflareToken?: string; accountId?: string; resendKey?: string; resendDeferred?: boolean; cloudflareDeclined?: boolean; neon?: NeonClient; neonOrg?: { id?: string }; databaseUrl?: string; neonKeyDeclined?: boolean; previewProject?: Record<string, string> };
+  memory: { cloudflareToken?: string; accountId?: string; resendKey?: string; resendDeferred?: boolean; noWranglerLogin?: boolean; neon?: NeonClient; neonOrg?: { id?: string }; databaseUrl?: string; neonKeyDeclined?: boolean; previewProject?: Record<string, string> };
 }
 
 export interface Step {

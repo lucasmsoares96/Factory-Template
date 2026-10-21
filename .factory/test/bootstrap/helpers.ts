@@ -1,15 +1,20 @@
 import { defaultConfig, loadConfig } from "../../src/config.ts";
 import { runBootstrap, type BootstrapDeps } from "../../src/bootstrap/cli.ts";
 import type { ProductIdentity } from "../../src/bootstrap/steps.ts";
-import { FakeAccounts, FakeCloudflare, FakeGitHub, FakeNeon, FakePrompter, FakeResend } from "../../src/bootstrap/fake/fakes.ts";
+import { FakeAccounts, FakeCloudflare, FakeGitHub, FakeNeon, FakePrompter, FakeResend, FakeWrangler } from "../../src/bootstrap/fake/fakes.ts";
 
 export const TOKEN = "good-token";
 
-export function world(answers: Record<string, string | boolean | string[]> = {}, env: Record<string, string | undefined> = {}) {
+export const WRANGLER_TOKEN = "wrangler-oauth-token";
+
+/** `wranglerToken`: what wrangler has saved (none = not logged in; `login()` then saves WRANGLER_TOKEN). */
+export function world(answers: Record<string, string | boolean | string[]> = {}, env: Record<string, string | undefined> = {}, wranglerToken?: string) {
   const github = new FakeGitHub();
   const cloudflare = new FakeCloudflare();
   const resend = new FakeResend();
   const neon = new FakeNeon();
+  const wrangler = new FakeWrangler(wranglerToken);
+  cloudflare.validTokens.add(WRANGLER_TOKEN);
   const accounts = new FakeAccounts();
   const products = new Map<string, ProductIdentity>([
     ["example", { id: "example", title: "Example", emailFrom: "Example <no-reply@example.com>", domain: "example.com" }],
@@ -19,6 +24,7 @@ export function world(answers: Record<string, string | boolean | string[]> = {},
   const deps: BootstrapDeps = {
     github,
     cloudflare: (token) => cloudflare.forToken(token),
+    wrangler,
     neon: (options) => neon.forSession(options),
     accounts,
     resend: (key) => resend.forKey(key),
@@ -38,7 +44,7 @@ export function world(answers: Record<string, string | boolean | string[]> = {},
     const code = await runBootstrap(argv, deps);
     return { code, output: lines.join("\n") };
   };
-  return { github, cloudflare, resend, neon, accounts, products, prompter, lines, deps, run };
+  return { github, cloudflare, wrangler, resend, neon, accounts, products, prompter, lines, deps, run };
 }
 
 export const staticLabelNames = Object.entries(defaultConfig.labels)
