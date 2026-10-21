@@ -167,6 +167,58 @@ describe("factory triage + apply", () => {
   });
 
   describe("extraction", () => {
+    it("a valid verdict needs no resume", async () => {
+      const s = await setup({ triage: [() => ({ output: block(verdict(5)), usage: { inputTokens: 100, outputTokens: 10 } })] });
+
+      await triage(s);
+
+      expect(s.w.agent.calls[0]!.resumes).toHaveLength(0);
+      const out = JSON.parse(await readFile(join(s.out, "triage.json"), "utf8"));
+      expect(out.retries).toBe(0);
+      expect(out.usage).toEqual({ inputTokens: 100, outputTokens: 10 });
+    });
+
+    it("a verdict valid on the 1st resume stops there", async () => {
+      const s = await setup({
+        triage: [
+          () => ({
+            output: "no block",
+            usage: { inputTokens: 100, outputTokens: 10 },
+            resumes: [{ output: block(verdict(5)), usage: { inputTokens: 5, outputTokens: 1 } }, { output: "never asked" }],
+          }),
+        ],
+      });
+
+      await triage(s);
+      await apply(s);
+
+      expect(s.w.agent.calls[0]!.resumes).toHaveLength(1);
+      expect(s.w.tracker.labelsOf(5)).toEqual(["ready-for-agent"]);
+      const out = JSON.parse(await readFile(join(s.out, "triage.json"), "utf8"));
+      expect(out.usage).toEqual({ inputTokens: 105, outputTokens: 11 });
+      expect(out.retries).toBe(1);
+    });
+
+    it("the tokens of failed resumes are summed too", async () => {
+      const s = await setup({
+        triage: [
+          () => ({
+            output: "no block",
+            usage: { inputTokens: 100, outputTokens: 10 },
+            resumes: [
+              { output: "x", usage: { inputTokens: 5, outputTokens: 1 } },
+              { output: "y", usage: { inputTokens: 7, outputTokens: 2 } },
+            ],
+          }),
+        ],
+      });
+
+      await triage(s);
+
+      const out = JSON.parse(await readFile(join(s.out, "triage.json"), "utf8"));
+      expect(out.usage).toEqual({ inputTokens: 112, outputTokens: 13 });
+    });
+
     it("resumes the session until the verdict is valid and adds the tokens", async () => {
       const s = await setup({
         triage: [
