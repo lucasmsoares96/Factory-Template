@@ -557,7 +557,14 @@ describe.each([[WORKFLOWS_DIR]])("Factory triage and unblock workflows in %s", (
     expect(secretsOf(sweep)).toEqual([]);
     expect(runsOn(sweep)).toBe('"ubuntu-latest"');
     expect(sweep.container).toBeUndefined();
-    expect(sweep.permissions).toEqual({ contents: "read", issues: "read", "pull-requests": "read", actions: "write" });
+    expect(sweep.permissions).toEqual({ contents: "read", issues: "write", "pull-requests": "read", actions: "write" });
+  });
+
+  it("unblock releases in-progress from the issue that closed, taking only its number from the event, through an env var", () => {
+    const step = steps(sweep).find((s) => s.name === "unblock")!;
+    expect(step.env).toMatchObject({ CLOSED_ISSUE: "${{ github.event.issue.number }}" });
+    expect(step.run).toContain('--issue "$CLOSED_ISSUE"');
+    expect(step.run).not.toContain("${{");
   });
 
   it("nothing interpolates an expression into a script, and every command the YAML runs exists in the CLI", () => {

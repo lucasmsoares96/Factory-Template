@@ -110,6 +110,10 @@ export class FakeTracker implements Tracker {
     if (!issue.labels.has(label)) issue.labels.set(label, this.self);
   }
 
+  async removeLabel(number: number, label: string): Promise<void> {
+    this.get(number).labels.delete(label);
+  }
+
   async comment(number: number, body: string): Promise<void> {
     this.get(number).comments.push({ id: `c${this.nextCommentId++}`, author: this.self, body: marked(body) });
   }

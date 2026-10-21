@@ -1,3 +1,5 @@
+# A closed issue (a merged Factory PR closes it) also loses `in-progress`: the first thing `pnpm factory unblock --issue`
+# does, reading the forge for the issue's state (the number is the only thing taken from the event).
 # Blocked Issues start themselves: when any issue closes, sweep every open `ready-for-agent` issue and start (through
 # `factory-issue.yml`) the ones whose blockers are all done. The event only says "something closed": the sweep reads the
 # forge. No cron. Off until `pnpm bootstrap factory` sets FACTORY_ENABLED. The job token dispatches the run (`actions:
@@ -23,7 +25,7 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
-      issues: read
+      issues: write
       pull-requests: read
       actions: write
     defaults:
@@ -45,4 +47,5 @@ jobs:
         env:
           FACTORY_ADAPTERS: github
           GITHUB_TOKEN: ${{ github.token }}
-        run: pnpm factory unblock
+          CLOSED_ISSUE: ${{ github.event.issue.number }}
+        run: pnpm factory unblock ${CLOSED_ISSUE:+--issue "$CLOSED_ISSUE"}

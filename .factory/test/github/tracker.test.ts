@@ -101,6 +101,17 @@ describe("GitHubTracker", () => {
     expect(await tracker(s).swapLabel(7, "agent:explore", "x")).toBe(true);
   });
 
+  it("removeLabel deletes the label and tolerates one that is gone", async () => {
+    const s = new FakeGitHubServer();
+    s.on("DELETE", `${R}/issues/7/labels/in-progress`, () => ({ json: [] }));
+    s.on("DELETE", `${R}/issues/8/labels/in-progress`, () => ({ status: 404 }));
+
+    await tracker(s).removeLabel(7, "in-progress");
+    await tracker(s).removeLabel(8, "in-progress");
+
+    expect(s.writes()).toEqual([`DELETE ${R}/issues/7/labels/in-progress`, `DELETE ${R}/issues/8/labels/in-progress`]);
+  });
+
   it("comments", async () => {
     const s = new FakeGitHubServer();
     s.on("POST", `${R}/issues/7/comments`, () => ({ status: 201, json: {} }));
