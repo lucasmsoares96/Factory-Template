@@ -113,6 +113,18 @@ describe("GitHubCodeHost", () => {
     expect(s.calls[0]!.body).toEqual({ event: "COMMENT", body: "Looks fine", comments: [{ path: "a.ts", line: 3, side: "RIGHT", body: "hm" }] });
   });
 
+  it("reads a pull request by number (null when missing) and comments on it as an issue comment", async () => {
+    const s = new FakeGitHubServer();
+    s.on("GET", `${R}/pulls/4`, () => ({ json: pr(4, { draft: false }) }));
+    s.on("POST", `${R}/issues/4/comments`, () => ({ status: 201, json: {} }));
+    const h = host(s);
+
+    expect(await h.pullRequest(4)).toMatchObject({ number: 4, branch: "factory/issue-7", draft: false, state: "open" });
+    expect(await h.pullRequest(5)).toBeNull();
+    await h.commentPr(4, "stopped");
+    expect(s.calls.at(-1)!.body).toEqual({ body: "stopped" });
+  });
+
   it("groups review comments into threads by their root and replies to a thread", async () => {
     const s = new FakeGitHubServer();
     s.on("GET", `${R}/pulls/4/comments`, () => ({

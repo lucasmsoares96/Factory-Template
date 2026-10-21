@@ -65,6 +65,16 @@ export class FakeCodeHost implements CodeHost {
     return pr ? { ...pr } : null;
   }
 
+  async pullRequest(number: number): Promise<PullRequest | null> {
+    const pr = this.prs.find((p) => p.number === number);
+    return pr ? { ...pr } : null;
+  }
+
+  async commentPr(pr: number, body: string): Promise<void> {
+    this.pr(pr).comments.push(body);
+    this.writes.push(`commentPr #${pr}`);
+  }
+
   async openDraftPr(input: { branch: string; base: string; title: string; body: string }): Promise<PullRequest> {
     const headSha = this.branches.get(input.branch);
     if (!headSha) throw new Error(`FakeCodeHost: branch ${input.branch} was never pushed`);
