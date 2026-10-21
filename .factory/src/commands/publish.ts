@@ -46,7 +46,7 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
   try {
     result = await loadArtifacts(git, number, branch, options.in);
   } catch (error) {
-    return escalate(ctx, issue, { reason: "infra", result: null, detail: (error as Error).message, pr: null, runUrl: options.runUrl });
+    return escalate(ctx, issue, { reason: "infra", result: null, detail: (error as Error).message, pr: null, runUrl: options.runUrl }, options.pr);
   }
 
   const head = result.head;
@@ -54,11 +54,11 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
   const protectedPaths = changed.filter(isProtectedPath);
   if (head && protectedPaths.length > 0) {
     const patch = await git.run("diff", "--no-color", "--no-ext-diff", `${result.base}...${head}`);
-    return escalate(ctx, issue, { reason: "protected-paths", result, protectedPaths, patch, pr: null, runUrl: options.runUrl });
+    return escalate(ctx, issue, { reason: "protected-paths", result, protectedPaths, patch, pr: null, runUrl: options.runUrl }, options.pr);
   }
   if (!head) {
     const followUps = await openFollowUps(ctx, issue, result);
-    return escalate(ctx, issue, { reason: result.reason ?? "infra", result, pr: null, runUrl: options.runUrl, followUps });
+    return escalate(ctx, issue, { reason: result.reason ?? "infra", result, pr: null, runUrl: options.runUrl, followUps }, options.pr);
   }
 
   const push = await ctx.codeHost.push({ branch, sha: head, expectedSha: options.startSha });
@@ -69,12 +69,16 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
   const harnessPaths = changed.filter(isHarnessPath);
   const escalated = result.outcome === "escalated" ? (result.reason ?? "infra") : null;
   const pr = await pullRequest(ctx, issue, { branch, openPr, continues: options.pr !== null, harnessPaths, escalated, followUps, text: result.pullRequestBody });
-  if (!escalated || result.review.summary !== "") await submitReview(ctx, pr.number, result, lines);
+  if (!escalated || result.review.summary !== "") {
+    // A PR round without a Review (update-branch, a round that only answers) leaves no empty review behind.
+    if (options.pr === null || result.review.summary !== "") await submitReview(ctx, pr.number, result, lines);
+  }
+  if (options.pr !== null) await postReplies(ctx, pr.number, result.threadReplies);
 
-  if (escalated) return escalate(ctx, issue, { reason: escalated, result, pr, runUrl: options.runUrl, followUps });
+  if (escalated) return escalate(ctx, issue, { reason: escalated, result, pr, runUrl: options.runUrl, followUps }, options.pr);
   if (followUps.length > 0) await ctx.tracker.comment(number, followUpComment(followUps));
   if (result.evidence.length > 0) await ctx.codeHost.postEvidence(pr.number, evidenceGroups(result, options.in));
-  await ctx.codeHost.markReady(pr.number);
+  if (pr.draft) await ctx.codeHost.markReady(pr.number);
   return { issue: number, outcome: "ready", pr: pr.number, url: pr.url };
 }
 
@@ -221,15 +225,34 @@ async function openFollowUps(ctx: CommandContext, issue: Issue, result: FactoryR
   return refs;
 }
 
+const DECISION_LABEL = { address: "Address", decline: "Decline", defer: "Defer", answer: "Answer" } as const;
+
+/** The agent's answers, posted in their threads. A thread that is gone, or that is not open any more, gets nothing. */
+async function postReplies(ctx: CommandContext, pr: number, threadReplies: FactoryResult["threadReplies"]): Promise<void> {
+  if (threadReplies.length === 0) return;
+  const known = new Set((await ctx.codeHost.threads(pr)).map((t) => t.id));
+  for (const reply of threadReplies) {
+    if (known.has(reply.threadId)) await ctx.codeHost.replyToThread(pr, reply.threadId, `${DECISION_LABEL[reply.decision]}: ${reply.body}`);
+  }
+}
+
 /** Escalation: the report on the issue, then in-progress → ready-for-human. */
 async function escalate(
   ctx: CommandContext,
   issue: Issue,
   report: Parameters<typeof escalationComment>[0],
+  /** The PR this run continues: it gets a short note too, and stays as it is (never turned back into a draft). */
+  continuing: number | null = null,
 ): Promise<PublishResult> {
   const { tracker, config } = ctx;
   await tracker.comment(issue.number, escalationComment(report, config));
   await tracker.swapLabel(issue.number, config.labels.inProgress, config.labels.readyForHuman);
+  if (continuing !== null) {
+    await ctx.codeHost.commentPr(
+      continuing,
+      `The Factory could not finish this round (\`${report.reason}\`). Issue #${issue.number} is now \`${config.labels.readyForHuman}\`: the comment there has the attempts. This pull request stays as it is.`,
+    );
+  }
   return { issue: issue.number, outcome: "escalated", reason: report.reason, pr: report.pr?.number ?? null, url: report.pr?.url ?? null };
 }
 

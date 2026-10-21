@@ -74,6 +74,15 @@ export class LocalCodeHost implements CodeHost {
     return pr && pr.state === "open" && pr.branch === branch ? this.view(pr) : null;
   }
 
+  async pullRequest(number: number): Promise<PullRequest | null> {
+    const pr = await this.read(number);
+    return pr ? this.view(pr) : null;
+  }
+
+  async commentPr(pr: number, body: string): Promise<void> {
+    await this.options.files.appendComment(pr, this.self, body);
+  }
+
   async openDraftPr(input: { branch: string; base: string; title: string; body: string }): Promise<PullRequest> {
     const number = this.issueOf(input.branch);
     if (number === null) throw new Error(`Local pull requests need a ${this.options.config.branchPrefix}N branch, got ${input.branch}`);
