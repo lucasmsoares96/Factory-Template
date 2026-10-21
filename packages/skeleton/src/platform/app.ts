@@ -13,6 +13,7 @@ import { buildLocale } from "./locale.ts";
 import { AUTHORIZE_PATH, mcpBridge } from "./mcp/connections.ts";
 import type { McpTool } from "./mcp/tool.ts";
 import { openApiConfig } from "./openapi.ts";
+import { previewOutbox } from "./preview-outbox.ts";
 
 export { openApiConfig };
 
@@ -48,6 +49,8 @@ export function createApp({ product, features = [], mcpTools = [] }: AppOptions)
   api.route("/", health);
   api.route("/", authRoutes);
   api.route("/", me);
+  // Answers only in a preview (see preview-outbox.ts); anywhere else it is a 404.
+  api.route("/", previewOutbox);
   for (const feature of features) {
     const router = createRouter();
     feature.api(router);
