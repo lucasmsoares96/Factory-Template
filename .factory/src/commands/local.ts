@@ -11,6 +11,7 @@ import { IN_BUNDLE, IN_TRACKER, type ContainerRunner } from "../local/container.
 import type { Agent } from "../seams/agent.ts";
 import type { Verify } from "../seams/verify.ts";
 import { claim, type ClaimResult } from "./claim.ts";
+import { apply, hasTriageResult, type ApplyRun } from "./triage.ts";
 import type { CommandContext } from "./context.ts";
 import { publish, type PublishResult } from "./publish.ts";
 
@@ -27,6 +28,7 @@ export interface LocalOptions {
 
 export type LocalResult =
   | (ClaimResult & { claimed: false })
+  | { triage: ApplyRun; workExitCode: number }
   | (PublishResult & { branch: string; evidence: string; workExitCode: number });
 
 type BaseContext = Omit<CommandContext, "tracker" | "codeHost" | "agent" | "verify">;
@@ -38,6 +40,8 @@ type BaseContext = Omit<CommandContext, "tracker" | "codeHost" | "agent" | "veri
  * base branch as a bundle, the tickets, Claude's auth and the FACTORY_*
  * settings. The branch lands in the host repo; the review and the evidence
  * go to the ticket, prints and session streams to `.scratch/<feature>/evidence/NN/`.
+ * A ticket whose Status is `agent:explore` gets the Triage instead: the
+ * container runs `triage`, then `apply` runs here (comment and new Status).
  */
 export async function local(base: BaseContext, number: number, options: LocalOptions): Promise<LocalResult> {
   const { config, log } = base;
@@ -61,8 +65,9 @@ export async function local(base: BaseContext, number: number, options: LocalOpt
       verify: unavailable<Verify>("Verify"),
     };
 
-    const claimed = await claim(ctx, number, { event: null });
-    if (!claimed.claimed) return claimed;
+    const exploring = (await tracker.issue(number)).labels.includes(config.labels.agentExplore);
+    const claimed = exploring ? null : await claim(ctx, number, { event: null });
+    if (claimed && !claimed.claimed) return claimed;
 
     const inDir = join(tmp, "in");
     const outDir = join(tmp, "out");
@@ -74,11 +79,17 @@ export async function local(base: BaseContext, number: number, options: LocalOpt
     const { exitCode } = await options.container.run({
       repo,
       issue: number,
+      command: exploring ? "triage" : "work",
       inDir,
       outDir,
       base: config.baseBranch,
       env: containerEnv(options.env),
     });
+    if (!claimed) {
+      if (exitCode !== 0) log(`factory: the triage container exited with ${exitCode}`);
+      if (!(await hasTriageResult(outDir))) throw new Error("The triage container left no triage.json.");
+      return { triage: await apply(ctx, { in: outDir, repo }), workExitCode: exitCode };
+    }
     if (exitCode !== 0) log(`factory: the work container exited with ${exitCode}`);
 
     const file = await tracker.files.file(number);

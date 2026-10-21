@@ -5,6 +5,8 @@ import { claim } from "./commands/claim.ts";
 import type { Adapters, CommandContext } from "./commands/context.ts";
 import { CLAUDE_AUTH, local } from "./commands/local.ts";
 import { publish } from "./commands/publish.ts";
+import { apply, triage } from "./commands/triage.ts";
+import { unblock } from "./commands/unblock.ts";
 import { work } from "./commands/work.ts";
 import { loadConfig, type FactoryConfig } from "./config.ts";
 import { DockerContainerRunner, type ContainerRunner } from "./local/container.ts";
@@ -34,7 +36,12 @@ Commands:
   local <issue> [--issues <dir>] [--repo <dir>]
                                          The issue flow on this machine for a Markdown ticket
                                          (.scratch/<feature>/issues/NN-*.md): claim and publish here, work in a
-                                         throwaway Docker container. Needs CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY.
+                                         throwaway Docker container. A ticket labelled agent:explore gets the Triage instead. Needs CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY.
+  triage [<issue>...] --out <dir>        The Triage, read-only: one session over the issues labelled agent:explore (or the
+                                         ones given); writes triage.json. Changes nothing on the forge.
+  apply --in <dir> [--repo <dir>]        Apply triage.json: the marked comment, then agent:explore → ready-for-agent
+                                         (easy-call), ready-for-human (needs-a-human) or needs-info (blocked); adds product:<id>.
+  unblock                                Sweep the ready-for-agent issues and start the ones whose blockers are all done.
   help                                   Show this message.
 
 Settings come from .factory/src/config.ts and FACTORY_* variables.`;
@@ -46,7 +53,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
     deps.log(USAGE);
     return command === undefined ? 1 : 0;
   }
-  if (!["claim", "work", "publish", "local"].includes(command)) {
+  if (!["claim", "work", "publish", "local", "triage", "apply", "unblock"].includes(command)) {
     deps.log(`Unknown command: ${command}\n\n${USAGE}`);
     return 1;
   }
@@ -65,7 +72,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
       issues: { type: "string" },
     },
   });
-  const issue = parseIssue(positionals[0]);
+  const issue = ["triage", "apply", "unblock"].includes(command) ? 0 : parseIssue(positionals[0]);
   const summaryFile = deps.env.GITHUB_STEP_SUMMARY;
   const base = (config: FactoryConfig) => ({
     config,
@@ -109,6 +116,21 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
       const result = await work(ctx, issue, { repo: values.repo, out: required(values.out, "--out") });
       deps.log(JSON.stringify({ issue, outcome: result.outcome, reason: result.reason, attempts: result.attempts.length }));
       return 0;
+    }
+    case "triage": {
+      const result = await triage(ctx, { issues: positionals.map(parseIssue), out: required(values.out, "--out") });
+      deps.log(JSON.stringify(result));
+      return 0;
+    }
+    case "apply": {
+      const result = await apply(ctx, { in: required(values.in, "--in"), repo: values.repo });
+      deps.log(JSON.stringify(result));
+      return 0;
+    }
+    case "unblock": {
+      const result = await unblock(ctx);
+      deps.log(JSON.stringify(result));
+      return result.failed.length > 0 ? 1 : 0;
     }
     default: {
       const result = await publish(ctx, issue, {
