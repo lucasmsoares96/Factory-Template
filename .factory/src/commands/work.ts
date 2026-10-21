@@ -16,6 +16,7 @@ import {
 import { fence, summaryMarkdown } from "../report.ts";
 import { parsePullRequestBody, pullRequestExtraction } from "../pull-request-output.ts";
 import { changedSkeletonPaths, followUpTicket, productOf, revertToBase, skeletonGaps } from "../scope.ts";
+import { addedSkippedTests, skippedTestsFeedback } from "../skipped-tests.ts";
 import { parseReviewOutput, reviewExtraction } from "../review-output.ts";
 import { parseReplies, repliesExtraction, type ThreadReply } from "../replies-output.ts";
 import type { Usage } from "../seams/agent.ts";
@@ -25,6 +26,9 @@ import { openThreads } from "./pr-threads.ts";
 
 const MINUTE = 60_000;
 const OUTPUT_TAIL = 4000;
+
+const SKELETON_QUESTION =
+  "The acceptance criteria could not be met without a change in the Skeleton, which a Product issue may not make. The follow-up ticket asks for it; decide how to proceed.";
 
 type Reason = NonNullable<FactoryResult["reason"]>;
 
@@ -72,6 +76,8 @@ export async function work(ctx: CommandContext, number: number, options: { repo:
   const replies = new Map<string, ThreadReply>();
   let roundThreads: ReviewThread[] = [];
   let bail = false;
+  // The skipped or focused tests of the last attempt that left some; see skipped-tests.ts.
+  let skippedFailure: string | null = null;
 
   /** A Stage's timeout, cut to what is left of the global limit; null when nothing is left. */
   const budget = (minutes: number): number | null => {
@@ -177,6 +183,16 @@ export async function work(ctx: CommandContext, number: number, options: { repo:
       feedback = "The previous Development session made no commits. Implement the issue and commit the work.";
       continue;
     }
+    skippedFailure = null;
+    if (!(dev.commits === 0 && onlyAnswers)) {
+      const skipped = await addedSkippedTests(git, base);
+      if (skipped.length > 0) {
+        feedback = skippedTestsFeedback(skipped);
+        skippedFailure = skipped.map((s) => `\`${s.path}:${s.line}\``).join(", ");
+        stages.push({ ...devRecord, outcome: "failed", failedCommand: "skipped-tests check", output: feedback });
+        continue;
+      }
+    }
     stages.push({ ...devRecord, outcome: "ok" });
 
     let reverted: string[] = [];
@@ -252,10 +268,21 @@ export async function work(ctx: CommandContext, number: number, options: { repo:
     product !== null && (skeletonFiles.size > 0 || gaps.size > 0)
       ? [followUpTicket(issue, product, [...skeletonFiles].sort(), [...gaps])]
       : [];
+  if (!ready && reason === "e2e-failures" && skippedFailure !== null) {
+    reason = "needs-human";
+    question = `Development kept adding skipped or focused tests (${skippedFailure}), which prove nothing, so no acceptance criterion is shown to be met. If the criteria need the Skeleton, a human must decide how to proceed.`;
+  }
+  // A Skeleton follow-up means the criteria may need the Skeleton: green E2E is not enough, the final Review must say
+  // that every criterion is met without it (a test skipped in the E2E would pass too).
+  if (ready && followUps.length > 0 && reviews.at(-1)?.criteriaMetWithoutSkeleton !== true) {
+    ready = false;
+    reason = "needs-human";
+    question = SKELETON_QUESTION;
+  }
   // No new `reason`: criteria that fail without the Skeleton change are a needs-human Escalation.
   if (!ready && reason === "e2e-failures" && followUps.length > 0) {
     reason = "needs-human";
-    question = "The acceptance criteria could not be met without a change in the Skeleton, which a Product issue may not make. The follow-up ticket asks for it; decide how to proceed.";
+    question = SKELETON_QUESTION;
   }
 
   const head = (await git.countCommits(base, "HEAD")) > 0 ? await git.head() : null;
@@ -345,7 +372,7 @@ function needsHuman(output: string): string | null {
 
 /** One review for the PR: the summary of every attempt, the inline findings of all of them. */
 function combineReviews(reviews: (ReviewOutput & { attempt: number })[]): ReviewOutput {
-  if (reviews.length === 0) return { summary: "", inline: [] };
+  if (reviews.length === 0) return { summary: "", inline: [], criteriaMetWithoutSkeleton: false };
   const summary =
     reviews.length === 1 ? reviews[0]!.summary : reviews.map((r) => `**Attempt ${r.attempt}.** ${r.summary}`).join("\n\n");
   const seen = new Set<string>();
@@ -355,7 +382,8 @@ function combineReviews(reviews: (ReviewOutput & { attempt: number })[]): Review
       const key = JSON.stringify([c.path, c.line, c.body]);
       return seen.has(key) ? false : (seen.add(key), true);
     });
-  return { summary, inline };
+  // Only the final Review judges the branch that gets published.
+  return { summary, inline, criteriaMetWithoutSkeleton: reviews.at(-1)!.criteriaMetWithoutSkeleton };
 }
 
 function tail(output: string): string {

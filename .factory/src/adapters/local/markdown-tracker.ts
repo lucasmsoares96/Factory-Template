@@ -68,6 +68,10 @@ export class MarkdownTracker implements Tracker {
     // The Status line is the only label of a Markdown ticket.
   }
 
+  async removeLabel(_number: number, _label: string): Promise<void> {
+    // The Status line is the only label of a Markdown ticket.
+  }
+
   async comment(number: number, body: string): Promise<void> {
     await this.files.appendComment(number, this.self, marked(body));
   }
