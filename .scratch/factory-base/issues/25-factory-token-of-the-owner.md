@@ -50,7 +50,7 @@ Decisão do usuário (2026-10-21):
   - no ticket 22: a nota sobre o Forgejo, abaixo;
   - no `.factory/AGENTS.md` e no `GLOSSARY.md`, se citarem o machine user;
   - em `docs/adr/`: um ADR curto com a decisão e as alternativas rejeitadas.
-- [ ] `pnpm factory:verify` verde.
+- [x] `pnpm factory:verify` verde.
 
 ## Notes
 
