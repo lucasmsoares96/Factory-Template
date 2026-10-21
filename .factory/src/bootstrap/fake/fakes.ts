@@ -110,6 +110,7 @@ export class FakeCloudflare {
   readonly dnsRecords = new Map<string, CloudflareDnsRecord[]>();
   readonly created: NewDnsRecord[] = [];
   readonly workers = new Set<string>();
+  readonly kvNamespaces: { id: string; title: string }[] = [];
   readonly workerDomains: (WorkerDomain & { zoneId: string })[] = [];
   validTokens = new Set<string>(["good-token"]);
   /** Per token, the permissions it lacks: `workers`, `kv`, `account`, `dns`, `zone`. A call needing one is refused (403). */
@@ -136,7 +137,18 @@ export class FakeCloudflare {
       },
       listKvNamespaces: async () => {
         fail("kv");
-        return [];
+        return this.kvNamespaces.map((ns) => ns.id);
+      },
+      findKvNamespace: async (_accountId, title) => {
+        fail("kv");
+        return this.kvNamespaces.find((ns) => ns.title === title) ?? null;
+      },
+      createKvNamespace: async (_accountId, title) => {
+        fail("kv");
+        this.writes++;
+        const made = { id: `kv-${this.kvNamespaces.length + 1}`, title };
+        this.kvNamespaces.push(made);
+        return made;
       },
       getAccount: async (accountId) => {
         fail("account");
@@ -195,7 +207,11 @@ export class FakeCloudflare {
 
 export class FakeNeon {
   readonly orgs: NeonOrg[] = [{ id: "org-1", name: "Personal" }];
-  readonly projects: (NeonProject & { orgId: string; password: string })[] = [];
+  readonly projects: (NeonProject & { orgId: string; password: string; defaultBranch?: string })[] = [];
+  /** The API keys `createApiKey` made, by project. */
+  readonly apiKeys: { name: string; projectId: string; key: string }[] = [];
+  /** `createApiKey` is refused (the docs: the first key comes from the Console), as it may be under an OAuth login. */
+  refuseApiKeys = false;
   /** Sessions opened with `forSession`, in order. */
   readonly sessions: { apiKey?: string; loggedIn: boolean; closed: number }[] = [];
   /** Every `orgId` a call carried, to prove it was passed on. */
@@ -234,6 +250,25 @@ export class FakeNeon {
         const project = { id: `proj-${this.projects.length + 1}`, name, orgId: orgId ?? "org-1", password: `pw-${this.projects.length + 1}` };
         this.projects.push(project);
         return { id: project.id, name: project.name };
+      },
+      createApiKey: async (name, projectId) => {
+        authed();
+        if (this.refuseApiKeys) throw new Error("neonctl api-keys failed: the first API key must be created in the Console (403)");
+        if (!this.projects.some((p) => p.id === projectId)) throw new Error("Neon: project not found (404).");
+        this.writes++;
+        const key = `napi_${projectId}_${this.apiKeys.length + 1}`;
+        this.apiKeys.push({ name, projectId, key });
+        return key;
+      },
+      defaultBranchName: async (projectId) => {
+        authed();
+        return this.projects.find((p) => p.id === projectId)?.defaultBranch ?? "main";
+      },
+      renameBranch: async (projectId, _from, to) => {
+        authed();
+        this.writes++;
+        const project = this.projects.find((p) => p.id === projectId);
+        if (project) project.defaultBranch = to;
       },
       connectionString: async (projectId, { pooled, orgId }) => {
         authed();
