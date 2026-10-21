@@ -10,7 +10,7 @@ Spec: [../spec.md](../spec.md)
 
 - [x] A Triage usa a retomada de extração com o validador do veredito.
 - [x] Testes pela CLI contra os falsos: veredito válido sem retomada; válido na 1ª e na 2ª retomada; inválido depois de 2, com o fallback do ticket 17; tokens somados (seam 1).
-- [ ] `pnpm factory:verify` verde.
+- [x] `pnpm factory:verify` verde.
 
 ## Comments
 
@@ -18,3 +18,6 @@ Spec: [../spec.md](../spec.md)
 
 
 2026-10-21: a Triage já usava a retomada (`extract: triageExtraction(números)`, ticket 17). Faltavam só casos: adicionados em `test/triage.test.ts` (sem retomada, válido na 1ª retomada, tokens somados mesmo em retomadas falhas); 2ª retomada, fallback e timeout já cobertos. Sem código de produção novo. `pnpm factory:verify` fica para o orquestrador no merge.
+
+
+Merge (2026-10-21): `TURBO_FORCE=1 pnpm factory:verify` verde na `factory-base` com o 06 (13/13, 716 testes do harness).
