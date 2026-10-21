@@ -4,10 +4,12 @@ import { adaptersFromEnv } from "./adapters/index.ts";
 import { claim } from "./commands/claim.ts";
 import type { Adapters, CommandContext } from "./commands/context.ts";
 import { CLAUDE_AUTH, local } from "./commands/local.ts";
+import { claimPrFeedback, claimUpdateBranch, scanBranches, type PrClaim } from "./commands/pr-claim.ts";
 import { publish } from "./commands/publish.ts";
 import { apply, triage } from "./commands/triage.ts";
 import { unblock } from "./commands/unblock.ts";
-import { work } from "./commands/work.ts";
+import { resolveBase, work, type WorkFlow } from "./commands/work.ts";
+import { Git } from "./git.ts";
 import { loadConfig, type FactoryConfig } from "./config.ts";
 import { DockerContainerRunner, type ContainerRunner } from "./local/container.ts";
 import { dockerCli } from "./local/docker.ts";
@@ -28,8 +30,14 @@ const USAGE = `Usage: pnpm factory <command> [options]
 Commands:
   claim <issue> [--event <name>]         Guard the issue and take the lock (ready-for-agent → in-progress).
                                          --event labeled: explain a Blocked Issue with one "Waiting on" comment.
-  work <issue> --out <dir> [--repo <dir>]
+  work <issue> --out <dir> [--repo <dir>] [--flow pr-feedback|update-branch --pr <n>]
                                          Run Development → Review → E2E; write result.json, the branch bundle and the prints.
+                                         --flow: continue the branch of PR <n> (merge the base branch first).
+  pr-feedback --pr <n> --actor <login>   Guard a comment on a Factory PR (writer, not the machine user, factory/issue-N,
+                                         open threads) and print the claim; the pr-feedback workflow then runs work and publish.
+  update-branch <issue>                  Guard an update of the Factory branch of an issue (in-progress, open PR).
+  update-branch --scan [--repo <dir>]    After a push to the base branch: dispatch update-branch for each Factory PR that
+                                         now conflicts with it (git merge-tree).
   publish <issue> --in <dir> [--repo <dir>] [--start-sha <sha>] [--run-url <url>] [--pr <n>]
                                          Re-check the forge, validate result.json, push with a lease, then open the
                                          PR with review and evidence, or escalate. --pr: the run continues PR <n>.
@@ -53,7 +61,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
     deps.log(USAGE);
     return command === undefined ? 1 : 0;
   }
-  if (!["claim", "work", "publish", "local", "triage", "apply", "unblock"].includes(command)) {
+  if (!["claim", "work", "publish", "local", "triage", "apply", "unblock", "pr-feedback", "update-branch"].includes(command)) {
     deps.log(`Unknown command: ${command}\n\n${USAGE}`);
     return 1;
   }
@@ -70,9 +78,13 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
       "run-url": { type: "string" },
       pr: { type: "string" },
       issues: { type: "string" },
+      actor: { type: "string" },
+      flow: { type: "string" },
+      scan: { type: "boolean" },
     },
   });
-  const issue = ["triage", "apply", "unblock"].includes(command) ? 0 : parseIssue(positionals[0]);
+  // Parsed on use: `pr-feedback` and `update-branch --scan` take no issue.
+  const issueArg = () => parseIssue(positionals[0]);
   const summaryFile = deps.env.GITHUB_STEP_SUMMARY;
   const base = (config: FactoryConfig) => ({
     config,
@@ -91,7 +103,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
     const env = { ...deps.env, FACTORY_MACHINE_USER: deps.env.FACTORY_MACHINE_USER || "factory" };
     const config = loadConfig(env);
     const container = deps.container?.(config) ?? new DockerContainerRunner({ docker: dockerCli, config, log: deps.log });
-    const result = await local(base(config), issue, { repo: values.repo, issues: values.issues ?? null, container, env });
+    const result = await local(base(config), issueArg(), { repo: values.repo, issues: values.issues ?? null, container, env });
     deps.log(JSON.stringify(result));
     return 0;
   }
@@ -99,9 +111,35 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
   const config = loadConfig(deps.env);
   const ctx: CommandContext = { ...deps.adapters({ config, repo: values.repo }), ...base(config) };
 
+  const writeOutputs = async (claim: PrClaim) => {
+    if (!deps.env.GITHUB_OUTPUT) return;
+    const lines = claim.claimed
+      ? [`claimed=true`, `issue=${claim.issue}`, `pr=${claim.pr}`, `branch=${claim.branch}`, `start_sha=${claim.startSha}`]
+      : [`claimed=false`, `reason=${claim.reason}`];
+    await appendFile(deps.env.GITHUB_OUTPUT, `${lines.join("\n")}\n`);
+  };
+
   switch (command) {
+    case "pr-feedback": {
+      const claim = await claimPrFeedback(ctx, { pr: parseIssue(values.pr), actor: values.actor ?? "" });
+      deps.log(JSON.stringify(claim));
+      await writeOutputs(claim);
+      return 0;
+    }
+    case "update-branch": {
+      if (values.scan) {
+        const git = new Git(values.repo);
+        const result = await scanBranches(ctx, git, await resolveBase(git, config.baseBranch));
+        deps.log(JSON.stringify(result));
+        return 0;
+      }
+      const claim = await claimUpdateBranch(ctx, issueArg());
+      deps.log(JSON.stringify(claim));
+      await writeOutputs(claim);
+      return 0;
+    }
     case "claim": {
-      const result = await claim(ctx, issue, { event: values.event ?? null });
+      const result = await claim(ctx, issueArg(), { event: values.event ?? null });
       deps.log(JSON.stringify(result));
       // The workflow reads these to decide whether `work` and `publish` run, and where the lease starts.
       if (deps.env.GITHUB_OUTPUT) {
@@ -113,7 +151,8 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
       return 0;
     }
     case "work": {
-      const result = await work(ctx, issue, { repo: values.repo, out: required(values.out, "--out") });
+      const issue = issueArg();
+      const result = await work(ctx, issue, { repo: values.repo, out: required(values.out, "--out"), ...(flowOf(values) ? { flow: flowOf(values)! } : {}) });
       deps.log(JSON.stringify({ issue, outcome: result.outcome, reason: result.reason, attempts: result.attempts.length }));
       return 0;
     }
@@ -133,6 +172,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
       return result.failed.length > 0 ? 1 : 0;
     }
     default: {
+      const issue = issueArg();
       const result = await publish(ctx, issue, {
         repo: values.repo,
         in: required(values.in, "--in"),
@@ -144,6 +184,13 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
       return 0;
     }
   }
+}
+
+/** `--flow pr-feedback|update-branch` with the PR it continues; undefined for the issue flow. */
+function flowOf(values: { flow?: string; pr?: string }): WorkFlow | undefined {
+  if (values.flow === undefined) return undefined;
+  if (values.flow !== "pr-feedback" && values.flow !== "update-branch") throw new Error(`Unknown --flow: ${values.flow}. Known: pr-feedback, update-branch.`);
+  return { kind: values.flow, pr: parseIssue(values.pr) };
 }
 
 function parseIssue(value: string | undefined): number {

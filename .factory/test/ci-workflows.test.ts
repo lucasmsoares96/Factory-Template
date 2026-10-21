@@ -33,7 +33,7 @@ interface Workflow {
 
 /** Reads and parses every workflow in `dir`, relative to the repository root. */
 function load(dir: string): Record<string, Workflow> {
-  const names = ["factory-image.yml", "factory-pr.yml", "factory-deploy.yml", "factory-pr-cleanup.yml", "factory-issue.yml", "factory-unblock.yml", "factory-triage.yml"];
+  const names = ["factory-image.yml", "factory-pr.yml", "factory-deploy.yml", "factory-pr-cleanup.yml", "factory-issue.yml", "factory-unblock.yml", "factory-triage.yml", "factory-pr-feedback.yml", "factory-update-branches.yml"];
   return Object.fromEntries(names.map((name) => [name, parse(readFileSync(join(repo, dir, name), "utf8")) as Workflow]));
 }
 
@@ -59,7 +59,7 @@ describe.each([[WORKFLOWS_DIR]])("CI workflows in %s", (dir) => {
 
   it("only `build` and `work` take vars.FACTORY_RUNNER, always in a container; `claim` and `publish` never do", () => {
     const takers = allJobs.filter(({ job }) => runsOn(job).includes("vars.FACTORY_RUNNER")).map(({ file, id }) => `${file} ${id}`);
-    expect(takers.sort()).toEqual(["factory-deploy.yml build", "factory-issue.yml work", "factory-pr.yml build", "factory-triage.yml work"]);
+    expect(takers.sort()).toEqual(["factory-deploy.yml build", "factory-issue.yml work", "factory-pr-feedback.yml work", "factory-pr.yml build", "factory-triage.yml work", "factory-update-branches.yml work"]);
     for (const { file, id, job } of allJobs.filter(({ job }) => runsOn(job).includes("vars.FACTORY_RUNNER"))) {
       expect(job.container?.image, `${file} ${id}`).toBe("${{ needs.image.outputs.image }}");
       expect(runsOn(job), `${file} ${id}`).toContain("ubuntu-latest");
@@ -575,5 +575,104 @@ describe("turbo globalDependencies", () => {
     for (const file of [".node-version", ".oxlintrc.json", "docker-compose.yml", "package.json", "pnpm-workspace.yaml", "tsconfig.base.json", "scripts/verify.ts"]) {
       expect(turbo.globalDependencies, file).toContain(file);
     }
+  });
+});
+
+describe.each([["factory-pr-feedback.yml", "pr-feedback"], ["factory-update-branches.yml", "update-branch"]] as const)("PR flow workflow %s", (file, flow) => {
+  const workflow = checkWorkflows(WORKFLOWS_DIR).workflows[file]!;
+  const { claim, work, publish } = workflow.jobs;
+  const secretsOf = (job: Job) => [...new Set(textOf(job).match(/secrets\.\w+|secrets\[[^\]]*\]/g) ?? [])].sort();
+  const concurrencyOf = (job: Job) => (job as unknown as { concurrency?: { group: string; "cancel-in-progress": boolean } }).concurrency;
+
+  it("`work` has no FACTORY_TOKEN, only Claude's auth, runs in the image and is the only job on vars.FACTORY_RUNNER", () => {
+    expect(textOf(work!)).not.toContain("FACTORY_TOKEN");
+    expect(secretsOf(work!)).toEqual(["secrets.ANTHROPIC_API_KEY", "secrets.CLAUDE_CODE_OAUTH_TOKEN"]);
+    expect(work!.container?.image).toBe("${{ needs.image.outputs.image }}");
+    expect(work!["runs-on"]).toBe("${{ vars.FACTORY_RUNNER || 'ubuntu-latest' }}");
+    expect(work!.permissions).toEqual({ contents: "read", issues: "read", "pull-requests": "read", packages: "read" });
+    expect(work!["timeout-minutes"]).toBe(350);
+    const takers = Object.entries(workflow.jobs).filter(([, job]) => runsOn(job).includes("vars.FACTORY_RUNNER"));
+    expect(takers.map(([id]) => id)).toEqual(["work"]);
+    const checkout = steps(work!).find((step) => step.uses?.startsWith("actions/checkout@"));
+    expect(checkout?.with).toMatchObject({ "persist-credentials": false });
+  });
+
+  it("`work` shares the issue flow's factory-N group without cancelling a running job", () => {
+    expect(concurrencyOf(work!)).toEqual({ group: "factory-${{ needs.claim.outputs.issue }}", "cancel-in-progress": false });
+  });
+
+  it("`claim` is read-only on a fresh VM; only `publish` holds FACTORY_TOKEN, and runs even when `work` failed", () => {
+    expect(claim!["runs-on"]).toBe("ubuntu-latest");
+    expect(claim!.permissions).toEqual({ contents: "read", issues: "read", "pull-requests": "read" });
+    expect(secretsOf(claim!)).toEqual([]);
+    expect(publish!["runs-on"]).toBe("ubuntu-latest");
+    expect(publish!.container).toBeUndefined();
+    expect(publish!.if).toContain("always()");
+    expect(secretsOf(publish!)).toEqual(["secrets.FACTORY_TOKEN"]);
+    expect(runs(publish!).join("\n")).toMatch(/pnpm factory publish "\$ISSUE" .*--pr "\$PR" --start-sha/);
+    expect(runs(work!).join("\n")).toContain(`--flow ${flow} --pr "$PR"`);
+  });
+
+  it("is off until FACTORY_ENABLED and never interpolates event data into a script", () => {
+    expect(workflow.permissions).toEqual({});
+    expect(JSON.stringify(workflow.jobs)).toContain("vars.FACTORY_ENABLED == 'true'");
+    for (const [id, job] of Object.entries(workflow.jobs)) for (const script of runs(job)) expect(script, id).not.toContain("${{");
+  });
+
+  it("every Factory command it runs exists in the CLI", () => {
+    const cli = readFileSync(join(repo, ".factory/src/cli.ts"), "utf8");
+    for (const job of Object.values(workflow.jobs)) {
+      for (const script of runs(job)) for (const m of script.matchAll(/pnpm factory (\S+)/g)) expect(cli, m[1]).toContain(`"${m[1]}"`);
+    }
+  });
+});
+
+describe("Factory PR feedback workflow", () => {
+  const feedback = checkWorkflows(WORKFLOWS_DIR).workflows["factory-pr-feedback.yml"]!;
+
+  it("listens to submitted reviews, review comments and PR comments", () => {
+    expect(feedback.on).toEqual({
+      pull_request_review: { types: ["submitted"] },
+      pull_request_review_comment: { types: ["created"] },
+      issue_comment: { types: ["created"] },
+    });
+    expect(Object.keys(feedback.jobs)).toEqual(["wait", "claim", "image", "work", "publish"]);
+  });
+
+  it("debounces: `wait` sleeps 180 s under a cancelling group per PR, a submitted review skips the sleep", () => {
+    const wait = feedback.jobs.wait!;
+    expect((wait as unknown as { concurrency: unknown }).concurrency).toEqual({
+      group: "factory-feedback-${{ github.event.pull_request.number || github.event.issue.number }}",
+      "cancel-in-progress": true,
+    });
+    const sleep = steps(wait).find((step) => step.run === "sleep 180");
+    expect(sleep?.if).toContain("github.event_name != 'pull_request_review'");
+    expect(feedback.jobs.claim!.needs).toBe("wait");
+  });
+
+  it("filters the machine user and non-Factory branches before spending a runner", () => {
+    const filter = feedback.jobs.wait!.if!;
+    expect(filter).toContain("github.actor != vars.FACTORY_MACHINE_USER");
+    expect(filter).toContain("startsWith(github.event.pull_request.head.ref, 'factory/issue-')");
+    expect(feedback.jobs.claim!.steps!.map((s) => s.run).join("\n")).toContain('pnpm factory pr-feedback --pr "$PR" --actor "$ACTOR"');
+  });
+});
+
+describe("Factory update branches workflow", () => {
+  const update = checkWorkflows(WORKFLOWS_DIR).workflows["factory-update-branches.yml"]!;
+
+  it("scans on a push to main and works on one dispatched issue", () => {
+    expect(Object.keys(update.on).sort()).toEqual(["push", "workflow_dispatch"]);
+    expect(update.on.push).toEqual({ branches: ["main"] });
+    expect(Object.keys(update.jobs)).toEqual(["scan", "claim", "image", "work", "publish"]);
+    expect(update.jobs.scan!.if).toContain("github.event_name == 'push'");
+    expect(update.jobs.claim!.if).toContain("github.event_name == 'workflow_dispatch'");
+  });
+
+  it("`scan` dispatches with the job token and holds no secret", () => {
+    const scan = update.jobs.scan!;
+    expect(scan.permissions).toEqual({ contents: "read", issues: "read", "pull-requests": "read", actions: "write" });
+    expect(textOf(scan)).not.toMatch(/secrets\./);
+    expect(runs(scan).join("\n")).toContain("pnpm factory update-branch --scan");
   });
 });
