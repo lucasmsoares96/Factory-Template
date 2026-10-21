@@ -5,12 +5,15 @@ import { join } from "node:path";
 /**
  * Gives the whole run a private TMPDIR. Every temp dir a test makes lands in it, so at the end the run can
  * tell what was left behind (and fail on it) instead of leaving `factory-*` dirs in the machine's /tmp.
+ * Node's own `node-compile-cache` (made in TMPDIR when a tool turns the compile cache on) is not a test's leftover.
  */
+export const notLeftovers = new Set(["node-compile-cache"]);
+
 export default async function setup() {
   const root = await mkdtemp(join(tmpdir(), "factory-harness-tmp-"));
   process.env.TMPDIR = root;
   return async () => {
-    const left = await readdir(root);
+    const left = (await readdir(root)).filter((name) => !notLeftovers.has(name));
     await rm(root, { recursive: true, force: true, maxRetries: 3 });
     if (left.length > 0) throw new Error(`the harness tests left temp dirs behind: ${left.join(", ")}`);
   };
