@@ -191,8 +191,8 @@ export async function loadProduct(id: string): Promise<ProductIdentity> {
 
 if (import.meta.main) {
   const env = process.env;
-  // Every Neon session opened by this process: a Ctrl+C (clack exits the process at once) must still log out and
-  // delete the throwaway login folder, so the cleanup also runs on `exit`, synchronously.
+  // Every Neon client opened by this process, closed on `exit` too (a Ctrl+C makes clack exit at once).
+  // Closing keeps neonctl's login, so the next run does not open the browser again.
   const openNeon = new Set<NeonCli>();
   process.on("exit", () => openNeon.forEach((client) => client.closeSync()));
   process.on("SIGINT", () => process.exit(130));
