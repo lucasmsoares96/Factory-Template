@@ -81,20 +81,20 @@ export async function neonOrgId(ctx: StepContext, neon: NeonClient): Promise<str
 }
 
 /** The project named `name` in the org. Names are not unique in Neon: with duplicates the person picks (or the check cannot say). */
-export async function findProject(ctx: StepContext, neon: NeonClient, name: string, prompt: boolean): Promise<NeonProject | null | "ambiguous"> {
+export async function findProject(ctx: StepContext, neon: NeonClient, name: string, prompt: boolean, purpose = "the production database"): Promise<NeonProject | null | "ambiguous"> {
   const found = (await neon.listProjects(await neonOrgId(ctx, neon))).filter((p) => p.name === name);
   if (found.length <= 1) return found[0] ?? null;
   if (!prompt) return "ambiguous";
   const id = await ctx.prompter.select({
     id: "neon-project-pick",
-    message: `${found.length} Neon projects are named ${name}. Which one is the production database? (The wizard never deletes one.)`,
+    message: `${found.length} Neon projects are named ${name}. Which one is ${purpose}? (The wizard never deletes one.)`,
     options: found.map((p) => ({ value: p.id, label: p.id })),
   });
   return found.find((p) => p.id === id) ?? null;
 }
 
-async function ensureProject(ctx: StepContext, neon: NeonClient, name: string): Promise<NeonProject> {
-  const found = await findProject(ctx, neon, name, true);
+export async function ensureProject(ctx: StepContext, neon: NeonClient, name: string, purpose?: string): Promise<NeonProject> {
+  const found = await findProject(ctx, neon, name, true, purpose);
   if (found && found !== "ambiguous") return found;
   const made = await neon.createProject(name, await neonOrgId(ctx, neon));
   ctx.log(`  created the Neon project ${made.name}`);
@@ -131,10 +131,15 @@ export function neonProjectStep(product: ProductIdentity): Step {
   };
 }
 
-export function githubEnvironmentStep(product: ProductIdentity): Step {
-  const name = productionEnvironment(product.id);
+/**
+ * A GitHub environment only the default branch may deploy to, or, when the API refuses (the plan or visibility of the
+ * repo), the repo-level fallback: `FACTORY_USE_ENVIRONMENTS=false`. One variable for the production and the preview
+ * environments: either both exist or the secrets of both are at repo level.
+ */
+export function environmentStep(input: { id: string; name: string; productId: string }): Step {
+  const { name, productId } = input;
   return {
-    id: "github-environment",
+    id: input.id,
     title: `GitHub environment ${name} (only main may deploy)`,
     async check(ctx) {
       return { done: (await ctx.github.listEnvironments()).includes(name) };
@@ -147,9 +152,13 @@ export function githubEnvironmentStep(product: ProductIdentity): Step {
         return;
       }
       if ((await ctx.github.listVariables())[USE_ENVIRONMENTS] !== "false") await ctx.github.setVariable(USE_ENVIRONMENTS, "false");
-      ctx.log(`  GitHub refused the environment (the plan or visibility of the repo): the secrets of ${product.id} stay at repo level and ${USE_ENVIRONMENTS}=false. Run this step again after upgrading.`);
+      ctx.log(`  GitHub refused the environment (the plan or visibility of the repo): the secrets of ${productId} stay at repo level and ${USE_ENVIRONMENTS}=false. Run this step again after upgrading.`);
     },
   };
+}
+
+export function githubEnvironmentStep(product: ProductIdentity): Step {
+  return environmentStep({ id: "github-environment", name: productionEnvironment(product.id), productId: product.id });
 }
 
 export function databaseSecretsStep(product: ProductIdentity): Step {

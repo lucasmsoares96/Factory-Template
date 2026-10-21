@@ -2,14 +2,21 @@
 # published Factory image, with no secret and no cache. `pull_request_target`
 # so a fork PR still gets a result, but the code of the PR only ever runs in
 # the `build`, `plan` and `ci-probe` jobs: read-only token, no secrets.
+#
+# Previews (shown as skipped until `pnpm bootstrap previews <id>` sets PREVIEWS_ENABLED): `build` also uploads the
+# Product's bundle; `preview-plan`, `deploy`, `smoke` and `preview-comment` run `main`'s code on fresh VMs and see
+# the PR only as that allowlisted artifact. `deploy` is the only job with the Cloudflare and Neon preview secrets;
+# `smoke` has none. A change to this file takes effect only after it is merged (`pull_request_target` runs the
+# workflow of the base branch). The `labeled` event is there for the `preview` label; it re-runs the whole check.
 name: PR
 
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
 
+# A label event has its own group, so it never cancels the run of a push.
 concurrency:
-  group: pr-${{ github.event.pull_request.number }}
+  group: pr-${{ github.event.pull_request.number }}-${{ github.event.action == 'labeled' && 'label' || 'push' }}
   cancel-in-progress: true
 
 permissions: {}
@@ -107,6 +114,21 @@ jobs:
         env:
           PACKAGE: ${{ matrix.name }}
         run: pnpm factory:verify --filter "$PACKAGE"
+      # What a preview deploys: the Product's build and migrations, uploaded for the `deploy` job to check against an allowlist.
+      - name: bundle for the preview
+        if: matrix.kind == 'product' && vars.PREVIEWS_ENABLED == 'true'
+        env:
+          PRODUCT: ${{ matrix.name }}
+        run: |
+          pnpm exec turbo run build --filter "$PRODUCT"
+          node .factory/src/ci/deploy.ts bundle --product "$PRODUCT" --out "$RUNNER_TEMP/bundle"
+      - if: matrix.kind == 'product' && vars.PREVIEWS_ENABLED == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bundle-${{ matrix.name }}
+          path: ${{ runner.temp }}/bundle
+          if-no-files-found: error
+          retention-days: 1
 
   skills-check:
     runs-on: ubuntu-latest
@@ -174,6 +196,257 @@ jobs:
           filter: blob:none
       - run: pnpm install --frozen-lockfile
       - run: pnpm factory:ci-probe
+
+  # ---------------------------------------------------------------------------------------------------------------
+  # Previews. Everything below runs `main`'s code on a fresh VM; the PR's code never runs next to a secret.
+  # ---------------------------------------------------------------------------------------------------------------
+
+  # A push drops the `preview` label: a reviewer's approval covers one commit.
+  preview-label:
+    if: github.event.action == 'synchronize' && vars.PREVIEWS_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      - name: remove the preview label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          LABEL: ${{ vars.FACTORY_LABELS_PREVIEW || 'preview' }}
+        run: gh api --method DELETE "repos/$REPO/issues/$PR/labels/$LABEL" || echo "no $LABEL label to remove"
+
+  # Which affected Products have previews, and whether this author or label allows one.
+  preview-plan:
+    needs: plan
+    if: vars.PREVIEWS_ENABLED == 'true' && needs.plan.outputs.empty == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.gate.outputs.matrix }}
+      empty: ${{ steps.gate.outputs.empty }}
+      trusted: ${{ steps.gate.outputs.trusted }}
+      why: ${{ steps.gate.outputs.why }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          filter: blob:none
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: corepack enable pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          MATRIX: ${{ needs.plan.outputs.matrix }}
+          PREVIEW_PRODUCTS: ${{ vars.PREVIEW_PRODUCTS }}
+          ACTION: ${{ github.event.action }}
+          LABEL_NAME: ${{ github.event.label.name }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          SENDER: ${{ github.event.sender.login }}
+          FACTORY_LABELS_PREVIEW: ${{ vars.FACTORY_LABELS_PREVIEW }}
+        run: node .factory/src/ci/previews.ts gate
+
+  # A fresh VM with the checkout of `main`, not of anything the build produced except the allowlisted artifact. The
+  # PR's number is read from the event. The secrets of this job are the only preview secrets there are.
+  deploy:
+    name: preview deploy (${{ matrix.id }})
+    needs: [preview-plan, build]
+    if: needs.preview-plan.outputs.empty == 'false' && needs.preview-plan.outputs.trusted == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    # The environment of the Product's previews when environments exist; otherwise the secrets are at repo level.
+    environment: ${{ vars.FACTORY_USE_ENVIRONMENTS != 'false' && format('{0}-preview', matrix.id) || null }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.preview-plan.outputs.matrix) }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_BASE_URL: https://api.cloudflare.com/client/v4
+      WRANGLER_SEND_METRICS: "false"
+      CI: "true"
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PRODUCT: ${{ matrix.id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          filter: blob:none
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: corepack enable pnpm
+      # Dependencies from the lockfile of `main`, with no install script: nothing of the artifact decides what runs.
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: bundle-${{ matrix.id }}
+          path: ${{ runner.temp }}/artifact
+      - name: check the artifact against the allowlist
+        run: node .factory/src/ci/deploy.ts verify-bundle --dir "$RUNNER_TEMP/artifact"
+      # A preview runs with the bindings of `main`: a PR that changes them gets no preview, and a comment saying why.
+      - name: bindings against main
+        id: bindings
+        run: node .factory/src/ci/previews.ts bindings --product "$PRODUCT" --dir "$RUNNER_TEMP/artifact"
+      # The Neon branch `preview/pr-N` from `base` (or "limit reached"), and the Worker's secrets in files, never in outputs.
+      - name: database
+        id: database
+        if: steps.bindings.outputs.changed == 'false'
+        env:
+          NEON_API_KEY: ${{ secrets[format('{0}PREVIEW_NEON_API_KEY', matrix.prefix)] }}
+          NEON_PROJECT_ID: ${{ vars[format('{0}PREVIEW_NEON_PROJECT_ID', matrix.prefix)] }}
+          FACTORY_PREVIEW_LIMIT: ${{ vars.FACTORY_PREVIEW_LIMIT }}
+        run: node .factory/src/ci/previews.ts database --out "$RUNNER_TEMP/preview"
+      - name: config of the preview
+        id: config
+        if: steps.bindings.outputs.changed == 'false' && steps.database.outputs.skipped == ''
+        env:
+          KV_ID: ${{ vars[format('{0}PREVIEW_OAUTH_KV_ID', matrix.prefix)] }}
+        run: node .factory/src/ci/previews.ts config --product "$PRODUCT" --dir "$RUNNER_TEMP/artifact" --kv-id "$KV_ID"
+      # Skeleton migrations, then the Product's, against the direct URL of the PR's branch (`migrate`, drizzle).
+      - name: migrate
+        if: steps.bindings.outputs.changed == 'false' && steps.database.outputs.skipped == ''
+        run: node .factory/src/ci/deploy.ts migrate --dir "$RUNNER_TEMP/artifact" --url-file "$RUNNER_TEMP/preview/direct-url"
+      # Worker Previews (open beta, wrangler >= 4.135): `wrangler preview --name pr-N` makes or updates the Preview `pr-N` of the Worker.
+      # wrangler is a dependency of @factory/harness, not of the root: run it from that package (its folder is `main`'s).
+      # --ignore-base-config: only the config of `main` and the secrets file count, not the dashboard's base config.
+      - name: wrangler preview
+        id: wrangler
+        if: steps.bindings.outputs.changed == 'false' && steps.database.outputs.skipped == ''
+        env:
+          WRANGLER_CONFIG: ${{ steps.config.outputs.path }}
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-output.ndjson
+        run: |
+          pnpm --filter @factory/harness exec wrangler preview --config "$WRANGLER_CONFIG" --name "pr-$PR_NUMBER" --worker-name "$PRODUCT" --secrets-file "$RUNNER_TEMP/preview/worker-env.json" --ignore-base-config
+          rm -f "$RUNNER_TEMP/preview/worker-env.json"
+      - name: preview URL
+        id: url
+        if: steps.wrangler.outcome == 'success'
+        run: |
+          mkdir -p "$RUNNER_TEMP/result"
+          node .factory/src/ci/previews.ts url --file "$RUNNER_TEMP/wrangler-output.ndjson" > "$RUNNER_TEMP/result/url.txt"
+      # One small JSON file per Product for the smoke and the comment; it is written whatever happened above.
+      - name: result
+        if: always()
+        env:
+          STATUS: ${{ steps.bindings.outputs.changed == 'true' && 'bindings-changed' || steps.database.outputs.skipped == 'limit-reached' && 'limit-reached' || steps.url.outcome == 'success' && 'deployed' || 'failed' }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/result"
+          node .factory/src/ci/previews.ts result --product "$PRODUCT" --status "$STATUS" --file "$RUNNER_TEMP/result/url.txt" --out "$RUNNER_TEMP/result/result.json"
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: preview-${{ matrix.id }}
+          path: ${{ runner.temp }}/result/result.json
+          if-no-files-found: error
+          retention-days: 1
+
+  # Against the preview URL, with no secret: a real sign-up, the verification email read in the preview's outbox
+  # route, a real sign-in, `/api/me`, and the 401 of `/mcp`.
+  smoke:
+    name: preview smoke (${{ matrix.id }})
+    needs: [preview-plan, deploy]
+    if: needs.deploy.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.preview-plan.outputs.matrix) }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          filter: blob:none
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: corepack enable pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: preview-${{ matrix.id }}
+          path: ${{ runner.temp }}/preview
+      - name: what to test
+        id: target
+        run: node .factory/src/ci/previews.ts status --file "$RUNNER_TEMP/preview/result.json"
+      - name: smoke
+        id: smoke
+        if: steps.target.outputs.deployed == 'true'
+        env:
+          PREVIEW_URL: ${{ steps.target.outputs.url }}
+        run: node .factory/src/ci/smoke.ts "$PREVIEW_URL" --preview
+      - name: verdict
+        if: always() && steps.target.outputs.deployed == 'true'
+        env:
+          PRODUCT: ${{ matrix.id }}
+          SMOKE: ${{ steps.smoke.outcome == 'success' && 'passed' || 'failed' }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/verdict"
+          node .factory/src/ci/previews.ts smoke-result --product "$PRODUCT" --out "$RUNNER_TEMP/verdict/smoke.json"
+      - if: always() && steps.target.outputs.deployed == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: preview-smoke-${{ matrix.id }}
+          path: ${{ runner.temp }}/verdict/smoke.json
+          if-no-files-found: error
+          retention-days: 1
+
+  # The one comment of the PR: every Product with its URL (edited by the next push, never duplicated).
+  preview-comment:
+    name: preview comment
+    needs: [preview-plan, deploy, smoke]
+    if: always() && needs.preview-plan.result == 'success' && needs.preview-plan.outputs.empty == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          filter: blob:none
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: corepack enable pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
+        with:
+          pattern: preview-*
+          path: ${{ runner.temp }}/results
+      - name: comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          MATRIX: ${{ needs.preview-plan.outputs.matrix }}
+          TRUSTED: ${{ needs.preview-plan.outputs.trusted }}
+          WHY: ${{ needs.preview-plan.outputs.why }}
+        run: node .factory/src/ci/previews.ts comment --results "$RUNNER_TEMP/results"
 
   # The one required check. Green when everything that had to run passed; a
   # `build` skipped because no package is affected counts as passed.

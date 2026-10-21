@@ -35,7 +35,7 @@ export interface BootstrapDeps {
 export interface StepContext extends BootstrapDeps {
   /** The steps named by `--redo` in this run (set by `runSteps`). */
   redo?: string[];
-  memory: { cloudflareToken?: string; accountId?: string; resendKey?: string; resendDeferred?: boolean; cloudflareDeclined?: boolean; neon?: NeonClient; neonOrg?: { id?: string }; databaseUrl?: string };
+  memory: { cloudflareToken?: string; accountId?: string; resendKey?: string; resendDeferred?: boolean; cloudflareDeclined?: boolean; neon?: NeonClient; neonOrg?: { id?: string }; databaseUrl?: string; neonKeyDeclined?: boolean; previewProject?: Record<string, string> };
 }
 
 export interface Step {

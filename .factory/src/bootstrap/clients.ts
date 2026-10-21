@@ -81,6 +81,10 @@ export interface CloudflareClient {
   /** Read-only probes of the main token, one per permission it must carry. Refusals throw `CloudflareRefused`. */
   listWorkerScripts(accountId: string): Promise<string[]>;
   listKvNamespaces(accountId: string): Promise<string[]>;
+  /** The KV namespace titled exactly `title`, or null (needs Workers KV Storage: Read). */
+  findKvNamespace(accountId: string, title: string): Promise<{ id: string; title: string } | null>;
+  /** Needs Workers KV Storage: Edit. */
+  createKvNamespace(accountId: string, title: string): Promise<{ id: string; title: string }>;
   getAccount(accountId: string): Promise<CloudflareAccount>;
   /** At most one zone of the account the token sees; probes Zone: Read without needing a domain. */
   listZones(): Promise<CloudflareZone[]>;
@@ -144,6 +148,14 @@ export interface NeonClient {
   /** Every project of the org, any name. Project names are not unique in Neon, so the caller filters and handles duplicates. */
   listProjects(orgId?: string): Promise<NeonProject[]>;
   createProject(name: string, orgId?: string): Promise<NeonProject>;
+  /**
+   * An API key that reaches only `projectId` (`neonctl api-keys create --project-id`), shown once. May be refused under
+   * an OAuth login (the docs say the first key comes from the Console): the caller then asks for a pasted one.
+   */
+  createApiKey(name: string, projectId: string): Promise<string>;
+  /** Name of the project's default branch. */
+  defaultBranchName(projectId: string): Promise<string>;
+  renameBranch(projectId: string, from: string, to: string): Promise<void>;
   /** The connection string of the default branch: pooled (the Worker) or direct (migrations). */
   connectionString(projectId: string, options: { pooled: boolean; orgId?: string }): Promise<string>;
   /** Logs out (revokes the grant) and removes the throwaway directory. Safe to call twice and after a failure. */

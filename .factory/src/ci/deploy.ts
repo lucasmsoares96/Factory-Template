@@ -1,11 +1,11 @@
 // The logic behind `factory-deploy.yml`, one subcommand per step so the YAML stays thin:
-//   plan          affected Products that are in DEPLOY_PRODUCTS  -> `matrix`, `empty`
+//   plan          affected Products that are in DEPLOY_PRODUCTS  -> `matrix`, `empty`; those also in PREVIEW_PRODUCTS -> `previews`, `previews_empty`
 //   bundle        (build job, no secrets) the build output (Worker and assets) and the Product's migrations -> a folder
 //   verify-bundle (deploy job) the extracted artifact holds only what the allowlist names
 //   config        (deploy job) the Worker config with the Product's id, next to the built one
 //   secrets-file  (deploy job) the Worker's secrets from the environment, to a file wrangler reads
 //   url           (deploy job) the deployed URL from wrangler's output file
-//   migrate       (deploy job) the Skeleton's migrations, then the Product's, against the direct Neon URL
+//   migrate       (deploy job) the Skeleton's migrations, then the Product's, against the direct Neon URL (MIGRATE_DATABASE_URL, or the first line of --url-file)
 import { execFileSync } from "node:child_process";
 import { appendFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
@@ -121,7 +121,7 @@ function builtDir(product: string): string {
 if (import.meta.main) {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
-    options: { base: { type: "string" }, head: { type: "string", default: "HEAD" }, product: { type: "string" }, out: { type: "string" }, dir: { type: "string" }, file: { type: "string" } },
+    options: { base: { type: "string" }, head: { type: "string", default: "HEAD" }, product: { type: "string" }, out: { type: "string" }, dir: { type: "string" }, file: { type: "string" }, "url-file": { type: "string" } },
   });
   const [command] = positionals;
   const need = (value: string | undefined, name: string) => {
@@ -144,6 +144,10 @@ if (import.meta.main) {
     console.log(JSON.stringify(matrix));
     output("matrix", JSON.stringify(matrix));
     output("empty", String(matrix.include.length === 0));
+    // The deployed Products that also have previews: their `base` branch is migrated after the deploy.
+    const previews = { include: matrix.include.filter((e) => parseList(process.env.PREVIEW_PRODUCTS).includes(e.id)) };
+    output("previews", JSON.stringify(previews));
+    output("previews_empty", String(previews.include.length === 0));
   } else if (command === "bundle") {
     const id = productId();
     const out = resolve(need(values.out, "out"));
@@ -174,7 +178,7 @@ if (import.meta.main) {
     console.log(url);
   } else if (command === "migrate") {
     const { migrateDatabase } = await import("../../../packages/skeleton/src/node/migrate.ts");
-    const databaseUrl = process.env.MIGRATE_DATABASE_URL;
+    const databaseUrl = values["url-file"] ? readFileSync(resolve(values["url-file"]), "utf8").trim() : process.env.MIGRATE_DATABASE_URL;
     if (!databaseUrl) throw new Error("MIGRATE_DATABASE_URL is not set.");
     const folder = resolve(need(values.dir, "dir"), "migrations/product");
     await migrateDatabase({ databaseUrl, productMigrationsFolder: folder });

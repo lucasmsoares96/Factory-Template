@@ -14,7 +14,8 @@ interface Envelope<T> {
 
 const zones = z.array(z.object({ id: z.string(), name: z.string() }));
 const dnsRecords = z.array(z.object({ type: z.string(), name: z.string(), content: z.string() }));
-const kvNamespaces = z.array(z.object({ id: z.string() }));
+const kvNamespaces = z.array(z.object({ id: z.string(), title: z.string().optional() }));
+const kvNamespace = z.object({ id: z.string(), title: z.string() });
 const account = z.object({ id: z.string(), name: z.string() });
 const tokenStatus = z.object({ status: z.string() });
 const scripts = z.array(z.object({ id: z.string() }));
@@ -114,6 +115,20 @@ export class CloudflareApi implements CloudflareClient {
   async listKvNamespaces(accountId: string): Promise<string[]> {
     const { result } = await this.request("GET", `/accounts/${accountId}/storage/kv/namespaces`, kvNamespaces);
     return result.map((ns) => ns.id);
+  }
+
+  async findKvNamespace(accountId: string, title: string): Promise<{ id: string; title: string } | null> {
+    for (let page = 1, pages = 1; page <= pages; page++) {
+      const response = await this.request("GET", `/accounts/${accountId}/storage/kv/namespaces?per_page=100&page=${page}`, kvNamespaces);
+      const found = response.result.find((ns) => ns.title === title);
+      if (found) return { id: found.id, title };
+      pages = response.pages;
+    }
+    return null;
+  }
+
+  async createKvNamespace(accountId: string, title: string): Promise<{ id: string; title: string }> {
+    return (await this.request("POST", `/accounts/${accountId}/storage/kv/namespaces`, kvNamespace, { title })).result;
   }
 
   async getAccount(accountId: string): Promise<CloudflareAccount> {
