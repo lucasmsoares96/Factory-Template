@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { GitHubCodeHost, type GitRunner } from "../../src/adapters/github/github-code-host.ts";
 import { FakeGitHubServer } from "./fake-github.ts";
+// Imported statically: helpers.ts registers the afterEach that removes temp dirs, which a dynamic import inside a test misses.
+import { git, tempDir } from "../helpers.ts";
 
 const R = "/repos/o/r";
 const pr = (n: number, extra: Record<string, unknown> = {}) => ({
@@ -186,7 +188,6 @@ describe("GitHubCodeHost", () => {
 
 describe("GitHubCodeHost.push with the real git", () => {
   it("leases against the start SHA: a moved branch is branch-moved, an absent one needs null", async () => {
-    const { tempDir, git } = await import("../helpers.ts");
     const root = await tempDir();
     const bare = `${root}/bare.git`;
     const work = `${root}/work`;
