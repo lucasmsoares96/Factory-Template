@@ -97,6 +97,10 @@ export class NeonCli implements NeonClient {
     return { id: made.id, name: made.name };
   }
 
+  async deleteProject(projectId: string): Promise<void> {
+    await this.call(["projects", "delete", projectId, "-o", "json"]);
+  }
+
   async createApiKey(name: string, projectId: string): Promise<string> {
     // `--project-id` alone: the CLI looks the organization up from the project. The key is only in this return value.
     return apiKey.parse(JSON.parse(await this.call(["api-keys", "create", "--name", name, "--project-id", projectId, "-o", "json"]))).key;

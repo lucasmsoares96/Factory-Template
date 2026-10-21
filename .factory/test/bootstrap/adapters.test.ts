@@ -448,3 +448,56 @@ describe("WranglerCli", () => {
     expect(calls).toEqual([{ args: ["login"], inherit: true }]);
   });
 });
+
+describe("delete methods of the real adapters (fake gh, fetch and neonctl; only `destroy` uses them)", () => {
+  it("GhCli deletes secrets, variables, environments, rulesets and collaborators with gh", async () => {
+    const calls: string[][] = [];
+    const gh = new GhCli(async (args) => (calls.push(args), ""));
+
+    await gh.deleteSecret("A_SECRET");
+    await gh.deleteSecret("B_SECRET", { environment: "shop-production" });
+    await gh.deleteVariable("A_VAR");
+    await gh.deleteEnvironment("shop-preview");
+    await gh.deleteRuleset(7);
+    await gh.removeCollaborator("factory-bot");
+
+    expect(calls).toEqual([
+      ["secret", "delete", "A_SECRET"],
+      ["secret", "delete", "B_SECRET", "--env", "shop-production"],
+      ["variable", "delete", "A_VAR"],
+      ["api", "-X", "DELETE", "repos/{owner}/{repo}/environments/shop-preview"],
+      ["api", "-X", "DELETE", "repos/{owner}/{repo}/rulesets/7"],
+      ["api", "-X", "DELETE", "repos/{owner}/{repo}/collaborators/factory-bot"],
+    ]);
+  });
+
+  it("CloudflareApi detaches the Custom Domains, then deletes the Worker (force) and the KV namespace", async () => {
+    const seen: { method?: string; url: string }[] = [];
+    const client = new CloudflareApi("tok", async (url, init) => {
+      seen.push({ method: init?.method, url: String(url).replace("https://api.cloudflare.com/client/v4", "") });
+      const result = init?.method === "GET" ? [{ id: "dom-1", service: "shop" }, { id: "dom-2", service: "other" }] : null;
+      return new Response(JSON.stringify({ success: true, result }), { status: 200 });
+    });
+
+    await client.deleteWorkerDomains("acc", "shop");
+    await client.deleteWorker("acc", "shop");
+    await client.deleteKvNamespace("acc", "kv-1");
+
+    expect(seen).toEqual([
+      { method: "GET", url: "/accounts/acc/workers/domains?service=shop" },
+      { method: "DELETE", url: "/accounts/acc/workers/domains/dom-1" },
+      { method: "DELETE", url: "/accounts/acc/workers/scripts/shop?force=true" },
+      { method: "DELETE", url: "/accounts/acc/storage/kv/namespaces/kv-1" },
+    ]);
+  });
+
+  it("ResendApi deletes a domain and NeonCli deletes a project by id", async () => {
+    const seen: string[] = [];
+    await new ResendApi("re", async (url, init) => (seen.push(`${init?.method} ${String(url)}`), new Response("{}", { status: 200 }))).deleteDomain("d1");
+    const calls: string[][] = [];
+    await new NeonCli({ env: { PATH: "/bin" }, run: async (args) => (calls.push(args), "{}") }).deleteProject("proj-1");
+
+    expect(seen).toEqual(["DELETE https://api.resend.com/domains/d1"]);
+    expect(calls).toEqual([["projects", "delete", "proj-1", "-o", "json"]]);
+  });
+});
