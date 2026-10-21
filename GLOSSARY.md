@@ -15,7 +15,7 @@ This repository: the Factory, the Skeleton and one example Product, meant to be 
 _Avoid_: Boilerplate, starter
 
 **Product**:
-An application built on the Skeleton, with its own users, Companies, domain, database and deployment. One repository can hold several Products, and a change to the Skeleton reaches all of them.
+An application built on the Skeleton, with its own users, Companies, domain, database, Worker and deployment, kept in `apps/<id>/`. One repository can hold several Products, and a change to the Skeleton reaches all of them. A Product only extends the Skeleton (configuration, features, extra roles); it never edits it.
 _Avoid_: App (ambiguous with an application package), tenant (a Company is the tenant), Project (a Reference App concept)
 
 **Reference App**:
@@ -23,7 +23,7 @@ The first Product built on the Skeleton, a project-management application kept i
 _Avoid_: Demo, sample app
 
 **Skeleton**:
-The application base shared by every Product in a repository: the stack wired end to end, sign-up and sign-in, account, Companies and Invitations. It is never deployed on its own, only as part of a Product. Its foundation, including sign-up and sign-in, is built by hand; the rest (account, Companies, Invitations) is built by the factory itself, as its acceptance test.
+The application base shared by every Product in a repository, the package `packages/skeleton/`: the stack wired end to end, sign-up and sign-in, the OpenAPI to MCP bridge, account, Companies and Invitations. It is never deployed on its own, only as part of a Product. Its foundation, including sign-up and sign-in, is built by hand; the rest (account, Companies, Invitations) is built by the factory itself, as its acceptance test.
 _Avoid_: Boilerplate, base app
 
 **Stage**:
@@ -31,14 +31,14 @@ One step of the factory's work on an issue: Development, Review, E2E, or Pull Re
 _Avoid_: Phase, step, write-up
 
 **Triage**:
-The read-only pass that decides whether an issue can be built by the factory as written, and at which seams it will be tested.
+The read-only pass, started by the `agent:explore` label, that decides whether an issue can be built by the factory as written, and at which seams it will be tested. It ends in one verdict per issue: `easy-call` (queued for the factory), `needs-a-human` or `blocked`. With no valid verdict the issue is never queued by guess: it becomes `needs-a-human`.
 _Avoid_: Exploration, explore
 
 **Merge Gate**:
-The point where a human reviews and merges the factory's pull request; the factory never merges its own work.
+The point where a human reviews and merges the factory's pull request; the factory never merges its own work. When a pull request is ready or escalated, the Merge Gate notice, a comment from `github-actions[bot]`, mentions whoever started the run, since nobody is notified of what the factory itself writes.
 
 **Escalation**:
-What the factory does when an issue fails E2E five times, runs out of time, or needs a human decision: opens a draft pull request with its progress, explains the failure on the issue, and hands it to a human.
+What the factory does when it cannot finish an issue: it explains why on the issue, swaps `in-progress` for `ready-for-human`, and opens a draft pull request with its progress when there are commits. The reason is one of `e2e-failures` (five attempts failed), `time` (the global limit ran out), `needs-human` (a question for a person, or the criteria cannot be met without changing the Skeleton) or `infra` (the run left no result). A diff in a protected path also ends in an Escalation, without a pull request.
 _Avoid_: Failure, abort
 
 **Merge Danger**:
@@ -50,7 +50,30 @@ A human-led look back at an Escalation, or at a pull request where a human found
 _Avoid_: Postmortem, retrospective
 
 **Blocked Issue**:
-A ready issue that the factory will not start until every issue blocking it has been merged.
+A ready issue that the factory will not start until every issue blocking it is closed as completed (its pull request merged). The factory answers "Waiting on #N", and starts it when the last blocker closes.
+
+**Evidence**:
+The screenshots of `@evidence` tests, saved in `test-results/evidence/<product>/` and shown inside the pull request body next to the text they support, grouped by Product.
+_Avoid_: Screenshots (as a deliverable), proof
+
+**Preview**:
+A temporary deployment of one pull request: a Worker Preview `pr-N` and a Neon branch, deleted when the pull request closes. It is skipped when the Worker's bindings changed or nine previews are open.
+_Avoid_: Staging, review app
+
+**Factory marker**:
+The hidden `<!-- factory -->` the factory puts in every text it writes. It writes with the owner's token, so the marker, not the author, tells its words from a person's.
+_Avoid_: Bot signature, machine user
+
+**Skeleton gap**:
+What a Product issue needs that the Skeleton lacks. The factory reverts any Skeleton change made for a Product issue and opens an issue titled "The Skeleton must grow: ...", so the Skeleton grows in its own change.
+_Avoid_: Workaround
+
+**Default account**:
+The one verified account `bootstrap product` creates in a Product's production database. The person uses it without signing up, and the post-deploy smoke test signs in with it.
+_Avoid_: Admin user, test user
+
+**Harness change**:
+A change to the factory's own environment (`.factory/`, `AGENTS.md`, `GLOSSARY.md`, `docs/agents/`, `docs/adr/`, `CODING_STANDARDS.md`). The pull request gets the `harness-change` label and a warning.
 
 ### Organization (Skeleton)
 

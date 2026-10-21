@@ -16,6 +16,7 @@ export default defineProduct({
       auth: {
         signIn: { description: "Your workspace, one sign-in away." },
         signUp: { description: "Create your Example workspace in a minute." },
+        forgotPassword: { description: "Type the email of your Example account and we will send you a reset link." },
       },
     },
     "pt-BR": {
@@ -23,6 +24,7 @@ export default defineProduct({
       auth: {
         signIn: { description: "Seu espaço, a um login de distância." },
         signUp: { description: "Crie seu espaço no Example em um minuto." },
+        forgotPassword: { description: "Digite o email da sua conta no Example e enviaremos um link para trocar a senha." },
       },
     },
   },

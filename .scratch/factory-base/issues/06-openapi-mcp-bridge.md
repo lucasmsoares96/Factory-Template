@@ -6,7 +6,7 @@ Spec: [../spec.md](../spec.md)
 
 **Blocked by:** 05
 
-**Status:** ready-for-human
+**Status:** done
 
 - [x] `workers-oauth-provider` + `createMcpHandler`, CIMD e DCR ligados, `legacy: "stateless"`, `OAUTH_KV` do Product. Token só com `userId`.
 - [x] `/authorize` lê a sessão do Better Auth e mostra o consentimento com a escolha `read`/`write`.
@@ -17,7 +17,7 @@ Spec: [../spec.md](../spec.md)
 - [x] O `verify` falha se uma operação exposta não tiver `operationId`, `summary` ou `description`, e compara o `tools/list` com um snapshot commitado (seam 6).
 - [x] Testes com o cliente MCP do SDK contra o Worker local: `read` não vê escrita, a identidade chega à rota, 4xx vira `isError`, 401 com `WWW-Authenticate` sem token (seam 3).
 - [x] E2E do fluxo completo: login, consentimento, token, chamada de `getMe` (seam 5).
-- [ ] Critério medido no ticket 14: CPU por request do `/mcp` no Workers Free.
+- [x] Critério medido no ticket 14: CPU por request do `/mcp` no Workers Free.
 
 ## Comments
 
@@ -57,3 +57,5 @@ Pending (human): medir na conta (ticket 14) o CPU por request do `/mcp` no Worke
 Pending (human): criar o namespace KV `OAUTH_KV` de produção (e o `PREVIEW_OAUTH_KV_ID` do preview) na conta real, pelo bootstrap (tickets 13–15); o `wrangler.jsonc` tem só o binding.
 
 Revisão (US73): o teste "a token issued for one Product's /mcp is rejected by another Product's /mcp" em `packages/skeleton/test/mcp.test.ts` sobe uma segunda composição (outro banco, outro `OAUTH_KV`, outra origem) e mostra que o token de uma dá 200 na sua origem e 401 na outra. Nenhum critério novo marcado: o único aberto continua sendo a medição de CPU no Workers Free.
+
+Medido em 2026-10-21 (detalhes no ticket 14): `tools/list` + `tools/call getMe` autenticados, p50 8,0 ms, p90 15,4 ms e p99 19,0 ms de CPU, sem erro; sem token (401), p50 0,9 ms.

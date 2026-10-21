@@ -6,7 +6,7 @@ Spec: [../spec.md](../spec.md)
 
 **Blocked by:** 09, 10, 15
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] *(Substituído pelo 25: a Factory usa o token fine-grained do dono, sem machine user.)* Módulo Factory: machine user com PAT clássico `repo` sem `workflow`, convite `write` aceito pelo wizard, conferência por `X-OAuth-Scopes` e recusa do mesmo login do dono; auth do Claude (`CLAUDE_CODE_OAUTH_TOKEN` recomendado ou `ANTHROPIC_API_KEY`, aviso se houver os dois); `FACTORY_ENABLED` ligado depois do `doctor`.
 - [x] Adaptadores GitHub de `Tracker` e `CodeHost` (REST por `fetch` + Zod; `gh` só no `--attach`; `done` = `closed`+`completed`).
@@ -64,3 +64,9 @@ Demonstração real (2026-10-21, conta do dono com o `FACTORY_TOKEN` do ticket 2
 
 Issue de exemplo (2026-10-21, `.factory/src/bootstrap/example.ts`): ao fim de `pnpm bootstrap factory`, com doctor verde, `FACTORY_ENABLED` ligado e TTY, um `confirm` (padrão não, perguntado de novo a cada execução). Sim: cria o pai (`## Testing Decisions`) e o filho (`## Acceptance criteria`, override de `auth.signIn.title` no Product), liga o sub-issue e só então põe `product:<id>` (criada se faltar) e `ready-for-agent`; faz poll a cada 30 s por até 40 min e imprime cada passo com a URL. Em qualquer desfecho (try/finally; o primeiro Ctrl-C para a espera e limpa): imprime PR e preview, espera Enter, cancela run em andamento, fecha o PR sem merge (o `factory-pr-cleanup.yml` apaga o preview e o branch do Neon; o wizard espera esse run), apaga `factory/issue-N`, os follow-ups "The Skeleton must grow" e as duas issues; o que falhar é listado com o comando para remover. Sai 0 só com o PR pronto. Usa só a sessão do `gh` (novos métodos do `GitHubClient`), nunca o `FACTORY_TOKEN`. Testes: `test/bootstrap/example.test.ts` (19, contra o GitHub falso) e um em `adapters.test.ts`.
 Pending (human): a execução real (`pnpm bootstrap factory` na conta real, respondendo sim) é do orquestrador.
+
+Issue de exemplo na conta real (2026-10-21, PR #23, `pnpm bootstrap factory` do dono, resposta "Yes"):
+- **Criação:** o wizard criou a spec pai #24 e a issue #25 (sub-issue, `product:example` + `ready-for-agent`).
+- **Trabalho da Factory:** o `factory-issue.yml` (run 39642882417) abriu o PR #26, com preview e smoke verdes.
+- **Limpeza:** depois do Enter, o wizard fechou o PR sem merge, esperou o `factory-pr-cleanup.yml` e apagou o branch e as duas issues. Conferido depois: nenhum PR, issue ou branch `factory/*` aberto.
+- **PR #27:** o Enter virou a escolha "Delete it" (padrão, e também o Ctrl-C) ou "Keep it" (não apaga nada e imprime os comandos para apagar depois).
