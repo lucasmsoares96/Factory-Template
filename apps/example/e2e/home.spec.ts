@@ -19,10 +19,10 @@ test("every locale's sign-in tagline is the Product's own text, not the Skeleton
   }
 });
 
-test("overriding the tagline keeps the Skeleton's other sign-in texts in every locale", () => {
+test("overriding the title and tagline keeps the Skeleton's other sign-in texts in every locale", () => {
   for (const locale of locales) {
-    const { description: _product, ...productSignIn } = messagesFor(locale, productConfig.messages).auth.signIn;
-    const { description: _skeleton, ...skeletonSignIn } = messagesFor(locale).auth.signIn;
+    const { title: _productTitle, description: _product, ...productSignIn } = messagesFor(locale, productConfig.messages).auth.signIn;
+    const { title: _skeletonTitle, description: _skeleton, ...skeletonSignIn } = messagesFor(locale).auth.signIn;
     expect(productSignIn, locale).toEqual(skeletonSignIn);
   }
 });
@@ -40,4 +40,16 @@ test("the sign-in screen shows the Product's tagline right below its title", { t
   // Right below the title: the element that follows the card title wrapping the heading.
   await expect(heading.locator("xpath=..").locator("xpath=following-sibling::*[1]")).toHaveText(t.auth.signIn.description);
   await evidence("sign-in-tagline");
+});
+
+test("the sign-in title is the agreed welcome text in each locale", () => {
+  expect(messagesFor("en", productConfig.messages).auth.signIn.title).toBe("Welcome to Example");
+  expect(messagesFor("pt-BR", productConfig.messages).auth.signIn.title).toBe("Bem-vindo ao Example");
+});
+
+test("the sign-in screen shows the Product's welcome title", { tag: "@evidence" }, async ({ page, t, evidence }) => {
+  await page.goto("/sign-in");
+
+  await expect(page.getByRole("heading", { name: t.auth.signIn.title })).toBeVisible();
+  await evidence("sign-in-welcome-title");
 });

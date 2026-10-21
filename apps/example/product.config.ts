@@ -13,11 +13,11 @@ export default defineProduct({
   messages: {
     en: {
       app: { title: "Example" },
-      auth: { signIn: { description: "Your workspace, one sign-in away." } },
+      auth: { signIn: { title: "Welcome to Example", description: "Your workspace, one sign-in away." } },
     },
     "pt-BR": {
       app: { title: "Example" },
-      auth: { signIn: { description: "Seu espaço, a um login de distância." } },
+      auth: { signIn: { title: "Bem-vindo ao Example", description: "Seu espaço, a um login de distância." } },
     },
   },
 });
