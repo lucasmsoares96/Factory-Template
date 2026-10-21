@@ -46,5 +46,5 @@ What was measured on real accounts while building the base (Cloudflare Workers F
 ## Free-plan ceilings with several Products
 
 - Resend Free: 3 domains per account (a 4th Product needs Pro, US$ 20/month) and 100 emails a day across all of them.
-- Actions on a private repo: 2,000 minutes a month per account, split across CI and the Factory of every Product, and no environments or rulesets on a private Free repo. A self-hosted runner is free today and spends none of them (a US$ 0.002/min fee was announced and postponed).
+- Actions on a private repo: 2,000 minutes a month per account, split across CI and the Factory of every Product, and, per GitHub's docs (not measured yet), no environments or rulesets on a private Free repo. A self-hosted runner is free today and spends none of them (a US$ 0.002/min fee was announced and postponed).
 - Neon: 100 projects, but the combined 20 GB limits first. Workers: 100k requests a day per account (static assets do not count). R2 has no spend cap and likely needs a card, so attachments are out of the base.
