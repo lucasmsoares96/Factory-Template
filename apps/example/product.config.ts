@@ -13,11 +13,17 @@ export default defineProduct({
   messages: {
     en: {
       app: { title: "Example" },
-      auth: { signIn: { description: "Your workspace, one sign-in away." } },
+      auth: {
+        signIn: { description: "Your workspace, one sign-in away." },
+        forgotPassword: { description: "Type the email of your Example account and we will send you a reset link." },
+      },
     },
     "pt-BR": {
       app: { title: "Example" },
-      auth: { signIn: { description: "Seu espaço, a um login de distância." } },
+      auth: {
+        signIn: { description: "Seu espaço, a um login de distância." },
+        forgotPassword: { description: "Digite o email da sua conta no Example e enviaremos um link para trocar a senha." },
+      },
     },
   },
 });
