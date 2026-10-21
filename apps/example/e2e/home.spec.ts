@@ -42,6 +42,13 @@ test("the sign-in screen shows the Product's tagline right below its title", { t
   await evidence("sign-in-tagline");
 });
 
+test("every locale's sign-up tagline is the Product's own text, not the Skeleton's default description", () => {
+  for (const locale of locales) {
+    const tagline = messagesFor(locale, productConfig.messages).auth.signUp.description;
+    expect(tagline, locale).not.toBe(messagesFor(locale).auth.signUp.description);
+  }
+});
+
 test("the sign-up tagline is the agreed copy in each locale", () => {
   expect(messagesFor("en", productConfig.messages).auth.signUp.description).toBe("Create your Example workspace in a minute.");
   expect(messagesFor("pt-BR", productConfig.messages).auth.signUp.description).toBe("Crie seu espaço no Example em um minuto.");
