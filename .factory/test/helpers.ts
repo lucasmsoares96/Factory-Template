@@ -8,13 +8,18 @@ import { FakeAgent, type AgentStep } from "../src/adapters/fake/fake-agent.ts";
 import { FakeCodeHost, type FakePullRequestSeed } from "../src/adapters/fake/fake-code-host.ts";
 import { FakeTracker, type FakeIssueInput } from "../src/adapters/fake/fake-tracker.ts";
 import { FakeVerify, type VerifyStep } from "../src/adapters/fake/fake-verify.ts";
+import { FACTORY_MARKER } from "../src/marker.ts";
 import type { Stage } from "../src/seams/agent.ts";
 import { runFactory } from "../src/cli.ts";
 
 const exec = promisify(execFile);
 
 export const HUMAN = "alice";
-export const MACHINE_USER = "factory-bot";
+
+/** `text` without the hidden Factory marker the write adapters add. */
+export const unmarked = (text: string): string => text.replace(`\n\n${FACTORY_MARKER}`, "");
+/** The repo owner: the Factory writes with the owner's token, so it is a writer and the author of its own texts. */
+export const OWNER = "owner";
 
 export const SPEC_BODY = "# Spec\n\n## Testing Decisions\n\n1. CLI against the fakes.\n";
 export const ISSUE_BODY = [
@@ -166,14 +171,14 @@ export interface WorldOptions {
 export function world(options: WorldOptions = {}): World {
   const tracker = new FakeTracker({
     issues: options.issues ?? readyIssue(),
-    writers: options.writers ?? [HUMAN],
-    self: MACHINE_USER,
+    writers: [...(options.writers ?? [HUMAN]), OWNER],
+    self: OWNER,
   });
-  const codeHost = new FakeCodeHost({ branches: options.branches ?? {}, prs: options.prs ?? [] });
+  const codeHost = new FakeCodeHost({ branches: options.branches ?? {}, prs: options.prs ?? [], self: OWNER });
   const repo = options.repo ?? "/nonexistent";
   const agent = new FakeAgent(repo, options.agent ?? {});
   const verify = new FakeVerify(repo, "test-results/evidence", options.verify ?? []);
-  const env = { FACTORY_MACHINE_USER: MACHINE_USER, ...options.env };
+  const env: Record<string, string> = { ...options.env };
   const logs: string[] = [];
   return {
     tracker,

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import type { CodeHost, EvidenceImage, PullRequest, PushResult, Review, ReviewThread } from "../../seams/code-host.ts";
+import { marked } from "../../marker.ts";
 import { BASE_ENV, pick } from "../../env.ts";
 import { GitHubApi, type GitHubApiOptions } from "./api.ts";
 
@@ -92,12 +93,12 @@ export class GitHubCodeHost implements CodeHost {
   }
 
   async commentPr(pr: number, body: string): Promise<void> {
-    await this.api.send("POST", this.api.repoPath(`/issues/${pr}/comments`), { body });
+    await this.api.send("POST", this.api.repoPath(`/issues/${pr}/comments`), { body: marked(body) });
   }
 
   async openDraftPr(input: { branch: string; base: string; title: string; body: string; images?: EvidenceImage[] }): Promise<PullRequest> {
     const row = await this.api.request("POST", this.api.repoPath("/pulls"), prRow, {
-      body: { head: input.branch, base: input.base, title: input.title, body: input.body, draft: true },
+      body: { head: input.branch, base: input.base, title: input.title, body: marked(input.body), draft: true },
     });
     if (input.images?.length) await this.updatePrBody(row!.number, input.body, input.images);
     return toPr(row!);
@@ -107,7 +108,8 @@ export class GitHubCodeHost implements CodeHost {
    * Without images, a plain REST write. With images, `gh pr edit --body-file --attach` uploads each print and swaps
    * its reference for the URL; if gh cannot attach, the body is written with the prints named instead of linked.
    */
-  async updatePrBody(pr: number, body: string, images: EvidenceImage[] = []): Promise<void> {
+  async updatePrBody(pr: number, plain: string, images: EvidenceImage[] = []): Promise<void> {
+    const body = marked(plain);
     if (images.length === 0) return this.api.send("PATCH", this.api.repoPath(`/pulls/${pr}`), { body });
     const dir = await mkdtemp(join(tmpdir(), "factory-body-"));
     try {
@@ -140,7 +142,7 @@ export class GitHubCodeHost implements CodeHost {
   }
 
   async closePr(pr: number, comment?: string): Promise<void> {
-    if (comment) await this.api.send("POST", this.api.repoPath(`/issues/${pr}/comments`), { body: comment });
+    if (comment) await this.api.send("POST", this.api.repoPath(`/issues/${pr}/comments`), { body: marked(comment) });
     await this.api.send("PATCH", this.api.repoPath(`/pulls/${pr}`), { state: "closed" });
   }
 
@@ -151,8 +153,8 @@ export class GitHubCodeHost implements CodeHost {
   async submitReview(pr: number, review: Review): Promise<void> {
     await this.api.send("POST", this.api.repoPath(`/pulls/${pr}/reviews`), {
       event: review.event,
-      body: review.body,
-      comments: review.comments.map((c) => ({ path: c.path, line: c.line, side: "RIGHT", body: c.body })),
+      body: marked(review.body),
+      comments: review.comments.map((c) => ({ path: c.path, line: c.line, side: "RIGHT", body: marked(c.body) })),
     });
   }
 
@@ -170,7 +172,7 @@ export class GitHubCodeHost implements CodeHost {
   }
 
   async replyToThread(pr: number, threadId: string, body: string): Promise<void> {
-    await this.api.send("POST", this.api.repoPath(`/pulls/${pr}/comments/${threadId}/replies`), { body });
+    await this.api.send("POST", this.api.repoPath(`/pulls/${pr}/comments/${threadId}/replies`), { body: marked(body) });
   }
 
   async dispatch(workflow: string, inputs: Record<string, string>): Promise<void> {

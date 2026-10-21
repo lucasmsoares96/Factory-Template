@@ -43,31 +43,21 @@ export interface GitHubClient {
   listRulesets(): Promise<RulesetInfo[]>;
   /** `refused` as for environments. */
   createRuleset(spec: RulesetSpec): Promise<"created" | "refused">;
-  /** Invites `login` as a collaborator with `write` (idempotent: an existing collaborator or invitation is left alone). */
-  inviteCollaborator(login: string): Promise<void>;
-  /** The permission `login` has on the repo: admin, maintain, write, triage, read or none. */
-  collaboratorPermission(login: string): Promise<CollaboratorPermission>;
   /** Deletes a secret of the repo or of one environment (only `destroy` calls the delete methods). */
   deleteSecret(name: string, options?: { environment?: string }): Promise<void>;
   deleteVariable(name: string): Promise<void>;
   /** Deleting an environment deletes its secrets and variables. */
   deleteEnvironment(name: string): Promise<void>;
   deleteRuleset(id: number): Promise<void>;
-  /** Removes a collaborator, or cancels the pending invitation. */
-  removeCollaborator(login: string): Promise<void>;
 }
 
-export type CollaboratorPermission = "admin" | "maintain" | "write" | "triage" | "read" | "none";
-
 /**
- * The machine user, reached with its own classic PAT (held in memory; it goes straight to the `FACTORY_TOKEN` secret).
- * The only thing `gh` cannot do for the wizard: it is signed in as the human, not as the machine user.
+ * The owner's fine-grained token, held in memory (it goes straight to the `FACTORY_TOKEN` secret). `gh` is signed in with
+ * a different credential, so only the token itself can say what the token may do.
  */
-export interface MachineUserClient {
-  /** `GET /user`: the login and the scopes of a classic token (`X-OAuth-Scopes`); `scopes` is null when the header is absent (fine-grained token). Throws when GitHub rejects the token. */
-  viewer(): Promise<{ login: string; scopes: string[] | null }>;
-  /** Accepts the pending invitation to `repo` (`owner/name`). False when there is none. */
-  acceptInvitation(repo: string): Promise<boolean>;
+export interface TokenClient {
+  /** `GET /repos/{owner}/{repo}` with the token: whether it can push. Throws when GitHub rejects the token or the repo is not among its repositories. */
+  repoAccess(repo: string): Promise<{ push: boolean }>;
 }
 
 /** The rules of a branch ruleset the wizard cares about. `ref` patterns are as GitHub stores them (`~DEFAULT_BRANCH`, `refs/heads/main`). */

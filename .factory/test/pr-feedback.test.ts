@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { git, HUMAN, lastJson, MACHINE_USER } from "./helpers.ts";
+import { FACTORY_MARKER, marked } from "../src/marker.ts";
+import { git, HUMAN, lastJson, OWNER, unmarked } from "./helpers.ts";
 import { BRANCH, PR, commits, feedbackRound, prWorld, replies, reviewOk, thread } from "./pr-flow-helpers.ts";
 
 const claimReason = async (options: Parameters<typeof prWorld>[0], actor: string) => {
@@ -14,9 +15,29 @@ describe("factory pr-feedback: who may trigger a round", () => {
     expect(claim).toMatchObject({ claimed: true, issue: 7, pr: PR, branch: BRANCH });
   });
 
-  it("ignores the machine user's own comments", async () => {
-    const { claim } = await claimReason({ main: "none", threads: [thread("t1", "rename this")] }, MACHINE_USER);
-    expect(claim).toEqual({ claimed: false, reason: "machine-user" });
+  it("does not loop on its own words: a reply written by the adapter, as the owner, claims nothing", async () => {
+    const p = await prWorld({ main: "none", threads: [thread("t1", "rename this")] });
+    await p.w.codeHost.replyToThread(PR, "t1", "Address: done.");
+    expect(await p.w.factory("pr-feedback", "--pr", String(PR), "--actor", OWNER)).toBe(0);
+    expect(lastJson(p.w.logs)).toEqual({ claimed: false, reason: "no-open-threads" });
+  });
+
+  it("answers a comment by the owner that carries no marker: it is a person typing", async () => {
+    const { claim } = await claimReason({ main: "none", threads: [thread("t1", "rename this", { author: OWNER })] }, OWNER);
+    expect(claim).toMatchObject({ claimed: true, issue: 7 });
+  });
+
+  it("ignores a forged marker from someone without write access", async () => {
+    const forged = thread("t1", `rename this\n\n${FACTORY_MARKER}`, { author: "mallory" });
+    const { claim } = await claimReason({ main: "none", threads: [forged] }, "mallory");
+    expect(claim).toEqual({ claimed: false, reason: "actor-cannot-write" });
+    const asWriter = await claimReason({ main: "none", threads: [forged] }, HUMAN);
+    expect(asWriter.claim).toEqual({ claimed: false, reason: "no-open-threads" });
+  });
+
+  it("ignores a writer's comment that contains the marker (accepted trade, ADR 0002)", async () => {
+    const { claim } = await claimReason({ main: "none", threads: [thread("t1", `please rename\n\n${FACTORY_MARKER}`)] }, HUMAN);
+    expect(claim).toEqual({ claimed: false, reason: "no-open-threads" });
   });
 
   it("ignores an author without write access", async () => {
@@ -42,7 +63,7 @@ describe("factory pr-feedback: who may trigger a round", () => {
     await human.w.factory("pr-feedback", "--pr", String(PR), "--actor", HUMAN);
     expect(lastJson(human.w.logs)).toEqual({ claimed: false, reason: "not-in-progress" });
 
-    const answered = await prWorld({ main: "none", threads: [thread("t1", "x", { replies: [{ author: MACHINE_USER, body: "done" }] })] });
+    const answered = await prWorld({ main: "none", threads: [thread("t1", "x", { replies: [{ author: OWNER, body: marked("done") }] })] });
     await answered.w.factory("pr-feedback", "--pr", String(PR), "--actor", HUMAN);
     expect(lastJson(answered.w.logs)).toEqual({ claimed: false, reason: "no-open-threads" });
   });
@@ -76,13 +97,10 @@ describe("factory pr-feedback: only writers' words reach the agent", () => {
     expect(claim).toEqual({ claimed: false, reason: "no-open-threads" });
   });
 
-  it("fails closed when the machine user is not configured", async () => {
+  it("fails closed when the event names no actor", async () => {
     const p = await prWorld({ main: "none", threads: [thread("t1", "rename this")] });
-    p.w.env.FACTORY_MACHINE_USER = "";
     expect(await p.w.factory("pr-feedback", "--pr", String(PR), "--actor", "")).toBe(0);
-    expect(lastJson(p.w.logs)).toEqual({ claimed: false, reason: "no-machine-user" });
-    expect(await p.w.factory("pr-feedback", "--pr", String(PR), "--actor", HUMAN)).toBe(0);
-    expect(lastJson(p.w.logs)).toEqual({ claimed: false, reason: "no-machine-user" });
+    expect(lastJson(p.w.logs)).toEqual({ claimed: false, reason: "no-actor" });
   });
 });
 
@@ -98,7 +116,7 @@ describe("factory pr-feedback: a round", () => {
     await feedbackRound(p);
 
     const pr = p.w.codeHost.pr(PR);
-    expect(pr.threads[0]!.replies).toEqual([{ author: "factory", body: "Address: Renamed it in the new commit." }]);
+    expect(pr.threads[0]!.replies).toEqual([{ author: OWNER, body: marked("Address: Renamed it in the new commit.") }]);
     const pushed = p.w.codeHost.branches.get(BRANCH)!;
     expect(pushed).not.toBe(p.head);
     expect(await git(p.publishRepo, "show", `${pushed}~1:src/main-only.ts`).catch(() => "")).toContain("fromMain");
@@ -133,8 +151,8 @@ describe("factory pr-feedback: a round", () => {
         await feedbackRound(p);
 
     const [t1, t2, t3] = p.w.codeHost.pr(PR).threads;
-    expect(t1!.replies[0]!.body).toBe("Decline: A function is what the issue asks for.");
-    expect(t2!.replies[0]!.body).toBe("Defer: Worth a separate issue covering CSV export.");
+    expect(unmarked(t1!.replies[0]!.body)).toBe("Decline: A function is what the issue asks for.");
+    expect(unmarked(t2!.replies[0]!.body)).toBe("Defer: Worth a separate issue covering CSV export.");
     expect(t3!.replies[0]!.body).toContain("Answer: It keeps the value stable");
     expect(p.w.agent.calls.map((c) => c.stage)).toEqual(["development", "pull-request"]);
     expect(p.w.verify.runs).toBe(1);
@@ -176,7 +194,7 @@ describe("factory pr-feedback: a round", () => {
     expect(pr.draft).toBe(false);
     expect(pr.comments).toHaveLength(1);
     expect(pr.comments[0]).toContain("ready-for-human");
-    expect(pr.threads[0]!.replies[0]!.body).toBe("Address: Tried.");
+    expect(unmarked(pr.threads[0]!.replies[0]!.body)).toBe("Address: Tried.");
   });
 
   it("an escalated round does not tell a ready PR that it is a draft holding progress", async () => {
@@ -199,7 +217,7 @@ describe("factory pr-feedback: a round", () => {
     expect(pr.draft).toBe(false);
     expect(pr.body).toContain("## Summary");
     expect(pr.body).not.toMatch(/draft|holds its progress|\[!WARNING\]/i);
-    expect(pr.body.trimEnd().endsWith("Closes #7")).toBe(true);
+    expect(unmarked(pr.body).trimEnd().endsWith("Closes #7")).toBe(true);
   });
 
   it("discards the run when the branch moved since the claim", async () => {

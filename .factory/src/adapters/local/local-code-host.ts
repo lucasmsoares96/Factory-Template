@@ -1,5 +1,6 @@
 import { cp, mkdir } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
+import { marked } from "../../marker.ts";
 import type { FactoryConfig } from "../../config.ts";
 import type { CodeHost, EvidenceImage, PullRequest, PushResult, Review, ReviewThread } from "../../seams/code-host.ts";
 import { Git } from "../../git.ts";
@@ -43,7 +44,7 @@ export class LocalCodeHost implements CodeHost {
 
   constructor(options: LocalCodeHostOptions) {
     this.options = options;
-    this.self = options.self ?? (options.config.machineUser || "factory");
+    this.self = options.self ?? "factory";
   }
 
   async branchHead(branch: string): Promise<string | null> {
@@ -79,7 +80,7 @@ export class LocalCodeHost implements CodeHost {
   }
 
   async commentPr(pr: number, body: string): Promise<void> {
-    await this.options.files.appendComment(pr, this.self, body);
+    await this.options.files.appendComment(pr, this.self, marked(body));
   }
 
   async openDraftPr(input: { branch: string; base: string; title: string; body: string; images?: EvidenceImage[] }): Promise<PullRequest> {
@@ -101,7 +102,7 @@ export class LocalCodeHost implements CodeHost {
   }
 
   async closePr(pr: number, comment?: string): Promise<void> {
-    if (comment) await this.options.files.appendComment(pr, this.self, comment);
+    if (comment) await this.options.files.appendComment(pr, this.self, marked(comment));
     await this.update(pr, (p) => (p.state = "closed"));
   }
 
@@ -112,7 +113,7 @@ export class LocalCodeHost implements CodeHost {
   async submitReview(pr: number, review: Review): Promise<void> {
     const inline = review.comments.map((c) => `- \`${c.path}:${c.line}\` ${c.body}`);
     const body = ["**Factory review**", "", review.body, ...(inline.length ? ["", "**Inline**", ...inline] : [])];
-    await this.options.files.appendComment(pr, this.self, body.join("\n"));
+    await this.options.files.appendComment(pr, this.self, marked(body.join("\n")));
   }
 
   async threads(_pr: number): Promise<ReviewThread[]> {
@@ -175,7 +176,7 @@ export class LocalCodeHost implements CodeHost {
       pr.body,
       ...(pr.labels.length ? ["", `Labels: ${pr.labels.map((l) => `\`${l}\``).join(", ")}`] : []),
     ].join("\n");
-    await this.options.files.upsertComment(pr.number, this.self, PR_MARKER, body);
+    await this.options.files.upsertComment(pr.number, this.self, PR_MARKER, marked(body));
   }
 
   private async view(pr: LocalPr): Promise<PullRequest> {
