@@ -20,7 +20,7 @@ export function world(answers: Record<string, string | boolean | string[]> = {},
   const products = new Map<string, ProductIdentity>([
     ["example", { id: "example", title: "Example", emailFrom: "Example <no-reply@example.com>", domain: "example.com" }],
   ]);
-  const prompter = new FakePrompter({ "cloudflare-token": TOKEN, "workers-dev-subdomain": "my-team", ...answers });
+  const prompter = new FakePrompter({ "cloudflare-token": TOKEN, "workers-dev-subdomain": "my-team", "example-issue": false, ...answers });
   const lines: string[] = [];
   const deps: BootstrapDeps = {
     github,
@@ -35,6 +35,7 @@ export function world(answers: Record<string, string | boolean | string[]> = {},
       if (!found) throw new Error(`No Product at apps/${id}/product.config.ts`);
       return found;
     },
+    listProducts: async () => [...products.keys()].sort(),
     sleep: async () => {},
     prompter,
     env,

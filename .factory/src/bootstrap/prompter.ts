@@ -20,4 +20,12 @@ export const clackPrompter: Prompter = {
   select: async ({ message, options }) =>
     answer(await clack.select({ message, options: options.map((o) => ({ value: o.value, label: o.label })) as never })),
   confirm: async ({ message, initial }) => Boolean(answer(await clack.confirm({ message, ...(initial === undefined ? {} : { initialValue: initial }) }))),
+  pause: async ({ message }) => {
+    await clack.text({ message, defaultValue: "" });
+  },
+  spinner: (message) => {
+    const spin = clack.spinner();
+    spin.start(message);
+    return { update: (next) => spin.message(next), stop: (last) => spin.stop(last) };
+  },
 };

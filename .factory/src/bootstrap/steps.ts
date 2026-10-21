@@ -26,6 +26,8 @@ export interface BootstrapDeps {
   token: (token: string) => TokenClient;
   /** Reads `apps/<id>/product.config.ts`. */
   product: (id: string) => Promise<ProductIdentity>;
+  /** The ids of the Products in `apps/`, sorted. */
+  listProducts: () => Promise<string[]>;
   sleep: (ms: number) => Promise<void>;
   prompter: Prompter;
   env: Record<string, string | undefined>;
@@ -33,6 +35,13 @@ export interface BootstrapDeps {
   config: FactoryConfig;
   /** A person can answer prompts (stdin is a TTY). Unset means no: CI and agents never get asked. */
   interactive?: boolean;
+  /** The example issue of `bootstrap factory`: poll interval and timeout (ms; defaults 30 s and 40 min) and the Ctrl-C hook. */
+  example?: {
+    pollMs?: number;
+    timeoutMs?: number;
+    /** Aborted by the first Ctrl-C while `hold(true)` is on: the flow then cleans up instead of the process exiting. */
+    interrupt?: { signal: AbortSignal; hold(on: boolean): void };
+  };
 }
 
 /** Values held in memory for the length of one run. Nothing here reaches disk. */
