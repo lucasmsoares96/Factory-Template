@@ -78,6 +78,8 @@ export function parseJsonc(text: string): Record<string, unknown> {
 type Config = Record<string, unknown>;
 const list = (value: unknown): Config[] => (Array.isArray(value) ? (value as Config[]) : []);
 const object = (value: unknown): Config => (value && typeof value === "object" && !Array.isArray(value) ? (value as Config) : {});
+const isEmpty = (value: unknown): boolean =>
+  value === undefined || value === null || (Array.isArray(value) ? value.length === 0 : typeof value === "object" && Object.keys(value).length === 0);
 
 /** The Worker's bindings, as `kind:name` lines: what the preview must not change (ids and values do not count). */
 export function bindingSignature(config: Config): string[] {
@@ -88,7 +90,8 @@ export function bindingSignature(config: Config): string[] {
   for (const entry of list(object(config.durable_objects).bindings)) out.push(`do:${String(entry.name)}=${String(entry.class_name)}`);
   for (const entry of list(object(config.queues).producers)) out.push(`queue:${String(entry.binding)}`);
   for (const key of ["ai", "browser", "images", "version_metadata", "unsafe", "containers", "dispatch_namespaces", "pipelines", "secrets_store_secrets", "worker_loaders", "vpc_services"]) {
-    if (config[key] !== undefined) out.push(`${key}:${JSON.stringify(config[key])}`);
+    // The Cloudflare Vite plugin writes some of these as empty lists or objects in every build: empty is no binding.
+    if (!isEmpty(config[key])) out.push(`${key}:${JSON.stringify(config[key])}`);
   }
   return out.sort();
 }
