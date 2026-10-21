@@ -5,7 +5,8 @@ import { Git } from "../git.ts";
 import { isHarnessPath, isProtectedPath } from "../paths.ts";
 import { costFooter, escalationComment, followUpComment, type EscalationReason, type FollowUpRef } from "../report.ts";
 import { BUNDLE_FILE, EVIDENCE_DIR, RESULT_FILE, readResult, type FactoryResult } from "../result.ts";
-import type { EvidenceGroup, PullRequest } from "../seams/code-host.ts";
+import { withEvidence } from "../pull-request-evidence.ts";
+import type { EvidenceImage, PullRequest } from "../seams/code-host.ts";
 import type { Issue } from "../seams/tracker.ts";
 import type { CommandContext } from "./context.ts";
 
@@ -46,7 +47,7 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
   try {
     result = await loadArtifacts(git, number, branch, options.in);
   } catch (error) {
-    return escalate(ctx, issue, { reason: "infra", result: null, detail: (error as Error).message, pr: null, runUrl: options.runUrl });
+    return escalate(ctx, issue, { reason: "infra", result: null, detail: (error as Error).message, pr: null, runUrl: options.runUrl }, options.pr);
   }
 
   const head = result.head;
@@ -54,11 +55,11 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
   const protectedPaths = changed.filter(isProtectedPath);
   if (head && protectedPaths.length > 0) {
     const patch = await git.run("diff", "--no-color", "--no-ext-diff", `${result.base}...${head}`);
-    return escalate(ctx, issue, { reason: "protected-paths", result, protectedPaths, patch, pr: null, runUrl: options.runUrl });
+    return escalate(ctx, issue, { reason: "protected-paths", result, protectedPaths, patch, pr: null, runUrl: options.runUrl }, options.pr);
   }
   if (!head) {
     const followUps = await openFollowUps(ctx, issue, result);
-    return escalate(ctx, issue, { reason: result.reason ?? "infra", result, pr: null, runUrl: options.runUrl, followUps });
+    return escalate(ctx, issue, { reason: result.reason ?? "infra", result, pr: null, runUrl: options.runUrl, followUps }, options.pr);
   }
 
   const push = await ctx.codeHost.push({ branch, sha: head, expectedSha: options.startSha });
@@ -68,13 +69,16 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
   const lines = await diffLines(git, result.base, head);
   const harnessPaths = changed.filter(isHarnessPath);
   const escalated = result.outcome === "escalated" ? (result.reason ?? "infra") : null;
-  const pr = await pullRequest(ctx, issue, { branch, openPr, continues: options.pr !== null, harnessPaths, escalated, followUps, text: result.pullRequestBody });
-  if (!escalated || result.review.summary !== "") await submitReview(ctx, pr.number, result, lines);
+  const pr = await pullRequest(ctx, issue, { branch, openPr, continues: options.pr !== null, harnessPaths, escalated, followUps, text: result.pullRequestBody, images: evidenceImages(result, options.in) });
+  if (!escalated || result.review.summary !== "") {
+    // A PR round without a Review (update-branch, a round that only answers) leaves no empty review behind.
+    if (options.pr === null || result.review.summary !== "") await submitReview(ctx, pr.number, result, lines);
+  }
+  if (options.pr !== null) await postReplies(ctx, pr.number, result.threadReplies);
 
-  if (escalated) return escalate(ctx, issue, { reason: escalated, result, pr, runUrl: options.runUrl, followUps });
+  if (escalated) return escalate(ctx, issue, { reason: escalated, result, pr, runUrl: options.runUrl, followUps }, options.pr);
   if (followUps.length > 0) await ctx.tracker.comment(number, followUpComment(followUps));
-  if (result.evidence.length > 0) await ctx.codeHost.postEvidence(pr.number, evidenceGroups(result, options.in));
-  await ctx.codeHost.markReady(pr.number);
+  if (pr.draft) await ctx.codeHost.markReady(pr.number);
   return { issue: number, outcome: "ready", pr: pr.number, url: pr.url };
 }
 
@@ -132,14 +136,14 @@ async function changedFiles(git: Git, base: string, head: string): Promise<strin
 async function pullRequest(
   ctx: CommandContext,
   issue: Issue,
-  input: { branch: string; openPr: PullRequest | null; continues: boolean; harnessPaths: string[]; escalated: EscalationReason | null; followUps: FollowUpRef[]; text: string | null },
+  input: { branch: string; openPr: PullRequest | null; continues: boolean; harnessPaths: string[]; escalated: EscalationReason | null; followUps: FollowUpRef[]; text: string | null; images: EvidenceImage[] },
 ): Promise<PullRequest> {
   const { codeHost, config } = ctx;
   let pr: PullRequest;
   if (input.continues && input.openPr) {
     pr = input.openPr;
     // The run may have changed the PR: its body is written again.
-    if (input.text !== null) await codeHost.updatePrBody(pr.number, prBody(issue, input));
+    if (input.text !== null) await codeHost.updatePrBody(pr.number, prBody(issue, input), input.images);
   } else {
     if (input.openPr) {
       await codeHost.closePr(
@@ -152,6 +156,7 @@ async function pullRequest(
       base: config.baseBranch,
       title: `Fix #${issue.number}: ${issue.title}`,
       body: prBody(issue, input),
+      images: input.images,
     });
   }
   if (input.harnessPaths.length > 0) await codeHost.labelPr(pr.number, config.labels.harnessChange);
@@ -159,16 +164,17 @@ async function pullRequest(
 }
 
 /**
- * The body in three parts: the warnings and the follow-up note (deterministic),
+ * The body in three parts (the print references swapped by `withEvidence`): the warnings and the follow-up note (deterministic),
  * the Pull Request Stage text (or the minimal sentence), `Closes #N`. The agent
  * never writes the first and last parts; a closing keyword in its text is dropped.
  */
 function prBody(
   issue: Issue,
-  input: { harnessPaths: string[]; escalated: EscalationReason | null; followUps: FollowUpRef[]; text: string | null },
+  input: { continues: boolean; harnessPaths: string[]; escalated: EscalationReason | null; followUps: FollowUpRef[]; text: string | null; images: EvidenceImage[] },
 ): string {
   const warnings: string[] = [];
-  if (input.escalated) {
+  // A round on a ready PR leaves it as it is (the comment on the PR and the issue say so): only a draft "holds progress".
+  if (input.escalated && !input.continues) {
     warnings.push(
       "> [!WARNING]",
       `> The Factory escalated this work (\`${input.escalated}\`): this draft holds its progress. See the comment on #${issue.number}.`,
@@ -183,7 +189,8 @@ function prBody(
     );
   }
   if (input.followUps.length > 0) warnings.push("> [!NOTE]", `> ${followUpComment(input.followUps).replaceAll("\n", "\n> ")}`, "");
-  const middle = input.text ? withoutAttribution(withoutClosingKeywords(input.text)) : "Implemented by the Factory.";
+  const text = input.text ? withoutAttribution(withoutClosingKeywords(input.text)) : "Implemented by the Factory.";
+  const middle = withEvidence(text, input.images);
   return [...warnings, middle, "", `Closes #${issue.number}`].join("\n");
 }
 
@@ -192,9 +199,16 @@ function withoutAttribution(text: string): string {
   return text.replace(/^[ \t]*(?:🤖[ \t]*)?Generated with \[?Claude Code\]?.*$\n?|^[ \t]*Co-Authored-By:.*$\n?/gim, "").trim();
 }
 
-/** `Closes #9` written by the agent would close the wrong issue: only `publish` writes it. */
+const REF = String.raw`(?:[\w.-]+\/[\w.-]+)?#\d+`;
+const CLOSING = new RegExp(String.raw`\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b:?[ \t]+${REF}(?:[ \t]*(?:,|\band\b)[ \t]*${REF})*`, "gi");
+
+/**
+ * `Closes #9` written by the agent would close the wrong issue: only `publish` writes it. A line that is only a closing
+ * reference goes; one inside a sentence becomes a placeholder so the rest still reads.
+ */
 function withoutClosingKeywords(text: string): string {
-  return text.replace(/^[ \t>*-]*\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b:?[ \t]+(?:[\w.-]+\/[\w.-]+)?#\d+\.?[ \t]*$\n?/gim, "").trim();
+  const alone = new RegExp(String.raw`^[ \t>*-]*${CLOSING.source}\.?[ \t]*$\n?`, "gim");
+  return text.replace(alone, "").replace(CLOSING, "[closing reference removed]").trim();
 }
 
 /** The review of every attempt, inline comments filtered to the diff, tokens and cost in the footer. */
@@ -221,25 +235,38 @@ async function openFollowUps(ctx: CommandContext, issue: Issue, result: FactoryR
   return refs;
 }
 
+const DECISION_LABEL = { address: "Address", decline: "Decline", defer: "Defer", answer: "Answer" } as const;
+
+/** The agent's answers, posted in their threads. A thread that is gone, or that is not open any more, gets nothing. */
+async function postReplies(ctx: CommandContext, pr: number, threadReplies: FactoryResult["threadReplies"]): Promise<void> {
+  if (threadReplies.length === 0) return;
+  const known = new Set((await ctx.codeHost.threads(pr)).map((t) => t.id));
+  for (const reply of threadReplies) {
+    if (known.has(reply.threadId)) await ctx.codeHost.replyToThread(pr, reply.threadId, `${DECISION_LABEL[reply.decision]}: ${reply.body}`);
+  }
+}
+
 /** Escalation: the report on the issue, then in-progress → ready-for-human. */
 async function escalate(
   ctx: CommandContext,
   issue: Issue,
   report: Parameters<typeof escalationComment>[0],
+  /** The PR this run continues: it gets a short note too, and stays as it is (never turned back into a draft). */
+  continuing: number | null = null,
 ): Promise<PublishResult> {
   const { tracker, config } = ctx;
   await tracker.comment(issue.number, escalationComment(report, config));
   await tracker.swapLabel(issue.number, config.labels.inProgress, config.labels.readyForHuman);
+  if (continuing !== null) {
+    await ctx.codeHost.commentPr(
+      continuing,
+      `The Factory could not finish this round (\`${report.reason}\`). Issue #${issue.number} is now \`${config.labels.readyForHuman}\`: the comment there has the attempts. This pull request stays as it is.`,
+    );
+  }
   return { issue: issue.number, outcome: "escalated", reason: report.reason, pr: report.pr?.number ?? null, url: report.pr?.url ?? null };
 }
 
-/** Prints grouped by Product, in the order `work` listed them. */
-function evidenceGroups(result: FactoryResult, dir: string): EvidenceGroup[] {
-  const groups = new Map<string, EvidenceGroup>();
-  for (const { product, name } of result.evidence) {
-    const group = groups.get(product) ?? { product, images: [] };
-    group.images.push({ name, path: join(dir, EVIDENCE_DIR, product, name) });
-    groups.set(product, group);
-  }
-  return [...groups.values()];
+/** The prints of the run, in the order `work` listed them, at their place in the downloaded artifacts. */
+function evidenceImages(result: FactoryResult, dir: string): EvidenceImage[] {
+  return result.evidence.map(({ product, name }) => ({ product, name, path: join(dir, EVIDENCE_DIR, product, name) }));
 }

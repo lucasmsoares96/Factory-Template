@@ -75,7 +75,7 @@ describe("Docker container runner", () => {
     const repo = await imageRepo();
     const inDir = await tempDir("factory-in-");
     const outDir = await tempDir("factory-out-");
-    return { repo, issue: 7, inDir, outDir, base: "main", env: { CLAUDE_CODE_OAUTH_TOKEN: "oauth-secret", FACTORY_MACHINE_USER: "factory" } };
+    return { repo, issue: 7, inDir, outDir, base: "main", env: { CLAUDE_CODE_OAUTH_TOKEN: "oauth-secret", } };
   }
 
   const healthy = (args: string[]) => (args[0] === "inspect" ? { stdout: "healthy\n" } : undefined);
@@ -102,14 +102,16 @@ describe("Docker container runner", () => {
     const create = fake.calls.find((c) => c.args[0] === "create")!;
     const passed = create.args.flatMap((a, i) => (create.args[i - 1] === "-e" ? [a] : []));
     expect(passed.sort()).toEqual(
-      ["CLAUDE_CODE_OAUTH_TOKEN", "DATABASE_URL", "FACTORY_ADAPTERS", "FACTORY_MACHINE_USER", "FACTORY_SESSIONS_DIR", "FACTORY_TRACKER_DIR"].sort(),
+      ["CLAUDE_CODE_OAUTH_TOKEN", "DATABASE_URL", "FACTORY_ADAPTERS", "FACTORY_SESSIONS_DIR", "FACTORY_TRACKER_DIR"].sort(),
     );
     expect(create.env).toMatchObject({ CLAUDE_CODE_OAUTH_TOKEN: "oauth-secret", DATABASE_URL: "postgres://postgres:postgres@postgres:5432/postgres", FACTORY_ADAPTERS: "local" });
     expect(create.args.some((a) => a.startsWith("--user") || a === "--privileged")).toBe(false);
 
     const exec = all.find((a) => a[0] === "exec")!;
     expect(exec.join(" ")).toContain("git clone");
-    expect(exec.join(" ")).toContain("pnpm factory work");
+    // The script takes the command as an argument (`work` or `triage`), then the base, the issue and the command.
+    expect(exec.join(" ")).toContain('pnpm factory "$command"');
+    expect(exec.slice(-3)).toEqual(["main", "7", "work"]);
 
     const names = [network.at(-1)!, ...all.filter((a) => a[0] === "create" || a[0] === "run").map((a) => a[a.indexOf("--name") + 1]!)];
     for (const name of names) expect(name.startsWith(ns)).toBe(true);

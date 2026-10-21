@@ -71,13 +71,13 @@ describe("pnpm bootstrap doctor", () => {
     expect(w.cloudflare.writes).toBe(1);
   });
 
-  it("does not re-check workers.dev without a token, and says the secrets stand in", async () => {
+  it("does not re-check workers.dev without a saved Cloudflare login, and says the secrets stand in", async () => {
     const w = world();
     await w.run();
 
     const { output } = await w.run("doctor");
 
-    expect(output).toMatch(/ok\s+workers\.dev\s+not re-checked \(token not in this run\)/);
+    expect(output).toMatch(/ok\s+workers\.dev\s+not re-checked \(no saved Cloudflare login/);
   });
 
   it("reports a permission that cannot manage the repo", async () => {

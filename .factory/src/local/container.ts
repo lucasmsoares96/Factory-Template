@@ -13,6 +13,8 @@ export interface ContainerJob {
   /** The host repository (image inputs, resource names). */
   repo: string;
   issue: number;
+  /** What runs inside: `work` (default) or the read-only `triage`. */
+  command?: "work" | "triage";
   /** Host directory copied in: the base branch as `repo.bundle`, the tickets under `tracker/`. */
   inDir: string;
   /** Host directory that receives the `work` artifacts. */
@@ -23,7 +25,7 @@ export interface ContainerJob {
   env: Record<string, string>;
 }
 
-/** Runs `pnpm factory work` for one issue somewhere disposable. */
+/** Runs `pnpm factory work` (or `triage`) for one issue somewhere disposable. */
 export interface ContainerRunner {
   run(job: ContainerJob): Promise<{ exitCode: number }>;
 }
@@ -91,7 +93,7 @@ export class DockerContainerRunner implements ContainerRunner {
       await must(docker, ["start", agent]);
       await must(docker, ["cp", `${job.inDir}/.`, `${agent}:${CONTAINER_HOME}/in`]);
       log(`factory: running issue #${job.issue} in ${agent}`);
-      const { code } = await docker(["exec", agent, "bash", "-c", WORK_SCRIPT, "work", job.base, String(job.issue)], { inherit: true });
+      const { code } = await docker(["exec", agent, "bash", "-c", WORK_SCRIPT, "work", job.base, String(job.issue), job.command ?? "work"], { inherit: true });
       await docker(["cp", `${agent}:${CONTAINER_HOME}/out/.`, job.outDir]);
       return { exitCode: code };
     } finally {
@@ -111,16 +113,16 @@ export class DockerContainerRunner implements ContainerRunner {
   }
 }
 
-/** Inside the container, as uid 1001: clone, install, then the same `work` as CI. */
+/** Inside the container, as uid 1001: clone, install, then the same `work` (or `triage`) as CI. */
 const WORK_SCRIPT = `set -euo pipefail
-base="$1"; issue="$2"
+base="$1"; issue="$2"; command="$3"
 git clone --quiet --branch "$base" ${CONTAINER_HOME}/in/${IN_BUNDLE} ${CONTAINER_HOME}/repo
 cd ${CONTAINER_HOME}/repo
 git config user.name "Factory"
 git config user.email "factory@localhost"
 pnpm install --frozen-lockfile
 mkdir -p ${CONTAINER_HOME}/out
-pnpm factory work "$issue" --out ${CONTAINER_HOME}/out`;
+pnpm factory "$command" "$issue" --out ${CONTAINER_HOME}/out`;
 
 function slug(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "repo";

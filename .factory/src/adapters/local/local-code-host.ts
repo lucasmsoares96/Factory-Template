@@ -1,12 +1,12 @@
 import { cp, mkdir } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
+import { marked } from "../../marker.ts";
 import type { FactoryConfig } from "../../config.ts";
-import type { CodeHost, EvidenceGroup, PullRequest, PushResult, Review, ReviewThread } from "../../seams/code-host.ts";
+import type { CodeHost, EvidenceImage, PullRequest, PushResult, Review, ReviewThread } from "../../seams/code-host.ts";
 import { Git } from "../../git.ts";
 import type { MarkdownIssues } from "./markdown-issues.ts";
 
 const PR_MARKER = "<!-- factory:pr ";
-const EVIDENCE_MARKER = "<!-- factory:evidence -->";
 
 interface LocalPr {
   number: number;
@@ -35,7 +35,7 @@ export interface LocalCodeHostOptions {
  * CodeHost for `pnpm factory local`: the branch is a local branch of the host
  * repository, pushed with the same lease as on a forge. The pull request of
  * issue N is number N: a single comment in the ticket that is edited as it
- * changes. Reviews are appended to the ticket's comments, and prints are
+ * changes, its body with the prints beside it. Reviews are appended to the ticket's comments, and prints are
  * copied to `.scratch/<feature>/evidence/NN/`.
  */
 export class LocalCodeHost implements CodeHost {
@@ -44,7 +44,7 @@ export class LocalCodeHost implements CodeHost {
 
   constructor(options: LocalCodeHostOptions) {
     this.options = options;
-    this.self = options.self ?? (options.config.machineUser || "factory");
+    this.self = options.self ?? "factory";
   }
 
   async branchHead(branch: string): Promise<string | null> {
@@ -74,16 +74,27 @@ export class LocalCodeHost implements CodeHost {
     return pr && pr.state === "open" && pr.branch === branch ? this.view(pr) : null;
   }
 
-  async openDraftPr(input: { branch: string; base: string; title: string; body: string }): Promise<PullRequest> {
+  async pullRequest(number: number): Promise<PullRequest | null> {
+    const pr = await this.read(number);
+    return pr ? this.view(pr) : null;
+  }
+
+  async commentPr(pr: number, body: string): Promise<void> {
+    await this.options.files.appendComment(pr, this.self, marked(body));
+  }
+
+  async openDraftPr(input: { branch: string; base: string; title: string; body: string; images?: EvidenceImage[] }): Promise<PullRequest> {
     const number = this.issueOf(input.branch);
     if (number === null) throw new Error(`Local pull requests need a ${this.options.config.branchPrefix}N branch, got ${input.branch}`);
-    const pr: LocalPr = { number, ...input, draft: true, state: "open", labels: [] };
+    const { images = [], ...rest } = input;
+    const pr: LocalPr = { number, ...rest, body: await this.keepImages(number, rest.body, images), draft: true, state: "open", labels: [] };
     await this.write(pr);
     return this.view(pr);
   }
 
-  async updatePrBody(pr: number, body: string): Promise<void> {
-    await this.update(pr, (p) => (p.body = body));
+  async updatePrBody(pr: number, body: string, images: EvidenceImage[] = []): Promise<void> {
+    const kept = await this.keepImages(pr, body, images);
+    await this.update(pr, (p) => (p.body = kept));
   }
 
   async markReady(pr: number): Promise<void> {
@@ -91,7 +102,7 @@ export class LocalCodeHost implements CodeHost {
   }
 
   async closePr(pr: number, comment?: string): Promise<void> {
-    if (comment) await this.options.files.appendComment(pr, this.self, comment);
+    if (comment) await this.options.files.appendComment(pr, this.self, marked(comment));
     await this.update(pr, (p) => (p.state = "closed"));
   }
 
@@ -102,7 +113,7 @@ export class LocalCodeHost implements CodeHost {
   async submitReview(pr: number, review: Review): Promise<void> {
     const inline = review.comments.map((c) => `- \`${c.path}:${c.line}\` ${c.body}`);
     const body = ["**Factory review**", "", review.body, ...(inline.length ? ["", "**Inline**", ...inline] : [])];
-    await this.options.files.appendComment(pr, this.self, body.join("\n"));
+    await this.options.files.appendComment(pr, this.self, marked(body.join("\n")));
   }
 
   async threads(_pr: number): Promise<ReviewThread[]> {
@@ -113,20 +124,19 @@ export class LocalCodeHost implements CodeHost {
     throw new Error("Review threads are not available in local mode.");
   }
 
-  async postEvidence(pr: number, groups: EvidenceGroup[]): Promise<void> {
+  /** Copies the prints to `.scratch/<feature>/evidence/NN/` and points the body at them, relative to the ticket. */
+  private async keepImages(pr: number, body: string, images: EvidenceImage[]): Promise<string> {
+    if (images.length === 0) return body;
     const file = await this.options.files.file(pr);
     const dir = evidenceDir(this.options.files.dir, file.id);
-    const lines = [EVIDENCE_MARKER, "**Evidence**"];
-    for (const group of groups) {
-      lines.push("", `### ${group.product}`, "");
-      for (const image of group.images) {
-        const target = join(dir, group.product, image.name);
-        await mkdir(dirname(target), { recursive: true });
-        await cp(image.path, target);
-        lines.push(`![${image.name}](${relative(dirname(file.path), target)})`);
-      }
+    let text = body;
+    for (const image of images) {
+      const target = join(dir, image.product, image.name);
+      await mkdir(dirname(target), { recursive: true });
+      await cp(image.path, target);
+      text = text.replaceAll(image.path, relative(dirname(file.path), target));
     }
-    await this.options.files.upsertComment(pr, this.self, EVIDENCE_MARKER, lines.join("\n"));
+    return text;
   }
 
   async dispatch(workflow: string, _inputs: Record<string, string>): Promise<void> {
@@ -166,7 +176,7 @@ export class LocalCodeHost implements CodeHost {
       pr.body,
       ...(pr.labels.length ? ["", `Labels: ${pr.labels.map((l) => `\`${l}\``).join(", ")}`] : []),
     ].join("\n");
-    await this.options.files.upsertComment(pr.number, this.self, PR_MARKER, body);
+    await this.options.files.upsertComment(pr.number, this.self, PR_MARKER, marked(body));
   }
 
   private async view(pr: LocalPr): Promise<PullRequest> {

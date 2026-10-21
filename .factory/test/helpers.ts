@@ -8,13 +8,18 @@ import { FakeAgent, type AgentStep } from "../src/adapters/fake/fake-agent.ts";
 import { FakeCodeHost, type FakePullRequestSeed } from "../src/adapters/fake/fake-code-host.ts";
 import { FakeTracker, type FakeIssueInput } from "../src/adapters/fake/fake-tracker.ts";
 import { FakeVerify, type VerifyStep } from "../src/adapters/fake/fake-verify.ts";
+import { FACTORY_MARKER } from "../src/marker.ts";
 import type { Stage } from "../src/seams/agent.ts";
 import { runFactory } from "../src/cli.ts";
 
 const exec = promisify(execFile);
 
 export const HUMAN = "alice";
-export const MACHINE_USER = "factory-bot";
+
+/** `text` without the hidden Factory marker the write adapters add. */
+export const unmarked = (text: string): string => text.replace(`\n\n${FACTORY_MARKER}`, "");
+/** The repo owner: the Factory writes with the owner's token, so it is a writer and the author of its own texts. */
+export const OWNER = "owner";
 
 export const SPEC_BODY = "# Spec\n\n## Testing Decisions\n\n1. CLI against the fakes.\n";
 export const ISSUE_BODY = [
@@ -45,7 +50,7 @@ export function readyIssue(overrides: Partial<FakeIssueInput> = {}): FakeIssueIn
 
 const temps: string[] = [];
 afterEach(async () => {
-  await Promise.all(temps.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  await Promise.all(temps.splice(0).map((dir) => rm(dir, { recursive: true, force: true, maxRetries: 3 })));
 });
 
 export async function tempDir(prefix = "factory-test-"): Promise<string> {
@@ -81,6 +86,8 @@ async function buildTemplate(): Promise<string> {
 }
 
 afterAll(async () => {
+  await Promise.all([...derived.values()].map(async (base) => rm(await base.catch(() => ""), { recursive: true, force: true, maxRetries: 3 })));
+  derived.clear();
   if (template) await rm(dirname(await template), { recursive: true, force: true });
   template = null;
 });
@@ -94,6 +101,30 @@ export async function checkout(): Promise<string> {
   template ??= buildTemplate();
   const dir = await tempDir("factory-repo-");
   await cp(await template, dir, { recursive: true });
+  return dir;
+}
+
+const derived = new Map<string, Promise<string>>();
+
+/**
+ * Like `checkout()`, but starting from a commit the file's tests share: `setup` runs once per test file
+ * (on the first call for `key`) and every call returns a fresh copy, so the git round-trips of `setup`
+ * are not repeated per test.
+ */
+export async function derivedCheckout(key: string, setup: (dir: string) => Promise<void>): Promise<string> {
+  if (!derived.has(key)) {
+    derived.set(
+      key,
+      (async () => {
+        const base = await mkdtemp(join(tmpdir(), "factory-derived-"));
+        await cp(await (template ??= buildTemplate()), base, { recursive: true });
+        await setup(base);
+        return base;
+      })(),
+    );
+  }
+  const dir = await tempDir("factory-repo-");
+  await cp(await derived.get(key)!, dir, { recursive: true });
   return dir;
 }
 
@@ -140,14 +171,14 @@ export interface WorldOptions {
 export function world(options: WorldOptions = {}): World {
   const tracker = new FakeTracker({
     issues: options.issues ?? readyIssue(),
-    writers: options.writers ?? [HUMAN],
-    self: MACHINE_USER,
+    writers: [...(options.writers ?? [HUMAN]), OWNER],
+    self: OWNER,
   });
-  const codeHost = new FakeCodeHost({ branches: options.branches ?? {}, prs: options.prs ?? [] });
+  const codeHost = new FakeCodeHost({ branches: options.branches ?? {}, prs: options.prs ?? [], self: OWNER });
   const repo = options.repo ?? "/nonexistent";
   const agent = new FakeAgent(repo, options.agent ?? {});
   const verify = new FakeVerify(repo, "test-results/evidence", options.verify ?? []);
-  const env = { FACTORY_MACHINE_USER: MACHINE_USER, ...options.env };
+  const env: Record<string, string> = { ...options.env };
   const logs: string[] = [];
   return {
     tracker,

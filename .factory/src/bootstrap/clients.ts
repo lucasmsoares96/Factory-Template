@@ -43,6 +43,21 @@ export interface GitHubClient {
   listRulesets(): Promise<RulesetInfo[]>;
   /** `refused` as for environments. */
   createRuleset(spec: RulesetSpec): Promise<"created" | "refused">;
+  /** Deletes a secret of the repo or of one environment (only `destroy` calls the delete methods). */
+  deleteSecret(name: string, options?: { environment?: string }): Promise<void>;
+  deleteVariable(name: string): Promise<void>;
+  /** Deleting an environment deletes its secrets and variables. */
+  deleteEnvironment(name: string): Promise<void>;
+  deleteRuleset(id: number): Promise<void>;
+}
+
+/**
+ * The owner's fine-grained token, held in memory (it goes straight to the `FACTORY_TOKEN` secret). `gh` is signed in with
+ * a different credential, so only the token itself can say what the token may do.
+ */
+export interface TokenClient {
+  /** `GET /repos/{owner}/{repo}` with the token: whether it can push. Throws when GitHub rejects the token or the repo is not among its repositories. */
+  repoAccess(repo: string): Promise<{ push: boolean }>;
 }
 
 /** The rules of a branch ruleset the wizard cares about. `ref` patterns are as GitHub stores them (`~DEFAULT_BRANCH`, `refs/heads/main`). */
@@ -74,6 +89,17 @@ export interface CloudflareAccount {
 /** The API refused the call for lack of permission (HTTP 403 or error 10000): the token is valid but too narrow. */
 export class CloudflareRefused extends Error {}
 
+/**
+ * wrangler's own saved login (`wrangler login`, kept by wrangler like neonctl keeps its login). The wizard never stores
+ * the token it hands out; it only holds it in memory for the run.
+ */
+export interface WranglerAuth {
+  /** The token of wrangler's saved login, or undefined when there is none. Never opens a browser. */
+  savedToken(): Promise<string | undefined>;
+  /** Opens the browser (`wrangler login`); the login is kept by wrangler for the next run. */
+  login(): Promise<void>;
+}
+
 /** Bound to one API token, held in memory. */
 export interface CloudflareClient {
   /** Read-only: the token is active (account-token verify, falling back to the user-token verify). */
@@ -101,6 +127,11 @@ export interface CloudflareClient {
   /** Custom Domains attached to the Worker `service`. */
   listWorkerDomains(accountId: string, service: string): Promise<WorkerDomain[]>;
   attachWorkerDomain(accountId: string, domain: { hostname: string; service: string; zoneId: string; zoneName: string }): Promise<void>;
+  /** Detaches every Custom Domain of the Worker (its DNS records stay). */
+  deleteWorkerDomains(accountId: string, service: string): Promise<void>;
+  /** Deletes the Worker script (with its Previews, Durable Objects and bindings). */
+  deleteWorker(accountId: string, name: string): Promise<void>;
+  deleteKvNamespace(accountId: string, id: string): Promise<void>;
 }
 
 export interface CloudflareZone {
@@ -137,12 +168,12 @@ export interface NeonOrg {
 }
 
 /**
- * Neon through `neonctl` with a throwaway config directory: nothing is kept after `close()`. The credentials (an OAuth
- * login of this run, or `NEON_API_KEY` from the environment) stay inside the adapter; connection strings hold a password
+ * Neon through `neonctl`. The browser login is kept by neonctl in its own config directory, so it is asked once per
+ * machine; `NEON_API_KEY` from the environment skips it. Credentials stay inside the adapter; connection strings hold a password
  * and travel only as return values, from here straight to `GitHubClient.setSecret`.
  */
 export interface NeonClient {
-  /** Opens the browser to sign in. Not needed (and a no-op) when the adapter was given an API key. */
+  /** Opens the browser to sign in, unless neonctl already has a saved login or the adapter was given an API key. */
   login(): Promise<void>;
   listOrgs(): Promise<NeonOrg[]>;
   /** Every project of the org, any name. Project names are not unique in Neon, so the caller filters and handles duplicates. */
@@ -156,9 +187,11 @@ export interface NeonClient {
   /** Name of the project's default branch. */
   defaultBranchName(projectId: string): Promise<string>;
   renameBranch(projectId: string, from: string, to: string): Promise<void>;
+  /** Deletes the project with every branch and database in it. Irreversible. */
+  deleteProject(projectId: string): Promise<void>;
   /** The connection string of the default branch: pooled (the Worker) or direct (migrations). */
   connectionString(projectId: string, options: { pooled: boolean; orgId?: string }): Promise<string>;
-  /** Logs out (revokes the grant) and removes the throwaway directory. Safe to call twice and after a failure. */
+  /** Releases what the run holds. The neonctl login is kept, so the next run does not ask again. */
   close(): Promise<void>;
 }
 
@@ -202,6 +235,7 @@ export interface ResendClient {
   verifyDomain(id: string): Promise<void>;
   /** A sending-only key limited to the domain; the token is returned once. Needs a full-access key. */
   createRestrictedKey(input: { name: string; domainId: string }): Promise<string>;
+  deleteDomain(id: string): Promise<void>;
 }
 
 /** What a wizard step asks of the person. Answers are never logged. */

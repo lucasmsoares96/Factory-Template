@@ -2,7 +2,7 @@ import { cp, mkdir, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { issueBranch } from "../config.ts";
 import { Git } from "../git.ts";
-import { developmentPrompt, pullRequestPrompt, reviewPrompt } from "../prompts.ts";
+import { developmentPrompt, prFeedbackPrompt, pullRequestPrompt, reviewPrompt, updateBranchPrompt } from "../prompts.ts";
 import {
   BUNDLE_FILE,
   EVIDENCE_DIR,
@@ -17,8 +17,10 @@ import { fence, summaryMarkdown } from "../report.ts";
 import { parsePullRequestBody, pullRequestExtraction } from "../pull-request-output.ts";
 import { changedSkeletonPaths, followUpTicket, productOf, revertToBase, skeletonGaps } from "../scope.ts";
 import { parseReviewOutput, reviewExtraction } from "../review-output.ts";
+import { parseReplies, repliesExtraction, type ThreadReply } from "../replies-output.ts";
 import type { Usage } from "../seams/agent.ts";
 import type { CommandContext } from "./context.ts";
+import { openThreads } from "./pr-threads.ts";
 
 const MINUTE = 60_000;
 const OUTPUT_TAIL = 4000;
@@ -32,15 +34,27 @@ type Reason = NonNullable<FactoryResult["reason"]>;
  * `maxAttempts`, at the global time limit or when Development needs a human,
  * the run escalates. Writes `result.json`, the branch bundle and the prints
  * into `out`, and the per-Stage report into the job summary.
+ *
+ * With a `flow` the run continues the existing branch of an open PR instead of
+ * starting from the base branch: it first merges the base branch (an agent
+ * resolves conflicts). `pr-feedback` then starts Development from the open
+ * threads; `update-branch` runs Verify and enters the loop only if it fails.
  */
-export async function work(ctx: CommandContext, number: number, options: { repo: string; out: string }): Promise<FactoryResult> {
+export interface WorkFlow {
+  /** `pr-feedback`: answer the open threads of PR `pr`. `update-branch`: merge the base branch, Verify. */
+  kind: "pr-feedback" | "update-branch";
+  pr: number;
+}
+
+export async function work(ctx: CommandContext, number: number, options: { repo: string; out: string; flow?: WorkFlow }): Promise<FactoryResult> {
   const { tracker, agent, verify, config } = ctx;
   const deadline = ctx.now() + config.timeouts.total * MINUTE;
   const git = new Git(options.repo);
   const branch = issueBranch(config, number);
   const issue = await tracker.issue(number);
   const base = await resolveBase(git, config.baseBranch);
-  await git.run("checkout", "--quiet", "-B", branch, base);
+  const flow = options.flow ?? null;
+  await git.run("checkout", "--quiet", ...(flow ? [branch] : ["-B", branch, base]));
 
   const usage = { development: zeroUsage(), review: zeroUsage(), pullRequest: zeroUsage() };
   const attempts: FactoryResult["attempts"] = [];
@@ -54,6 +68,8 @@ export async function work(ctx: CommandContext, number: number, options: { repo:
   const product = productOf(issue, config);
   const skeletonFiles = new Set<string>();
   const gaps = new Set<string>();
+  const replies = new Map<string, ThreadReply>();
+  let bail = false;
 
   /** A Stage's timeout, cut to what is left of the global limit; null when nothing is left. */
   const budget = (minutes: number): number | null => {
@@ -62,7 +78,55 @@ export async function work(ctx: CommandContext, number: number, options: { repo:
   };
   const outOfTime = () => ctx.now() >= deadline;
 
-  for (let attempt = 1; attempt <= config.maxAttempts; attempt++) {
+  if (flow) {
+    const conflicts = await mergeBase(git, base);
+    if (conflicts.length > 0) {
+      const timeout = budget(config.timeouts.development);
+      let resolved = false;
+      if (timeout !== null) {
+        const run = await agent.run("development", updateBranchPrompt({ issue, base: config.baseBranch, conflicts }), { timeoutMs: timeout, model: config.models.development });
+        add(usage.development, run.usage);
+        resolved = !run.timedOut && !(await mergeInProgress(git));
+      }
+      if (!resolved) {
+        await git.run("merge", "--abort").catch(() => undefined);
+        reason = "needs-human";
+        question = `Merging \`${config.baseBranch}\` into the branch conflicts in ${conflicts.map((c) => `\`${c}\``).join(", ")} and the Factory could not resolve it.`;
+        bail = true;
+      }
+    }
+  }
+
+  let startAttempt = 1;
+  if (flow?.kind === "update-branch" && !bail) {
+    // The merge is verified before anything else; only a failure enters the loop.
+    const timeoutMs = budget(config.timeouts.e2e);
+    if (timeoutMs === null) {
+      reason = "time";
+      bail = true;
+    } else {
+      const started = ctx.now();
+      await rm(join(options.repo, config.evidenceDir), { recursive: true, force: true });
+      const e2e = await verify.run({ timeoutMs });
+      const record = { stage: "e2e" as const, durationMs: ctx.now() - started };
+      if (e2e.ok) {
+        attempts.push({ number: 1, stages: [{ ...record, outcome: "ok" }] });
+        ready = true;
+      } else {
+        const output = tail(e2e.output);
+        attempts.push({ number: 1, stages: [{ ...record, outcome: e2e.timedOut ? "timeout" : "failed", failedCommand: e2e.failedCommand, output }] });
+        const command = e2e.failedCommand ?? "factory:verify";
+        feedback = `After merging \`${config.baseBranch}\` into the branch, ${e2e.timedOut ? `E2E timed out after ${minutes(timeoutMs)} min running` : "E2E failed running"} \`${command}\`:\n${output}\nFix the merge so that the branch works with \`${config.baseBranch}\`; do not change behaviour beyond that.`;
+        startAttempt = 2;
+        if (outOfTime()) {
+          reason = "time";
+          bail = true;
+        }
+      }
+    }
+  }
+
+  for (let attempt = startAttempt; attempt <= config.maxAttempts && !ready && !bail; attempt++) {
     let timeoutMs = budget(config.timeouts.development);
     if (timeoutMs === null) {
       reason = "time";
@@ -73,11 +137,16 @@ export async function work(ctx: CommandContext, number: number, options: { repo:
 
     // Development
     let started = ctx.now();
+    const feedbackRound = flow?.kind === "pr-feedback" && attempt === 1;
     const dev = await agent.run(
       "development",
-      developmentPrompt({ issue, base: config.baseBranch, log: await git.log(base, "HEAD"), feedback }),
-      { timeoutMs, model: config.models.development },
+      feedbackRound
+        ? prFeedbackPrompt({ issue, pr: flow.pr, log: await git.log(base, "HEAD"), threads: await openThreads(ctx, config, flow.pr) })
+        : developmentPrompt({ issue, base: config.baseBranch, log: await git.log(base, "HEAD"), feedback }),
+      { timeoutMs, model: config.models.development, ...(feedbackRound ? { extract: repliesExtraction } : {}) },
     );
+    const said = flow?.kind === "pr-feedback" ? parseReplies(dev.output) : null;
+    for (const r of said ?? []) replies.set(r.threadId, r);
     add(usage.development, dev.usage);
     const devRecord = { stage: "development" as const, durationMs: ctx.now() - started, commits: dev.commits, usage: dev.usage };
     skeletonGaps(dev.output).forEach((g) => gaps.add(g));
@@ -97,48 +166,53 @@ export async function work(ctx: CommandContext, number: number, options: { repo:
       feedback = `The previous Development session timed out after ${minutes(timeoutMs)} min. Its commits are on the branch; finish the work in smaller steps.`;
       continue;
     }
-    if (dev.commits === 0) {
+    // A feedback round that only declines, defers or answers has nothing to review.
+    const onlyAnswers = feedbackRound && said !== null && said.length > 0 && said.every((r) => r.decision !== "address");
+    if (dev.commits === 0 && !onlyAnswers) {
       stages.push({ ...devRecord, outcome: "no-commits" });
       feedback = "The previous Development session made no commits. Implement the issue and commit the work.";
       continue;
     }
     stages.push({ ...devRecord, outcome: "ok" });
 
-    // Review
-    timeoutMs = budget(config.timeouts.review);
-    if (timeoutMs === null) {
-      reason = "time";
-      break;
-    }
-    started = ctx.now();
-    const reviewRun = await agent.run(
-      "review",
-      reviewPrompt({ issue, log: await git.log(base, "HEAD"), since: lastReviewed, findings: reviews }),
-      { timeoutMs, model: config.models.review, extract: reviewExtraction },
-    );
-    add(usage.review, reviewRun.usage);
-    const reviewRecord = { stage: "review" as const, durationMs: ctx.now() - started, commits: reviewRun.commits, usage: reviewRun.usage, retries: reviewRun.retries };
-    skeletonGaps(reviewRun.output).forEach((g) => gaps.add(g));
     let reverted: string[] = [];
-    if (product !== null) {
-      reverted = await changedSkeletonPaths(git, base);
-      if (reverted.length > 0) {
-        await revertToBase(git, base, reverted, `revert: drop Skeleton changes from Product issue #${number}\n\nA Product issue never changes ${reverted.length} file(s) under packages/skeleton/:\n${reverted.map((p) => `- ${p}`).join("\n")}`);
-        reverted.forEach((p) => skeletonFiles.add(p));
-      }
-    }
-    if (reviewRun.timedOut) {
-      stages.push({ ...reviewRecord, outcome: "timeout", output: tail(reviewRun.output) });
-      if (outOfTime()) {
+    if (!(dev.commits === 0 && onlyAnswers)) {
+      // Review
+      timeoutMs = budget(config.timeouts.review);
+      if (timeoutMs === null) {
         reason = "time";
         break;
       }
-      feedback = `The Review session after the previous attempt timed out after ${minutes(timeoutMs)} min. Keep the change small and focused.`;
-      continue;
+      started = ctx.now();
+      const reviewRun = await agent.run(
+        "review",
+        reviewPrompt({ issue, log: await git.log(base, "HEAD"), since: lastReviewed, findings: reviews }),
+        { timeoutMs, model: config.models.review, extract: reviewExtraction },
+      );
+      add(usage.review, reviewRun.usage);
+      const reviewRecord = { stage: "review" as const, durationMs: ctx.now() - started, commits: reviewRun.commits, usage: reviewRun.usage, retries: reviewRun.retries };
+      skeletonGaps(reviewRun.output).forEach((g) => gaps.add(g));
+      if (product !== null) {
+        reverted = await changedSkeletonPaths(git, base);
+        if (reverted.length > 0) {
+          await revertToBase(git, base, reverted, `revert: drop Skeleton changes from Product issue #${number}\n\nA Product issue never changes ${reverted.length} file(s) under packages/skeleton/:\n${reverted.map((p) => `- ${p}`).join("\n")}`);
+          reverted.forEach((p) => skeletonFiles.add(p));
+        }
+      }
+      if (reviewRun.timedOut) {
+        stages.push({ ...reviewRecord, outcome: "timeout", output: tail(reviewRun.output) });
+        if (outOfTime()) {
+          reason = "time";
+          break;
+        }
+        feedback = `The Review session after the previous attempt timed out after ${minutes(timeoutMs)} min. Keep the change small and focused.`;
+        continue;
+      }
+      reviews.push({ attempt, ...parseReviewOutput(reviewRun.output) });
+      lastReviewed = await git.head();
+      stages.push({ ...reviewRecord, outcome: "ok" });
+
     }
-    reviews.push({ attempt, ...parseReviewOutput(reviewRun.output) });
-    lastReviewed = await git.head();
-    stages.push({ ...reviewRecord, outcome: "ok" });
 
     // E2E
     timeoutMs = budget(config.timeouts.e2e);
@@ -188,7 +262,7 @@ export async function work(ctx: CommandContext, number: number, options: { repo:
   // Pull Request Stage: once, outside the attempts, only for a run that left commits.
   let pullRequestBody: string | null = null;
   let pullRequestStage: PullRequestStageRecord | null = null;
-  if (head) {
+  if (head && flow?.kind !== "update-branch") {
     const timeoutMs = budget(config.timeouts.pullRequest);
     if (timeoutMs === null) {
       pullRequestStage = { outcome: "skipped", durationMs: 0, usage: zeroUsage(), retries: 0, reason: "no time left in the global limit" };
@@ -236,7 +310,7 @@ export async function work(ctx: CommandContext, number: number, options: { repo:
     question,
     attempts,
     review: combineReviews(reviews),
-    threadReplies: [],
+    threadReplies: [...replies.values()],
     usage,
     evidence,
     followUps,
@@ -287,7 +361,23 @@ function minutes(ms: number): number {
   return Math.round(ms / MINUTE);
 }
 
-async function resolveBase(git: Git, baseBranch: string): Promise<string> {
+/** Merges `base` into the checked-out branch; returns the conflicting files, empty when the merge is done. */
+async function mergeBase(git: Git, base: string): Promise<string[]> {
+  try {
+    await git.run("-c", "user.name=Factory", "-c", "user.email=factory@users.noreply.github.com", "merge", "--no-edit", "--quiet", base);
+    return [];
+  } catch (error) {
+    const conflicts = (await git.run("diff", "--name-only", "--diff-filter=U")).split("\n").filter(Boolean);
+    if (conflicts.length === 0) throw error;
+    return conflicts;
+  }
+}
+
+async function mergeInProgress(git: Git): Promise<boolean> {
+  return git.run("rev-parse", "-q", "--verify", "MERGE_HEAD").then(() => true, () => false);
+}
+
+export async function resolveBase(git: Git, baseBranch: string): Promise<string> {
   try {
     return await git.revParse(baseBranch);
   } catch {

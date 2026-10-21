@@ -20,6 +20,7 @@ const account = z.object({ id: z.string(), name: z.string() });
 const tokenStatus = z.object({ status: z.string() });
 const scripts = z.array(z.object({ id: z.string() }));
 const workerDomains = z.array(z.object({ hostname: z.string(), service: z.string() }));
+const workerDomainIds = z.array(z.object({ id: z.string(), service: z.string() }));
 
 /** Real Cloudflare client over the REST API. The token stays in memory. */
 export class CloudflareApi implements CloudflareClient {
@@ -154,5 +155,21 @@ export class CloudflareApi implements CloudflareClient {
   async attachWorkerDomain(accountId: string, domain: { hostname: string; service: string; zoneId: string; zoneName: string }): Promise<void> {
     const body = { hostname: domain.hostname, service: domain.service, zone_id: domain.zoneId, zone_name: domain.zoneName };
     await this.request("PUT", `/accounts/${accountId}/workers/domains`, z.unknown(), body);
+  }
+
+  async deleteWorkerDomains(accountId: string, service: string): Promise<void> {
+    const { result } = await this.request("GET", `/accounts/${accountId}/workers/domains?service=${encodeURIComponent(service)}`, workerDomainIds);
+    for (const domain of result.filter((d) => d.service === service)) {
+      await this.request("DELETE", `/accounts/${accountId}/workers/domains/${encodeURIComponent(domain.id)}`, z.unknown());
+    }
+  }
+
+  async deleteWorker(accountId: string, name: string): Promise<void> {
+    // force: also when other Workers or Durable Objects depend on it.
+    await this.request("DELETE", `/accounts/${accountId}/workers/scripts/${encodeURIComponent(name)}?force=true`, z.unknown());
+  }
+
+  async deleteKvNamespace(accountId: string, id: string): Promise<void> {
+    await this.request("DELETE", `/accounts/${accountId}/storage/kv/namespaces/${encodeURIComponent(id)}`, z.unknown());
   }
 }

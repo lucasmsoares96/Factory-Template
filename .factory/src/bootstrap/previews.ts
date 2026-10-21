@@ -142,7 +142,7 @@ export function previewKvStep(product: ProductIdentity): Step {
     },
     async run(ctx) {
       const cloudflare = await cloudflareHandle(ctx, true);
-      if (!cloudflare) return ctx.log(`  No Cloudflare token: the preview KV was not made. Run this command again to do it.`);
+      if (!cloudflare) return ctx.log(`  No saved Cloudflare login: the preview KV was not made. Run this command again to do it.`);
       const title = previewKvTitle(product.id);
       const found = await cloudflare.client.findKvNamespace(cloudflare.accountId, title);
       const kv = found ?? (await cloudflare.client.createKvNamespace(cloudflare.accountId, title));
@@ -168,7 +168,7 @@ export function previewProductsStep(product: ProductIdentity): Step {
 
 /**
  * The Previews module of `pnpm bootstrap previews <id>`. The environment comes first so the secret lands in it. The Neon
- * login (a throwaway `neonctl` session) happens at most once per run and only when a Neon step has work.
+ * login is neonctl's own, kept by the CLI: it is asked once per machine, and only when a Neon step has work.
  * `PREVIEWS_ENABLED` is not a step: the command turns it on after the doctor of the Product's previews passes.
  */
 export function previewSteps(product: ProductIdentity): Step[] {
