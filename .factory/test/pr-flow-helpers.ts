@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { expect } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
 import type { ReviewThread } from "../src/seams/code-host.ts";
-import { commitFile, derivedCheckout, git, HUMAN, lastJson, MACHINE_USER, readyIssue, tempDir, world, type World, type WorldOptions } from "./helpers.ts";
+import { commitFile, derivedCheckout, git, HUMAN, lastJson, OWNER, readyIssue, tempDir, world, type World, type WorldOptions } from "./helpers.ts";
 
 export const BRANCH = "factory/issue-7";
 export const PR = 101;
@@ -56,7 +56,7 @@ export async function prWorld(input: { main: MainChange; threads?: ReviewThread[
   const head = await git(workRepo, "rev-parse", BRANCH);
   const w = world({
     repo: workRepo,
-    issues: readyIssue({ labels: { "in-progress": MACHINE_USER } }),
+    issues: readyIssue({ labels: { "in-progress": OWNER } }),
     branches: { [BRANCH]: head },
     prs: [{ number: PR, branch: BRANCH, headSha: head, draft: input.draft ?? false, body: "Original body\n\nCloses #7", threads: input.threads ?? [] }],
     agent: input.agent,

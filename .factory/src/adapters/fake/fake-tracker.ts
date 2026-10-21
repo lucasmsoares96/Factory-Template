@@ -1,3 +1,4 @@
+import { marked } from "../../marker.ts";
 import type { Blocker, Issue, IssueComment, NewIssue, Tracker } from "../../seams/tracker.ts";
 
 export interface FakeIssueInput {
@@ -110,7 +111,7 @@ export class FakeTracker implements Tracker {
   }
 
   async comment(number: number, body: string): Promise<void> {
-    this.get(number).comments.push({ id: `c${this.nextCommentId++}`, author: this.self, body });
+    this.get(number).comments.push({ id: `c${this.nextCommentId++}`, author: this.self, body: marked(body) });
   }
 
   async createIssue(input: NewIssue): Promise<{ number: number; url: string | null }> {

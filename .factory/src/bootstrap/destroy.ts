@@ -1,7 +1,7 @@
 import { configVariables } from "../config.ts";
 import type { CloudflareClient, NeonClient, NeonProject, ResendClient } from "./clients.ts";
 import { cloudflareHandle, productionEnvironment } from "./domain.ts";
-import { FACTORY_ENABLED, FACTORY_MACHINE_USER, FACTORY_TOKEN } from "./factory.ts";
+import { FACTORY_ENABLED, FACTORY_TOKEN } from "./factory.ts";
 import { accountNames } from "./accounts.ts";
 import { DEPLOY_PRODUCTS, MAIN_RULESET, USE_ENVIRONMENTS, neonHandle, neonOrgId, parseProductList, productionSecrets } from "./product.ts";
 import { PREVIEWS_ENABLED, PREVIEW_PRODUCTS, previewEnvironment, previewNames, previewProjectName } from "./previews.ts";
@@ -23,7 +23,7 @@ export const DESTROY_USAGE = `Usage: pnpm bootstrap destroy [product <id> | prev
   (no argument)          everything: every Product, the Factory and the common part (type "all")
   product <id>           one Product: Worker, KV, Neon projects, Resend domain, secrets, variables, environments (production and previews)
   previews <id>          only the previews of one Product
-  factory                the machine user, the Factory secrets and variables
+  factory                the Factory secrets and variables
   common                 the Cloudflare secrets of the common part`;
 
 export function parseScope(positionals: string[]): DestroyScope | undefined {
@@ -187,9 +187,7 @@ export async function plan(ctx: StepContext, scope: DestroyScope): Promise<Plan>
 
   if (everything || scope.kind === "factory") {
     for (const name of [FACTORY_TOKEN, ...CLAUDE_SECRETS]) dropSecret(name);
-    for (const name of new Set([FACTORY_MACHINE_USER, FACTORY_ENABLED, ...configVariables()])) dropVariable(name);
-    const login = variables[FACTORY_MACHINE_USER];
-    if (login) addGithub(`machine user ${login} as collaborator (or its pending invitation); its account stays`, () => github.removeCollaborator(login));
+    for (const name of new Set([FACTORY_ENABLED, ...configVariables()])) dropVariable(name);
   }
   if (everything || scope.kind === "common") {
     for (const name of ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]) dropSecret(name);

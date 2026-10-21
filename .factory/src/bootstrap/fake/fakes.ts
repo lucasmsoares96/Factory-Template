@@ -6,9 +6,8 @@ import {
   type CloudflareDnsRecord,
   type CloudflareZone,
   type GitHubClient,
-  type CollaboratorPermission,
   type LabelSpec,
-  type MachineUserClient,
+  type TokenClient,
   type NewDnsRecord,
   type NeonClient,
   type NeonOrg,
@@ -43,21 +42,7 @@ export class FakeGitHub implements GitHubClient {
   refuseRulesets = false;
   info: RepoInfo = { fullName: "owner/repo", visibility: "public", viewerPermission: "ADMIN", defaultBranch: "main" };
   login = "owner";
-  /** Accepted collaborators, by login. */
-  readonly collaborators = new Map<string, CollaboratorPermission>();
-  /** Logins with a pending invitation. */
-  readonly invitations = new Set<string>();
-
-  async inviteCollaborator(login: string): Promise<void> {
-    if (this.collaborators.has(login) || this.invitations.has(login)) return;
-    this.writes++;
-    this.invitations.add(login);
-  }
-  async collaboratorPermission(login: string): Promise<CollaboratorPermission> {
-    return this.collaborators.get(login) ?? "none";
-  }
-
-  /** Names of the deletes that must fail (`secret:NAME`, `variable:NAME`, `environment:NAME`, `ruleset`, `collaborator`). */
+  /** Names of the deletes that must fail (`secret:NAME`, `variable:NAME`, `environment:NAME`, `ruleset`). */
   readonly failDeletes = new Set<string>();
   private deleting(key: string): void {
     if (this.failDeletes.has(key)) throw new Error(`gh delete failed: ${key} (HTTP 500)`);
@@ -80,11 +65,6 @@ export class FakeGitHub implements GitHubClient {
     this.deleting("ruleset");
     const at = this.rulesets.findIndex((r) => r.id === id);
     if (at >= 0) this.rulesets.splice(at, 1);
-  }
-  async removeCollaborator(login: string): Promise<void> {
-    this.deleting("collaborator");
-    this.collaborators.delete(login);
-    this.invitations.delete(login);
   }
 
   async repo(): Promise<RepoInfo> {
@@ -514,35 +494,23 @@ export class FakePrompter implements Prompter {
   }
 }
 
-/** The machine users' accounts, by classic PAT. Accepting an invitation turns it into a `write` collaborator of the fake repo. */
-export class FakeMachineUsers {
-  private readonly accounts = new Map<string, { login: string; scopes: string[] | null }>();
-  /** The invitation cannot be accepted (the account never opens it). */
-  acceptFails = false;
-  private readonly github: FakeGitHub;
+/** The fine-grained tokens GitHub knows, by value: whether each can push to the repo. Unknown tokens are rejected. */
+export class FakeTokens {
+  private readonly tokens = new Map<string, { push: boolean }>();
+  /** Every repo the tokens were asked about, in order: the only calls a token ever makes. */
+  readonly asked: string[] = [];
 
-  constructor(github: FakeGitHub) {
-    this.github = github;
+  add(token: string, access: { push: boolean }): void {
+    this.tokens.set(token, access);
   }
 
-  add(token: string, account: { login: string; scopes: string[] | null }): void {
-    this.accounts.set(token, account);
-  }
-
-  forToken(token: string): MachineUserClient {
+  forToken(token: string): TokenClient {
     return {
-      viewer: async () => {
-        const account = this.accounts.get(token);
-        if (!account) throw new Error("GitHub rejected the PAT (401 Bad credentials).");
-        return account;
-      },
-      acceptInvitation: async () => {
-        const account = this.accounts.get(token);
-        if (!account || this.acceptFails || !this.github.invitations.has(account.login)) return false;
-        this.github.writes++;
-        this.github.invitations.delete(account.login);
-        this.github.collaborators.set(account.login, "write");
-        return true;
+      repoAccess: async (repo) => {
+        this.asked.push(repo);
+        const access = this.tokens.get(token);
+        if (!access) throw new Error("GitHub rejected the token (401 Bad credentials).");
+        return access;
       },
     };
   }

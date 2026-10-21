@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
 import type { VerifyStep } from "../src/adapters/fake/fake-verify.ts";
-import { checkout, commitFile, lastJson, MACHINE_USER, tempDir, world, type WorldOptions } from "./helpers.ts";
+import { checkout, commitFile, lastJson, OWNER, tempDir, unmarked, world, type WorldOptions } from "./helpers.ts";
 
 const OLD_SHA = "0123456789abcdef0123456789abcdef01234567";
 const text = "## Summary\n\n```text\ngreet\n```\n\n## Merge Danger\n\n**Door:** two-way";
@@ -44,7 +44,7 @@ async function pipeline(
     await writeFile(file, JSON.stringify(result));
   }
   expect(await w.factory("publish", "7", "--repo", publishCheckout, "--in", artifacts, "--start-sha", startSha ?? "", ...(options.publishArgs ?? []))).toBe(0);
-  const comments = () => w.tracker.commentsOn(7).filter((c) => c.author === MACHINE_USER).map((c) => c.body);
+  const comments = () => w.tracker.commentsOn(7).filter((c) => c.author === OWNER).map((c) => c.body);
   return { w, comments };
 }
 
@@ -57,7 +57,7 @@ describe("pull request body assembled by publish", () => {
   it("puts the Stage text between the warnings and Closes #N", async () => {
     const { w } = await pipeline({ ...ready(writes(), "AGENTS.md"), edit: (r) => (r.followUps = [{ title: "Add a footer slot", body: "b", files: [] }]) });
 
-    const body = w.codeHost.prs[0]!.body;
+    const body = unmarked(w.codeHost.prs[0]!.body);
     expect(body.indexOf("[!CAUTION]")).toBeGreaterThanOrEqual(0);
     expect(body.indexOf("[!CAUTION]")).toBeLessThan(body.indexOf("[!NOTE]"));
     expect(body.indexOf("[!NOTE]")).toBeLessThan(body.indexOf("## Summary"));
@@ -70,7 +70,7 @@ describe("pull request body assembled by publish", () => {
   it("drops a closing keyword the agent wrote for any issue", async () => {
     const { w } = await pipeline(ready(writes(`${text}\n\nCloses #99\nfixes owner/repo#12`)));
 
-    const body = w.codeHost.prs[0]!.body;
+    const body = unmarked(w.codeHost.prs[0]!.body);
     expect(body).not.toMatch(/#99|#12/);
     expect(body.match(/Closes #/g)).toHaveLength(1);
   });
@@ -79,7 +79,7 @@ describe("pull request body assembled by publish", () => {
     const stage = `${text}\n\nThis fixes #99 by renaming the helper, and it also Resolves: acme/web#4.\nCloses #5, #6 and fixed #8 too.`;
     const { w } = await pipeline(ready(writes(stage)));
 
-    const body = w.codeHost.prs[0]!.body;
+    const body = unmarked(w.codeHost.prs[0]!.body);
     expect(body).not.toMatch(/#99|#4\b|#5|#6|#8/);
     expect(body.replace(/\n\nCloses #7$/, "")).not.toMatch(/\b(?:fix|fixes|fixed|resolves|closes)\b/i);
     expect(body).toContain("This [closing reference removed] by renaming the helper, and it also [closing reference removed].");
@@ -92,7 +92,7 @@ describe("pull request body assembled by publish", () => {
     const footer = "🤖 Generated with [Claude Code](https://claude.com/claude-code)";
     const { w } = await pipeline(ready(writes(`${text}\n\n${footer}\n\nCo-Authored-By: Claude <noreply@anthropic.com>`)));
 
-    const body = w.codeHost.prs[0]!.body;
+    const body = unmarked(w.codeHost.prs[0]!.body);
     expect(body).not.toContain("Generated with");
     expect(body).not.toContain("Co-Authored-By");
     expect(body).toContain("## Merge Danger");
@@ -103,7 +103,7 @@ describe("pull request body assembled by publish", () => {
     const { w } = await pipeline(ready(noBlock));
 
     const pr = w.codeHost.prs[0]!;
-    expect(pr.body).toBe("Implemented by the Factory.\n\nCloses #7");
+    expect(unmarked(pr.body)).toBe("Implemented by the Factory.\n\nCloses #7");
     const footer = pr.reviews[0]!.body;
     expect(footer).toContain("The Pull Request Stage failed");
     expect(footer).toContain("<pull-request>");
@@ -128,7 +128,7 @@ describe("pull request body assembled by publish", () => {
     expect(pr).toMatchObject({ draft: true });
     expect(pr.body.startsWith("> [!WARNING]")).toBe(true);
     expect(pr.body).toContain("## Summary");
-    expect(pr.body.trimEnd().endsWith("Closes #7")).toBe(true);
+    expect(unmarked(pr.body).trimEnd().endsWith("Closes #7")).toBe(true);
     expect(comments()[0]).toContain("Pull Request Stage (not an attempt): ok");
     expect(comments()[0]).toContain("Tokens: 17,000 in / 1,800 out.");
   });
@@ -146,11 +146,11 @@ describe("pull request body assembled by publish", () => {
 
     const rewritten = await pipeline({ ...ready(writes()), prs, branches, publishArgs: ["--pr", "55"] });
     expect(rewritten.w.codeHost.pr(55).body).toContain("## Summary");
-    expect(rewritten.w.codeHost.pr(55).body.trimEnd().endsWith("Closes #7")).toBe(true);
+    expect(unmarked(rewritten.w.codeHost.pr(55).body).trimEnd().endsWith("Closes #7")).toBe(true);
     expect(rewritten.w.codeHost.prs).toHaveLength(1);
 
     const failed = await pipeline({ ...ready(noBlock), prs: structuredClone(prs), branches, publishArgs: ["--pr", "55"] });
-    expect(failed.w.codeHost.pr(55).body).toBe("Old body\n\nCloses #7");
+    expect(unmarked(failed.w.codeHost.pr(55).body)).toBe("Old body\n\nCloses #7");
     expect(failed.w.codeHost.writes).not.toContain("updatePrBody #55");
   });
 });

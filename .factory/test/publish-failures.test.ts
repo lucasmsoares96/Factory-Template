@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
 import type { VerifyStep } from "../src/adapters/fake/fake-verify.ts";
-import { checkout, commitFile, commitFiles, git, lastJson, MACHINE_USER, tempDir, world, type WorldOptions } from "./helpers.ts";
+import { checkout, commitFile, commitFiles, git, lastJson, OWNER, tempDir, world, type WorldOptions } from "./helpers.ts";
 
 const RUN_URL = "https://forge.test/actions/runs/42";
 const OLD_SHA = "0123456789abcdef0123456789abcdef01234567";
@@ -54,7 +54,7 @@ async function pipeline(
     "publish", "7", "--repo", publishCheckout, "--in", artifacts,
     "--start-sha", claimed.startSha ?? "", "--run-url", RUN_URL, ...(options.publishArgs ?? []),
   );
-  const factoryComments = () => w.tracker.commentsOn(7).filter((c) => c.author === MACHINE_USER).map((c) => c.body);
+  const factoryComments = () => w.tracker.commentsOn(7).filter((c) => c.author === OWNER).map((c) => c.body);
   return { w, exitCode, head, publishCheckout, artifacts, output: lastJson(w.logs), factoryComments };
 }
 

@@ -1,86 +1,75 @@
 import { labels } from "./common.ts";
-import type { CollaboratorPermission } from "./clients.ts";
 import type { Step, StepContext } from "./steps.ts";
 
 export const FACTORY_TOKEN = "FACTORY_TOKEN";
-export const FACTORY_MACHINE_USER = "FACTORY_MACHINE_USER";
 export const FACTORY_ENABLED = "FACTORY_ENABLED";
 export const CLAUDE_OAUTH = "CLAUDE_CODE_OAUTH_TOKEN";
 export const CLAUDE_KEY = "ANTHROPIC_API_KEY";
 
 const ATTEMPTS = 3;
-const CAN_WRITE: CollaboratorPermission[] = ["write", "maintain", "admin"];
 
-/** The classic-PAT form of GitHub, filled in: only `repo` (never `workflow`, so the Factory cannot edit workflows). */
-export const PAT_URL = `https://github.com/settings/tokens/new?scopes=repo&description=${encodeURIComponent("Factory machine user")}`;
-
-/** Why a PAT cannot be the Factory's identity, or null when it can. Reads the token with `GET /user` only. */
-async function problem(ctx: StepContext, pat: string): Promise<{ problem: string | null; login?: string }> {
-  let viewer: { login: string; scopes: string[] | null };
-  try {
-    viewer = await ctx.machine(pat).viewer();
-  } catch (error) {
-    return { problem: `The PAT is not valid: ${(error as Error).message}` };
-  }
-  const { login, scopes } = viewer;
-  if (scopes === null) return { problem: "That is not a classic PAT (GitHub sent no X-OAuth-Scopes): create a classic one, a fine-grained token cannot attach the prints to the PR body.", login };
-  if (!scopes.includes("repo")) return { problem: `The PAT lacks the \`repo\` scope (it has: ${scopes.join(", ") || "none"}).`, login };
-  if (scopes.includes("workflow")) return { problem: "The PAT has the `workflow` scope: remove it, so the Factory can never change a workflow file.", login };
-  const owner = (await ctx.github.repo()).fullName.split("/")[0]!;
-  if (login.toLowerCase() === owner.toLowerCase()) return { problem: `The PAT belongs to ${login}, the repository's owner: the Factory must write as its own account, not as its owner.`, login };
-  if (login.toLowerCase() === (await ctx.github.user()).toLowerCase()) return { problem: `The PAT belongs to ${login}, the same login as your own \`gh\` session: use a separate machine user account.`, login };
-  return { problem: null, login };
+/**
+ * The fine-grained token form of GitHub, pre-filled (docs checked 2026-10-21): name, description, owner, no expiry and
+ * the three permissions the Factory needs. The form has no parameter to pick repositories, and `workflows` is left out
+ * on purpose, so the Factory can never change a workflow file.
+ */
+export function tokenUrl(repoFullName: string): string {
+  const [owner, name] = repoFullName.split("/") as [string, string];
+  const query = new URLSearchParams({
+    name: `Factory ${name}`,
+    description: `Factory for ${repoFullName}: opens pull requests and comments on issues. No workflows permission, on purpose.`,
+    target_name: owner,
+    expires_in: "none",
+    contents: "write",
+    pull_requests: "write",
+    issues: "write",
+  });
+  return `https://github.com/settings/personal-access-tokens/new?${query}`;
 }
 
-/** The only prompt of the module: the machine user's classic PAT. It goes straight to the `FACTORY_TOKEN` secret. */
-export const machineUser: Step = {
-  id: "machine-user",
-  title: `Machine user (${FACTORY_TOKEN}, ${FACTORY_MACHINE_USER})`,
+/** Why a token cannot be the Factory's identity, or null when it can. The token never leaves memory except to GitHub. */
+async function problem(ctx: StepContext, token: string, repo: string): Promise<string | null> {
+  if (token.startsWith("ghp_")) return "That is a classic token (ghp_): a classic token reaches every repository you own. Create a fine-grained one (github_pat_), limited to this repository.";
+  if (!token.startsWith("github_pat_")) return "That is not a fine-grained personal access token: it must start with github_pat_.";
+  let access: { push: boolean };
+  try {
+    access = await ctx.token(token).repoAccess(repo);
+  } catch (error) {
+    return (error as Error).message;
+  }
+  if (!access.push) return `The token cannot write to ${repo}: give it Contents, Pull requests and Issues as Read and write.`;
+  return null;
+}
+
+/**
+ * The only prompt of the module: the owner's fine-grained token. It goes straight to the `FACTORY_TOKEN` secret. The
+ * Factory writes as the owner (so it recognises its own texts by a hidden marker, not by the author).
+ */
+export const factoryToken: Step = {
+  id: "factory-token",
+  title: `Factory token (${FACTORY_TOKEN})`,
   async check(ctx) {
-    const [secrets, variables] = await Promise.all([ctx.github.listSecrets(), ctx.github.listVariables()]);
-    const login = variables[FACTORY_MACHINE_USER];
-    return { done: secrets.includes(FACTORY_TOKEN) && Boolean(login), detail: login };
+    return { done: (await ctx.github.listSecrets()).includes(FACTORY_TOKEN) };
   },
   async run(ctx) {
+    const repo = (await ctx.github.repo()).fullName;
+    const fromEnv = ctx.env[FACTORY_TOKEN]?.trim();
+    if (!fromEnv) {
+      ctx.log("The Factory writes as you, with a fine-grained token of yours limited to this repository. The one manual step on the form: under Repository access choose \"Only select repositories\" and pick this repository.");
+      ctx.prompter.link("Open the form (everything else is filled in; do not add Workflows):", tokenUrl(repo));
+    }
     for (let attempt = 1; ; attempt++) {
-      if (attempt === 1) {
-        ctx.log("The Factory writes as a machine user: a separate GitHub account that only this repository invites.");
-        ctx.prompter.link("Signed in as that account, create a classic personal access token with the `repo` scope only (if the form opens empty, tick `repo` by hand and leave `workflow` unticked):", PAT_URL);
-      }
-      const pat = (ctx.env[FACTORY_TOKEN] || (await ctx.prompter.password({ id: "factory-pat", message: "Paste the machine user's classic PAT" }))).trim();
-      const checked = await problem(ctx, pat);
-      if (checked.problem === null) {
-        // The token is checked: it goes to the forge's secret now and nowhere else.
-        await ctx.github.setVariable(FACTORY_MACHINE_USER, checked.login!);
-        await ctx.github.setSecret(FACTORY_TOKEN, pat);
-        ctx.memory.factoryPat = pat;
-        ctx.memory.machineLogin = checked.login!;
+      const token = (fromEnv || (await ctx.prompter.password({ id: "factory-token", message: "Paste the fine-grained token" }))).trim();
+      const refused = await problem(ctx, token, repo);
+      if (refused === null) {
+        await ctx.github.setSecret(FACTORY_TOKEN, token);
+        // GitHub offers no way to read the permissions of a fine-grained token (checked 2026-10-21), so this cannot be tested.
+        ctx.log("Stored. GitHub cannot tell whether the token has the Workflows permission: make sure you did not add it, or the Factory could edit workflow files.");
         return;
       }
-      if (attempt >= ATTEMPTS) throw new Error(`${checked.problem} Nothing was stored.`);
-      ctx.log(`${checked.problem} Nothing was stored; paste another PAT.`);
+      if (fromEnv || attempt >= ATTEMPTS) throw new Error(`${refused} Nothing was stored.`);
+      ctx.log(`${refused} Nothing was stored; paste another token.`);
     }
-  },
-};
-
-/** The machine user needs `write`: it is invited and accepts the invitation with its own PAT. */
-export const machineCollaborator: Step = {
-  id: "machine-collaborator",
-  title: "Machine user is a write collaborator",
-  async check(ctx) {
-    const login = ctx.memory.machineLogin ?? (await ctx.github.listVariables())[FACTORY_MACHINE_USER];
-    if (!login) return { done: false };
-    const permission = await ctx.github.collaboratorPermission(login);
-    return { done: CAN_WRITE.includes(permission), detail: `${login}: ${permission}` };
-  },
-  async run(ctx) {
-    const login = ctx.memory.machineLogin ?? (await ctx.github.listVariables())[FACTORY_MACHINE_USER];
-    if (!login) throw new Error(`No ${FACTORY_MACHINE_USER}: run this command again.`);
-    const repo = (await ctx.github.repo()).fullName;
-    await ctx.github.inviteCollaborator(login);
-    const pat = ctx.memory.factoryPat;
-    if (pat && (await ctx.machine(pat).acceptInvitation(repo))) return;
-    throw new Error(`${login} has not accepted the invitation to ${repo}. Sign in as ${login} and accept it at https://github.com/${repo}/invitations, then run this command again.`);
   },
 };
 
@@ -113,5 +102,5 @@ export const claudeAuth: Step = {
   },
 };
 
-/** The Factory module: labels, the machine user, its invitation and Claude's auth. FACTORY_ENABLED is set after the doctor. */
-export const factorySteps: Step[] = [labels, machineUser, machineCollaborator, claudeAuth];
+/** The Factory module: labels, the Factory token and Claude's auth. FACTORY_ENABLED is set after the doctor. */
+export const factorySteps: Step[] = [labels, factoryToken, claudeAuth];

@@ -28,7 +28,7 @@ export interface Sections {
   domain?: boolean;
   /** Default `"auto"`. */
   previews?: boolean | "auto";
-  /** Default false: the machine user, its token, its permission and Claude's auth (`bootstrap factory`). */
+  /** Default false: the Factory token and Claude's auth (`bootstrap factory`). */
   factory?: boolean;
   /** Default true: the Cloudflare secrets and workers.dev, which the Factory module does not set up. */
   cloudflare?: boolean;
@@ -83,7 +83,7 @@ export async function doctor(
   if (claude.length === 2) add("Secrets", "warn", "Claude auth", "both exist: ANTHROPIC_API_KEY wins; delete one");
   else if (claude.length === 1) add("Secrets", "ok", "Claude auth", claude[0]);
   else add("Secrets", "off", "Claude auth", "the Factory cannot run without CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY");
-  add("Secrets", secrets.includes("FACTORY_TOKEN") ? "ok" : "off", "FACTORY_TOKEN", secrets.includes("FACTORY_TOKEN") ? undefined : "machine user not configured");
+  add("Secrets", secrets.includes("FACTORY_TOKEN") ? "ok" : "off", "FACTORY_TOKEN", secrets.includes("FACTORY_TOKEN") ? undefined : "run `pnpm bootstrap factory`");
 
   for (const [name, what] of MODULE_SWITCHES) {
     const on = variables[name] === "true";
@@ -189,14 +189,7 @@ async function factoryChecks(
   add: (status: CheckStatus, name: string, detail?: string) => void,
 ): Promise<void> {
   const redo = "run `pnpm bootstrap factory`";
-  const login = variables.FACTORY_MACHINE_USER;
-  add(login ? "ok" : "missing", "FACTORY_MACHINE_USER", login ?? redo);
   add(secrets.includes("FACTORY_TOKEN") ? "ok" : "missing", "FACTORY_TOKEN", secrets.includes("FACTORY_TOKEN") ? undefined : redo);
-  if (login) {
-    const permission = await ctx.github.collaboratorPermission(login);
-    const canWrite = ["write", "maintain", "admin"].includes(permission);
-    add(canWrite ? "ok" : "missing", "Machine user permission", canWrite ? `${login}: ${permission}` : `${login}: ${permission}; it must accept the invitation (${redo})`);
-  }
   const claude = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"].filter((name) => secrets.includes(name));
   if (claude.length === 2) add("warn", "Claude auth", "both exist: ANTHROPIC_API_KEY wins; delete one");
   else if (claude.length === 1) add("ok", "Claude auth", claude[0]);

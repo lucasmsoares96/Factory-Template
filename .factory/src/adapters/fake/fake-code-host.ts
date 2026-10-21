@@ -1,3 +1,4 @@
+import { marked } from "../../marker.ts";
 import type {
   CodeHost,
   EvidenceImage,
@@ -29,7 +30,11 @@ export class FakeCodeHost implements CodeHost {
   /** Every write, in order, e.g. `openDraftPr #101`. */
   readonly writes: string[] = [];
 
-  constructor(seed: { branches?: Record<string, string>; prs?: FakePullRequestSeed[] } = {}) {
+  /** Login the Factory writes as: author of its replies. */
+  readonly self: string;
+
+  constructor(seed: { branches?: Record<string, string>; prs?: FakePullRequestSeed[]; self?: string } = {}) {
+    this.self = seed.self ?? "factory";
     for (const [branch, sha] of Object.entries(seed.branches ?? {})) this.branches.set(branch, sha);
     for (const pr of seed.prs ?? []) this.add(pr);
   }
@@ -71,7 +76,7 @@ export class FakeCodeHost implements CodeHost {
   }
 
   async commentPr(pr: number, body: string): Promise<void> {
-    this.pr(pr).comments.push(body);
+    this.pr(pr).comments.push(marked(body));
     this.writes.push(`commentPr #${pr}`);
   }
 
@@ -80,7 +85,7 @@ export class FakeCodeHost implements CodeHost {
     if (!headSha) throw new Error(`FakeCodeHost: branch ${input.branch} was never pushed`);
     const number = Math.max(100, ...this.prs.map((p) => p.number)) + 1;
     const { images = [], ...rest } = input;
-    const pr = fakePr({ number, headSha, draft: true, ...rest, body: withUrls(rest.body, number, images), images: structuredClone(images) });
+    const pr = fakePr({ number, headSha, draft: true, ...rest, body: withUrls(marked(rest.body), number, images), images: structuredClone(images) });
     this.prs.push(pr);
     this.writes.push(`openDraftPr #${number}`);
     return { ...pr };
@@ -88,7 +93,7 @@ export class FakeCodeHost implements CodeHost {
 
   async updatePrBody(pr: number, body: string, images: EvidenceImage[] = []): Promise<void> {
     const target = this.pr(pr);
-    target.body = withUrls(body, pr, images);
+    target.body = withUrls(marked(body), pr, images);
     target.images = structuredClone(images);
     this.writes.push(`updatePrBody #${pr}`);
   }
@@ -100,7 +105,7 @@ export class FakeCodeHost implements CodeHost {
 
   async closePr(pr: number, comment?: string): Promise<void> {
     const target = this.pr(pr);
-    if (comment) target.comments.push(comment);
+    if (comment) target.comments.push(marked(comment));
     target.state = "closed";
     this.writes.push(`closePr #${pr}`);
   }
@@ -112,7 +117,7 @@ export class FakeCodeHost implements CodeHost {
   }
 
   async submitReview(pr: number, review: Review): Promise<void> {
-    this.pr(pr).reviews.push(structuredClone(review));
+    this.pr(pr).reviews.push(structuredClone({ ...review, body: marked(review.body), comments: review.comments.map((c) => ({ ...c, body: marked(c.body) })) }));
     this.writes.push(`submitReview #${pr}`);
   }
 
@@ -123,7 +128,7 @@ export class FakeCodeHost implements CodeHost {
   async replyToThread(pr: number, threadId: string, body: string): Promise<void> {
     const thread = this.pr(pr).threads.find((t) => t.id === threadId);
     if (!thread) throw new Error(`FakeCodeHost: no thread ${threadId} on PR #${pr}`);
-    thread.replies.push({ author: "factory", body });
+    thread.replies.push({ author: this.self, body: marked(body) });
     this.writes.push(`replyToThread #${pr} ${threadId}`);
   }
 

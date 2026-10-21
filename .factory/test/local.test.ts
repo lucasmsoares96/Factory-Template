@@ -146,7 +146,7 @@ describe("pnpm factory local", () => {
 
     const [job] = container.jobs;
     expect(job).toMatchObject({ issue: 7, base: "main" });
-    expect(Object.keys(job!.env).sort()).toEqual(["CLAUDE_CODE_OAUTH_TOKEN", "FACTORY_MACHINE_USER", "FACTORY_MAX_ATTEMPTS"]);
+    expect(Object.keys(job!.env).sort()).toEqual(["CLAUDE_CODE_OAUTH_TOKEN", "FACTORY_MAX_ATTEMPTS"]);
     expect(job!.spec).toBe(SPEC);
     expect(job!.tickets).toEqual(["07-greet.md"]);
     // The temporary in/out directories are gone after the run.

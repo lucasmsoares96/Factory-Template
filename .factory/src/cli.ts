@@ -5,6 +5,7 @@ import { claim } from "./commands/claim.ts";
 import type { Adapters, CommandContext } from "./commands/context.ts";
 import { CLAUDE_AUTH, local } from "./commands/local.ts";
 import { claimPrFeedback, claimUpdateBranch, scanBranches, type PrClaim } from "./commands/pr-claim.ts";
+import { notify } from "./commands/notify.ts";
 import { publish } from "./commands/publish.ts";
 import { apply, triage } from "./commands/triage.ts";
 import { unblock } from "./commands/unblock.ts";
@@ -33,8 +34,7 @@ Commands:
   work <issue> --out <dir> [--repo <dir>] [--flow pr-feedback|update-branch --pr <n>]
                                          Run Development → Review → E2E; write result.json, the branch bundle and the prints.
                                          --flow: continue the branch of PR <n> (merge the base branch first).
-  pr-feedback --pr <n> --actor <login>   Guard a comment on a Factory PR (writer, not the machine user, factory/issue-N,
-                                         open threads) and print the claim; the pr-feedback workflow then runs work and publish.
+  pr-feedback --pr <n> --actor <login>   Guard a comment on a Factory PR (writer, factory/issue-N, open threads) and print the claim; the pr-feedback workflow then runs work and publish.
   update-branch <issue>                  Guard an update of the Factory branch of an issue (in-progress, open PR).
   update-branch --scan [--repo <dir>]    After a push to the base branch: dispatch update-branch for each Factory PR that
                                          now conflicts with it (git merge-tree).
@@ -50,6 +50,9 @@ Commands:
   apply --in <dir> [--repo <dir>]        Apply triage.json: the marked comment, then agent:explore → ready-for-agent
                                          (easy-call), ready-for-human (needs-a-human) or needs-info (blocked); adds product:<id>.
   unblock                                Sweep the ready-for-agent issues and start the ones whose blockers are all done.
+  notify <issue> --outcome ready|escalated [--updated] [--url <url>] [--to <login>]
+                                         The Merge Gate notice: a short comment on the issue that mentions <login> and
+                                         links the PR. Run with the job's GITHUB_TOKEN, not FACTORY_TOKEN.
   help                                   Show this message.
 
 Settings come from .factory/src/config.ts and FACTORY_* variables.`;
@@ -61,7 +64,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
     deps.log(USAGE);
     return command === undefined ? 1 : 0;
   }
-  if (!["claim", "work", "publish", "local", "triage", "apply", "unblock", "pr-feedback", "update-branch"].includes(command)) {
+  if (!["claim", "work", "publish", "local", "triage", "apply", "unblock", "pr-feedback", "update-branch", "notify"].includes(command)) {
     deps.log(`Unknown command: ${command}\n\n${USAGE}`);
     return 1;
   }
@@ -81,6 +84,10 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
       actor: { type: "string" },
       flow: { type: "string" },
       scan: { type: "boolean" },
+      outcome: { type: "string" },
+      updated: { type: "boolean" },
+      url: { type: "string" },
+      to: { type: "string" },
     },
   });
   // Parsed on use: `pr-feedback` and `update-branch --scan` take no issue.
@@ -99,11 +106,9 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
     if (!CLAUDE_AUTH.some((key) => deps.env[key])) {
       throw new Error("`factory local` needs Claude's auth: set CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`) or ANTHROPIC_API_KEY.");
     }
-    // Locally the Factory writes as `factory` unless a machine user is set.
-    const env = { ...deps.env, FACTORY_MACHINE_USER: deps.env.FACTORY_MACHINE_USER || "factory" };
-    const config = loadConfig(env);
+    const config = loadConfig(deps.env);
     const container = deps.container?.(config) ?? new DockerContainerRunner({ docker: dockerCli, config, log: deps.log });
-    const result = await local(base(config), issueArg(), { repo: values.repo, issues: values.issues ?? null, container, env });
+    const result = await local(base(config), issueArg(), { repo: values.repo, issues: values.issues ?? null, container, env: deps.env });
     deps.log(JSON.stringify(result));
     return 0;
   }
@@ -138,12 +143,26 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
       await writeOutputs(claim);
       return 0;
     }
+    case "notify": {
+      const issue = issueArg();
+      const outcome = values.outcome;
+      if (outcome !== "ready" && outcome !== "escalated") {
+        // A discarded run, or anything else without a pull request to announce, says nothing.
+        deps.log(JSON.stringify({ issue, notified: false }));
+        return 0;
+      }
+      await notify(ctx, issue, { outcome, updated: values.updated ?? false, url: values.url || null, to: values.to ?? "" });
+      deps.log(JSON.stringify({ issue, notified: true }));
+      return 0;
+    }
     case "claim": {
+      // Who applied `ready-for-agent`, read before the lock removes the label: the notice at the end mentions them.
+      const requester = await ctx.tracker.labelActor(issueArg(), config.labels.readyForAgent);
       const result = await claim(ctx, issueArg(), { event: values.event ?? null });
       deps.log(JSON.stringify(result));
       // The workflow reads these to decide whether `work` and `publish` run, and where the lease starts.
       if (deps.env.GITHUB_OUTPUT) {
-        const lines = [`claimed=${result.claimed}`];
+        const lines = [`claimed=${result.claimed}`, `requester=${requester ?? ""}`];
         if (result.claimed) lines.push(`start_sha=${result.startSha ?? ""}`, `branch=${result.branch}`);
         else lines.push(`reason=${result.reason}`);
         await appendFile(deps.env.GITHUB_OUTPUT, `${lines.join("\n")}\n`);
@@ -181,6 +200,10 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
         pr: values.pr ? parseIssue(values.pr) : null,
       });
       deps.log(JSON.stringify(result));
+      if (deps.env.GITHUB_OUTPUT) {
+        const lines = [`outcome=${result.outcome}`, `url=${"url" in result ? (result.url ?? "") : ""}`];
+        await appendFile(deps.env.GITHUB_OUTPUT, `${lines.join("\n")}\n`);
+      }
       return 0;
     }
   }

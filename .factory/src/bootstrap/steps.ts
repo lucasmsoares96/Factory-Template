@@ -1,5 +1,5 @@
 import type { FactoryConfig } from "../config.ts";
-import type { AccountsClient, CloudflareClient, GitHubClient, MachineUserClient, NeonClient, Prompter, ResendClient, WranglerAuth } from "./clients.ts";
+import type { AccountsClient, CloudflareClient, GitHubClient, NeonClient, Prompter, ResendClient, TokenClient, WranglerAuth } from "./clients.ts";
 
 /** The part of a Product's identity (ticket 07) the wizard reads; it never rewrites the file. */
 export interface ProductIdentity {
@@ -22,8 +22,8 @@ export interface BootstrapDeps {
   accounts: AccountsClient;
   /** Builds the Resend client once a key is at hand. */
   resend: (key: string) => ResendClient;
-  /** Builds the machine user's client once its PAT is at hand. */
-  machine: (token: string) => MachineUserClient;
+  /** Builds the client of the owner's fine-grained token once it is at hand. */
+  token: (token: string) => TokenClient;
   /** Reads `apps/<id>/product.config.ts`. */
   product: (id: string) => Promise<ProductIdentity>;
   sleep: (ms: number) => Promise<void>;
@@ -39,7 +39,7 @@ export interface BootstrapDeps {
 export interface StepContext extends BootstrapDeps {
   /** The steps named by `--redo` in this run (set by `runSteps`). */
   redo?: string[];
-  memory: { factoryPat?: string; machineLogin?: string; cloudflareToken?: string; accountId?: string; resendKey?: string; resendDeferred?: boolean; noWranglerLogin?: boolean; neon?: NeonClient; neonOrg?: { id?: string }; databaseUrl?: string; neonKeyDeclined?: boolean; previewProject?: Record<string, string> };
+  memory: { cloudflareToken?: string; accountId?: string; resendKey?: string; resendDeferred?: boolean; noWranglerLogin?: boolean; neon?: NeonClient; neonOrg?: { id?: string }; databaseUrl?: string; neonKeyDeclined?: boolean; previewProject?: Record<string, string> };
 }
 
 export interface Step {
