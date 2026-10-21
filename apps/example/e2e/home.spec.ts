@@ -47,7 +47,7 @@ test("the sign-in screen shows the Product's tagline right below its title", { t
 test.fixme("the sign-in tagline is a link that leads to the sign-up screen", { tag: "@evidence" }, async ({ page, t, evidence }) => {
   await page.goto("/sign-in");
 
-  await page.getByRole("link", { name: t.auth.signIn.description }).click();
+  await page.getByRole("link", { name: t.auth.signIn.description, exact: true }).click();
 
   await expect(page).toHaveURL(/\/sign-up$/);
   await expect(page.getByRole("heading", { name: t.auth.signUp.title })).toBeVisible();
