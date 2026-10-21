@@ -93,9 +93,18 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
   const ctx: CommandContext = { ...deps.adapters({ config, repo: values.repo }), ...base(config) };
 
   switch (command) {
-    case "claim":
-      deps.log(JSON.stringify(await claim(ctx, issue, { event: values.event ?? null })));
+    case "claim": {
+      const result = await claim(ctx, issue, { event: values.event ?? null });
+      deps.log(JSON.stringify(result));
+      // The workflow reads these to decide whether `work` and `publish` run, and where the lease starts.
+      if (deps.env.GITHUB_OUTPUT) {
+        const lines = [`claimed=${result.claimed}`];
+        if (result.claimed) lines.push(`start_sha=${result.startSha ?? ""}`, `branch=${result.branch}`);
+        else lines.push(`reason=${result.reason}`);
+        await appendFile(deps.env.GITHUB_OUTPUT, `${lines.join("\n")}\n`);
+      }
       return 0;
+    }
     case "work": {
       const result = await work(ctx, issue, { repo: values.repo, out: required(values.out, "--out") });
       deps.log(JSON.stringify({ issue, outcome: result.outcome, reason: result.reason, attempts: result.attempts.length }));

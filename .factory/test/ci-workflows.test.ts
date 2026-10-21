@@ -18,7 +18,8 @@ interface Job {
   strategy?: { "fail-fast"?: boolean; matrix?: unknown };
   services?: Record<string, unknown>;
   defaults?: { run?: { shell?: string } };
-  steps?: Array<{ uses?: string; run?: string; with?: Record<string, unknown>; name?: string; env?: Record<string, string> }>;
+  "timeout-minutes"?: number;
+  steps?: Array<{ uses?: string; run?: string; with?: Record<string, unknown>; name?: string; env?: Record<string, string>; if?: string; "continue-on-error"?: boolean }>;
   uses?: string;
   if?: string;
   environment?: unknown;
@@ -32,7 +33,7 @@ interface Workflow {
 
 /** Reads and parses every workflow in `dir`, relative to the repository root. */
 function load(dir: string): Record<string, Workflow> {
-  const names = ["factory-image.yml", "factory-pr.yml", "factory-deploy.yml", "factory-pr-cleanup.yml"];
+  const names = ["factory-image.yml", "factory-pr.yml", "factory-deploy.yml", "factory-pr-cleanup.yml", "factory-issue.yml"];
   return Object.fromEntries(names.map((name) => [name, parse(readFileSync(join(repo, dir, name), "utf8")) as Workflow]));
 }
 
@@ -56,14 +57,15 @@ describe.each([[WORKFLOWS_DIR]])("CI workflows in %s", (dir) => {
   const { image, pr, deploy, allJobs } = checkWorkflows(dir);
   const build = pr.jobs.build!;
 
-  it("only `build` takes vars.FACTORY_RUNNER (and `work`, once it exists), always in a container", () => {
-    const takers = allJobs.filter(({ job }) => runsOn(job).includes("vars.FACTORY_RUNNER")).map(({ id }) => id);
-    expect(takers).toEqual(["build", "build"]);
-    expect(allJobs.filter(({ job }) => runsOn(job).includes("vars.FACTORY_RUNNER")).map(({ file }) => file)).toEqual(["factory-pr.yml", "factory-deploy.yml"]);
+  it("only `build` and `work` take vars.FACTORY_RUNNER, always in a container; `claim` and `publish` never do", () => {
+    const takers = allJobs.filter(({ job }) => runsOn(job).includes("vars.FACTORY_RUNNER")).map(({ file, id }) => `${file} ${id}`);
+    expect(takers.sort()).toEqual(["factory-deploy.yml build", "factory-issue.yml work", "factory-pr.yml build"]);
+    for (const { file, id, job } of allJobs.filter(({ job }) => runsOn(job).includes("vars.FACTORY_RUNNER"))) {
+      expect(job.container?.image, `${file} ${id}`).toBe("${{ needs.image.outputs.image }}");
+      expect(runsOn(job), `${file} ${id}`).toContain("ubuntu-latest");
+    }
     expect(runsOn(deploy.jobs.build!)).toContain("ubuntu-latest");
-    expect(deploy.jobs.build!.container?.image).toBe("${{ needs.image.outputs.image }}");
     expect(runsOn(build)).toContain("ubuntu-latest");
-    expect(build.container?.image).toBe("${{ needs.image.outputs.image }}");
   });
 
   it("`build` is read-only, secretless, cacheless and does not keep the token", () => {
@@ -393,6 +395,90 @@ describe.each([[WORKFLOWS_DIR]])("binaries the workflows in %s run", (dir) => {
       }
     }
     expect(offenders).toEqual([]);
+  });
+});
+
+describe.each([[WORKFLOWS_DIR]])("Factory issue workflow in %s", (dir) => {
+  const { workflows } = checkWorkflows(dir);
+  const issue = workflows["factory-issue.yml"]!;
+  const { claim, work, publish } = issue.jobs;
+  const checkoutOf = (job: Job) => steps(job).find((step) => step.uses?.startsWith("actions/checkout@"));
+  /** Every `secrets.X` / `secrets[...]` a job mentions. */
+  const secretsOf = (job: Job) => [...new Set(textOf(job).match(/secrets\.\w+|secrets\[[^\]]*\]/g) ?? [])].sort();
+
+  it("starts on the label event and by hand, is off until FACTORY_ENABLED and runs one issue at a time", () => {
+    expect(Object.keys(issue.on).sort()).toEqual(["issues", "workflow_dispatch"]);
+    expect(issue.on.issues).toEqual({ types: ["labeled"] });
+    expect(issue.permissions).toEqual({});
+    expect(claim!.if).toContain("vars.FACTORY_ENABLED == 'true'");
+    expect(Object.keys(issue.jobs)).toEqual(["claim", "image", "work", "publish"]);
+    expect(issue.jobs.image!.needs).toBe("claim");
+    expect(work!.needs).toEqual(["claim", "image"]);
+    expect(publish!.needs).toEqual(["claim", "work"]);
+    expect(issue).toMatchObject({ concurrency: { "cancel-in-progress": false } });
+    expect(String((issue as unknown as { concurrency: { group: string } }).concurrency.group)).toMatch(/^factory-\$\{\{ github\.event\.issue\.number \|\| inputs\.issue \}\}$/);
+  });
+
+  it("`work` never receives FACTORY_TOKEN and holds only Claude's auth", () => {
+    expect(textOf(work!)).not.toContain("FACTORY_TOKEN");
+    expect(secretsOf(work!)).toEqual(["secrets.ANTHROPIC_API_KEY", "secrets.CLAUDE_CODE_OAUTH_TOKEN"]);
+    expect(textOf(work!)).not.toMatch(/GH_TOKEN|CLOUDFLARE|NEON|RESEND/);
+  });
+
+  it("`work` runs only in the image, read-only, without keeping the checkout token, for at most 350 minutes", () => {
+    expect(work!.container?.image).toBe("${{ needs.image.outputs.image }}");
+    expect(work!["runs-on"]).toBe("${{ vars.FACTORY_RUNNER || 'ubuntu-latest' }}");
+    expect(work!.permissions).toEqual({ contents: "read", issues: "read", packages: "read" });
+    expect(checkoutOf(work!)?.with).toMatchObject({ "persist-credentials": false });
+    expect(work!["timeout-minutes"]).toBe(350);
+    expect(work!.defaults?.run?.shell).toBe("bash");
+    expect(Object.keys(work!.services ?? {})).toEqual(["postgres"]);
+    expect(work!.if).toContain("needs.claim.outputs.claimed == 'true'");
+  });
+
+  it("`claim` writes with the job token and nothing else, on a fresh VM, never on FACTORY_RUNNER", () => {
+    expect(claim!["runs-on"]).toBe("ubuntu-latest");
+    expect(claim!.container).toBeUndefined();
+    expect(claim!.permissions).toEqual({ contents: "read", issues: "write", "pull-requests": "read" });
+    expect(secretsOf(claim!)).toEqual([]);
+    expect(textOf(claim!)).not.toContain("FACTORY_TOKEN");
+    expect(runs(claim!).join("\n")).toContain("pnpm factory claim");
+    expect(checkoutOf(claim!)?.with).toMatchObject({ "persist-credentials": false });
+  });
+
+  it("`publish` is a fresh VM with the machine user's token, the harness from the default branch, and runs even when `work` failed", () => {
+    expect(publish!["runs-on"]).toBe("ubuntu-latest");
+    expect(publish!.container).toBeUndefined();
+    expect(publish!.if).toContain("always()");
+    expect(publish!.if).toContain("needs.claim.outputs.claimed == 'true'");
+    expect(secretsOf(publish!)).toEqual(["secrets.FACTORY_TOKEN"]);
+    expect(publish!.permissions).toEqual({ contents: "read" });
+    expect(checkoutOf(publish!)?.with).toMatchObject({ ref: "${{ github.event.repository.default_branch }}", "persist-credentials": false });
+    expect(runs(publish!).join("\n")).toContain("pnpm factory publish");
+    expect(publish!["timeout-minutes"]!).toBeLessThan(60);
+  });
+
+  it("the jobs hand over the branch bundle, result.json and prints as one artifact kept 14 days", () => {
+    const upload = steps(work!).find((step) => step.uses?.startsWith("actions/upload-artifact@"));
+    const download = steps(publish!).find((step) => step.uses?.startsWith("actions/download-artifact@"));
+    expect(upload?.with).toMatchObject({ name: "work-out", "retention-days": 14 });
+    expect(upload?.if).toBe("always()");
+    expect(download?.with).toMatchObject({ name: "work-out" });
+    expect(download?.["continue-on-error"]).toBe(true);
+    expect(runs(work!).join("\n")).toMatch(/pnpm factory work "\$ISSUE" --out/);
+    expect(runs(publish!).join("\n")).toMatch(/--in /);
+  });
+
+  it("the issue number and the actor never reach a script by interpolation", () => {
+    for (const [id, job] of Object.entries(issue.jobs)) for (const script of runs(job)) expect(script, id).not.toContain("${{");
+  });
+
+  it("every Factory command the YAML runs exists in the CLI", () => {
+    const cli = readFileSync(join(repo, ".factory/src/cli.ts"), "utf8");
+    const called = new Set<string>();
+    for (const job of Object.values(issue.jobs)) for (const script of runs(job)) for (const m of script.matchAll(/pnpm factory (\w+)/g)) called.add(m[1]!);
+    expect([...called].sort()).toEqual(["claim", "publish", "work"]);
+    for (const command of called) expect(cli).toContain(`"${command}"`);
   });
 });
 
