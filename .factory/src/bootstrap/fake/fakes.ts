@@ -6,7 +6,9 @@ import {
   type CloudflareDnsRecord,
   type CloudflareZone,
   type GitHubClient,
+  type CollaboratorPermission,
   type LabelSpec,
+  type MachineUserClient,
   type NewDnsRecord,
   type NeonClient,
   type NeonOrg,
@@ -41,6 +43,19 @@ export class FakeGitHub implements GitHubClient {
   refuseRulesets = false;
   info: RepoInfo = { fullName: "owner/repo", visibility: "public", viewerPermission: "ADMIN", defaultBranch: "main" };
   login = "owner";
+  /** Accepted collaborators, by login. */
+  readonly collaborators = new Map<string, CollaboratorPermission>();
+  /** Logins with a pending invitation. */
+  readonly invitations = new Set<string>();
+
+  async inviteCollaborator(login: string): Promise<void> {
+    if (this.collaborators.has(login) || this.invitations.has(login)) return;
+    this.writes++;
+    this.invitations.add(login);
+  }
+  async collaboratorPermission(login: string): Promise<CollaboratorPermission> {
+    return this.collaborators.get(login) ?? "none";
+  }
 
   async repo(): Promise<RepoInfo> {
     return this.info;
@@ -431,5 +446,39 @@ export class FakePrompter implements Prompter {
   }
   async confirm(input: { id: string }): Promise<boolean> {
     return this.answer(input.id) === true;
+  }
+}
+
+/** The machine users' accounts, by classic PAT. Accepting an invitation turns it into a `write` collaborator of the fake repo. */
+export class FakeMachineUsers {
+  private readonly accounts = new Map<string, { login: string; scopes: string[] | null }>();
+  /** The invitation cannot be accepted (the account never opens it). */
+  acceptFails = false;
+  private readonly github: FakeGitHub;
+
+  constructor(github: FakeGitHub) {
+    this.github = github;
+  }
+
+  add(token: string, account: { login: string; scopes: string[] | null }): void {
+    this.accounts.set(token, account);
+  }
+
+  forToken(token: string): MachineUserClient {
+    return {
+      viewer: async () => {
+        const account = this.accounts.get(token);
+        if (!account) throw new Error("GitHub rejected the PAT (401 Bad credentials).");
+        return account;
+      },
+      acceptInvitation: async () => {
+        const account = this.accounts.get(token);
+        if (!account || this.acceptFails || !this.github.invitations.has(account.login)) return false;
+        this.github.writes++;
+        this.github.invitations.delete(account.login);
+        this.github.collaborators.set(account.login, "write");
+        return true;
+      },
+    };
   }
 }

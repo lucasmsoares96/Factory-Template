@@ -43,6 +43,23 @@ export interface GitHubClient {
   listRulesets(): Promise<RulesetInfo[]>;
   /** `refused` as for environments. */
   createRuleset(spec: RulesetSpec): Promise<"created" | "refused">;
+  /** Invites `login` as a collaborator with `write` (idempotent: an existing collaborator or invitation is left alone). */
+  inviteCollaborator(login: string): Promise<void>;
+  /** The permission `login` has on the repo: admin, maintain, write, triage, read or none. */
+  collaboratorPermission(login: string): Promise<CollaboratorPermission>;
+}
+
+export type CollaboratorPermission = "admin" | "maintain" | "write" | "triage" | "read" | "none";
+
+/**
+ * The machine user, reached with its own classic PAT (held in memory; it goes straight to the `FACTORY_TOKEN` secret).
+ * The only thing `gh` cannot do for the wizard: it is signed in as the human, not as the machine user.
+ */
+export interface MachineUserClient {
+  /** `GET /user`: the login and the scopes of a classic token (`X-OAuth-Scopes`); `scopes` is null when the header is absent (fine-grained token). Throws when GitHub rejects the token. */
+  viewer(): Promise<{ login: string; scopes: string[] | null }>;
+  /** Accepts the pending invitation to `repo` (`owner/name`). False when there is none. */
+  acceptInvitation(repo: string): Promise<boolean>;
 }
 
 /** The rules of a branch ruleset the wizard cares about. `ref` patterns are as GitHub stores them (`~DEFAULT_BRANCH`, `refs/heads/main`). */
