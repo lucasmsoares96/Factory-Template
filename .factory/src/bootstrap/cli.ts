@@ -7,6 +7,7 @@ import { loadConfig } from "../config.ts";
 import { SkeletonAccounts } from "./accounts.ts";
 import { CloudflareApi } from "./cloudflare.ts";
 import { commonSteps } from "./common.ts";
+import { runDestroy } from "./destroy.ts";
 import { doctor, formatReport, type Sections } from "./doctor.ts";
 import { GhCli } from "./github.ts";
 import { GitHubUserApi } from "./machine.ts";
@@ -47,6 +48,10 @@ Commands:
                          the FACTORY_TOKEN secret), its write invitation accepted with that PAT, and Claude's auth taken
                          from CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in the environment (or an existing secret).
                          Turns FACTORY_ENABLED on once the doctor passes. A rerun with the secrets in place asks nothing.
+  destroy [scope]        Deletes what the wizard made, after listing it (the production database is highlighted) and
+                         asking you to type the id. Scope: product <id>, previews <id>, factory, common; none = everything
+                         (type "all"). Needs a terminal and refuses when CI is set. Never deletes the repository, issues,
+                         labels, accounts or DNS records. Agents must never run it.
   help                   Show this message.
 
 Options:
@@ -67,6 +72,14 @@ export async function runBootstrap(argv: string[], deps: BootstrapDeps): Promise
   const { positionals, values } = parseArgs({ args: argv, allowPositionals: true, options: { redo: { type: "string", multiple: true } } });
   const [command, productId] = positionals;
 
+  if (command === "destroy") {
+    const memory: StepContext["memory"] = {};
+    try {
+      return await runDestroy(positionals.slice(1), { ...deps, memory });
+    } finally {
+      await memory.neon?.close();
+    }
+  }
   if (command === "help") {
     deps.log(USAGE);
     return 0;

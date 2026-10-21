@@ -18,10 +18,10 @@ describe("bootstrap CLI", () => {
     expect(output).toContain("--redo");
   });
 
-  it("refuses commands that other tickets add", async () => {
+  it("refuses an unknown command", async () => {
     const w = world();
 
-    const { code, output } = await w.run("destroy");
+    const { code, output } = await w.run("frobnicate");
 
     expect(code).toBe(1);
     expect(output).toContain("Unknown command");

@@ -47,6 +47,14 @@ export interface GitHubClient {
   inviteCollaborator(login: string): Promise<void>;
   /** The permission `login` has on the repo: admin, maintain, write, triage, read or none. */
   collaboratorPermission(login: string): Promise<CollaboratorPermission>;
+  /** Deletes a secret of the repo or of one environment (only `destroy` calls the delete methods). */
+  deleteSecret(name: string, options?: { environment?: string }): Promise<void>;
+  deleteVariable(name: string): Promise<void>;
+  /** Deleting an environment deletes its secrets and variables. */
+  deleteEnvironment(name: string): Promise<void>;
+  deleteRuleset(id: number): Promise<void>;
+  /** Removes a collaborator, or cancels the pending invitation. */
+  removeCollaborator(login: string): Promise<void>;
 }
 
 export type CollaboratorPermission = "admin" | "maintain" | "write" | "triage" | "read" | "none";
@@ -129,6 +137,11 @@ export interface CloudflareClient {
   /** Custom Domains attached to the Worker `service`. */
   listWorkerDomains(accountId: string, service: string): Promise<WorkerDomain[]>;
   attachWorkerDomain(accountId: string, domain: { hostname: string; service: string; zoneId: string; zoneName: string }): Promise<void>;
+  /** Detaches every Custom Domain of the Worker (its DNS records stay). */
+  deleteWorkerDomains(accountId: string, service: string): Promise<void>;
+  /** Deletes the Worker script (with its Previews, Durable Objects and bindings). */
+  deleteWorker(accountId: string, name: string): Promise<void>;
+  deleteKvNamespace(accountId: string, id: string): Promise<void>;
 }
 
 export interface CloudflareZone {
@@ -184,6 +197,8 @@ export interface NeonClient {
   /** Name of the project's default branch. */
   defaultBranchName(projectId: string): Promise<string>;
   renameBranch(projectId: string, from: string, to: string): Promise<void>;
+  /** Deletes the project with every branch and database in it. Irreversible. */
+  deleteProject(projectId: string): Promise<void>;
   /** The connection string of the default branch: pooled (the Worker) or direct (migrations). */
   connectionString(projectId: string, options: { pooled: boolean; orgId?: string }): Promise<string>;
   /** Releases what the run holds. The neonctl login is kept, so the next run does not ask again. */
@@ -230,6 +245,7 @@ export interface ResendClient {
   verifyDomain(id: string): Promise<void>;
   /** A sending-only key limited to the domain; the token is returned once. Needs a full-access key. */
   createRestrictedKey(input: { name: string; domainId: string }): Promise<string>;
+  deleteDomain(id: string): Promise<void>;
 }
 
 /** What a wizard step asks of the person. Answers are never logged. */
