@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { GitHubCodeHost, type GitRunner } from "../../src/adapters/github/github-code-host.ts";
 import { FakeGitHubServer } from "./fake-github.ts";
@@ -141,39 +142,67 @@ describe("GitHubCodeHost", () => {
     expect(s.calls.at(-1)!.body).toEqual({ body: "done" });
   });
 
-  it("posts the evidence once: the old evidence comment is replaced, the prints attached by gh with the token in its env", async () => {
-    const s = new FakeGitHubServer();
-    s.on("GET", `${R}/issues/4/comments`, () => ({ json: [{ id: 90, body: "<!-- factory:evidence -->\nold", user: { login: "bot" } }, { id: 91, body: "other", user: { login: "x" } }] }));
-    s.on("DELETE", `${R}/issues/comments/90`, () => ({ status: 204 }));
-    const gh: string[][] = [];
-    const envs: Record<string, string>[] = [];
+  describe("body with the evidence images", () => {
+    const img = { product: "example", name: "home.png", path: "/tmp/out/evidence/example/home.png" };
+    const body = `## Evidence\n\n![home](${img.path})`;
 
-    await host(s, { gh: async (args, env) => {
-      gh.push(args);
-      envs.push(env);
-    } }).postEvidence(4, [
-      { product: "example", images: [{ name: "home.png", path: "/tmp/out/evidence/example/home.png" }] },
-      { product: "other", images: [{ name: "x.png", path: "/tmp/out/evidence/other/x.png" }] },
-    ]);
+    /** A gh runner that records the args, the env and the body file as gh would read it. */
+    const recorder = (fail?: Error) => {
+      const calls: { args: string[]; env: Record<string, string>; file: string }[] = [];
+      const gh = async (args: string[], env: Record<string, string>) => {
+        calls.push({ args, env, file: await readFile(args[args.indexOf("--body-file") + 1]!, "utf8") });
+        if (fail) throw fail;
+      };
+      return { calls, gh };
+    };
 
-    expect(s.writes()).toEqual([`DELETE ${R}/issues/comments/90`]);
-    expect(gh).toHaveLength(1);
-    expect(gh[0]!.slice(0, 5)).toEqual(["pr", "comment", "4", "--repo", "o/r"]);
-    expect(gh[0]!.filter((a) => a === "--attach")).toHaveLength(2);
-    expect(envs[0]).toMatchObject({ GH_TOKEN: "tok-123" });
-    expect(JSON.stringify(gh)).not.toContain("tok-123");
-  });
+    it("opens the draft over REST and has gh edit the body with each print attached, the token only in its env", async () => {
+      const s = new FakeGitHubServer();
+      s.on("POST", `${R}/pulls`, () => ({ status: 201, json: pr(4) }));
+      const r = recorder();
 
-  it("keeps the delivery when gh cannot attach: a text comment names the prints", async () => {
-    const s = new FakeGitHubServer();
-    s.on("GET", `${R}/issues/4/comments`, () => ({ json: [] }));
-    s.on("POST", `${R}/issues/4/comments`, () => ({ status: 201, json: {} }));
+      await host(s, { gh: r.gh }).openDraftPr({ branch: "factory/issue-7", base: "main", title: "t", body, images: [img] });
 
-    await host(s, { gh: async () => { throw new Error("unknown flag: --attach"); } }).postEvidence(4, [
-      { product: "example", images: [{ name: "home.png", path: "/tmp/home.png" }] },
-    ]);
+      expect(r.calls).toHaveLength(1);
+      expect(r.calls[0]!.args.slice(0, 5)).toEqual(["pr", "edit", "4", "--repo", "o/r"]);
+      expect(r.calls[0]!.args.filter((a, i, all) => all[i - 1] === "--attach")).toEqual([img.path]);
+      expect(r.calls[0]!.file).toBe(body);
+      expect(r.calls[0]!.env).toMatchObject({ GH_TOKEN: "tok-123" });
+      expect(JSON.stringify(r.calls[0]!.args)).not.toContain("tok-123");
+    });
 
-    expect(String((s.calls.at(-1)!.body as { body: string }).body)).toMatch(/<!-- factory:evidence -->[\s\S]*example[\s\S]*home\.png[\s\S]*unknown flag/);
+    it("rewrites the body of an open PR the same way", async () => {
+      const s = new FakeGitHubServer();
+      const r = recorder();
+
+      await host(s, { gh: r.gh }).updatePrBody(4, body, [img]);
+
+      expect(r.calls[0]!.args.slice(0, 3)).toEqual(["pr", "edit", "4"]);
+      expect(s.writes()).toEqual([]);
+    });
+
+    it("uses plain REST and no gh when the body has no images", async () => {
+      const s = new FakeGitHubServer();
+      s.on("PATCH", `${R}/pulls/4`, () => ({ json: pr(4) }));
+      const r = recorder();
+
+      await host(s, { gh: r.gh }).updatePrBody(4, "just text");
+
+      expect(r.calls).toEqual([]);
+      expect(s.calls[0]!.body).toEqual({ body: "just text" });
+    });
+
+    it("keeps the delivery when gh cannot attach: the body is written with the prints named instead of linked", async () => {
+      const s = new FakeGitHubServer();
+      s.on("PATCH", `${R}/pulls/4`, () => ({ json: pr(4) }));
+      const r = recorder(new Error("unknown flag: --attach"));
+
+      await host(s, { gh: r.gh }).updatePrBody(4, body, [img]);
+
+      const written = String((s.calls.at(-1)!.body as { body: string }).body);
+      expect(written).not.toContain("/tmp/out");
+      expect(written).toMatch(/## Evidence[\s\S]*home\.png[\s\S]*could not be attached[\s\S]*unknown flag/);
+    });
   });
 
   it("dispatches a Factory workflow on the base branch", async () => {

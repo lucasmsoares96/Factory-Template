@@ -23,7 +23,7 @@ async function problem(ctx: StepContext, pat: string): Promise<{ problem: string
     return { problem: `The PAT is not valid: ${(error as Error).message}` };
   }
   const { login, scopes } = viewer;
-  if (scopes === null) return { problem: "That is not a classic PAT (GitHub sent no X-OAuth-Scopes): create a classic one, a fine-grained token cannot attach the prints to the evidence comment.", login };
+  if (scopes === null) return { problem: "That is not a classic PAT (GitHub sent no X-OAuth-Scopes): create a classic one, a fine-grained token cannot attach the prints to the PR body.", login };
   if (!scopes.includes("repo")) return { problem: `The PAT lacks the \`repo\` scope (it has: ${scopes.join(", ") || "none"}).`, login };
   if (scopes.includes("workflow")) return { problem: "The PAT has the `workflow` scope: remove it, so the Factory can never change a workflow file.", login };
   const owner = (await ctx.github.repo()).fullName.split("/")[0]!;
