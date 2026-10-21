@@ -19,6 +19,14 @@ test("every locale's sign-in tagline is the Product's own text, not the Skeleton
   }
 });
 
+test("overriding the tagline keeps the Skeleton's other sign-in texts in every locale", () => {
+  for (const locale of locales) {
+    const { description: _product, ...productSignIn } = messagesFor(locale, productConfig.messages).auth.signIn;
+    const { description: _skeleton, ...skeletonSignIn } = messagesFor(locale).auth.signIn;
+    expect(productSignIn, locale).toEqual(skeletonSignIn);
+  }
+});
+
 test("the sign-in tagline is the agreed copy in each locale", () => {
   expect(messagesFor("en", productConfig.messages).auth.signIn.description).toBe("Your workspace, one sign-in away.");
   expect(messagesFor("pt-BR", productConfig.messages).auth.signIn.description).toBe("Seu espaço, a um login de distância.");
