@@ -499,3 +499,38 @@ describe("delete methods of the real adapters (fake gh, fetch and neonctl; only 
     expect(calls).toEqual([["projects", "delete", "proj-1", "-o", "json"]]);
   });
 });
+
+describe("GhCli: the example issue (command construction, no gh process)", () => {
+  it("builds the commands, never touches the default branch, and tolerates a branch that is already gone", async () => {
+    const calls: { args: string[]; input?: string }[] = [];
+    const gh = new GhCli(async (args, input) => {
+      calls.push({ args, ...(input === undefined ? {} : { input }) });
+      const joined = args.join(" ");
+      if (joined.startsWith("repo view")) return JSON.stringify({ nameWithOwner: "o/r", visibility: "PUBLIC", viewerPermission: "ADMIN", defaultBranchRef: { name: "main" } });
+      if (joined.startsWith("api repos/{owner}/{repo}/issues/7")) return JSON.stringify({ id: 4242 });
+      if (joined.startsWith("api -X POST repos/{owner}/{repo}/issues ")) return JSON.stringify({ number: 7, html_url: "https://github.com/o/r/issues/7" });
+      if (joined.includes("git/refs/heads/factory/issue-7")) throw new Error("gh api failed: Reference does not exist (HTTP 422)");
+      if (joined.startsWith("issue list")) {
+        return JSON.stringify([
+          { number: 9, url: "u9", title: "The Skeleton must grow: x", body: "to finish #7 (x)" },
+          { number: 10, url: "u10", title: "The Skeleton must grow: y", body: "to finish #70 (y)" },
+          { number: 11, url: "u11", title: "Other", body: "#7" },
+        ]);
+      }
+      return "";
+    });
+
+    expect(await gh.createIssue({ title: "t", body: "b", labels: ["l"] })).toEqual({ number: 7, url: "https://github.com/o/r/issues/7" });
+    await gh.addSubIssue(3, 7);
+    expect(calls.at(-1)).toEqual({ args: ["api", "-X", "POST", "repos/{owner}/{repo}/issues/3/sub_issues", "--input", "-"], input: JSON.stringify({ sub_issue_id: 4242 }) });
+    await gh.addLabels(7, ["product:example", "ready-for-agent"]);
+    expect(calls.at(-1)!.args).toEqual(["issue", "edit", "7", "--add-label", "product:example,ready-for-agent"]);
+    await gh.closePullRequest(50);
+    expect(calls.at(-1)!.args).toEqual(["pr", "close", "50"]);
+    await gh.deleteIssue(7);
+    expect(calls.at(-1)!.args).toEqual(["issue", "delete", "7", "--yes"]);
+    await expect(gh.deleteBranch("main")).rejects.toThrow(/default branch/);
+    await gh.deleteBranch("factory/issue-7");
+    expect(await gh.findSkeletonFollowUps(7)).toEqual([{ number: 9, url: "u9" }]);
+  });
+});
