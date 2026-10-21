@@ -52,6 +52,8 @@ export interface Tracker {
   swapLabel(number: number, from: string, to: string): Promise<boolean>;
   /** Adds `label` to the issue (a no-op when it is there). Markdown tickets have one status and no other labels: a no-op there. */
   addLabel(number: number, label: string): Promise<void>;
+  /** Removes `label` from the issue (a no-op when it is not there). A no-op in the Markdown tracker. */
+  removeLabel(number: number, label: string): Promise<void>;
   comment(number: number, body: string): Promise<void>;
   /** Opens a new issue; returns its number and, when the forge has one, its URL. */
   createIssue(input: NewIssue): Promise<{ number: number; url: string | null }>;
