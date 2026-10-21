@@ -128,14 +128,23 @@ async function finish(
   enableDeploy = false,
 ): Promise<number> {
   deps.log("\nChecking everything:\n");
-  const report = await doctor(deps, productId, memory, sections, { prompt: false });
-  deps.log(formatReport(report));
+  let report = await doctor(deps, productId, memory, sections, { prompt: false });
   // Only a Product whose doctor passes gets the deploy switched on; the workflow shows as skipped until then.
+  // It is switched on before the report is printed, so the report shows the state the run ends in.
+  let switchedOn = false;
   if (enableDeploy && report.ok && (await deps.github.listVariables()).DEPLOY_ENABLED !== "true") {
     await deps.github.setVariable("DEPLOY_ENABLED", "true");
-    deps.log("DEPLOY_ENABLED=true: every merge into the default branch now deploys the Products in DEPLOY_PRODUCTS.");
-  } else if (enableDeploy && !report.ok) {
+    switchedOn = true;
+    report = await doctor(deps, productId, memory, sections, { prompt: false });
+  }
+  deps.log(formatReport(report));
+  if (switchedOn) deps.log("DEPLOY_ENABLED=true: every merge into the default branch now deploys the Products it affects.");
+  else if (enableDeploy && !report.ok) {
     deps.log("DEPLOY_ENABLED stays off: fix what the doctor lists as missing and run this command again.");
+  }
+  if (enableDeploy && report.ok && productId) {
+    // A push deploys only the Products it affects, so a Product set up after its last change waits for a deploy by hand.
+    deps.log(`First deploy of ${productId}: run the Deploy workflow by hand once (Actions → Deploy → Run workflow), or: gh workflow run factory-deploy.yml --ref main`);
   }
   return report.ok ? 0 : 1;
 }
