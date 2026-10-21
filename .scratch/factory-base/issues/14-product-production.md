@@ -8,10 +8,10 @@ Spec: [../spec.md](../spec.md)
 
 **Status:** ready-for-agent
 
-- [ ] Módulo Produção: projeto Neon `<id>` (procura antes de criar) com key restrita, domínio do Resend adiável com os registros DNS mostrados, secrets `<ID>_`, o id em `DEPLOY_PRODUCTS`, `DEPLOY_ENABLED` ligado depois do `doctor`.
-- [ ] Environments `<id>-production`/`<id>-preview` restritos à `main` e ruleset na `main` (PR obrigatório, sem force-push nem exclusão, check `verify`), com queda para secrets no repo e `FACTORY_USE_ENVIRONMENTS=false` quando a API recusar.
+- [x] Módulo Produção: projeto Neon `<id>` (procura antes de criar) com key restrita, domínio do Resend adiável com os registros DNS mostrados, secrets `<ID>_`, o id em `DEPLOY_PRODUCTS`, `DEPLOY_ENABLED` ligado depois do `doctor`.
+- [x] Environments `<id>-production`/`<id>-preview` restritos à `main` e ruleset na `main` (PR obrigatório, sem force-push nem exclusão, check `verify`), com queda para secrets no repo e `FACTORY_USE_ENVIRONMENTS=false` quando a API recusar.
 - [x] Workflow de deploy da `main`: `build` sem secrets → `deploy` (código da `main`, config gerado com o id, migrations do Skeleton e do Product, `wrangler deploy --name <id>`, KV de produção pelo provisionamento automático) → `smoke` (login real, 401 com `WWW-Authenticate` no `/mcp`) (seam 7).
-- [ ] O deploy da `main` também migra o branch `base` do preview quando o módulo Previews existir.
+- [x] O deploy da `main` também migra o branch `base` do preview quando o módulo Previews existir.
 - [x] Testes do módulo contra os falsos: queda para o nível do repo, prefixo `<ID>_` (seam 8).
 - [x] Deploy de teste do `example` pelo Actions.
 - [ ] Medidos também aqui, vindos dos tickets 03 e 04: 429 do rate limit por IP atrás da Cloudflare (`cf-connecting-ip`); linhas do `RateLimiter` dentro das cotas de DO do Free; CPU do render do email no Worker.
@@ -83,3 +83,24 @@ Medições na conta (2026-10-20, ~23:00 UTC, produção `example`):
 - `PasswordHasher` (Durable Object, namespace `1e90b850…`): 7 chamadas, 785.807 µs de CPU no total, ~112 ms de CPU por hash (scrypt), wall time p50 202 ms, 0 erros. Roda no orçamento do DO, não no do request do Worker; login real sem `exceededCpu` confirmado pelo smoke.
 - Worker (todas as rotas, 6 h): 39 requests, 0 erros, CPU p50 21,2 ms, p90 76,4 ms, p99 115,8 ms. Acima dos 10 ms por request do Workers Free já na mediana, sem nenhum erro nem `exceededCpu` até aqui; a observar quando houver tráfego.
 - Não medido: o CPU por request só do `/mcp` (a analytics do Workers não agrupa por caminho) e o CPU do render do email (Resend adiado). A resposta da API num repo privado no Free continua pendente da permissão `delete_repo` do `gh`.
+
+Medição do CPU do `/mcp` (2026-10-21, orquestrador; a analytics não agrupa por caminho, então cada caminho foi medido numa janela isolada, `workersInvocationsAdaptive` por minuto):
+- **Sem token, na produção** (22:15 UTC, 30 POST `initialize` sem `Authorization` → 401 com `WWW-Authenticate`): 27 requests, CPU p50 0,9 ms, p90 13,9 ms, p99 15,1 ms, 0 erros.
+- **Autenticado, no preview do PR #30** (`pr-30-example`, a mesma build da `main` mais um texto; versão `f71211a5`, só tráfego da sonda):
+  - **preparação:** uma conta nova verificada pelo outbox do preview, DCR, consentimento `read write` e troca do código. Minuto 22:18: 17 requests, p50 15,2 ms, p99 118 ms. Isso inclui o cadastro e o login, que passam pelo `PasswordHasher`;
+  - **20 × (`tools/list` + `tools/call getMe`):** minuto 22:19, 38 requests, CPU p50 8,0 ms, p90 15,4 ms, p99 19,0 ms, 0 erros.
+- **Conclusão:** uma chamada de tool autenticada fica em torno de 8 ms de CPU na mediana, dentro dos 10 ms do Workers Free. As caudas passam (p90 15 ms, p99 19 ms) sem erro nem `exceededCpu`, como o resto do Worker. A conta da sonda morre com o branch Neon do preview quando o PR #30 fechar.
+
+Conferência dos critérios na conta real (2026-10-21, orquestrador):
+- **Módulo Produção: marcado.** O `pnpm bootstrap product example` do dono rodou e criou:
+  - o projeto Neon com a key restrita;
+  - os secrets `EXAMPLE_*` no environment `example-production` (`ACCOUNT_PASSWORD`, `BETTER_AUTH_SECRET`, `DATABASE_URL`, `DATABASE_URL_POOLED`);
+  - `DEPLOY_PRODUCTS=example` e `DEPLOY_ENABLED=true` depois do doctor;
+  - o domínio do Resend, adiado como o critério permite, com a etapa `pnpm bootstrap domain example` pronta para quando houver domínio.
+- **Environments e ruleset: marcado.**
+  - `example-production` e `example-preview` têm política de branch personalizada só com `main`.
+  - O ruleset `main` (id 25500591, `~DEFAULT_BRANCH`, ativo) tem `pull_request`, `non_fast_forward`, `deletion` e `required_status_checks` com `verify`.
+  - Num repo público não houve queda, e `FACTORY_USE_ENVIRONMENTS` não existe. A queda para secrets no repo está coberta pelos testes do módulo. A resposta num repo privado continua no último critério.
+- **Branch `base` do preview: marcado.** O deploy da `main` por push (run 39594889887, 2026-10-21 11:50 UTC) rodou `preview base (example)` verde entre o `deploy` e o `smoke`. No projeto de preview só existe `base`.
+- **Medidos dos tickets 03 e 04: aberto só o CPU do render do email.** O 429 por IP e as cotas do `RateLimiter` foram medidos acima. O CPU do render do email precisa do Resend, que está adiado.
+- **Último critério: aberto só a resposta num repo privado.** Ela espera a permissão `delete_repo` do `gh`. O login sem `exceededCpu` e o CPU do `/mcp` estão medidos acima.
