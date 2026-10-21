@@ -1,0 +1,8 @@
+# Docs
+
+- `adr/`: decisions that are hard to reverse. 0001 resume only to extract, 0002 the owner's token and the marker, 0003 several Products and the Skeleton package, 0004 Sandcastle engine, 0005 `claim`/`work`/`publish`, 0006 `pull_request_target`, 0007 Workers Free + Neon + Durable Objects, 0008 a Product issue never changes the Skeleton, 0009 the default account, 0010 the wizard never asks twice, 0011 TypeScript 7 + oxlint.
+- `measured-facts.md`: numbers and behaviour observed on real accounts (CPU, rate limit, previews, Actions, GHCR, free-plan ceilings).
+- `known-risks.md`: limits the base knowingly lives with.
+- `forgejo.md`: what changes on Forgejo.
+- `self-hosted-runner.md`: optional runner of your own for a private repo.
+- `agents/`: agent configuration (issue tracker, labels, domain docs, MCP servers, Retro sources).
