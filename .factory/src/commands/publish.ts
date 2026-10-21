@@ -5,7 +5,8 @@ import { Git } from "../git.ts";
 import { isHarnessPath, isProtectedPath } from "../paths.ts";
 import { costFooter, escalationComment, followUpComment, type EscalationReason, type FollowUpRef } from "../report.ts";
 import { BUNDLE_FILE, EVIDENCE_DIR, RESULT_FILE, readResult, type FactoryResult } from "../result.ts";
-import type { EvidenceGroup, PullRequest } from "../seams/code-host.ts";
+import { withEvidence } from "../pull-request-evidence.ts";
+import type { EvidenceImage, PullRequest } from "../seams/code-host.ts";
 import type { Issue } from "../seams/tracker.ts";
 import type { CommandContext } from "./context.ts";
 
@@ -68,7 +69,7 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
   const lines = await diffLines(git, result.base, head);
   const harnessPaths = changed.filter(isHarnessPath);
   const escalated = result.outcome === "escalated" ? (result.reason ?? "infra") : null;
-  const pr = await pullRequest(ctx, issue, { branch, openPr, continues: options.pr !== null, harnessPaths, escalated, followUps, text: result.pullRequestBody });
+  const pr = await pullRequest(ctx, issue, { branch, openPr, continues: options.pr !== null, harnessPaths, escalated, followUps, text: result.pullRequestBody, images: evidenceImages(result, options.in) });
   if (!escalated || result.review.summary !== "") {
     // A PR round without a Review (update-branch, a round that only answers) leaves no empty review behind.
     if (options.pr === null || result.review.summary !== "") await submitReview(ctx, pr.number, result, lines);
@@ -77,7 +78,6 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
 
   if (escalated) return escalate(ctx, issue, { reason: escalated, result, pr, runUrl: options.runUrl, followUps }, options.pr);
   if (followUps.length > 0) await ctx.tracker.comment(number, followUpComment(followUps));
-  if (result.evidence.length > 0) await ctx.codeHost.postEvidence(pr.number, evidenceGroups(result, options.in));
   if (pr.draft) await ctx.codeHost.markReady(pr.number);
   return { issue: number, outcome: "ready", pr: pr.number, url: pr.url };
 }
@@ -136,14 +136,14 @@ async function changedFiles(git: Git, base: string, head: string): Promise<strin
 async function pullRequest(
   ctx: CommandContext,
   issue: Issue,
-  input: { branch: string; openPr: PullRequest | null; continues: boolean; harnessPaths: string[]; escalated: EscalationReason | null; followUps: FollowUpRef[]; text: string | null },
+  input: { branch: string; openPr: PullRequest | null; continues: boolean; harnessPaths: string[]; escalated: EscalationReason | null; followUps: FollowUpRef[]; text: string | null; images: EvidenceImage[] },
 ): Promise<PullRequest> {
   const { codeHost, config } = ctx;
   let pr: PullRequest;
   if (input.continues && input.openPr) {
     pr = input.openPr;
     // The run may have changed the PR: its body is written again.
-    if (input.text !== null) await codeHost.updatePrBody(pr.number, prBody(issue, input));
+    if (input.text !== null) await codeHost.updatePrBody(pr.number, prBody(issue, input), input.images);
   } else {
     if (input.openPr) {
       await codeHost.closePr(
@@ -156,6 +156,7 @@ async function pullRequest(
       base: config.baseBranch,
       title: `Fix #${issue.number}: ${issue.title}`,
       body: prBody(issue, input),
+      images: input.images,
     });
   }
   if (input.harnessPaths.length > 0) await codeHost.labelPr(pr.number, config.labels.harnessChange);
@@ -163,13 +164,13 @@ async function pullRequest(
 }
 
 /**
- * The body in three parts: the warnings and the follow-up note (deterministic),
+ * The body in three parts (the print references swapped by `withEvidence`): the warnings and the follow-up note (deterministic),
  * the Pull Request Stage text (or the minimal sentence), `Closes #N`. The agent
  * never writes the first and last parts; a closing keyword in its text is dropped.
  */
 function prBody(
   issue: Issue,
-  input: { harnessPaths: string[]; escalated: EscalationReason | null; followUps: FollowUpRef[]; text: string | null },
+  input: { harnessPaths: string[]; escalated: EscalationReason | null; followUps: FollowUpRef[]; text: string | null; images: EvidenceImage[] },
 ): string {
   const warnings: string[] = [];
   if (input.escalated) {
@@ -187,7 +188,8 @@ function prBody(
     );
   }
   if (input.followUps.length > 0) warnings.push("> [!NOTE]", `> ${followUpComment(input.followUps).replaceAll("\n", "\n> ")}`, "");
-  const middle = input.text ? withoutAttribution(withoutClosingKeywords(input.text)) : "Implemented by the Factory.";
+  const text = input.text ? withoutAttribution(withoutClosingKeywords(input.text)) : "Implemented by the Factory.";
+  const middle = withEvidence(text, input.images);
   return [...warnings, middle, "", `Closes #${issue.number}`].join("\n");
 }
 
@@ -256,13 +258,7 @@ async function escalate(
   return { issue: issue.number, outcome: "escalated", reason: report.reason, pr: report.pr?.number ?? null, url: report.pr?.url ?? null };
 }
 
-/** Prints grouped by Product, in the order `work` listed them. */
-function evidenceGroups(result: FactoryResult, dir: string): EvidenceGroup[] {
-  const groups = new Map<string, EvidenceGroup>();
-  for (const { product, name } of result.evidence) {
-    const group = groups.get(product) ?? { product, images: [] };
-    group.images.push({ name, path: join(dir, EVIDENCE_DIR, product, name) });
-    groups.set(product, group);
-  }
-  return [...groups.values()];
+/** The prints of the run, in the order `work` listed them, at their place in the downloaded artifacts. */
+function evidenceImages(result: FactoryResult, dir: string): EvidenceImage[] {
+  return result.evidence.map(({ product, name }) => ({ product, name, path: join(dir, EVIDENCE_DIR, product, name) }));
 }
