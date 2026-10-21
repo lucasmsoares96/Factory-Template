@@ -3,10 +3,9 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import type { CodeHost, EvidenceGroup, PullRequest, PushResult, Review, ReviewThread } from "../../seams/code-host.ts";
+import type { CodeHost, EvidenceImage, PullRequest, PushResult, Review, ReviewThread } from "../../seams/code-host.ts";
 import { GitHubApi, type GitHubApiOptions } from "./api.ts";
 
-export const EVIDENCE_MARKER = "<!-- factory:evidence -->";
 
 /** Runs `git <args>` in `cwd` with `env` added to the environment. */
 export type GitRunner = (args: string[], options: { cwd: string; env: Record<string, string> }) => Promise<{ code: number; stderr: string }>;
@@ -32,7 +31,6 @@ const prRow = z.object({
   head: z.object({ ref: z.string(), sha: z.string() }),
 });
 const refRow = z.object({ object: z.object({ sha: z.string() }) });
-const commentRow = z.object({ id: z.number(), body: z.string().nullable().optional() });
 const reviewCommentRow = z.object({
   id: z.number(),
   path: z.string().nullable().optional(),
@@ -43,8 +41,8 @@ const reviewCommentRow = z.object({
 const graphql = z.object({ data: z.unknown().optional(), errors: z.array(z.object({ message: z.string() })).optional() });
 
 /**
- * CodeHost over GitHub: REST by `fetch` and Zod, `git push` for the branch, and `gh` only to attach the prints to the
- * evidence comment (`--attach`, GitHub's own image storage; REST has no endpoint for it). The token stays in this class:
+ * CodeHost over GitHub: REST by `fetch` and Zod, `git push` for the branch, and `gh pr edit --attach` only to upload the
+ * prints of a body (GitHub's own image storage; REST has no endpoint for it, and `gh` rewrites the references in place). The token stays in this class:
  * git and gh get it through their environment, never their arguments.
  */
 export class GitHubCodeHost implements CodeHost {
@@ -96,15 +94,37 @@ export class GitHubCodeHost implements CodeHost {
     await this.api.send("POST", this.api.repoPath(`/issues/${pr}/comments`), { body });
   }
 
-  async openDraftPr(input: { branch: string; base: string; title: string; body: string }): Promise<PullRequest> {
+  async openDraftPr(input: { branch: string; base: string; title: string; body: string; images?: EvidenceImage[] }): Promise<PullRequest> {
     const row = await this.api.request("POST", this.api.repoPath("/pulls"), prRow, {
       body: { head: input.branch, base: input.base, title: input.title, body: input.body, draft: true },
     });
+    if (input.images?.length) await this.updatePrBody(row!.number, input.body, input.images);
     return toPr(row!);
   }
 
-  async updatePrBody(pr: number, body: string): Promise<void> {
-    await this.api.send("PATCH", this.api.repoPath(`/pulls/${pr}`), { body });
+  /**
+   * Without images, a plain REST write. With images, `gh pr edit --body-file --attach` uploads each print and swaps
+   * its reference for the URL; if gh cannot attach, the body is written with the prints named instead of linked.
+   */
+  async updatePrBody(pr: number, body: string, images: EvidenceImage[] = []): Promise<void> {
+    if (images.length === 0) return this.api.send("PATCH", this.api.repoPath(`/pulls/${pr}`), { body });
+    const dir = await mkdtemp(join(tmpdir(), "factory-body-"));
+    try {
+      const bodyFile = join(dir, "body.md");
+      await writeFile(bodyFile, body);
+      const attach = images.flatMap((i) => ["--attach", i.path]);
+      await this.gh(["pr", "edit", String(pr), "--repo", this.options.repo, "--body-file", bodyFile, ...attach], { GH_TOKEN: this.options.token });
+    } catch (error) {
+      const reason = this.scrub((error as Error).message).slice(0, 300);
+      let text = body;
+      for (const image of images) {
+        const ref = new RegExp(`!\\[[^\\]]*\\]\\(${escapeRegExp(image.path)}[^)]*\\)`, "g");
+        text = text.replace(ref, () => `*${image.name}: could not be attached (gh said: ${reason}); the print is in the workflow run's artifacts.*`);
+      }
+      await this.api.send("PATCH", this.api.repoPath(`/pulls/${pr}`), { body: text });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   }
 
   async markReady(pr: number): Promise<void> {
@@ -152,37 +172,6 @@ export class GitHubCodeHost implements CodeHost {
     await this.api.send("POST", this.api.repoPath(`/pulls/${pr}/comments/${threadId}/replies`), { body });
   }
 
-  /**
-   * One evidence comment per PR: a previous one is deleted and the new one created with `gh pr comment --attach`
-   * (the prints live in GitHub's attachment storage, not in the repo). If gh cannot attach, a text comment names the prints.
-   */
-  async postEvidence(pr: number, groups: EvidenceGroup[]): Promise<void> {
-    const comments = await this.api.list(this.api.repoPath(`/issues/${pr}/comments`), commentRow);
-    for (const old of comments.filter((c) => c.body?.startsWith(EVIDENCE_MARKER))) {
-      await this.api.send("DELETE", this.api.repoPath(`/issues/comments/${old.id}`));
-    }
-    const lines = [EVIDENCE_MARKER, "**Evidence**"];
-    for (const group of groups) {
-      lines.push("", `### ${group.product}`, "");
-      for (const image of group.images) lines.push(`![${image.name}](${image.path})`);
-    }
-    const dir = await mkdtemp(join(tmpdir(), "factory-evidence-"));
-    try {
-      const bodyFile = join(dir, "body.md");
-      await writeFile(bodyFile, lines.join("\n") + "\n");
-      const attach = groups.flatMap((g) => g.images.flatMap((i) => ["--attach", i.path]));
-      await this.gh(["pr", "comment", String(pr), "--repo", this.options.repo, "--body-file", bodyFile, ...attach], { GH_TOKEN: this.options.token });
-    } catch (error) {
-      const names = groups.map((g) => `- ${g.product}: ${g.images.map((i) => i.name).join(", ")}`);
-      const reason = this.scrub((error as Error).message).slice(0, 300);
-      await this.api.send("POST", this.api.repoPath(`/issues/${pr}/comments`), {
-        body: [EVIDENCE_MARKER, "**Evidence**", "", "The prints could not be attached to this comment; they are in the workflow run's artifacts.", ...names, "", `gh said: ${reason}`].join("\n"),
-      });
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  }
-
   async dispatch(workflow: string, inputs: Record<string, string>): Promise<void> {
     const file = workflow.endsWith(".yml") ? workflow : `factory-${workflow}.yml`;
     await this.api.send("POST", this.api.repoPath(`/actions/workflows/${file}/dispatches`), { ref: this.options.baseBranch, inputs });
@@ -191,6 +180,10 @@ export class GitHubCodeHost implements CodeHost {
   private scrub(text: string): string {
     return text.replaceAll(this.options.token, "***").replaceAll(Buffer.from(`x-access-token:${this.options.token}`).toString("base64"), "***");
   }
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function toPr(row: z.infer<typeof prRow>): PullRequest {
