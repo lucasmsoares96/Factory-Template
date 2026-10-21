@@ -135,3 +135,16 @@ describe("factory work", () => {
     expect(w.verify.runs).toBe(1);
   });
 });
+
+describe("factory work: a normal issue run", () => {
+  it("shows the Review and the Pull Request Stage no PR threads", async () => {
+    const { repo, out, w } = await setup({ development: [develop], review: [reviewWithFix] }, [{ ok: true }]);
+    expect(await w.factory("work", "7", "--out", out, "--repo", repo)).toBe(0);
+    for (const stage of ["review", "pull-request"] as const) {
+      const prompt = w.agent.calls.find((c) => c.stage === stage)!.prompt;
+      expect(prompt).not.toContain("<thread id=");
+      expect(prompt).not.toContain("<decision");
+      expect(prompt).not.toMatch(/supersedes the issue/i);
+    }
+  });
+});
