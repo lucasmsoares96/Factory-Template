@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { NeonCli } from "../../src/bootstrap/neon.ts";
 import { GhCli } from "../../src/bootstrap/github.ts";
@@ -310,9 +309,10 @@ describe("ResendApi (fake fetch)", () => {
   });
 });
 
-describe("NeonCli (fake neonctl, real throwaway folder)", () => {
+describe("NeonCli (fake neonctl)", () => {
   type Call = { args: string[]; env: Record<string, string>; inherit?: boolean };
-  function cli(answers: Record<string, string>, options: { apiKey?: string; failOn?: string } = {}) {
+  /** `loggedIn`: whether `neonctl me` succeeds, i.e. neonctl already has a saved login on this machine. */
+  function cli(answers: Record<string, string>, options: { apiKey?: string; failOn?: string; loggedIn?: boolean } = {}) {
     const calls: Call[] = [];
     const syncCalls: Call[] = [];
     const neon = new NeonCli({
@@ -320,24 +320,44 @@ describe("NeonCli (fake neonctl, real throwaway folder)", () => {
       env: { PATH: "/bin", HOME: "/home/x", GITHUB_TOKEN: "ghp_secret", NEON_API_KEY: "ambient-key" },
       run: async (args, opts) => {
         calls.push({ args, ...opts });
+        if (args[0] === "me" && !options.loggedIn) throw new Error("neonctl me failed: not signed in");
         if (args[0] === options.failOn) throw new Error(`neonctl ${args[0]} failed: nope`);
-        return answers[args[0]!] ?? "";
+        return answers[args[0]!] ?? "{}";
       },
       runSync: (args, opts) => {
         syncCalls.push({ args, ...opts });
       },
     });
-    const dirOf = (call: Call) => call.args[call.args.indexOf("--config-dir") + 1]!;
-    return { neon, calls, syncCalls, dirOf };
+    return { neon, calls, syncCalls };
   }
 
-  it("signs in with `auth` in a throwaway --config-dir, handing the terminal over", async () => {
-    const { neon, calls, dirOf } = cli({});
+  it("reuses neonctl's saved login: no browser when `neonctl me` succeeds", async () => {
+    const { neon, calls } = cli({}, { loggedIn: true });
     await neon.login();
-    expect(calls[0]).toMatchObject({ args: ["auth", "--config-dir", dirOf(calls[0]!)], inherit: true });
-    expect(dirOf(calls[0]!)).toContain("factory-neon-");
-    expect(existsSync(dirOf(calls[0]!))).toBe(true);
+    expect(calls.map((c) => c.args[0])).toEqual(["me"]);
+  });
+
+  it("opens the browser with `auth` only when there is no saved login, handing the terminal over", async () => {
+    const { neon, calls } = cli({}, { loggedIn: false });
+    await neon.login();
+    expect(calls.map((c) => c.args[0])).toEqual(["me", "auth"]);
+    expect(calls[1]).toMatchObject({ args: ["auth"], inherit: true });
+  });
+
+  it("uses neonctl's default config directory: no --config-dir on any call", async () => {
+    const { neon, calls } = cli({ orgs: "[]" }, { loggedIn: true });
+    await neon.login();
+    await neon.listOrgs();
+    expect(calls.every((c) => !c.args.includes("--config-dir"))).toBe(true);
+  });
+
+  it("never logs out: close keeps the login for the next run", async () => {
+    const { neon, calls, syncCalls } = cli({ orgs: "[]" }, { loggedIn: true });
+    await neon.listOrgs();
     await neon.close();
+    neon.closeSync();
+    expect(syncCalls).toEqual([]);
+    expect(calls.some((c) => c.args[0] === "logout")).toBe(false);
   });
 
   it("builds list, create and connection-string commands with -o json, --org-id, --no-secrets and --pooled", async () => {
@@ -345,92 +365,51 @@ describe("NeonCli (fake neonctl, real throwaway folder)", () => {
       orgs: JSON.stringify([{ id: "org-1", name: "P" }]),
       projects: JSON.stringify({ projects: [{ id: "p1", name: "example" }] }),
       "connection-string": "postgresql://u:pw@h/neondb\n",
-    });
-    await neon.login();
+    }, { loggedIn: true });
     expect(await neon.listOrgs()).toEqual([{ id: "org-1", name: "P" }]);
     expect(await neon.listProjects("org-1")).toEqual([{ id: "p1", name: "example" }]);
     expect(await neon.connectionString("p1", { pooled: true, orgId: "org-1" })).toBe("postgresql://u:pw@h/neondb");
-    const [, orgsCall, listCall, uriCall] = calls.map((c) => c.args.filter((a) => a !== "--config-dir").join(" "));
-    expect(orgsCall).toMatch(/^orgs list -o json /);
-    expect(listCall).toMatch(/^projects list --org-id org-1 -o json /);
-    expect(uriCall).toMatch(/^connection-string --project-id p1 --org-id org-1 --pooled --role-name neondb_owner --database-name neondb /);
-    await neon.close();
+    const [orgsCall, listCall, uriCall] = calls.map((c) => c.args.join(" "));
+    expect(orgsCall).toBe("orgs list -o json");
+    expect(listCall).toBe("projects list --org-id org-1 -o json");
+    expect(uriCall).toBe("connection-string --project-id p1 --org-id org-1 --pooled --role-name neondb_owner --database-name neondb");
   });
 
   it("creates with --no-secrets and reads the id from the JSON", async () => {
     const { neon, calls } = cli({ projects: JSON.stringify({ project: { id: "p9", name: "shop" }, connection_uris: [] }) });
     expect(await neon.createProject("shop", "org-1")).toEqual({ id: "p9", name: "shop" });
     expect(calls[0]!.args).toEqual(expect.arrayContaining(["projects", "create", "--name", "shop", "--org-id", "org-1", "--no-secrets"]));
-    await neon.close();
   });
 
   it("mints a key limited to one project with `api-keys create --project-id` (no --org-id), reading only `key` from the JSON", async () => {
     const { neon, calls } = cli({ "api-keys": JSON.stringify({ id: 7, key: "napi_secret_value", name: "x", created_at: "now" }) });
     expect(await neon.createApiKey("example-preview-ci", "p1")).toBe("napi_secret_value");
-    expect(calls[0]!.args.filter((a) => a !== "--config-dir").slice(0, 8)).toEqual(["api-keys", "create", "--name", "example-preview-ci", "--project-id", "p1", "-o", "json"]);
+    expect(calls[0]!.args.slice(0, 8)).toEqual(["api-keys", "create", "--name", "example-preview-ci", "--project-id", "p1", "-o", "json"]);
     expect(calls[0]!.args).not.toContain("--org-id");
-    await neon.close();
   });
 
   it("does not echo a refusal's output when minting fails", async () => {
     const { neon } = cli({}, { failOn: "api-keys" });
     await expect(neon.createApiKey("k", "p1")).rejects.toThrow("api-keys failed");
-    await neon.close();
   });
 
   it("reads the default branch and renames it", async () => {
     const { neon, calls } = cli({ branches: JSON.stringify([{ id: "br-1", name: "dev", default: false }, { id: "br-2", name: "main", default: true }]) });
     expect(await neon.defaultBranchName("p1")).toBe("main");
     await neon.renameBranch("p1", "main", "base");
-    expect(calls[0]!.args.filter((a) => a !== "--config-dir").slice(0, 6)).toEqual(["branches", "list", "--project-id", "p1", "-o", "json"]);
+    expect(calls[0]!.args.slice(0, 6)).toEqual(["branches", "list", "--project-id", "p1", "-o", "json"]);
     expect(calls[1]!.args.slice(0, 6)).toEqual(["branches", "rename", "main", "base", "--project-id", "p1"]);
-    await neon.close();
   });
 
   it("gives the child only the base environment, and an API key only when it was given one", async () => {
     const plain = cli({ orgs: "[]" });
     await plain.neon.listOrgs();
     expect(plain.calls[0]!.env).toEqual({ PATH: "/bin", HOME: "/home/x" });
-    await plain.neon.close();
 
     const keyed = cli({ orgs: "[]" }, { apiKey: "the-key" });
     await keyed.neon.listOrgs();
     await keyed.neon.login();
     expect(keyed.calls[0]!.env).toEqual({ PATH: "/bin", HOME: "/home/x", NEON_API_KEY: "the-key" });
-    expect(keyed.calls.some((c) => c.args[0] === "auth")).toBe(false);
-    await keyed.neon.close();
-  });
-
-  it("logs out against the same folder and removes it on close, once", async () => {
-    const { neon, calls, syncCalls, dirOf } = cli({ orgs: "[]" });
-    await neon.listOrgs();
-    const dir = dirOf(calls[0]!);
-
-    await neon.close();
-    await neon.close();
-
-    expect(syncCalls).toHaveLength(1);
-    expect(syncCalls[0]!.args).toEqual(["logout", "--config-dir", dir]);
-    expect(existsSync(dir)).toBe(false);
-  });
-
-  it("removes the folder even when the logout or an earlier call failed", async () => {
-    const { neon, calls, dirOf } = cli({}, { failOn: "orgs" });
-    (neon as unknown as { runSync: () => void }).runSync = () => {
-      throw new Error("offline");
-    };
-    await expect(neon.listOrgs()).rejects.toThrow("orgs failed");
-    const dir = dirOf(calls[0]!);
-    expect(existsSync(dir)).toBe(true);
-
-    await expect(neon.close()).resolves.toBeUndefined();
-
-    expect(existsSync(dir)).toBe(false);
-  });
-
-  it("does not accept an answer that is not a connection string, and does not echo it", async () => {
-    const { neon } = cli({ "connection-string": "Error: secret-ish output" });
-    await expect(neon.connectionString("p1", { pooled: false })).rejects.toThrow(/did not answer a connection string/);
-    await neon.close();
+    expect(keyed.calls.some((c) => c.args[0] === "auth" || c.args[0] === "me")).toBe(false);
   });
 });

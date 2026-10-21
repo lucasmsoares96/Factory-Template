@@ -137,12 +137,12 @@ export interface NeonOrg {
 }
 
 /**
- * Neon through `neonctl` with a throwaway config directory: nothing is kept after `close()`. The credentials (an OAuth
- * login of this run, or `NEON_API_KEY` from the environment) stay inside the adapter; connection strings hold a password
+ * Neon through `neonctl`. The browser login is kept by neonctl in its own config directory, so it is asked once per
+ * machine; `NEON_API_KEY` from the environment skips it. Credentials stay inside the adapter; connection strings hold a password
  * and travel only as return values, from here straight to `GitHubClient.setSecret`.
  */
 export interface NeonClient {
-  /** Opens the browser to sign in. Not needed (and a no-op) when the adapter was given an API key. */
+  /** Opens the browser to sign in, unless neonctl already has a saved login or the adapter was given an API key. */
   login(): Promise<void>;
   listOrgs(): Promise<NeonOrg[]>;
   /** Every project of the org, any name. Project names are not unique in Neon, so the caller filters and handles duplicates. */
@@ -158,7 +158,7 @@ export interface NeonClient {
   renameBranch(projectId: string, from: string, to: string): Promise<void>;
   /** The connection string of the default branch: pooled (the Worker) or direct (migrations). */
   connectionString(projectId: string, options: { pooled: boolean; orgId?: string }): Promise<string>;
-  /** Logs out (revokes the grant) and removes the throwaway directory. Safe to call twice and after a failure. */
+  /** Releases what the run holds. The neonctl login is kept, so the next run does not ask again. */
   close(): Promise<void>;
 }
 

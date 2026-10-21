@@ -168,7 +168,7 @@ export function previewProductsStep(product: ProductIdentity): Step {
 
 /**
  * The Previews module of `pnpm bootstrap previews <id>`. The environment comes first so the secret lands in it. The Neon
- * login (a throwaway `neonctl` session) happens at most once per run and only when a Neon step has work.
+ * login is neonctl's own, kept by the CLI: it is asked once per machine, and only when a Neon step has work.
  * `PREVIEWS_ENABLED` is not a step: the command turns it on after the doctor of the Product's previews passes.
  */
 export function previewSteps(product: ProductIdentity): Step[] {
