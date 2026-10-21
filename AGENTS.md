@@ -9,7 +9,7 @@ A repository of Products plus the harness that builds them. A Product is an appl
 - `apps/<id>/`: one Product each (`apps/example` is the template's output). Read its `AGENTS.md` first.
 - `.factory/`: the Factory harness (CLI, adapters, prompts, container image). Read its `AGENTS.md` first.
 - `scripts/`: repo scripts (`dev`, `verify`, `ci-probe`).
-- `docs/`: ADRs in `docs/adr/`, agent configuration in `docs/agents/` (issue tracker, labels, domain docs, MCP servers).
+- `docs/`: ADRs in `docs/adr/`, agent configuration in `docs/agents/` (issue tracker, labels, domain docs, MCP servers). Optional setup: `docs/self-hosted-runner.md` (a runner of your own for `work` and `build` in a private repo, via `vars.FACTORY_RUNNER`).
 - `.agents/skills/`: agent skills (`.claude/skills/<name>` are symlinks to them). `skills-lock.json` pins the vendored ones.
 - `.github/workflows/`: CI and Factory workflows.
 
