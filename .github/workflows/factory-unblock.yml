@@ -1,0 +1,48 @@
+# Blocked Issues start themselves: when any issue closes, sweep every open `ready-for-agent` issue and start (through
+# `factory-issue.yml`) the ones whose blockers are all done. The event only says "something closed": the sweep reads the
+# forge. No cron. Off until `pnpm bootstrap factory` sets FACTORY_ENABLED. The job token dispatches the run (`actions:
+# write`) and holds no secret; the Factory's own guard still decides in `claim`. A change to this file takes effect once
+# it is on the default branch (`issues` events run the default branch's workflow).
+name: Factory unblock
+
+on:
+  issues:
+    types: [closed]
+  workflow_dispatch:
+
+concurrency:
+  group: factory-unblock
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  sweep:
+    if: ${{ vars.FACTORY_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+      actions: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: corepack enable pnpm && pnpm install --frozen-lockfile --ignore-scripts --filter @factory/harness
+      - env:
+          VARS_JSON: ${{ toJSON(vars) }}
+        run: node .factory/src/ci/vars.ts
+      - name: unblock
+        env:
+          FACTORY_ADAPTERS: github
+          GITHUB_TOKEN: ${{ github.token }}
+        run: pnpm factory unblock

@@ -40,6 +40,7 @@ export class FakeAgent implements Agent {
       development: [...(script.development ?? [])],
       review: [...(script.review ?? [])],
       "pull-request": [...(script["pull-request"] ?? [])],
+      triage: [...(script.triage ?? [])],
     };
   }
 
