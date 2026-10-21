@@ -235,3 +235,57 @@ describe("factory pr-feedback: a round", () => {
     expect(p.w.tracker.issues.get(7)!.comments.at(-1)!.body).toContain("Run discarded");
   });
 });
+
+describe("factory pr-feedback: what a writer asked for survives the Review", () => {
+  const ask = "Shorten the pt-BR tagline to 'Entre na sua conta'.";
+  const done = "Done in f36056a.";
+  const round = () =>
+    prWorld({
+      main: "none",
+      threads: [thread("t1", ask), thread("t2", "Could you also add CSV export?")],
+      agent: {
+        development: [
+          commits(
+            replies(
+              { threadId: "t1", decision: "address", body: done },
+              { threadId: "t2", decision: "defer", body: "Worth its own issue." },
+            ),
+          ),
+        ],
+        review: [reviewOk],
+      },
+      verify: [{ ok: true }],
+    });
+
+  it("gives the Review the threads of the round and the Factory's decision on each, as untrusted content", async () => {
+    const p = await round();
+    await feedbackRound(p);
+
+    const review = p.w.agent.calls.find((c) => c.stage === "review")!.prompt;
+    expect(review).toContain('<thread id="t1" path="src/app.ts">');
+    expect(review).toContain(ask);
+    expect(review).toMatch(/<decision thread="t1" kind="address">\s*Done in f36056a\.\s*<\/decision>/);
+    expect(review).toMatch(/<decision thread="t2" kind="defer">\s*Worth its own issue\.\s*<\/decision>/);
+    expect(review).toContain("untrusted");
+  });
+
+  it("tells the Review that an addressed request supersedes the issue and is never reverted", async () => {
+    const p = await round();
+    await feedbackRound(p);
+
+    const review = p.w.agent.calls.find((c) => c.stage === "review")!.prompt;
+    expect(review).toMatch(/supersedes the issue/i);
+    expect(review).toMatch(/never revert/i);
+    expect(review).toMatch(/finding for the human/i);
+  });
+
+  it("gives the Pull Request Stage the threads, so the body describes the agreed change", async () => {
+    const p = await round();
+    await feedbackRound(p);
+
+    const pr = p.w.agent.calls.find((c) => c.stage === "pull-request")!.prompt;
+    expect(pr).toContain(ask);
+    expect(pr).toMatch(/<decision thread="t1" kind="address">/);
+    expect(pr).toMatch(/departs from the issue/i);
+  });
+});
