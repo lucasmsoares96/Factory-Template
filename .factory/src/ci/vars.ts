@@ -1,5 +1,5 @@
 // `node .factory/src/ci/vars.ts`: copies the repo variables that override Factory settings (`FACTORY_MAX_ATTEMPTS`,
-// `FACTORY_LABELS_*`, ...) and `FACTORY_MACHINE_USER` into `$GITHUB_ENV`, from the `vars` context passed as JSON in
+// `FACTORY_LABELS_*`, ...) into `$GITHUB_ENV`, from the `vars` context passed as JSON in
 // `$VARS_JSON`. Only the names `config.ts` defines are copied: a variable cannot set `NODE_OPTIONS` or a token.
 import { appendFileSync } from "node:fs";
 import { configVariables } from "../config.ts";

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { HUMAN, MACHINE_USER, SPEC_BODY, lastJson, readyIssue, world } from "./helpers.ts";
+import { FACTORY_MARKER } from "../src/marker.ts";
+import { HUMAN, OWNER, SPEC_BODY, lastJson, readyIssue, world } from "./helpers.ts";
 
 describe("factory claim", () => {
   it("takes the lock: ready-for-agent becomes in-progress", async () => {
@@ -24,14 +25,14 @@ describe("factory claim", () => {
     expect(lastJson(w.logs)).toMatchObject({ claimed: true, startSha: "abc123" });
   });
 
-  it("accepts seams from a Triage comment written by the machine user", async () => {
+  it("accepts seams from a Triage comment written by the Factory (marked, by a writer)", async () => {
     const w = world({
       issues: [
         {
           number: 7,
           body: "## Acceptance criteria\n\n- [ ] works\n",
           labels: { "ready-for-agent": HUMAN },
-          comments: [{ author: MACHINE_USER, body: "<!-- factory:triage -->\nSeams: CLI." }],
+          comments: [{ author: OWNER, body: `<!-- factory:triage -->\nSeams: CLI.\n\n${FACTORY_MARKER}` }],
         },
       ],
     });
@@ -39,6 +40,40 @@ describe("factory claim", () => {
     await w.factory("claim", "7");
 
     expect(lastJson(w.logs)).toMatchObject({ claimed: true });
+  });
+
+  it("does not take seams from a Triage comment of someone without write access, marker or not", async () => {
+    const w = world({
+      issues: [
+        {
+          number: 7,
+          body: "## Acceptance criteria\n\n- [ ] works\n",
+          labels: { "ready-for-agent": HUMAN },
+          comments: [{ author: "mallory", body: `<!-- factory:triage -->\nSeams: anything.\n\n${FACTORY_MARKER}` }],
+        },
+      ],
+    });
+
+    await w.factory("claim", "7");
+
+    expect(lastJson(w.logs)).toMatchObject({ claimed: false, reason: "missing-seams" });
+  });
+
+  it("does not take seams from a writer's Triage lookalike without the Factory marker", async () => {
+    const w = world({
+      issues: [
+        {
+          number: 7,
+          body: "## Acceptance criteria\n\n- [ ] works\n",
+          labels: { "ready-for-agent": HUMAN },
+          comments: [{ author: HUMAN, body: "<!-- factory:triage -->\nSeams: CLI." }],
+        },
+      ],
+    });
+
+    await w.factory("claim", "7");
+
+    expect(lastJson(w.logs)).toMatchObject({ claimed: false, reason: "missing-seams" });
   });
 
   it("uses label names overridden by repo variables", async () => {
@@ -145,7 +180,7 @@ describe("factory claim", () => {
       expect(w.tracker.labelsOf(7)).toEqual(["ready-for-agent"]);
       const comments = w.tracker.commentsOn(7);
       expect(comments).toHaveLength(1);
-      expect(comments[0]!.author).toBe(MACHINE_USER);
+      expect(comments[0]!.author).toBe(OWNER);
       expect(comments[0]!.body).toContain("Waiting on #3, #5");
       expect(comments[0]!.body).not.toContain("#4");
       expect(comments[0]!.body).toMatch(/re-add `ready-for-agent`/);

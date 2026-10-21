@@ -24,7 +24,7 @@ interface Issue {
   parent: number | null;
 }
 
-function githubWorld(issues: Partial<Issue>[], writers = ["alice"]) {
+function githubWorld(issues: Partial<Issue>[], writers = ["alice", "owner"]) {
   const server = new FakeGitHubServer();
   const store = new Map<number, Issue>();
   for (const seed of issues) {
@@ -38,7 +38,7 @@ function githubWorld(issues: Partial<Issue>[], writers = ["alice"]) {
     return parent ? { json: json(parent) } : { status: 404 };
   });
   server.on("GET", `${R}/issues/(\\d+)/sub_issues`, () => ({ json: [] }));
-  server.on("GET", `${R}/issues/(\\d+)/comments`, ({ params }) => ({ json: get(params[0]!)!.comments.map((body, i) => ({ id: i + 1, body, user: { login: "factory-bot" } })) }));
+  server.on("GET", `${R}/issues/(\\d+)/comments`, ({ params }) => ({ json: get(params[0]!)!.comments.map((body, i) => ({ id: i + 1, body, user: { login: "owner" } })) }));
   server.on("POST", `${R}/issues/(\\d+)/comments`, ({ params, body }) => (get(params[0]!)!.comments.push(body.body), { status: 201, json: {} }));
   server.on("GET", `${R}/issues/(\\d+)/events`, ({ params }) => ({ json: get(params[0]!)!.events.map((e) => ({ event: e.event, label: { name: e.label }, actor: { login: e.actor } })) }));
   server.on("GET", `${R}/issues/(\\d+)/dependencies/blocked_by`, ({ params }) => ({ json: get(params[0]!)!.blockedBy.map((n) => json(store.get(n)!)) }));
@@ -68,7 +68,7 @@ const ready = (extra: Partial<Issue> = {}): Partial<Issue>[] => [
 
 async function run(w: ReturnType<typeof githubWorld>, argv: string[], env: Record<string, string> = {}) {
   const logs: string[] = [];
-  const full = { FACTORY_MACHINE_USER: "factory-bot", ...env };
+  const full = { ...env };
   const code = await runFactory(argv, {
     env: full,
     log: (line) => logs.push(line),

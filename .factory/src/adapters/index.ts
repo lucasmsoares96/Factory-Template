@@ -37,7 +37,7 @@ export function adaptersFromEnv(
 function localAdapters(env: Record<string, string | undefined>, { config, repo }: { config: FactoryConfig; repo: string }): Adapters {
   const dir = env.FACTORY_TRACKER_DIR;
   if (!dir) throw new Error("FACTORY_ADAPTERS=local needs FACTORY_TRACKER_DIR: the issues/ directory of the feature.");
-  const self = config.machineUser || "factory";
+  const self = "factory";
   const tracker = new MarkdownTracker({ dir, self, human: env.USER || "human" });
   return {
     tracker,

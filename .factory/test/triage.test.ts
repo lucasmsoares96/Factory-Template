@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
 import { TRIAGE_MARKER } from "../src/guard.ts";
-import { HUMAN, MACHINE_USER, ISSUE_BODY, checkout, lastJson, tempDir, world, type World, type WorldOptions } from "./helpers.ts";
+import { HUMAN, OWNER, ISSUE_BODY, checkout, lastJson, tempDir, world, type World, type WorldOptions } from "./helpers.ts";
 
 // Seam 1: the Triage and `apply` through the CLI against the fakes.
 
@@ -56,7 +56,7 @@ describe("factory triage + apply", () => {
     expect(s.w.tracker.labelsOf(5)).toEqual(["ready-for-agent"]);
     const comments = triageComments(s.w, 5);
     expect(comments).toHaveLength(1);
-    expect(comments[0]!).toMatchObject({ author: MACHINE_USER });
+    expect(comments[0]!).toMatchObject({ author: OWNER });
     expect(comments[0]!.body).toContain("easy-call");
     expect(comments[0]!.body).toContain("The CLI against the fakes");
     expect(comments[0]!.body).toContain("real GitHub behaviour");

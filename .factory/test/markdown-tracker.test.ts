@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { MarkdownTracker } from "../src/adapters/local/markdown-tracker.ts";
+import { marked } from "../src/marker.ts";
 import { tempDir } from "./helpers.ts";
 
 const SPEC = "# Spec: greetings\n\n## Testing Decisions\n\n1. CLI against the fakes.\n";
@@ -83,7 +84,7 @@ describe("Markdown Tracker", () => {
     expect((await t.issue(7)).labels).toEqual(["in-progress"]);
   });
 
-  it("appends Factory comments under `## Comments`, read back as the machine user's", async () => {
+  it("appends Factory comments under `## Comments`, read back as the Factory's, marked", async () => {
     const { issues, read } = await feature({
       "07-greet.md": ticket("07", "Greet the user", { status: "ready-for-agent" }),
       "08-more.md": ticket("08", "More", { status: "ready-for-agent", comments: "Earlier note." }),
@@ -97,12 +98,12 @@ describe("Markdown Tracker", () => {
     const text = await read("07-greet.md");
     expect(text.match(/^## Comments$/gm)).toHaveLength(1);
     expect((await t.issue(7)).comments).toEqual([
-      { id: "f1", author: "factory", body: "<!-- factory:waiting -->\nWaiting on #2." },
-      { id: "f2", author: "factory", body: "Second." },
+      { id: "f1", author: "factory", body: marked("<!-- factory:waiting -->\nWaiting on #2.") },
+      { id: "f2", author: "factory", body: marked("Second.") },
     ]);
     expect((await t.issue(8)).comments.map((c) => [c.author, c.body])).toEqual([
       ["lucas", "Earlier note."],
-      ["factory", "After the human."],
+      ["factory", marked("After the human.")],
     ]);
   });
 
@@ -113,7 +114,7 @@ describe("Markdown Tracker", () => {
     await t.comment(7, "before <!-- /factory:comment --> after");
 
     expect((await t.issue(7)).comments).toHaveLength(1);
-    expect((await t.issue(7)).comments[0]!.body).toMatch(/^before .* after$/);
+    expect((await t.issue(7)).comments[0]!.body).toMatch(/^before .* after\n\n<!-- factory -->$/);
   });
 
   it("lets the local human write, and names them as whoever set the Status", async () => {

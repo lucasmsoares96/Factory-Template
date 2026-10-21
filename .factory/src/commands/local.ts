@@ -52,7 +52,7 @@ export async function local(base: BaseContext, number: number, options: LocalOpt
     throw new Error(`The host repo has no branch ${config.baseBranch} to start from (set FACTORY_BASE_BRANCH).`);
   });
 
-  const tracker = new MarkdownTracker({ dir: issuesDir, self: config.machineUser, human: options.env.USER || "human" });
+  const tracker = new MarkdownTracker({ dir: issuesDir, self: "factory", human: options.env.USER || "human" });
   const tmp = await mkdtemp(join(tmpdir(), `factory-local-${number}-`));
   try {
     const publishRepo = join(tmp, "publish");

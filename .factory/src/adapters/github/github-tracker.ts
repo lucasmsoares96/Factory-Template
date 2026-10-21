@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Blocker, Issue, IssueComment, NewIssue, Tracker } from "../../seams/tracker.ts";
+import { marked } from "../../marker.ts";
 import { GitHubApi, GitHubError, type GitHubApiOptions } from "./api.ts";
 import { createGitHubIssue } from "./create-issue.ts";
 
@@ -82,11 +83,11 @@ export class GitHubTracker implements Tracker {
   }
 
   async comment(number: number, body: string): Promise<void> {
-    await this.api.send("POST", this.api.repoPath(`/issues/${number}/comments`), { body });
+    await this.api.send("POST", this.api.repoPath(`/issues/${number}/comments`), { body: marked(body) });
   }
 
   createIssue(input: NewIssue): Promise<{ number: number; url: string | null }> {
-    return createGitHubIssue(this.options, input);
+    return createGitHubIssue(this.options, { ...input, body: marked(input.body) });
   }
 
   async canWrite(login: string): Promise<boolean> {

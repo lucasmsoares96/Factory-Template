@@ -5,17 +5,17 @@ import { TOKEN, WRANGLER_TOKEN, world } from "./helpers.ts";
 // Seam 8 for `destroy`: everything runs against the fake clients. A world is built by the real wizard commands, so the
 // names `destroy` removes are the names the wizard made, not names this file invented.
 const ENV = { CLOUDFLARE_API_TOKEN: TOKEN, CLOUDFLARE_ACCOUNT_ID: "acc-1", CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat-x", RESEND_API_KEY: "re-full", NEON_API_KEY: "neon-full" };
-const PAT = "ghp_machine_user_pat";
+const PAT = "github_pat_owner_token";
 const PASSWORD = "admin password 123";
 
 async function built(answers: Record<string, string | boolean | string[]> = {}, env: Record<string, string | undefined> = ENV) {
-  const w = world({ "resend-setup": "skip", "default-account-email": "admin@example.com", "default-account-password": PASSWORD, "default-account-password-confirm": PASSWORD, "factory-pat": PAT, ...answers }, env);
+  const w = world({ "resend-setup": "skip", "default-account-email": "admin@example.com", "default-account-password": PASSWORD, "default-account-password-confirm": PASSWORD, "factory-token": PAT, ...answers }, env);
   w.deps.interactive = true;
   w.github.secrets.set("CLOUDFLARE_API_TOKEN", TOKEN);
   w.github.secrets.set("CLOUDFLARE_ACCOUNT_ID", "acc-1");
   w.cloudflare.subdomains.set("acc-1", "my-team");
   for (const label of labelSpecs(w.deps.config)) w.github.labels.set(label.name, label);
-  w.machines.add(PAT, { login: "factory-bot", scopes: ["repo"] });
+  w.tokens.add(PAT, { push: true });
   w.products.set("shop", { id: "shop", title: "Shop", emailFrom: "Shop <no-reply@shop.test>", domain: "shop.test" });
   for (const id of ["example", "shop"]) {
     await w.run("product", id);
@@ -26,7 +26,7 @@ async function built(answers: Record<string, string | boolean | string[]> = {}, 
     w.cloudflare.workerDomains.push({ hostname: `${id}.test`, service: id, zoneId: "z" });
   }
   await w.run("factory");
-  expect(w.github.collaborators.get("factory-bot")).toBe("write");
+  expect(w.github.secrets.get("FACTORY_TOKEN")).toBe(PAT);
   w.deps.env = { ...env };
   return w;
 }
@@ -140,7 +140,6 @@ describe("pnpm bootstrap destroy product <id>", () => {
     expect(w.github.variables.get("PREVIEW_PRODUCTS")).toBe("shop");
     expect(w.github.variables.get("DEPLOY_ENABLED")).toBe("true");
     expect(w.github.rulesets.map((r) => r.name)).toEqual(["main"]);
-    expect(w.github.collaborators.get("factory-bot")).toBe("write");
     expect(w.github.secrets.has("CLOUDFLARE_API_TOKEN")).toBe(true);
     expect(w.github.secrets.has("FACTORY_TOKEN")).toBe(true);
     expect([...w.github.labels.keys()]).toEqual(labels);
@@ -246,31 +245,20 @@ describe("pnpm bootstrap destroy previews <id>", () => {
 });
 
 describe("pnpm bootstrap destroy factory", () => {
-  it("removes the Factory's secrets, variables and the machine user, and nothing else", async () => {
+  it("removes the Factory's secrets and variables, and nothing else", async () => {
     const w = await built({ "destroy-confirm": "factory" });
 
     const { code } = await w.run("destroy", "factory");
 
     expect(code).toBe(0);
     for (const name of ["FACTORY_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]) expect(w.github.secrets.has(name)).toBe(false);
-    for (const name of ["FACTORY_MACHINE_USER", "FACTORY_ENABLED"]) expect(w.github.variables.has(name)).toBe(false);
-    expect(w.github.collaborators.has("factory-bot")).toBe(false);
-    expect(w.github.invitations.has("factory-bot")).toBe(false);
+    for (const name of ["FACTORY_ENABLED"]) expect(w.github.variables.has(name)).toBe(false);
     expect(w.github.secrets.has("CLOUDFLARE_API_TOKEN")).toBe(true);
     expect(w.github.variables.get("DEPLOY_PRODUCTS")).toBe("example,shop");
     expect([...w.github.labels.keys()].length).toBeGreaterThan(0);
     expect(left(w).projects).toHaveLength(4);
   });
 
-  it("cancels a pending invitation too", async () => {
-    const w = await built({ "destroy-confirm": "factory" });
-    w.github.collaborators.delete("factory-bot");
-    w.github.invitations.add("factory-bot");
-
-    await w.run("destroy", "factory");
-
-    expect(w.github.invitations.size).toBe(0);
-  });
 });
 
 describe("pnpm bootstrap destroy (everything)", () => {
@@ -284,7 +272,7 @@ describe("pnpm bootstrap destroy (everything)", () => {
     expect(left(w)).toEqual({ projects: [], workers: [], kvs: [], domains: [] });
     expect(everywhere(w)).toEqual([]);
     expect(w.github.rulesets).toEqual([]);
-    expect(w.github.collaborators.size + w.github.invitations.size).toBe(0);
+    expect(w.github.secrets.has("FACTORY_TOKEN")).toBe(false);
     expect([...w.github.labels.keys()]).toEqual(labels);
     expect(output).toMatch(/kept: .*repository.*issues.*labels.*accounts/i);
   });
