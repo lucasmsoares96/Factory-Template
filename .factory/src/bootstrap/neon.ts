@@ -1,7 +1,4 @@
 import { execFile, execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { z } from "zod";
 import { BASE_ENV, pick } from "../env.ts";
 import type { NeonClient, NeonOrg, NeonProject } from "./clients.ts";
@@ -43,9 +40,9 @@ const branches = z.union([z.array(branch), z.object({ branches: z.array(branch) 
 const apiKey = z.object({ key: z.string() });
 
 /**
- * `neonctl` driven as a child process, always with `--config-dir <throwaway>` so the login of this run never touches
- * `~/.config/neon`, and `-o json` (table output can omit fields). The credentials file is never read: only the CLI does.
- * With `apiKey`, the CLI gets it as `NEON_API_KEY` and no login happens.
+ * `neonctl` driven as a child process with its default config directory, so the browser login is kept by the CLI
+ * (as with any CLI) and later runs reuse it; `-o json` (table output can omit fields). The credentials file is never
+ * read: only the CLI does. With `apiKey`, the CLI gets it as `NEON_API_KEY` and no login happens.
  * Docs read 2026-10-20: neon.com/docs/reference/{cli-auth,neon-cli,cli-connection-string,cli-projects}.
  */
 export class NeonCli implements NeonClient {
@@ -53,7 +50,6 @@ export class NeonCli implements NeonClient {
   private readonly env: Record<string, string | undefined>;
   private readonly run: NeonRun;
   private readonly runSync: NeonRunSync;
-  private dir: string | undefined;
 
   constructor(options: { apiKey?: string; env?: Record<string, string | undefined>; run?: NeonRun; runSync?: NeonRunSync } = {}) {
     this.apiKey = options.apiKey;
@@ -62,22 +58,27 @@ export class NeonCli implements NeonClient {
     this.runSync = options.runSync ?? runNeonctlSync;
   }
 
-  private configDir(): string {
-    this.dir ??= mkdtempSync(join(tmpdir(), "factory-neon-"));
-    return this.dir;
-  }
-
   private childEnv(): Record<string, string> {
     return { ...pick(this.env, BASE_ENV), ...(this.apiKey ? { NEON_API_KEY: this.apiKey } : {}) };
   }
 
   private call(args: string[], inherit = false): Promise<string> {
-    return this.run([...args, "--config-dir", this.configDir()], { env: this.childEnv(), inherit });
+    return this.run(args, { env: this.childEnv(), inherit });
   }
 
+  /** Opens the browser only when neonctl has no saved login (`neonctl me` fails). */
   async login(): Promise<void> {
-    if (this.apiKey) return;
+    if (this.apiKey || (await this.loggedIn())) return;
     await this.call(["auth"], true);
+  }
+
+  async loggedIn(): Promise<boolean> {
+    try {
+      await this.call(["me", "-o", "json"]);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async listOrgs(): Promise<NeonOrg[]> {
@@ -127,23 +128,10 @@ export class NeonCli implements NeonClient {
     return uri;
   }
 
-  async close(): Promise<void> {
-    this.closeSync();
-  }
+  /** Nothing to clean up: the login stays with neonctl so the next run does not ask again. */
+  async close(): Promise<void> {}
 
-  /** Logout (best effort: it revokes the refresh token server-side), then remove the directory. */
-  closeSync(): void {
-    const dir = this.dir;
-    if (!dir) return;
-    this.dir = undefined;
-    try {
-      this.runSync(["logout", "--config-dir", dir], { env: this.childEnv() });
-    } catch {
-      // Not logged in, offline or the CLI is gone: the directory goes anyway.
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  }
+  closeSync(): void {}
 }
 
 const orgFlag = (orgId?: string) => (orgId ? ["--org-id", orgId] : []);
