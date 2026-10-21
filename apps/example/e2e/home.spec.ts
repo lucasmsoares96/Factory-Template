@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { EVIDENCE_DIR, expect, test } from "@workspace/skeleton/e2e";
-import { locales, messagesFor } from "@workspace/skeleton/i18n";
+import { locales, messagesFor, resolveLocale } from "@workspace/skeleton/i18n";
 import productConfig from "../product.config.ts";
 
 test("the Product's own spec runs and its print lands in the Product's evidence folder", { tag: "@evidence" }, async ({ page, t, evidence, product }) => {
@@ -21,8 +21,8 @@ test("every locale's sign-in tagline is the Product's own text, not the Skeleton
 
 test("overriding the title and tagline keeps the Skeleton's other sign-in texts in every locale", () => {
   for (const locale of locales) {
-    const { title: _productTitle, description: _product, ...productSignIn } = messagesFor(locale, productConfig.messages).auth.signIn;
-    const { title: _skeletonTitle, description: _skeleton, ...skeletonSignIn } = messagesFor(locale).auth.signIn;
+    const { title: _productTitle, description: _productDescription, ...productSignIn } = messagesFor(locale, productConfig.messages).auth.signIn;
+    const { title: _skeletonTitle, description: _skeletonDescription, ...skeletonSignIn } = messagesFor(locale).auth.signIn;
     expect(productSignIn, locale).toEqual(skeletonSignIn);
   }
 });
@@ -48,8 +48,13 @@ test("the sign-in title is the agreed welcome text in each locale", () => {
 });
 
 test("the sign-in screen shows the Product's welcome title", { tag: "@evidence" }, async ({ page, t, evidence }) => {
+  // `t` comes from the same config: pin it to the override, or a dropped override would pass on the Skeleton's title.
+  const locale = resolveLocale(process.env.LOCALE);
+  expect(t.auth.signIn.title).toBe(messagesFor(locale, productConfig.messages).auth.signIn.title);
+  expect(t.auth.signIn.title).not.toBe(messagesFor(locale).auth.signIn.title);
+
   await page.goto("/sign-in");
 
-  await expect(page.getByRole("heading", { name: t.auth.signIn.title })).toBeVisible();
+  await expect(page.getByRole("heading", { name: t.auth.signIn.title, exact: true })).toBeVisible();
   await evidence("sign-in-welcome-title");
 });
