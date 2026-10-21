@@ -21,7 +21,7 @@ test("every locale's sign-in tagline is the Product's own text, not the Skeleton
 
 test("the sign-in tagline is the agreed copy in each locale", () => {
   expect(messagesFor("en", productConfig.messages).auth.signIn.description).toBe("Your workspace, one sign-in away.");
-  expect(messagesFor("pt-BR", productConfig.messages).auth.signIn.description).toBe("Seu espaço de trabalho, a um login de distância.");
+  expect(messagesFor("pt-BR", productConfig.messages).auth.signIn.description).toBe("Seu espaço, a um login de distância.");
 });
 
 test("the sign-in screen shows the Product's tagline right below its title", { tag: "@evidence" }, async ({ page, t, evidence }) => {
