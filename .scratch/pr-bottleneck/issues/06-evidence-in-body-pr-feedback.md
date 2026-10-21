@@ -6,7 +6,7 @@ Spec: [../spec.md](../spec.md)
 
 **Blocked by:** 05, [16 da base](../../factory-base/issues/16-factory-on-actions.md), [18 da base](../../factory-base/issues/18-pr-comments-update-branch.md). Fecha antes do [ticket 21 da base](../../factory-base/issues/21-base-ready-adrs.md).
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] O `CodeHost` recebe o corpo com as imagens da evidência: o adaptador sobe cada print, troca a referência local pela URL e escreve o corpo, na abertura e na reescrita. No GitHub, `gh pr create|edit --attach`; no adaptador local, as imagens ficam ao lado do PR local.
 - [x] Um print da evidência que o texto não referencia entra no fim da seção Evidence, agrupado por Product; uma referência a um arquivo que não está na evidência é removida.
@@ -14,7 +14,7 @@ Spec: [../spec.md](../spec.md)
 - [x] O pr-feedback roda o Pull Request Stage e reescreve o corpo; o update-branch não.
 - [x] Testes pela CLI contra os falsos: referências trocadas; print não referenciado no fim da Evidence; referência inexistente removida; nenhum comentário de evidência; corpo reescrito no pr-feedback e intacto no update-branch (seam 1).
 - [x] Teste do adaptador local para o corpo com imagens.
-- [ ] Demonstração no repo com um PR de teste com prints no corpo e uma rodada de pr-feedback, apagados no fim (PR, branch, preview).
+- [x] Demonstração no repo com um PR de teste com prints no corpo e uma rodada de pr-feedback, apagados no fim (PR, branch, preview).
 - [x] `pnpm factory:verify` verde.
 
 
@@ -32,3 +32,11 @@ Pending (human): a demonstração (PR de teste com prints no corpo e uma rodada 
 
 
 Merge (2026-10-21): `TURBO_FORCE=1 pnpm factory:verify` verde na `factory-base` (13/13, 716 testes do harness). Falta a demonstração com um PR de teste (machine user do ticket 16 da base).
+
+Demonstração real (2026-10-21, conta do dono com o `FACTORY_TOKEN` do ticket 25):
+- **Prints no corpo:** o PR #15 trouxe o print `sign-in-tagline` junto do texto da Evidence, e os outros prints no fim da seção, agrupados em `### example`. Nenhum comentário de evidência separado foi criado.
+- **Rodada de pr-feedback:** um comentário de review pediu a frase curta em pt-BR. O corpo foi reescrito com a nova Evidence e com o aviso "Departs from the issue text".
+- **Defeito da 1ª rodada, corrigido no PR #18:** a Review desfazia o pedido.
+- **`--attach`:** o `gh` do runner subiu os prints (URLs `user-attachments`).
+- **Melhoria anotada:** todos os 12 prints da rodada entram no corpo, inclusive os de telas que a mudança não toca. Está conforme o critério, mas fica ruidoso.
+- **Limpeza:** o PR foi mesclado, o preview e o branch foram apagados.

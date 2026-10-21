@@ -10,8 +10,8 @@ Spec: [../spec.md](../spec.md)
 
 - [x] *(Substituído pelo 25: a Factory usa o token fine-grained do dono, sem machine user.)* Módulo Factory: machine user com PAT clássico `repo` sem `workflow`, convite `write` aceito pelo wizard, conferência por `X-OAuth-Scopes` e recusa do mesmo login do dono; auth do Claude (`CLAUDE_CODE_OAUTH_TOKEN` recomendado ou `ANTHROPIC_API_KEY`, aviso se houver os dois); `FACTORY_ENABLED` ligado depois do `doctor`.
 - [x] Adaptadores GitHub de `Tracker` e `CodeHost` (REST por `fetch` + Zod; `gh` só no `--attach`; `done` = `closed`+`completed`).
-- [ ] `factory-issue.yml` (`issues: labeled` + `workflow_dispatch`): `claim` (`GITHUB_TOKEN`) → `work` (imagem, `contents: read`, só a auth do Claude, `runs-on` aceita `vars.FACTORY_RUNNER`) → `publish` (VM nova, `FACTORY_TOKEN`, harness da `main`, `if: always()`), ligados por `git bundle` + `result.json` + prints; grupo `factory-N` com `cancel-in-progress: false`; `timeout-minutes: 350`.
-- [ ] Evidência agrupada por Product no comentário único; `stream-json` como artifact por 14 dias; resumo no `$GITHUB_STEP_SUMMARY`.
+- [x] `factory-issue.yml` (`issues: labeled` + `workflow_dispatch`): `claim` (`GITHUB_TOKEN`) → `work` (imagem, `contents: read`, só a auth do Claude, `runs-on` aceita `vars.FACTORY_RUNNER`) → `publish` (VM nova, `FACTORY_TOKEN`, harness da `main`, `if: always()`), ligados por `git bundle` + `result.json` + prints; grupo `factory-N` com `cancel-in-progress: false`; `timeout-minutes: 350`.
+- [x] Evidência agrupada por Product no comentário único; `stream-json` como artifact por 14 dias; resumo no `$GITHUB_STEP_SUMMARY`.
 - [x] Testes estáticos do YAML: `work` sem `FACTORY_TOKEN` e só em `container:`; `claim` e `publish` não aceitam `vars.FACTORY_RUNNER` (seam 2).
 - [x] Testes do módulo contra os falsos: PAT do mesmo login recusado, aviso de duas auths (seam 8).
 - [ ] Issue de exemplo opcional (padrão "não"); quando usada, ela, o PR, o branch e o preview são apagados no fim.
@@ -50,3 +50,14 @@ Merge (2026-10-21): na `factory-base`; `verify` completo verde duas vezes (703 t
 
 - Review fixes 2 (2026-10-21): `concurrency.queue: max` adicionado a todo grupo `factory-<N>` (factory-issue, factory-pr-feedback e factory-update-branches, jobs `work`); a chave existe na doc atual do GitHub Actions (workflow-syntax, consultada em 2026-10-21; `max` = até 100 pendentes em FIFO, não combina com `cancel-in-progress: true`). Testes YAML estendidos. `runGit`/`runGh` agora usam env em allowlist (`childEnv`: `BASE_ENV` + o token que o gh/git lê), sem herdar `FACTORY_TOKEN`; `branchHead` codifica cada segmento do branch na URL; `anything` (api.ts) removido.
 - Nota: o pr-bottleneck 06 trocou `postEvidence` por imagens no corpo do PR (`EvidenceImage`/`--attach`); referências a `postEvidence` neste ticket estão obsoletas.
+
+Demonstração real (2026-10-21, conta do dono com o `FACTORY_TOKEN` do ticket 25):
+- **Issue #12** marcada `ready-for-agent`: o run 39613728286 passou por `claim` → `image` → `work` → `publish` → `notify`, cada job numa VM nova.
+  - O log do `work` não cita `FACTORY_TOKEN` nem `github_pat_`.
+  - O artifact `work-out` traz o bundle, o `result.json`, os prints de `evidence/example/` e `sessions/*.jsonl` (stream-json), com `retention-days: 14`.
+  - O PR #15 foi aberto em nome do dono, com review e com o corpo da skill `pr`.
+  - A evidência agrupada por Product (`### example`) fica no corpo do PR. O pr-bottleneck 06 substituiu o comentário único.
+  - O aviso do `github-actions[bot]` marcou quem aplicou a label.
+- **Resumo do job:** o código escreve em `$GITHUB_STEP_SUMMARY`, mas não conferi pela API, porque o resumo só aparece na UI do run.
+- **Defeito achado na #13 e corrigido no PR #21:** um run que só acrescentou `test.fixme` terminou `ready`.
+- **Ainda aberto: a issue de exemplo opcional.** O `pnpm bootstrap factory` não oferece a issue de exemplo, porque não há prompt no código. Ou se implementa, ou se tira o critério (decisão do usuário). Por isso o Status segue `ready-for-agent`.
