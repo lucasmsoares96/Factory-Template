@@ -1,0 +1,86 @@
+# When a pull request closes (merged or not), every Product's preview of it goes: the Worker Preview `pr-N` and the
+# Neon branch `preview/pr-N`. It runs the code of the default branch on a fresh VM and never reads anything from the
+# PR but its number. Shows as skipped until PREVIEWS_ENABLED is set by `pnpm bootstrap previews <id>`.
+name: PR cleanup
+
+on:
+  pull_request_target:
+    types: [closed]
+
+concurrency:
+  group: pr-cleanup-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  # Every Product in PREVIEW_PRODUCTS: a PR may have had a preview in any of them (the diff is not looked at again).
+  plan:
+    if: vars.PREVIEWS_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      empty: ${{ steps.plan.outputs.empty }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          filter: blob:none
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: corepack enable pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - id: plan
+        env:
+          PREVIEW_PRODUCTS: ${{ vars.PREVIEW_PRODUCTS }}
+        run: node .factory/src/ci/previews.ts cleanup-plan
+
+  cleanup:
+    name: cleanup (${{ matrix.id }})
+    needs: plan
+    if: needs.plan.outputs.empty == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    environment: ${{ vars.FACTORY_USE_ENVIRONMENTS != 'false' && format('{0}-preview', matrix.id) || null }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_BASE_URL: https://api.cloudflare.com/client/v4
+      WRANGLER_SEND_METRICS: "false"
+      CI: "true"
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PRODUCT: ${{ matrix.id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          filter: blob:none
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: corepack enable pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      # A PR that never had a preview (untrusted, skipped, another Product) has nothing to delete: that is not a failure.
+      - name: delete the Worker Preview
+        run: |
+          pnpm --filter @factory/harness exec wrangler preview delete --name "pr-$PR_NUMBER" --worker-name "$PRODUCT" --skip-confirmation \
+            || echo "::warning::no Worker Preview pr-$PR_NUMBER deleted for $PRODUCT (none, or wrangler failed: check the log above)"
+      - name: delete the Neon branch
+        env:
+          NEON_API_KEY: ${{ secrets[format('{0}PREVIEW_NEON_API_KEY', matrix.prefix)] }}
+          NEON_PROJECT_ID: ${{ vars[format('{0}PREVIEW_NEON_PROJECT_ID', matrix.prefix)] }}
+        run: node .factory/src/ci/previews.ts cleanup

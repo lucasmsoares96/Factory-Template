@@ -7,11 +7,12 @@ import { loadConfig } from "../config.ts";
 import { SkeletonAccounts } from "./accounts.ts";
 import { CloudflareApi } from "./cloudflare.ts";
 import { commonSteps } from "./common.ts";
-import { doctor, formatReport } from "./doctor.ts";
+import { doctor, formatReport, type Sections } from "./doctor.ts";
 import { GhCli } from "./github.ts";
 import { clackPrompter } from "./prompter.ts";
 import { domainSteps } from "./domain.ts";
 import { productionSteps } from "./product.ts";
+import { PREVIEWS_ENABLED, previewSteps } from "./previews.ts";
 import { ResendApi } from "./resend.ts";
 import { NeonCli } from "./neon.ts";
 import { runSteps, type BootstrapDeps, type ProductIdentity, type StepContext } from "./steps.ts";
@@ -33,13 +34,19 @@ Commands:
                          Neon signs in through your browser (or NEON_API_KEY in the environment); the login
                          is temporary and removed when the command ends. Turns DEPLOY_ENABLED on once the
                          doctor of the Product passes.
+  previews <id>          Per Product, the Previews module (needs the Production module first): the Neon project
+                         <id>-preview with default branch base, a Neon API key limited to it (minted with your
+                         login, or pasted once if Neon refuses), the preview KV, the <id>-preview environment and the id
+                         in PREVIEW_PRODUCTS. One Neon login per run, only when there is Neon work. Turns
+                         PREVIEWS_ENABLED on once the doctor of the previews passes.
   help                   Show this message.
 
 Options:
   --redo <step>          Redo one step even if it looks done (repeatable): cloudflare-token, workers-dev, labels;
                          for the domain command: resend-domain, dns-records, restricted-resend-key, worker-domain;
                          for the product command: neon-project, github-environment, database-secrets, auth-secret,
-                         default-account (asks again, resets the password and the secret), the four domain steps, main-ruleset, deploy-products.
+                         default-account (asks again, resets the password and the secret), the four domain steps, main-ruleset, deploy-products;
+                         for the previews command: preview-environment, preview-neon-project, preview-neon-key, preview-kv, preview-products.
 
 The wizard ends by running the doctor with the credentials it already holds, so one run is enough.
 Run \`pnpm bootstrap doctor [<id>]\` on its own whenever something looks off; with no CLOUDFLARE_API_TOKEN (or
@@ -64,7 +71,22 @@ export async function runBootstrap(argv: string[], deps: BootstrapDeps): Promise
     if (!product) return 1;
     const memory: StepContext["memory"] = {};
     await runSteps(domainSteps(product), { ...deps, memory }, values.redo ?? []);
-    return finish(deps, productId, memory, { production: false });
+    return finish(deps, productId, memory, { production: false, previews: false });
+  }
+  if (command === "previews") {
+    if (!productId) {
+      deps.log(`Usage: pnpm bootstrap previews <id> [--redo <step>]`);
+      return 1;
+    }
+    const product = await productOrAsk(deps, productId);
+    if (!product) return 1;
+    const memory: StepContext["memory"] = {};
+    try {
+      await runSteps(previewSteps(product), { ...deps, memory }, values.redo ?? []);
+      return await finish(deps, productId, memory, { production: false, domain: false, previews: true }, PREVIEWS_ENABLED);
+    } finally {
+      await memory.neon?.close();
+    }
   }
   if (command === "product") {
     if (!productId) {
@@ -76,7 +98,7 @@ export async function runBootstrap(argv: string[], deps: BootstrapDeps): Promise
     const memory: StepContext["memory"] = {};
     try {
       await runSteps(productionSteps(product), { ...deps, memory }, values.redo ?? []);
-      const code = await finish(deps, productId, memory, { production: true }, true);
+      const code = await finish(deps, productId, memory, { production: true, previews: false }, "DEPLOY_ENABLED");
       deps.log(`After the first deploy, attach the domain with: pnpm bootstrap domain ${productId} --redo worker-domain`);
       return code;
     } finally {
@@ -124,27 +146,33 @@ async function finish(
   deps: BootstrapDeps,
   productId: string | undefined,
   memory: StepContext["memory"],
-  sections: { production: boolean } = { production: true },
-  enableDeploy = false,
+  sections: Sections = { production: true },
+  /** The module switch to turn on when the doctor passes (`DEPLOY_ENABLED` or `PREVIEWS_ENABLED`). */
+  enable?: "DEPLOY_ENABLED" | "PREVIEWS_ENABLED",
 ): Promise<number> {
   deps.log("\nChecking everything:\n");
   let report = await doctor(deps, productId, memory, sections, { prompt: false });
-  // Only a Product whose doctor passes gets the deploy switched on; the workflow shows as skipped until then.
+  // Only a Product whose doctor passes gets its workflow switched on; it shows as skipped until then.
   // It is switched on before the report is printed, so the report shows the state the run ends in.
   let switchedOn = false;
-  if (enableDeploy && report.ok && (await deps.github.listVariables()).DEPLOY_ENABLED !== "true") {
-    await deps.github.setVariable("DEPLOY_ENABLED", "true");
+  if (enable && report.ok && (await deps.github.listVariables())[enable] !== "true") {
+    await deps.github.setVariable(enable, "true");
     switchedOn = true;
     report = await doctor(deps, productId, memory, sections, { prompt: false });
   }
   deps.log(formatReport(report));
-  if (switchedOn) deps.log("DEPLOY_ENABLED=true: every merge into the default branch now deploys the Products it affects.");
-  else if (enableDeploy && !report.ok) {
-    deps.log("DEPLOY_ENABLED stays off: fix what the doctor lists as missing and run this command again.");
-  }
-  if (enableDeploy && report.ok && productId) {
-    // A push deploys only the Products it affects, so a Product set up after its last change waits for a deploy by hand.
-    deps.log(`First deploy of ${productId}: run the Deploy workflow by hand once (Actions → Deploy → Run workflow), or: gh workflow run factory-deploy.yml --ref main`);
+  if (enable === "DEPLOY_ENABLED") {
+    if (switchedOn) deps.log("DEPLOY_ENABLED=true: every merge into the default branch now deploys the Products it affects.");
+    else if (!report.ok) deps.log("DEPLOY_ENABLED stays off: fix what the doctor lists as missing and run this command again.");
+    if (report.ok && productId) {
+      // A push deploys only the Products it affects, so a Product set up after its last change waits for a deploy by hand.
+      deps.log(`First deploy of ${productId}: run the Deploy workflow by hand once (Actions → Deploy → Run workflow), or: gh workflow run factory-deploy.yml --ref main`);
+    }
+  } else if (enable === "PREVIEWS_ENABLED") {
+    if (switchedOn) deps.log("PREVIEWS_ENABLED=true: every pull request that affects a Product listed in PREVIEW_PRODUCTS now gets a preview (by author with write access, or by the preview label).");
+    else if (!report.ok) deps.log("PREVIEWS_ENABLED stays off: fix what the doctor lists as missing and run this command again.");
+    // The `base` branch gets its schema from the deploy of the default branch (which needs `main` to deploy the Product too).
+    if (report.ok) deps.log("The preview database starts from `base`, which the next deploy of the default branch migrates (run the Deploy workflow by hand to do it now).");
   }
   return report.ok ? 0 : 1;
 }

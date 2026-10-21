@@ -18,7 +18,7 @@ interface Job {
   strategy?: { "fail-fast"?: boolean; matrix?: unknown };
   services?: Record<string, unknown>;
   defaults?: { run?: { shell?: string } };
-  steps?: Array<{ uses?: string; run?: string; with?: Record<string, unknown>; name?: string }>;
+  steps?: Array<{ uses?: string; run?: string; with?: Record<string, unknown>; name?: string; env?: Record<string, string> }>;
   uses?: string;
   if?: string;
   environment?: unknown;
@@ -32,7 +32,7 @@ interface Workflow {
 
 /** Reads and parses every workflow in `dir`, relative to the repository root. */
 function load(dir: string): Record<string, Workflow> {
-  const names = ["factory-image.yml", "factory-pr.yml", "factory-deploy.yml"];
+  const names = ["factory-image.yml", "factory-pr.yml", "factory-deploy.yml", "factory-pr-cleanup.yml"];
   return Object.fromEntries(names.map((name) => [name, parse(readFileSync(join(repo, dir, name), "utf8")) as Workflow]));
 }
 
@@ -84,14 +84,19 @@ describe.each([[WORKFLOWS_DIR]])("CI workflows in %s", (dir) => {
     expect(runs(build).join("\n")).toContain("pnpm factory:verify --filter");
   });
 
-  it("no job of the PR workflow holds a secret or a write permission besides the image", () => {
+  // The jobs that run the PR's code (or the base's, for the image): no secret, no write besides the image's packages.
+  const PR_CODE = ["image", "plan", "build", "skills-check", "ci-probe", "verify"];
+
+  it("no job that runs the PR's code holds a secret or a write permission besides the image", () => {
     expect(pr.on).toHaveProperty("pull_request_target");
     expect(pr.permissions).toEqual({});
-    for (const { file, id, job } of allJobs) {
-      if (file !== "factory-pr.yml") continue;
-      expect(textOf(job), id).not.toMatch(/secrets\./);
+    for (const id of PR_CODE) {
+      const job = pr.jobs[id]!;
+      expect(textOf(job), id).not.toMatch(/secrets[.[]/);
       const writes = Object.entries(job.permissions ?? {}).filter(([, level]) => level === "write");
       expect(writes, id).toEqual(id === "image" ? [["packages", "write"]] : []);
+    }
+    for (const [id, job] of Object.entries(pr.jobs)) {
       for (const step of steps(job)) {
         if (step.uses?.startsWith("actions/checkout@")) expect(step.with?.["persist-credentials"], id).toBe(false);
       }
@@ -162,11 +167,29 @@ describe.each([[WORKFLOWS_DIR]])("deploy workflow in %s", (dir) => {
     expect(jobs.smoke!.needs).toEqual(["plan", "deploy"]);
   });
 
-  it("`deploy` is the only job with Cloudflare or Neon secrets", () => {
+  it("`deploy` is the only job with Cloudflare or production secrets; `preview-base` holds the preview Neon key only", () => {
     const withSecrets = mine.filter(({ id, job }) => id !== "smoke" && /secrets[.[]/.test(textOf(job))).map(({ id }) => id);
-    expect(withSecrets).toEqual(["deploy"]);
+    expect(withSecrets).toEqual(["deploy", "preview-base"]);
     expect(textOf(jobs.deploy!)).toContain("secrets.CLOUDFLARE_API_TOKEN");
     expect(textOf(jobs.deploy!)).toContain("DATABASE_URL");
+    const base = jobs["preview-base"]!;
+    expect(textOf(base).match(/secrets\[[^\]]*\]|secrets\.\w+/g)).toEqual(["secrets[format('{0}PREVIEW_NEON_API_KEY', matrix.prefix)]"]);
+    expect(textOf(base)).not.toMatch(/CLOUDFLARE|DATABASE_URL|BETTER_AUTH|wrangler|ACCOUNT_PASSWORD/);
+  });
+
+  it("`preview-base` migrates the `base` branch of the preview database from the same artifact, after the checks, and is off until PREVIEWS_ENABLED", () => {
+    const job = jobs["preview-base"]!;
+    expect(job.if).toContain("vars.PREVIEWS_ENABLED == 'true'");
+    expect(job.needs).toEqual(["plan", "build"]);
+    expect(String(job.environment)).toContain("-preview");
+    expect(job.container).toBeUndefined();
+    expect(job.permissions).toEqual({ contents: "read" });
+    const script = runs(job).join("\n");
+    expect(script).toContain("pnpm install --frozen-lockfile --ignore-scripts");
+    expect(script.indexOf("verify-bundle")).toBeGreaterThan(-1);
+    expect(script.indexOf("verify-bundle")).toBeLessThan(script.indexOf("previews.ts base"));
+    expect(steps(job).find((step) => step.uses?.startsWith("actions/checkout@"))?.with).toMatchObject({ ref: "${{ github.sha }}", "persist-credentials": false });
+    expect(runsOn(job)).not.toContain("FACTORY_RUNNER");
   });
 
   it("`build` has no secrets, runs in the image, is read-only and keeps no token or cache", () => {
@@ -223,6 +246,135 @@ describe.each([[WORKFLOWS_DIR]])("deploy workflow in %s", (dir) => {
     expect(script).not.toMatch(/(^|\s)pnpm exec wrangler/m);
     expect(script).toMatch(/pnpm --filter @factory\/harness exec wrangler deploy/);
     expect(JSON.parse(readFileSync(join(repo, ".factory/package.json"), "utf8")).devDependencies.wrangler).toBeDefined();
+  });
+});
+
+describe.each([[WORKFLOWS_DIR]])("PR previews in %s", (dir) => {
+  const { pr, workflows } = checkWorkflows(dir);
+  const cleanup = workflows["factory-pr-cleanup.yml"]!;
+  const jobs = pr.jobs;
+  const PREVIEW_JOBS = ["preview-label", "preview-plan", "deploy", "smoke", "preview-comment"];
+  const checkoutOf = (job: Job) => steps(job).find((step) => step.uses?.startsWith("actions/checkout@"));
+
+  it("is off until PREVIEWS_ENABLED: every preview job needs the gate or tests the variable itself", () => {
+    expect(jobs["preview-plan"]!.if).toContain("vars.PREVIEWS_ENABLED == 'true'");
+    expect(jobs["preview-label"]!.if).toContain("vars.PREVIEWS_ENABLED == 'true'");
+    expect(jobs.deploy!.needs).toEqual(["preview-plan", "build"]);
+    expect(jobs.smoke!.needs).toEqual(["preview-plan", "deploy"]);
+    expect(jobs["preview-comment"]!.needs).toEqual(["preview-plan", "deploy", "smoke"]);
+    expect(steps(jobs.build!).filter((step) => step.name === "bundle for the preview" || step.uses?.startsWith("actions/upload-artifact@")).every((step) => JSON.stringify(step).includes("vars.PREVIEWS_ENABLED == 'true'") || JSON.stringify(step).includes("matrix.kind == 'product'"))).toBe(true);
+  });
+
+  it("only the preview `deploy` holds the Cloudflare and Neon preview secrets; nothing else in the PR workflow holds one", () => {
+    const withSecrets = Object.entries(jobs).filter(([, job]) => /secrets[.[]/.test(textOf(job))).map(([id]) => id);
+    expect(withSecrets).toEqual(["deploy"]);
+    const text = textOf(jobs.deploy!);
+    expect(text.match(/secrets\[[^\]]*\]|secrets\.\w+/g)?.sort()).toEqual(["secrets.CLOUDFLARE_ACCOUNT_ID", "secrets.CLOUDFLARE_API_TOKEN", "secrets[format('{0}PREVIEW_NEON_API_KEY', matrix.prefix)]"].sort());
+    expect(Object.entries(jobs).filter(([, job]) => /CLOUDFLARE|NEON_API_KEY|wrangler/.test(textOf(job))).map(([id]) => id)).toEqual(["deploy"]);
+  });
+
+  it("`smoke` has no secret, no environment and a read-only token, and tests the URL it was handed through the environment", () => {
+    const job = jobs.smoke!;
+    expect(textOf(job)).not.toMatch(/secrets|CLOUDFLARE|NEON|DATABASE_URL|github\.token/);
+    expect(job.environment).toBeUndefined();
+    expect(job.permissions).toEqual({ contents: "read" });
+    expect(runs(job).join("\n")).toContain('node .factory/src/ci/smoke.ts "$PREVIEW_URL" --preview');
+    expect(runsOn(job)).not.toContain("FACTORY_RUNNER");
+  });
+
+  it("`deploy` is a fresh VM on `main`: no container, a read-only token, the lockfile without scripts, the artifact checked first", () => {
+    const job = jobs.deploy!;
+    expect(String(job["runs-on"])).toBe("ubuntu-latest");
+    expect(job.container).toBeUndefined();
+    expect(job.permissions).toEqual({ contents: "read" });
+    expect(checkoutOf(job)?.with).toMatchObject({ ref: "${{ github.sha }}", "persist-credentials": false });
+    const script = runs(job).join("\n");
+    expect(script).toContain("pnpm install --frozen-lockfile --ignore-scripts");
+    const order = ["verify-bundle", "previews.ts bindings", "previews.ts database", "previews.ts config", "deploy.ts migrate", "wrangler preview"].map((word) => script.indexOf(word));
+    expect(order.every((at) => at > -1)).toBe(true);
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+    expect(job.env?.CLOUDFLARE_API_BASE_URL).toBe("https://api.cloudflare.com/client/v4");
+    expect(String(job.environment)).toContain("vars.FACTORY_USE_ENVIRONMENTS != 'false'");
+    expect(String(job.environment)).toContain("-preview");
+  });
+
+  it("`deploy` runs the preview with `main`'s config path and wrangler, from the package that depends on it, named for the PR from the event", () => {
+    const job = jobs.deploy!;
+    const script = runs(job).join("\n");
+    expect(script).not.toMatch(/(^|\s)pnpm exec wrangler/m);
+    expect(script).toMatch(/pnpm --filter @factory\/harness exec wrangler preview --config "\$WRANGLER_CONFIG" --name "pr-\$PR_NUMBER" --worker-name "\$PRODUCT" --secrets-file/);
+    expect(script).toContain("--ignore-base-config");
+    expect(job.env?.PR_NUMBER).toBe("${{ github.event.pull_request.number }}");
+    expect(steps(job).find((step) => step.name === "wrangler preview")?.env?.WRANGLER_CONFIG).toBe("${{ steps.config.outputs.path }}");
+    // The artifact is extracted outside the checkout, in the runner's temp folder.
+    expect(JSON.stringify(steps(job).find((step) => step.uses?.startsWith("actions/download-artifact@")))).toContain("runner.temp");
+  });
+
+  it("no `run` script of the PR workflows interpolates an expression: everything goes through `env`", () => {
+    for (const [file, workflow] of [["factory-pr.yml", pr], ["factory-pr-cleanup.yml", cleanup]] as const) {
+      for (const [id, job] of Object.entries(workflow.jobs)) {
+        for (const script of runs(job)) expect(script, `${file} ${id}`).not.toContain("${{");
+      }
+    }
+  });
+
+  it("no preview job checks out or runs the PR's head: the checkout is `main`'s and the PR's number comes from the event", () => {
+    for (const id of PREVIEW_JOBS.filter((job) => jobs[job]!.steps?.some((step) => step.uses?.startsWith("actions/checkout@")))) {
+      expect(checkoutOf(jobs[id]!)?.with?.ref, id).toBe("${{ github.sha }}");
+    }
+    for (const id of PREVIEW_JOBS) expect(textOf(jobs[id]!), id).not.toMatch(/pull_request\.head\.(ref|repo)|pull_request\.(title|body)|head_ref/);
+  });
+
+  it("labels and permissions are minimal: only the label job and the comment job may write, and only pull requests", () => {
+    expect(pr.on).toMatchObject({ pull_request_target: { types: ["opened", "synchronize", "reopened", "ready_for_review", "labeled"] } });
+    for (const id of PREVIEW_JOBS) {
+      const writes = Object.entries(jobs[id]!.permissions ?? {}).filter(([, level]) => level === "write");
+      expect(writes, id).toEqual(id === "preview-label" || id === "preview-comment" ? [["pull-requests", "write"]] : []);
+    }
+    const label = jobs["preview-label"]!;
+    expect(label.if).toContain("github.event.action == 'synchronize'");
+    expect(label.steps?.some((step) => step.uses?.startsWith("actions/checkout@"))).toBe(false);
+    expect(runs(label).join("\n")).toContain("--method DELETE");
+    expect(JSON.stringify(label)).toContain("vars.FACTORY_LABELS_PREVIEW || 'preview'");
+  });
+
+  it("a label event has its own concurrency group, so it never cancels a push's run", () => {
+    expect(String((pr as unknown as { concurrency: { group: string } }).concurrency.group)).toContain("github.event.action == 'labeled'");
+  });
+
+  it("the comment job edits one comment through the previews script, with the token of the run", () => {
+    const job = jobs["preview-comment"]!;
+    expect(job.if).toContain("always()");
+    expect(runs(job).join("\n")).toContain("previews.ts comment");
+    expect(JSON.stringify(job)).toContain("github.token");
+    expect(JSON.stringify(job)).not.toMatch(/secrets[.[]/);
+  });
+
+  it("the cleanup runs on `closed` only, from `main`, and deletes the Worker Preview and the Neon branch", () => {
+    expect(cleanup.on).toEqual({ pull_request_target: { types: ["closed"] } });
+    expect(cleanup.permissions).toEqual({});
+    expect(cleanup.jobs.plan!.if).toContain("vars.PREVIEWS_ENABLED == 'true'");
+    const job = cleanup.jobs.cleanup!;
+    const script = runs(job).join("\n");
+    expect(script).toMatch(/pnpm --filter @factory\/harness exec wrangler preview delete --name "pr-\$PR_NUMBER" --worker-name "\$PRODUCT" --skip-confirmation/);
+    expect(script).toContain("previews.ts cleanup");
+    expect(job.permissions).toEqual({ contents: "read" });
+    expect(job.env?.CLOUDFLARE_API_BASE_URL).toBe("https://api.cloudflare.com/client/v4");
+    for (const j of Object.values(cleanup.jobs)) {
+      expect(steps(j).find((step) => step.uses?.startsWith("actions/checkout@"))?.with).toMatchObject({ ref: "${{ github.sha }}", "persist-credentials": false });
+      expect(textOf(j)).not.toMatch(/pull_request\.head/);
+    }
+    expect(Object.entries(cleanup.jobs).filter(([, j]) => /secrets[.[]/.test(textOf(j))).map(([id]) => id)).toEqual(["cleanup"]);
+  });
+
+  it("every preview step the YAML calls exists as a subcommand of the previews script", () => {
+    const source = readFileSync(join(repo, ".factory/src/ci/previews.ts"), "utf8");
+    const called = new Set<string>();
+    for (const workflow of [pr, cleanup, checkWorkflows(dir).deploy]) {
+      for (const job of Object.values(workflow.jobs)) for (const script of runs(job)) for (const m of script.matchAll(/previews\.ts (\S+)/g)) called.add(m[1]!);
+    }
+    expect([...called].sort()).toEqual(["base", "bindings", "cleanup", "cleanup-plan", "comment", "config", "database", "gate", "result", "smoke-result", "status", "url"]);
+    for (const command of called) expect(source, command).toContain(`command === "${command}"`);
   });
 });
 

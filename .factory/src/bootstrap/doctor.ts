@@ -2,6 +2,7 @@ import { accountNames } from "./accounts.ts";
 import { promptMainToken } from "./common.ts";
 import { labelSpecs } from "./labels.ts";
 import { deployFirstMessage, productionEnvironment, productSecretName, readDnsState, readWorkerDomainState } from "./domain.ts";
+import { hasPreviewTrace, previewEnvironment, previewNames, previewProjectName, previewSecretPresent, PREVIEW_PRODUCTS, BASE_BRANCH } from "./previews.ts";
 import { coversMain, DEPLOY_PRODUCTS, missingSecrets, neonHandle, neonOrgId, parseProductList, productionDatabaseUrl, productionSecrets, USE_ENVIRONMENTS } from "./product.ts";
 import type { BootstrapDeps, ProductIdentity, StepContext } from "./steps.ts";
 
@@ -20,6 +21,15 @@ export interface DoctorReport {
   ok: boolean;
 }
 
+/** Which sections of `doctor <id>` run. `previews: "auto"` shows the Previews section only for a Product that already has a trace of them. */
+export interface Sections {
+  production: boolean;
+  /** Default true: the Resend domain and DNS records, and the Worker's Custom Domain. */
+  domain?: boolean;
+  /** Default `"auto"`. */
+  previews?: boolean | "auto";
+}
+
 const MODULE_SWITCHES = [
   ["DEPLOY_ENABLED", "production deploy"],
   ["PREVIEWS_ENABLED", "PR previews"],
@@ -35,7 +45,7 @@ export async function doctor(
   productId?: string,
   memory: StepContext["memory"] = {},
   /** `bootstrap domain <id>` checks the domain only: the Production section would fail it for what it never set up. */
-  sections: { production: boolean } = { production: true },
+  sections: Sections = { production: true },
   /** `false` at the end of a wizard run: it never asks for a credential, it only re-checks with what the run holds. */
   options: { prompt: boolean } = { prompt: true },
 ): Promise<DoctorReport> {
@@ -115,8 +125,14 @@ export async function doctor(
     try {
       const product = await deps.product(productId);
       if (sections.production) await productionChecks(ctx, product, variables, repo.defaultBranch, (status, name, detail) => add(`Production (${productId})`, status, name, detail));
+      const previews = sections.previews ?? "auto";
+      if (previews === true || (previews === "auto" && (await hasPreviewTrace(ctx, product.id, variables, secrets)))) {
+        await previewChecks(ctx, product, variables, (status, name, detail) => add(`Previews (${productId})`, status, name, detail));
+      }
       const domainAdd = (status: CheckStatus, name: string, detail?: string) => add(group, status, name, detail);
-      if (!product.domain) {
+      if (sections.domain === false) {
+        // The command did not touch the domain: its checks would only fail it for what it never set up.
+      } else if (!product.domain) {
         domainAdd("off", "Domain", `empty: set \`domain\` in apps/${productId}/product.config.ts`);
       } else {
         domainAdd("ok", "Domain", product.domain);
@@ -158,6 +174,46 @@ export async function doctor(
   }
 
   return { checks, ok: !checks.some((c) => c.status === "missing") };
+}
+
+/**
+ * The Previews section of `doctor <id>`, by presence (nothing is read from Neon or Cloudflare without a session already in
+ * this run). Required: the key, the project id, the KV id and the id in `PREVIEW_PRODUCTS`; the rest is informative.
+ */
+async function previewChecks(
+  ctx: StepContext,
+  product: ProductIdentity,
+  variables: Record<string, string>,
+  add: (status: CheckStatus, name: string, detail?: string) => void,
+): Promise<void> {
+  const id = product.id;
+  const redo = `run \`pnpm bootstrap previews ${id}\``;
+  const names = previewNames(id);
+  const key = await previewSecretPresent(ctx, id, names.neonKey);
+  add(key ? "ok" : "missing", names.neonKey, key ? undefined : redo);
+  for (const name of [names.neonProject, names.kv]) add(variables[name] ? "ok" : "missing", name, variables[name] ?? redo);
+  const listed = parseProductList(variables[PREVIEW_PRODUCTS]).includes(id);
+  add(listed ? "ok" : "missing", `${id} in ${PREVIEW_PRODUCTS}`, listed ? undefined : redo);
+
+  const environment = previewEnvironment(id);
+  if ((await ctx.github.listEnvironments()).includes(environment)) add("ok", `Environment ${environment}`, "only the default branch may deploy");
+  else if (variables[USE_ENVIRONMENTS] === "false") add("off", `Environment ${environment}`, "refused by the plan or visibility: the secrets are at repo level");
+  else add("warn", `Environment ${environment}`, redo);
+
+  const neon = await neonHandle(ctx, false);
+  if (!neon) {
+    // No login from the doctor: the recorded project id stands in for the project (the line above says if it is missing).
+    if (variables[names.neonProject]) add("ok", "Neon preview project", "ok (project id recorded; not looked up)");
+    return;
+  }
+  try {
+    const found = (await neon.listProjects(await neonOrgId(ctx, neon))).filter((p) => p.name === previewProjectName(id));
+    if (found.length !== 1) return add(found.length === 0 ? "missing" : "warn", "Neon preview project", found.length === 0 ? redo : `${found.length} projects are named ${previewProjectName(id)}`);
+    const branch = await neon.defaultBranchName(found[0]!.id);
+    add(branch === BASE_BRANCH ? "ok" : "warn", "Neon preview project", branch === BASE_BRANCH ? found[0]!.id : `${found[0]!.id}: default branch is ${branch}, not ${BASE_BRANCH}; ${redo} with --redo preview-neon-project`);
+  } catch (error) {
+    add("warn", "Neon preview project", (error as Error).message);
+  }
 }
 
 /**
