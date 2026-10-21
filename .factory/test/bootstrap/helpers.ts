@@ -1,7 +1,7 @@
 import { defaultConfig, loadConfig } from "../../src/config.ts";
 import { runBootstrap, type BootstrapDeps } from "../../src/bootstrap/cli.ts";
 import type { ProductIdentity } from "../../src/bootstrap/steps.ts";
-import { FakeAccounts, FakeCloudflare, FakeGitHub, FakeNeon, FakePrompter, FakeResend, FakeWrangler } from "../../src/bootstrap/fake/fakes.ts";
+import { FakeAccounts, FakeCloudflare, FakeGitHub, FakeMachineUsers, FakeNeon, FakePrompter, FakeResend, FakeWrangler } from "../../src/bootstrap/fake/fakes.ts";
 
 export const TOKEN = "good-token";
 
@@ -10,6 +10,7 @@ export const WRANGLER_TOKEN = "wrangler-oauth-token";
 /** `wranglerToken`: what wrangler has saved (none = not logged in; `login()` then saves WRANGLER_TOKEN). */
 export function world(answers: Record<string, string | boolean | string[]> = {}, env: Record<string, string | undefined> = {}, wranglerToken?: string) {
   const github = new FakeGitHub();
+  const machines = new FakeMachineUsers(github);
   const cloudflare = new FakeCloudflare();
   const resend = new FakeResend();
   const neon = new FakeNeon();
@@ -27,6 +28,7 @@ export function world(answers: Record<string, string | boolean | string[]> = {},
     wrangler,
     neon: (options) => neon.forSession(options),
     accounts,
+    machine: (token) => machines.forToken(token),
     resend: (key) => resend.forKey(key),
     product: async (id) => {
       const found = products.get(id);
@@ -44,7 +46,7 @@ export function world(answers: Record<string, string | boolean | string[]> = {},
     const code = await runBootstrap(argv, deps);
     return { code, output: lines.join("\n") };
   };
-  return { github, cloudflare, wrangler, resend, neon, accounts, products, prompter, lines, deps, run };
+  return { github, machines, cloudflare, wrangler, resend, neon, accounts, products, prompter, lines, deps, run };
 }
 
 export const staticLabelNames = Object.entries(defaultConfig.labels)

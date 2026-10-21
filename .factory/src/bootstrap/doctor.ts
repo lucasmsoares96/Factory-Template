@@ -28,6 +28,10 @@ export interface Sections {
   domain?: boolean;
   /** Default `"auto"`. */
   previews?: boolean | "auto";
+  /** Default false: the machine user, its token, its permission and Claude's auth (`bootstrap factory`). */
+  factory?: boolean;
+  /** Default true: the Cloudflare secrets and workers.dev, which the Factory module does not set up. */
+  cloudflare?: boolean;
 }
 
 const MODULE_SWITCHES = [
@@ -69,8 +73,11 @@ export async function doctor(
     repo.viewerPermission === "ADMIN" ? "admin" : `${repo.viewerPermission.toLowerCase()}: the wizard needs admin to set secrets and variables`,
   );
 
-  for (const name of ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]) {
-    add("Secrets", secrets.includes(name) ? "ok" : "missing", name, secrets.includes(name) ? undefined : "run `pnpm bootstrap`");
+  const withCloudflare = sections.cloudflare !== false;
+  if (withCloudflare) {
+    for (const name of ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]) {
+      add("Secrets", secrets.includes(name) ? "ok" : "missing", name, secrets.includes(name) ? undefined : "run `pnpm bootstrap`");
+    }
   }
   const claude = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"].filter((n) => secrets.includes(n));
   if (claude.length === 2) add("Secrets", "warn", "Claude auth", "both exist: ANTHROPIC_API_KEY wins; delete one");
@@ -93,14 +100,18 @@ export async function doctor(
     add("Labels", same ? "ok" : "missing", want.name, same ? undefined : found ? "differs from config.ts" : "run `pnpm bootstrap`");
   }
 
+  if (sections.factory) await factoryChecks(ctx, secrets, variables, (status, name, detail) => add("Factory", status, name, detail));
+
   // The doctor never opens a browser: it uses what this machine already has (memory, env, wrangler's saved login).
   let token: string | undefined;
   try {
-    token = await cloudflareCredential(ctx, { login: false });
+    token = withCloudflare ? await cloudflareCredential(ctx, { login: false }) : undefined;
   } catch {
     token = undefined;
   }
-  if (!token) {
+  if (!withCloudflare) {
+    // The Factory module does not touch Cloudflare.
+  } else if (!token) {
     // Secrets cannot be read back: their presence on the forge stands in for the check.
     if (secrets.includes("CLOUDFLARE_API_TOKEN") && secrets.includes("CLOUDFLARE_ACCOUNT_ID")) add("Resources", "ok", "workers.dev", "not re-checked (no saved Cloudflare login on this machine)");
     else add("Resources", "skip", "workers.dev", "run `pnpm --filter @factory/harness exec wrangler login` to check it");
@@ -168,6 +179,28 @@ export async function doctor(
   }
 
   return { checks, ok: !checks.some((c) => c.status === "missing") };
+}
+
+/** The Factory section: what `pnpm bootstrap factory` sets up, required for FACTORY_ENABLED. */
+async function factoryChecks(
+  ctx: StepContext,
+  secrets: string[],
+  variables: Record<string, string>,
+  add: (status: CheckStatus, name: string, detail?: string) => void,
+): Promise<void> {
+  const redo = "run `pnpm bootstrap factory`";
+  const login = variables.FACTORY_MACHINE_USER;
+  add(login ? "ok" : "missing", "FACTORY_MACHINE_USER", login ?? redo);
+  add(secrets.includes("FACTORY_TOKEN") ? "ok" : "missing", "FACTORY_TOKEN", secrets.includes("FACTORY_TOKEN") ? undefined : redo);
+  if (login) {
+    const permission = await ctx.github.collaboratorPermission(login);
+    const canWrite = ["write", "maintain", "admin"].includes(permission);
+    add(canWrite ? "ok" : "missing", "Machine user permission", canWrite ? `${login}: ${permission}` : `${login}: ${permission}; it must accept the invitation (${redo})`);
+  }
+  const claude = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"].filter((name) => secrets.includes(name));
+  if (claude.length === 2) add("warn", "Claude auth", "both exist: ANTHROPIC_API_KEY wins; delete one");
+  else if (claude.length === 1) add("ok", "Claude auth", claude[0]);
+  else add("missing", "Claude auth", "export CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`) or ANTHROPIC_API_KEY and " + redo);
 }
 
 /**
