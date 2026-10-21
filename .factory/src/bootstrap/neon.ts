@@ -38,6 +38,9 @@ const project = z.object({ id: z.string(), name: z.string() });
 const orgs = z.union([z.array(z.object({ id: z.string(), name: z.string() })), z.object({ organizations: z.array(z.object({ id: z.string(), name: z.string() })) })]);
 const projects = z.union([z.array(project), z.object({ projects: z.array(project) })]);
 const created = z.object({ project });
+const branch = z.object({ id: z.string(), name: z.string(), default: z.boolean().optional(), primary: z.boolean().optional() });
+const branches = z.union([z.array(branch), z.object({ branches: z.array(branch) })]);
+const apiKey = z.object({ key: z.string() });
 
 /**
  * `neonctl` driven as a child process, always with `--config-dir <throwaway>` so the login of this run never touches
@@ -91,6 +94,23 @@ export class NeonCli implements NeonClient {
     // --no-secrets keeps the password out of the output we parse.
     const made = created.parse(JSON.parse(await this.call(["projects", "create", "--name", name, ...orgFlag(orgId), "--no-secrets", "-o", "json"]))).project;
     return { id: made.id, name: made.name };
+  }
+
+  async createApiKey(name: string, projectId: string): Promise<string> {
+    // `--project-id` alone: the CLI looks the organization up from the project. The key is only in this return value.
+    return apiKey.parse(JSON.parse(await this.call(["api-keys", "create", "--name", name, "--project-id", projectId, "-o", "json"]))).key;
+  }
+
+  async defaultBranchName(projectId: string): Promise<string> {
+    const parsed = branches.parse(JSON.parse(await this.call(["branches", "list", "--project-id", projectId, "-o", "json"])));
+    const all = Array.isArray(parsed) ? parsed : parsed.branches;
+    const found = all.find((b) => b.default === true || b.primary === true);
+    if (!found) throw new Error("neonctl branches list shows no default branch.");
+    return found.name;
+  }
+
+  async renameBranch(projectId: string, from: string, to: string): Promise<void> {
+    await this.call(["branches", "rename", from, to, "--project-id", projectId]);
   }
 
   async connectionString(projectId: string, options: { pooled: boolean; orgId?: string }): Promise<string> {

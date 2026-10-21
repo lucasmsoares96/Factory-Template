@@ -27,6 +27,8 @@ export type SkeletonBindings = {
   RATE_LIMITER: RateLimiterPool;
   /** `outbox` in previews, `pnpm dev` and tests; unset (Resend) in production. */
   EMAIL_TRANSPORT?: string;
+  /** `true` only in a preview (set by the deploy's preview config): enables `GET /api/preview/outbox`, with the outbox transport. */
+  PREVIEW_OUTBOX?: string;
   /** Resend API key restricted to the Product's domain. Only production has it. */
   RESEND_API_KEY?: string;
   /** The KV namespace where `workers-oauth-provider` keeps the MCP Connections (clients, grants, tokens). */
