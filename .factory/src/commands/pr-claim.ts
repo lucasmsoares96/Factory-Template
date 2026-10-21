@@ -14,6 +14,7 @@ export type PrClaim =
 export async function claimPrFeedback(ctx: CommandContext, input: { pr: number; actor: string }): Promise<PrClaim> {
   const { tracker, codeHost, config } = ctx;
   const no = (reason: string): PrClaim => ({ claimed: false, reason });
+  if (config.machineUser === "") return no("no-machine-user");
   if (input.actor === "" || input.actor === config.machineUser) return no("machine-user");
   if (!(await tracker.canWrite(input.actor))) return no("actor-cannot-write");
   const pr = await codeHost.pullRequest(input.pr);

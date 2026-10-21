@@ -37,3 +37,5 @@ Pending (human): depois do ticket 16 (machine user + `pnpm bootstrap factory`) e
 
 
 Merge (2026-10-21): na `factory-base`, combinado com o 18 (conflitos em `cli.ts`, `AGENTS.md` e nos testes dos workflows resolvidos mantendo os dois lados). O ticket mudou o script do container local para receber o comando como argumento sem atualizar o teste do ticket 10 (`local-docker.test.ts`): corrigido no merge. `verify` completo verde duas vezes. Falta a demonstração no repo.
+
+- Review fixes 2 (2026-10-21): `apply` agora põe `product:<id>` ANTES de trocar para `ready-for-agent` (a troca dispara a run).

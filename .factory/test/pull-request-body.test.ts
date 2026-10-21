@@ -75,6 +75,19 @@ describe("pull request body assembled by publish", () => {
     expect(body.match(/Closes #/g)).toHaveLength(1);
   });
 
+  it("drops closing keywords inline, keeping the sentence readable", async () => {
+    const stage = `${text}\n\nThis fixes #99 by renaming the helper, and it also Resolves: acme/web#4.\nCloses #5, #6 and fixed #8 too.`;
+    const { w } = await pipeline(ready(writes(stage)));
+
+    const body = w.codeHost.prs[0]!.body;
+    expect(body).not.toMatch(/#99|#4\b|#5|#6|#8/);
+    expect(body.replace(/\n\nCloses #7$/, "")).not.toMatch(/\b(?:fix|fixes|fixed|resolves|closes)\b/i);
+    expect(body).toContain("This [closing reference removed] by renaming the helper, and it also [closing reference removed].");
+    expect(body).toContain("[closing reference removed] too.");
+    expect(body.match(/Closes #/g)).toHaveLength(1);
+    expect(body.trimEnd().endsWith("Closes #7")).toBe(true);
+  });
+
   it("drops the tool attribution footer the agent appends (the pr skill's own template ends with one)", async () => {
     const footer = "🤖 Generated with [Claude Code](https://claude.com/claude-code)";
     const { w } = await pipeline(ready(writes(`${text}\n\n${footer}\n\nCo-Authored-By: Claude <noreply@anthropic.com>`)));

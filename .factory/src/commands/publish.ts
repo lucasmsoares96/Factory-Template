@@ -170,10 +170,11 @@ async function pullRequest(
  */
 function prBody(
   issue: Issue,
-  input: { harnessPaths: string[]; escalated: EscalationReason | null; followUps: FollowUpRef[]; text: string | null; images: EvidenceImage[] },
+  input: { continues: boolean; harnessPaths: string[]; escalated: EscalationReason | null; followUps: FollowUpRef[]; text: string | null; images: EvidenceImage[] },
 ): string {
   const warnings: string[] = [];
-  if (input.escalated) {
+  // A round on a ready PR leaves it as it is (the comment on the PR and the issue say so): only a draft "holds progress".
+  if (input.escalated && !input.continues) {
     warnings.push(
       "> [!WARNING]",
       `> The Factory escalated this work (\`${input.escalated}\`): this draft holds its progress. See the comment on #${issue.number}.`,
@@ -198,9 +199,16 @@ function withoutAttribution(text: string): string {
   return text.replace(/^[ \t]*(?:🤖[ \t]*)?Generated with \[?Claude Code\]?.*$\n?|^[ \t]*Co-Authored-By:.*$\n?/gim, "").trim();
 }
 
-/** `Closes #9` written by the agent would close the wrong issue: only `publish` writes it. */
+const REF = String.raw`(?:[\w.-]+\/[\w.-]+)?#\d+`;
+const CLOSING = new RegExp(String.raw`\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b:?[ \t]+${REF}(?:[ \t]*(?:,|\band\b)[ \t]*${REF})*`, "gi");
+
+/**
+ * `Closes #9` written by the agent would close the wrong issue: only `publish` writes it. A line that is only a closing
+ * reference goes; one inside a sentence becomes a placeholder so the rest still reads.
+ */
 function withoutClosingKeywords(text: string): string {
-  return text.replace(/^[ \t>*-]*\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b:?[ \t]+(?:[\w.-]+\/[\w.-]+)?#\d+\.?[ \t]*$\n?/gim, "").trim();
+  const alone = new RegExp(String.raw`^[ \t>*-]*${CLOSING.source}\.?[ \t]*$\n?`, "gim");
+  return text.replace(alone, "").replace(CLOSING, "[closing reference removed]").trim();
 }
 
 /** The review of every attempt, inline comments filtered to the diff, tokens and cost in the footer. */

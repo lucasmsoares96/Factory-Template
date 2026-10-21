@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import type { CodeHost, EvidenceImage, PullRequest, PushResult, Review, ReviewThread } from "../../seams/code-host.ts";
+import { BASE_ENV, pick } from "../../env.ts";
 import { GitHubApi, type GitHubApiOptions } from "./api.ts";
 
 
@@ -59,7 +60,7 @@ export class GitHubCodeHost implements CodeHost {
   }
 
   async branchHead(branch: string): Promise<string | null> {
-    const ref = await this.api.getOrNull(this.api.repoPath(`/git/ref/heads/${branch}`), refRow);
+    const ref = await this.api.getOrNull(this.api.repoPath(`/git/ref/heads/${branch.split("/").map(encodeURIComponent).join("/")}`), refRow);
     return ref?.object.sha ?? null;
   }
 
@@ -190,16 +191,21 @@ function toPr(row: z.infer<typeof prRow>): PullRequest {
   return { number: row.number, url: row.html_url, branch: row.head.ref, headSha: row.head.sha, state: row.state, draft: row.draft };
 }
 
+/** What git and gh get: the base variables every tool needs, plus `extra` (the token they authenticate with). Never the parent's secrets. */
+export function childEnv(parent: Record<string, string | undefined>, extra: Record<string, string>): Record<string, string> {
+  return { ...pick(parent, BASE_ENV), ...extra };
+}
+
 const runGit: GitRunner = (args, { cwd, env }) =>
   new Promise((resolve) => {
-    execFile("git", args, { cwd, env: { ...process.env, ...env }, maxBuffer: 16 * 1024 * 1024 }, (error, _stdout, stderr) => {
+    execFile("git", args, { cwd, env: childEnv(process.env, env), maxBuffer: 16 * 1024 * 1024 }, (error, _stdout, stderr) => {
       resolve({ code: error ? ((error as { code?: unknown }).code as number) || 1 : 0, stderr });
     });
   });
 
 const runGh: GhRunner = (args, env) =>
   new Promise((resolve, reject) => {
-    execFile("gh", args, { env: { ...process.env, ...env }, maxBuffer: 16 * 1024 * 1024 }, (error, _stdout, stderr) => {
+    execFile("gh", args, { env: childEnv(process.env, env), maxBuffer: 16 * 1024 * 1024 }, (error, _stdout, stderr) => {
       if (error) reject(new Error(stderr.trim() || error.message));
       else resolve();
     });

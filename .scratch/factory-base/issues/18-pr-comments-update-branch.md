@@ -28,3 +28,5 @@ Pending (human): a demonstração (PR de teste comentado e outro em conflito, ap
 
 
 Merge (2026-10-21): na `factory-base`, combinado com o 17 (conflitos resolvidos mantendo os dois lados). `verify` completo verde duas vezes. Falta a demonstração no repo.
+
+- Review fixes 2 (2026-10-21): `openThreads` só devolve threads em que todo comentário é do machine user ou de quem tem `write`+ (o prompt nunca recebe texto de não-writer); `claimPrFeedback` falha fechado (`no-machine-user`) se `machineUser` é vazio; escalação numa rodada de PR pronto não escreve mais o aviso "this draft holds its progress"; palavras de fechamento (close/fix/resolve + variantes, `owner/repo#N`, listas, `:`) são removidas também dentro de frases (viram `[closing reference removed]`).

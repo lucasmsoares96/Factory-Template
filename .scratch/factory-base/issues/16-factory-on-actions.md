@@ -47,3 +47,6 @@ Pending (human): depois de mergear na `main`, criar uma issue pequena com `## Ac
 
 
 Merge (2026-10-21): na `factory-base`; `verify` completo verde duas vezes (703 testes do harness). Falta a parte com conta real (Pending (human) acima).
+
+- Review fixes 2 (2026-10-21): `concurrency.queue: max` adicionado a todo grupo `factory-<N>` (factory-issue, factory-pr-feedback e factory-update-branches, jobs `work`); a chave existe na doc atual do GitHub Actions (workflow-syntax, consultada em 2026-10-21; `max` = até 100 pendentes em FIFO, não combina com `cancel-in-progress: true`). Testes YAML estendidos. `runGit`/`runGh` agora usam env em allowlist (`childEnv`: `BASE_ENV` + o token que o gh/git lê), sem herdar `FACTORY_TOKEN`; `branchHead` codifica cada segmento do branch na URL; `anything` (api.ts) removido.
+- Nota: o pr-bottleneck 06 trocou `postEvidence` por imagens no corpo do PR (`EvidenceImage`/`--attach`); referências a `postEvidence` neste ticket estão obsoletas.

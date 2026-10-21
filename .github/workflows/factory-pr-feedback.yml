@@ -92,6 +92,7 @@ jobs:
     concurrency:
       group: factory-${{ needs.claim.outputs.issue }}
       cancel-in-progress: false
+      queue: max
     # `issues: read` is how `work` reads the issue (the job token cannot write anything).
     permissions:
       contents: read
