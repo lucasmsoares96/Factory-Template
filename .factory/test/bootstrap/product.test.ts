@@ -176,6 +176,18 @@ describe("pnpm bootstrap product: Production module", () => {
     expect(seen.at(-1)).toBe("DEPLOY_ENABLED");
   });
 
+  it("the report it prints shows DEPLOY_ENABLED as it ends, and tells to dispatch the first deploy by hand", async () => {
+    const w = productWorld();
+
+    const { code, output } = await w.run("product", "example");
+
+    expect(code).toBe(0);
+    expect(output).toMatch(/ok\s+DEPLOY_ENABLED/);
+    expect(output).not.toMatch(/off\s+DEPLOY_ENABLED/);
+    // A push deploys only the Products it affects: the first deploy of a new Product is dispatched by hand.
+    expect(output).toContain("gh workflow run factory-deploy.yml --ref main");
+  });
+
   it("leaves DEPLOY_ENABLED off when the doctor fails", async () => {
     const w = productWorld();
     const set = w.github.setSecret.bind(w.github);
