@@ -1,5 +1,6 @@
+import { CloudflareRefused } from "./clients.ts";
 import type { CloudflareClient, CloudflareDnsRecord, CloudflareZone, ResendClient, ResendDnsRecord, ResendDomain } from "./clients.ts";
-import { promptMainToken } from "./common.ts";
+import { cloudflareAccountId, cloudflareCredential } from "./common.ts";
 import type { ProductIdentity, Step, StepContext } from "./steps.ts";
 
 /** `<ID>_NAME`: the prefix every per-Product secret carries, e.g. `my-app` + `RESEND_API_KEY` = `MY_APP_RESEND_API_KEY`. */
@@ -56,41 +57,17 @@ async function resendClient(ctx: StepContext, prompt: boolean, productId = "this
   return ctx.resend(key);
 }
 
-/** The Cloudflare client and account of this run, from memory, the environment or (when allowed) prompts. */
+/**
+ * The Cloudflare client and account of this machine: the credential source of `cloudflareCredential` (memory, env,
+ * wrangler's saved login) and, with `login`, one `wrangler login` when there is none. Never asks for a token or an account.
+ */
 export async function cloudflareHandle(
   ctx: StepContext,
-  prompt: boolean,
+  login: boolean,
 ): Promise<{ client: CloudflareClient; accountId: string } | undefined> {
-  let token = ctx.memory.cloudflareToken ?? (ctx.env.CLOUDFLARE_API_TOKEN || undefined);
-  if (!token && prompt && !ctx.memory.cloudflareDeclined) {
-    token = await promptMainToken(ctx, {
-      message: "Paste the Cloudflare API token, needed for the DNS records and the Worker's domain (not stored; leave empty to skip)",
-      showLink: true,
-      optional: true,
-    });
-    if (!token) {
-      ctx.memory.cloudflareDeclined = true;
-      ctx.log("No Cloudflare token given: the steps that need it are skipped. Run: pnpm bootstrap domain <id> to do them later.");
-    }
-  }
+  const token = await cloudflareCredential(ctx, { login: login && ctx.interactive !== false });
   if (!token) return undefined;
-  ctx.memory.cloudflareToken = token;
-  const client = ctx.cloudflare(token);
-  let accountId = ctx.memory.accountId ?? (ctx.env.CLOUDFLARE_ACCOUNT_ID || undefined);
-  if (!accountId) {
-    const accounts = await client.listAccounts();
-    if (accounts.length === 1 || (accounts.length > 1 && !prompt)) accountId = accounts[0]?.id;
-    else if (accounts.length > 1) {
-      accountId = await ctx.prompter.select({
-        id: "cloudflare-account",
-        message: "Which Cloudflare account?",
-        options: accounts.map((a) => ({ value: a.id, label: `${a.name} (${a.id})` })),
-      });
-    }
-  }
-  if (!accountId) return undefined;
-  ctx.memory.accountId = accountId;
-  return { client, accountId };
+  return { client: ctx.cloudflare(token), accountId: await cloudflareAccountId(ctx, token) };
 }
 
 /** The restricted key secret is only made once the Resend domain exists: its presence on the forge stands in when no Resend key is at hand. */
@@ -153,6 +130,8 @@ export type DnsState =
   | { kind: "no-domain" }
   | { kind: "no-cloudflare"; domain: ResendDomain }
   | { kind: "no-zone"; domain: ResendDomain }
+  /** The login cannot read DNS records (wrangler's OAuth scopes have no DNS): nothing can be compared or created. */
+  | { kind: "no-dns-permission"; domain: ResendDomain; zone: CloudflareZone }
   | { kind: "ready"; domain: ResendDomain; zone: CloudflareZone; client: CloudflareClient; missing: ResendDnsRecord[]; different: ResendDnsRecord[] };
 
 /** Read-only picture of the Resend domain against the zone; shared by the step and the doctor. */
@@ -165,15 +144,32 @@ export async function readDnsState(ctx: StepContext, product: ProductIdentity, p
   if (!cloudflare) return { kind: "no-cloudflare", domain };
   const zone = await findZoneFor(cloudflare.client, product.domain);
   if (!zone) return { kind: "no-zone", domain };
-  const { missing, different } = classify(domain.records, await cloudflare.client.listDnsRecords(zone.id), zone.name);
+  let existing: CloudflareDnsRecord[];
+  try {
+    existing = await cloudflare.client.listDnsRecords(zone.id);
+  } catch (error) {
+    if (error instanceof CloudflareRefused) return { kind: "no-dns-permission", domain, zone };
+    throw error;
+  }
+  const { missing, different } = classify(domain.records, existing, zone.name);
   return { kind: "ready", domain, zone, client: cloudflare.client, missing, different };
 }
+
+export const NO_LOGIN = "no saved Cloudflare login: run `pnpm --filter @factory/harness exec wrangler login`";
+export const NO_DNS = "this Cloudflare login cannot edit DNS: create the records by hand";
 
 const POLLS = 6;
 const POLL_MS = 10_000;
 
 function describe(record: ResendDnsRecord): string {
   return [record.type, record.name || "@", record.value, ...(record.priority === undefined ? [] : [`priority ${record.priority}`])].join("  ");
+}
+
+/** Plain log lines, not clack notes: a note wraps long values (the DKIM key) and breaks copy and paste. */
+function printByHand(ctx: StepContext, records: ResendDnsRecord[], redo: string, why: string): void {
+  ctx.log(`${why}. Create these records where the DNS lives (one per line), then run: ${redo}`);
+  for (const record of records) ctx.log(describe(record));
+  ctx.log("dns-records: NOT done, records to create by hand (see above).");
 }
 
 export function dnsRecordsStep(product: ProductIdentity): Step {
@@ -189,8 +185,9 @@ export function dnsRecordsStep(product: ProductIdentity): Step {
         return { done: false, detail: "export RESEND_API_KEY to look it up" };
       }
       if (state.kind === "no-domain") return { done: false, detail: "no Resend domain yet" };
-      if (state.kind === "no-cloudflare") return { done: false, detail: "export CLOUDFLARE_API_TOKEN to look it up" };
+      if (state.kind === "no-cloudflare") return { done: false, detail: NO_LOGIN };
       if (state.kind === "no-zone") return { done: false, detail: "zone not in this Cloudflare account" };
+      if (state.kind === "no-dns-permission") return { done: false, detail: NO_DNS };
       return { done: state.missing.length === 0 && state.domain.status === "verified", detail: `Resend: ${state.domain.status}` };
     },
     async run(ctx) {
@@ -199,22 +196,29 @@ export function dnsRecordsStep(product: ProductIdentity): Step {
         ctx.log(`No Resend domain to publish (deferred). Run: pnpm bootstrap domain ${product.id} once it exists.`);
         return;
       }
-      if (state.kind === "no-cloudflare") return;
+      if (state.kind === "no-cloudflare") return ctx.log(NO_LOGIN);
       if (state.kind === "no-zone") {
         // Plain log lines, not clack notes: a note wraps long values (the DKIM key) and breaks copy and paste.
         ctx.log(`Zone for ${product.domain} is not in this Cloudflare account. Create these records where its DNS lives, then run: ${redo}`);
         for (const record of state.domain.records) ctx.log(describe(record));
         return;
       }
+      if (state.kind === "no-dns-permission") return printByHand(ctx, state.domain.records, redo, `Zone ${state.zone.name} is in this account, but ${NO_DNS}`);
       for (const record of state.different) ctx.log(`${record.type} ${record.name} already exists with another value: left alone`);
-      for (const record of state.missing) {
-        await state.client.createDnsRecord(state.zone.id, {
-          type: record.type,
-          name: fqdn(record.name, state.zone.name),
-          content: record.value,
-          ...(record.priority === undefined ? {} : { priority: record.priority }),
-          proxied: false,
-        });
+      for (const [index, record] of state.missing.entries()) {
+        try {
+          await state.client.createDnsRecord(state.zone.id, {
+            type: record.type,
+            name: fqdn(record.name, state.zone.name),
+            content: record.value,
+            ...(record.priority === undefined ? {} : { priority: record.priority }),
+            proxied: false,
+          });
+        } catch (error) {
+          // wrangler's login has no DNS scope: hand the rest over instead of asking for a token.
+          if (!(error instanceof CloudflareRefused)) throw error;
+          return printByHand(ctx, state.missing.slice(index), redo, `Cloudflare refused to create ${record.type} ${fqdn(record.name, state.zone.name)}: ${NO_DNS}`);
+        }
         ctx.log(`  created ${record.type} ${fqdn(record.name, state.zone.name)}`);
       }
       const resend = (await resendClient(ctx, true, product.id))!;
@@ -285,14 +289,14 @@ export function workerDomainStep(product: ProductIdentity): Step {
     title: "Worker Custom Domain",
     async check(ctx) {
       const state = await readWorkerDomainState(ctx, product, false);
-      if (state.kind === "no-cloudflare") return { done: false, detail: "export CLOUDFLARE_API_TOKEN to look it up" };
+      if (state.kind === "no-cloudflare") return { done: false, detail: NO_LOGIN };
       if (state.kind === "no-worker") return { done: false, detail: "Worker not deployed yet" };
       if (state.kind === "no-zone") return { done: false, detail: "zone not in this Cloudflare account" };
       return { done: state.kind === "attached", detail: product.domain };
     },
     async run(ctx) {
       const state = await readWorkerDomainState(ctx, product, true);
-      if (state.kind === "no-cloudflare") return;
+      if (state.kind === "no-cloudflare") return ctx.log(NO_LOGIN);
       if (state.kind === "no-worker") return ctx.log(deployFirstMessage(product.id));
       if (state.kind === "no-zone") return ctx.log(`The zone of ${product.domain} is not in this Cloudflare account: attach the domain to the Worker by hand in the dashboard.`);
       if (state.kind === "attached") return;

@@ -39,12 +39,42 @@ export function cloudflareTokenUrl(accountId?: string, permissions: TokenPermiss
     : `https://dash.cloudflare.com/?to=/:account/api-tokens&${query}`;
 }
 
-/** The token of this run: memory, then the environment. Never prompts. */
-function knownToken(ctx: StepContext): string | undefined {
-  return ctx.memory.cloudflareToken ?? (ctx.env.CLOUDFLARE_API_TOKEN || undefined);
+/**
+ * The Cloudflare credential of this machine, in this order: this run's memory, `CLOUDFLARE_API_TOKEN`, wrangler's saved
+ * login. With `login` and no saved login, `wrangler login` runs once (browser; wrangler keeps it). Never prompts for a
+ * token: the one that goes to the CI secret is collected by `cloudflare-token` alone. Held in memory, never logged or stored.
+ */
+export async function cloudflareCredential(ctx: StepContext, input: { login: boolean }): Promise<string | undefined> {
+  const known = ctx.memory.cloudflareToken ?? (ctx.env.CLOUDFLARE_API_TOKEN || undefined);
+  if (known) return (ctx.memory.cloudflareToken = known);
+  let token = ctx.memory.noWranglerLogin ? undefined : await ctx.wrangler.savedToken();
+  if (!token && input.login) {
+    ctx.log("No saved Cloudflare login on this machine: wrangler opens your browser. wrangler keeps the login, so this happens once.");
+    await ctx.wrangler.login();
+    token = await ctx.wrangler.savedToken();
+    if (!token) throw new Error("wrangler login finished but wrangler has no saved login. Run `pnpm --filter @factory/harness exec wrangler login` and try again.");
+  }
+  ctx.memory.noWranglerLogin = !token;
+  if (token) ctx.memory.cloudflareToken = token;
+  return token;
 }
 
-async function accountId(ctx: StepContext, token: string): Promise<string> {
+/**
+ * The account of the credential: memory, `CLOUDFLARE_ACCOUNT_ID`, then the only account the credential sees (what
+ * `wrangler whoami` lists). Never asks; with several accounts it says to set `CLOUDFLARE_ACCOUNT_ID`.
+ */
+export async function cloudflareAccountId(ctx: StepContext, token: string): Promise<string> {
+  const known = ctx.memory.accountId ?? (ctx.env.CLOUDFLARE_ACCOUNT_ID || undefined);
+  if (known) return (ctx.memory.accountId = known);
+  const accounts = await ctx.cloudflare(token).listAccounts();
+  const first = accounts[0];
+  if (!first) throw new Error("The Cloudflare login sees no account.");
+  if (accounts.length > 1) throw new Error(`The Cloudflare login sees ${accounts.length} accounts: export CLOUDFLARE_ACCOUNT_ID=<id> to pick one (ids: ${accounts.map((a) => a.id).join(", ")}).`);
+  return (ctx.memory.accountId = first.id);
+}
+
+/** First collection of the token only (the CI secret does not exist yet): the account may be asked once here. */
+async function askAccountId(ctx: StepContext, token: string): Promise<string> {
   if (ctx.memory.accountId) return ctx.memory.accountId;
   const accounts = await ctx.cloudflare(token).listAccounts();
   const first = accounts[0];
@@ -97,21 +127,20 @@ export async function missingPermissions(client: CloudflareClient, accountId: st
 const ATTEMPTS = 3;
 
 /**
- * Asks for the token (printing the template link first when `showLink`, always on a retry), checks it with read-only
+ * The only prompt for the Cloudflare token, used by `cloudflare-token` when the CI secret does not exist. Asks (printing the template link first when `showLink`, always on a retry), checks it with read-only
  * calls and only then keeps it in memory. A token that lacks a permission is named, dropped and asked for again.
  */
-export async function promptMainToken(ctx: StepContext, input: { message: string; showLink: boolean; optional?: boolean }): Promise<string> {
+export async function promptMainToken(ctx: StepContext, input: { message: string; showLink: boolean }): Promise<string> {
   for (let attempt = 1; ; attempt++) {
     if (input.showLink || attempt > 1) {
       ctx.log(SUMMARY_HINT);
       ctx.prompter.link("Create the API token from this template:", cloudflareTokenUrl(ctx.env.CLOUDFLARE_ACCOUNT_ID || undefined));
     }
     const token = (await ctx.prompter.password({ id: "cloudflare-token", message: input.message })).trim();
-    if (!token && input.optional) return "";
     delete ctx.memory.accountId;
     let missing: string[];
     try {
-      missing = await missingPermissions(ctx.cloudflare(token), await accountId(ctx, token));
+      missing = await missingPermissions(ctx.cloudflare(token), await askAccountId(ctx, token));
     } catch (error) {
       if (!(error instanceof CloudflareRefused)) throw error;
       missing = ["Account Settings"]; // even listing the account was refused
@@ -135,10 +164,18 @@ export const cloudflareToken: Step = {
     return { done: secrets.includes(TOKEN_SECRET) && secrets.includes(ACCOUNT_SECRET) };
   },
   async run(ctx) {
-    const token = await promptMainToken(ctx, { message: "Paste the Cloudflare API token", showLink: true });
-    const id = await accountId(ctx, token);
-    await ctx.github.setSecret(TOKEN_SECRET, token);
-    await ctx.github.setSecret(ACCOUNT_SECRET, id);
+    // The token cannot be read back from the secret: once it exists the wizard never asks for it again (an explicit
+    // `--redo cloudflare-token` is the person asking to replace it).
+    const hasSecret = (await ctx.github.listSecrets()).includes(TOKEN_SECRET);
+    if (!hasSecret || ctx.redo?.includes("cloudflare-token")) {
+      const token = await promptMainToken(ctx, { message: "Paste the Cloudflare API token", showLink: true });
+      await ctx.github.setSecret(TOKEN_SECRET, token);
+      await ctx.github.setSecret(ACCOUNT_SECRET, await askAccountId(ctx, token));
+      return;
+    }
+    const token = await cloudflareCredential(ctx, { login: true });
+    if (!token) throw new Error("No Cloudflare login to read the account from.");
+    await ctx.github.setSecret(ACCOUNT_SECRET, await cloudflareAccountId(ctx, token));
   },
 };
 
@@ -146,15 +183,15 @@ export const workersDev: Step = {
   id: "workers-dev",
   title: "workers.dev subdomain",
   async check(ctx) {
-    const token = knownToken(ctx);
-    if (!token) return { done: true, detail: "not verified: export CLOUDFLARE_API_TOKEN to check it" };
-    const subdomain = await ctx.cloudflare(token).getWorkersSubdomain(await accountId(ctx, token));
+    const token = await cloudflareCredential(ctx, { login: false });
+    if (!token) return { done: true, detail: "not verified: no saved Cloudflare login (run `pnpm --filter @factory/harness exec wrangler login`)" };
+    const subdomain = await ctx.cloudflare(token).getWorkersSubdomain(await cloudflareAccountId(ctx, token));
     return { done: subdomain !== null, detail: subdomain ?? undefined };
   },
   async run(ctx) {
-    const token = knownToken(ctx) ?? (await promptMainToken(ctx, { message: "Paste the Cloudflare API token (not stored)", showLink: false }));
+    const token = (await cloudflareCredential(ctx, { login: true }))!;
     const client = ctx.cloudflare(token);
-    const id = await accountId(ctx, token);
+    const id = await cloudflareAccountId(ctx, token);
     if ((await client.getWorkersSubdomain(id)) !== null) return;
     const subdomain = await ctx.prompter.text({ id: "workers-dev-subdomain", message: "Pick the workers.dev subdomain for the account" });
     await client.registerWorkersSubdomain(id, subdomain.trim());
