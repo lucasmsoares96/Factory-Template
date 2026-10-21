@@ -40,11 +40,13 @@ export async function changedSkeletonPaths(git: Git, base: string): Promise<stri
  * commits that as a new commit: history is never rewritten.
  */
 export async function revertToBase(git: Git, base: string, paths: string[], message: string): Promise<void> {
-  for (const path of paths) {
-    const inBase = (await git.run("ls-tree", "--name-only", base, "--", path)).trim() !== "";
-    if (inBase) await git.run("checkout", base, "--", path);
-    else await git.run("rm", "--quiet", "--force", "--ignore-unmatch", "--", path);
-  }
+  // One call each (not one per path): git is the slow part of this job on a loaded machine.
+  const listed = await git.run("-c", "core.quotePath=false", "ls-tree", "-r", "--name-only", base, "--", ...paths);
+  const inBase = new Set(listed.split("\n").filter(Boolean));
+  const restore = paths.filter((p) => inBase.has(p));
+  const remove = paths.filter((p) => !inBase.has(p));
+  if (restore.length > 0) await git.run("checkout", base, "--", ...restore);
+  if (remove.length > 0) await git.run("rm", "--quiet", "--force", "--ignore-unmatch", "--", ...remove);
   await git.run("-c", "user.name=Factory", "-c", "user.email=factory@localhost", "commit", "--quiet", "-m", message);
 }
 
