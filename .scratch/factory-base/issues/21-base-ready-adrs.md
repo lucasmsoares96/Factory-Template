@@ -22,3 +22,10 @@ Spec: [../spec.md](../spec.md)
 - Docs: `docs/README.md` (índice, linkado do `AGENTS.md`), `docs/measured-facts.md` (CPU, rate limit, previews, Actions/GHCR, tetos do Free), `docs/known-risks.md` (10 ms de CPU x p50 21 ms, `/mcp` não separável, falsos positivos do check de testes pulados, tokens clássico x fine-grained, o que nunca foi demonstrado ao vivo), `docs/forgejo.md` (AGit, sem escopo `workflow`, token restrito a repo desde v15, `pull_request_target` com a branch base).
 - `GLOSSARY.md`: Product, Skeleton, Triage (vereditos), Merge Gate (aviso), Escalation (motivos), Blocked Issue ajustados; novos Evidence, Preview, Factory marker, Skeleton gap, Default account, Harness change. Não havia termo morto nem "machine user" no arquivo.
 - Incerto: "Evidence" e "Harness change" são termos que o código já usa mas a spec não nomeava como domínio; o orquestrador pode tirá-los. A cobertura dos tickets 01-13 foi lida só pelos relatórios AFK e pela spec.
+
+Conferência das contas (2026-10-21, orquestrador, depois das demonstrações):
+- **GitHub:** nenhum PR ou issue aberto. Os branches remotos são só `main` e `factory-base`, porque os branches dos PRs já mesclados foram apagados.
+- **Cloudflare:** os Workers são `example` e os dos outros projetos do dono (`elara_booking`, `leadflow`, `meetspot`). Nenhum Worker Preview de PR responde (`pr-15`, `pr-17`, `pr-20`, `pr-30`, `pr-32` dão 404). Os KV são `example-oauth-kv`, `example-preview-oauth` e o `AUTH_KV` de outro projeto.
+- **Neon:** os projetos são `example`, `example-preview` (só o branch `base`) e o `elara` de outro projeto.
+- **Local:** só o worktree `integration`, e nenhuma pasta `factory-*` em `/private/tmp`.
+- **Products descartáveis:** nenhum foi criado, porque a demonstração do `destroy` (ticket 19) ainda depende do dono.
