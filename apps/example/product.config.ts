@@ -11,7 +11,13 @@ export default defineProduct({
   emailFrom: "Example <no-reply@example.com>",
   domain: "example.com",
   messages: {
-    en: { app: { title: "Example" } },
-    "pt-BR": { app: { title: "Example" } },
+    en: {
+      app: { title: "Example" },
+      auth: { signIn: { description: "Your workspace, one sign-in away." } },
+    },
+    "pt-BR": {
+      app: { title: "Example" },
+      auth: { signIn: { description: "Seu espaço de trabalho, a um login de distância." } },
+    },
   },
 });
