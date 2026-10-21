@@ -21,6 +21,7 @@ on:
 concurrency:
   group: factory-${{ github.event.issue.number || inputs.issue }}
   cancel-in-progress: false
+  queue: max
 
 permissions: {}
 

@@ -37,7 +37,7 @@ export function parseScope(positionals: string[]): DestroyScope | undefined {
 
 /** Why this run may not go on, or undefined. Checked before anything is read. */
 export function refusal(ctx: StepContext): string | undefined {
-  if (ctx.env.CI) return "destroy refuses to run when CI is set: only a person at a terminal may delete these resources.";
+  if (ctx.env.CI !== undefined) return "destroy refuses to run when CI is set: only a person at a terminal may delete these resources.";
   if (!ctx.interactive) return "destroy needs a terminal to ask for the confirmation, and there is none: only a person at a terminal may delete these resources.";
   return undefined;
 }
@@ -119,38 +119,42 @@ export async function plan(ctx: StepContext, scope: DestroyScope): Promise<Plan>
     addGithub(`environment ${name}${held.length > 0 ? `, with its secrets ${held.join(", ")}` : ""}`, () => github.deleteEnvironment(name));
   };
 
-  // The accounts are only opened for a scope that has a Worker, a KV or a Neon project in it.
+  // The accounts are listed with the credentials this machine already has (memory, environment, a saved wrangler login).
+  // A login or a question before the person has seen the list and typed the id would be a surprise: what cannot be
+  // reached is said, and the person logs in (or exports the key) and runs the command again.
   const services: Services = {};
   if (productIds.length > 0) {
     services.cloudflare = await guarded(result, "Cloudflare (Workers and KV)", async () => {
-      const handle = await cloudflareHandle(ctx, true);
-      if (!handle) result.problems.push("no Cloudflare login on this machine: Workers and KV namespaces were not looked up.");
+      const handle = await cloudflareHandle(ctx, false);
+      if (!handle) result.problems.push("no Cloudflare login on this machine: Workers and KV namespaces were not looked up (run `wrangler login` or export CLOUDFLARE_API_TOKEN, then run this again).");
       return handle;
     });
     const neon = await guarded(result, "Neon", async () => {
-      const client = await neonHandle(ctx, true);
-      return client ? { client, projects: await client.listProjects(await neonOrgId(ctx, client)) } : undefined;
+      const client = await neonHandle(ctx, false);
+      if (!client) {
+        result.problems.push("no Neon API key known: the Neon projects were not looked up (export NEON_API_KEY, then run this again).");
+        return undefined;
+      }
+      if (!ctx.memory.neonOrg && (await client.listOrgs()).length > 1) {
+        result.problems.push("the Neon account has several organizations: the Neon projects were not looked up (a question would come before the confirmation).");
+        return undefined;
+      }
+      return { client, projects: await client.listProjects(await neonOrgId(ctx, client)) };
     });
     services.neon = neon;
   }
 
-  // Resend: the key of the environment or memory; else one optional question, only when a Product has a Resend secret.
+  // Resend: the key of the environment or memory; never a question here.
   if (production && productIds.length > 0) {
-    let key = ctx.memory.resendKey ?? (ctx.env.RESEND_API_KEY || undefined);
-    const hasResendSecret = () => productIds.some((id) => secrets.includes(productionSecrets(id).resendKey));
-    const inEnvironment = async () => {
-      for (const id of productIds) {
-        if (environments.includes(productionEnvironment(id)) && (await github.listSecrets({ environment: productionEnvironment(id) })).includes(productionSecrets(id).resendKey)) return true;
-      }
-      return false;
-    };
-    if (!key && !ctx.memory.resendDeferred && (hasResendSecret() || (await inEnvironment()))) {
-      key = (await ctx.prompter.password({ id: "resend-key", message: "Resend full-access key, to delete the sending domain too (optional: leave empty to skip; not stored)" })).trim() || undefined;
-      if (!key) ctx.memory.resendDeferred = true;
-    }
+    const key = ctx.memory.resendKey ?? (ctx.env.RESEND_API_KEY || undefined);
     if (key) {
       ctx.memory.resendKey = key;
       services.resend = ctx.resend(key);
+    } else {
+      const holdsKey = secrets.some((name) => productIds.some((id) => name === productionSecrets(id).resendKey));
+      if (holdsKey || (await productsInEnvironments(ctx, productIds, environments))) {
+        result.notes.push(`the Resend domain of ${productIds.join(", ")} was not looked up: export RESEND_API_KEY (a full-access key) and run this again to delete it too.`);
+      }
     }
   }
 
@@ -194,6 +198,14 @@ export async function plan(ctx: StepContext, scope: DestroyScope): Promise<Plan>
 
   result.items.sort((a, b) => ORDER.indexOf(a.group) - ORDER.indexOf(b.group));
   return result;
+}
+
+/** Whether a Product's production environment holds its Resend key secret. */
+async function productsInEnvironments(ctx: StepContext, productIds: string[], environments: string[]): Promise<boolean> {
+  for (const id of productIds) {
+    if (environments.includes(productionEnvironment(id)) && (await ctx.github.listSecrets({ environment: productionEnvironment(id) })).includes(productionSecrets(id).resendKey)) return true;
+  }
+  return false;
 }
 
 interface RepoState {
