@@ -33,7 +33,7 @@ interface Workflow {
 
 /** Reads and parses every workflow in `dir`, relative to the repository root. */
 function load(dir: string): Record<string, Workflow> {
-  const names = ["factory-image.yml", "factory-pr.yml", "factory-deploy.yml", "factory-pr-cleanup.yml", "factory-issue.yml"];
+  const names = ["factory-image.yml", "factory-pr.yml", "factory-deploy.yml", "factory-pr-cleanup.yml", "factory-issue.yml", "factory-unblock.yml", "factory-triage.yml"];
   return Object.fromEntries(names.map((name) => [name, parse(readFileSync(join(repo, dir, name), "utf8")) as Workflow]));
 }
 
@@ -59,7 +59,7 @@ describe.each([[WORKFLOWS_DIR]])("CI workflows in %s", (dir) => {
 
   it("only `build` and `work` take vars.FACTORY_RUNNER, always in a container; `claim` and `publish` never do", () => {
     const takers = allJobs.filter(({ job }) => runsOn(job).includes("vars.FACTORY_RUNNER")).map(({ file, id }) => `${file} ${id}`);
-    expect(takers.sort()).toEqual(["factory-deploy.yml build", "factory-issue.yml work", "factory-pr.yml build"]);
+    expect(takers.sort()).toEqual(["factory-deploy.yml build", "factory-issue.yml work", "factory-pr.yml build", "factory-triage.yml work"]);
     for (const { file, id, job } of allJobs.filter(({ job }) => runsOn(job).includes("vars.FACTORY_RUNNER"))) {
       expect(job.container?.image, `${file} ${id}`).toBe("${{ needs.image.outputs.image }}");
       expect(runsOn(job), `${file} ${id}`).toContain("ubuntu-latest");
@@ -478,6 +478,84 @@ describe.each([[WORKFLOWS_DIR]])("Factory issue workflow in %s", (dir) => {
     const called = new Set<string>();
     for (const job of Object.values(issue.jobs)) for (const script of runs(job)) for (const m of script.matchAll(/pnpm factory (\w+)/g)) called.add(m[1]!);
     expect([...called].sort()).toEqual(["claim", "publish", "work"]);
+    for (const command of called) expect(cli).toContain(`"${command}"`);
+  });
+});
+
+describe.each([[WORKFLOWS_DIR]])("Factory triage and unblock workflows in %s", (dir) => {
+  const { workflows } = checkWorkflows(dir);
+  const triage = workflows["factory-triage.yml"]!;
+  const unblock = workflows["factory-unblock.yml"]!;
+  const { image, work, apply } = triage.jobs;
+  const sweep = unblock.jobs.sweep!;
+  const secretsOf = (job: Job) => [...new Set(textOf(job).match(/secrets\.\w+|secrets\[[^\]]*\]/g) ?? [])].sort();
+  const concurrencyOf = (w: Workflow) => (w as unknown as { concurrency: { group: string; "cancel-in-progress": boolean } }).concurrency;
+
+  it("triage starts on the label event and by hand, is off until FACTORY_ENABLED, with one global group that never cancels", () => {
+    expect(triage.on.issues).toEqual({ types: ["labeled"] });
+    expect(Object.keys(triage.on).sort()).toEqual(["issues", "workflow_dispatch"]);
+    expect(triage.permissions).toEqual({});
+    expect(image!.if).toContain("vars.FACTORY_ENABLED == 'true'");
+    expect(image!.if).toContain("agent:explore");
+    expect(Object.keys(triage.jobs)).toEqual(["image", "work", "apply"]);
+    expect(work!.needs).toBe("image");
+    expect(apply!.needs).toBe("work");
+    expect(concurrencyOf(triage)).toEqual({ group: "factory-triage", "cancel-in-progress": false });
+  });
+
+  it("triage `work` never gets FACTORY_TOKEN, only Claude's auth, runs in the image read-only and may take FACTORY_RUNNER", () => {
+    expect(textOf(work!)).not.toContain("FACTORY_TOKEN");
+    expect(secretsOf(work!)).toEqual(["secrets.ANTHROPIC_API_KEY", "secrets.CLAUDE_CODE_OAUTH_TOKEN"]);
+    expect(work!.container?.image).toBe("${{ needs.image.outputs.image }}");
+    expect(work!["runs-on"]).toBe("${{ vars.FACTORY_RUNNER || 'ubuntu-latest' }}");
+    expect(work!.permissions).toEqual({ contents: "read", issues: "read", packages: "read" });
+    expect(steps(work!).find((step) => step.uses?.startsWith("actions/checkout@"))?.with).toMatchObject({ "persist-credentials": false });
+    expect(runs(work!).join("\n")).toMatch(/pnpm factory triage --out/);
+  });
+
+  it("triage `apply` is a fresh VM with the machine user's token and the default branch's harness; the agent is nowhere near it", () => {
+    expect(apply!["runs-on"]).toBe("ubuntu-latest");
+    expect(apply!.container).toBeUndefined();
+    expect(apply!.permissions).toEqual({ contents: "read" });
+    expect(secretsOf(apply!)).toEqual(["secrets.FACTORY_TOKEN"]);
+    expect(textOf(apply!)).not.toMatch(/CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_API_KEY/);
+    expect(runs(apply!).join("\n")).toContain("pnpm factory apply");
+    expect(runs(apply!).join("\n")).toContain("--filter @factory/harness");
+  });
+
+  it("the jobs meet only through the triage-out artifact", () => {
+    const upload = steps(work!).find((step) => step.uses?.startsWith("actions/upload-artifact@"));
+    const download = steps(apply!).find((step) => step.uses?.startsWith("actions/download-artifact@"));
+    expect(upload?.with).toMatchObject({ name: "triage-out", "retention-days": 14 });
+    expect(download?.with).toMatchObject({ name: "triage-out" });
+  });
+
+  it("unblock starts when an issue closes and by hand, with no cron, off until FACTORY_ENABLED", () => {
+    expect(unblock.on.issues).toEqual({ types: ["closed"] });
+    expect(Object.keys(unblock.on).sort()).toEqual(["issues", "workflow_dispatch"]);
+    expect(sweep.if).toContain("vars.FACTORY_ENABLED == 'true'");
+    expect(unblock.permissions).toEqual({});
+    expect(concurrencyOf(unblock)).toEqual({ group: "factory-unblock", "cancel-in-progress": false });
+    expect(runs(sweep).join("\n")).toContain("pnpm factory unblock");
+  });
+
+  it("unblock holds no secret, never takes FACTORY_RUNNER and dispatches with the job token", () => {
+    expect(secretsOf(sweep)).toEqual([]);
+    expect(runsOn(sweep)).toBe('"ubuntu-latest"');
+    expect(sweep.container).toBeUndefined();
+    expect(sweep.permissions).toEqual({ contents: "read", issues: "read", "pull-requests": "read", actions: "write" });
+  });
+
+  it("nothing interpolates an expression into a script, and every command the YAML runs exists in the CLI", () => {
+    const cli = readFileSync(join(repo, ".factory/src/cli.ts"), "utf8");
+    const called = new Set<string>();
+    for (const job of [...Object.values(triage.jobs), ...Object.values(unblock.jobs)]) {
+      for (const script of runs(job)) {
+        expect(script).not.toContain("${{");
+        for (const m of script.matchAll(/pnpm factory (\w+)/g)) called.add(m[1]!);
+      }
+    }
+    expect([...called].sort()).toEqual(["apply", "triage", "unblock"]);
     for (const command of called) expect(cli).toContain(`"${command}"`);
   });
 });
