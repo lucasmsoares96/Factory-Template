@@ -52,6 +52,10 @@ export interface CodeHost {
   push(input: { branch: string; sha: string; expectedSha: string | null }): Promise<PushResult>;
   /** The open pull request whose head is `branch`, if any. */
   openPrFor(branch: string): Promise<PullRequest | null>;
+  /** Pull request `number` in any state, or null when it does not exist. */
+  pullRequest(number: number): Promise<PullRequest | null>;
+  /** A conversation comment on the pull request (not a review thread). */
+  commentPr(pr: number, body: string): Promise<void>;
   openDraftPr(input: { branch: string; base: string; title: string; body: string }): Promise<PullRequest>;
   /** Replaces the body of the pull request. */
   updatePrBody(pr: number, body: string): Promise<void>;

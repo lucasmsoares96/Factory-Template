@@ -8,9 +8,20 @@ Spec: [../spec.md](../spec.md)
 
 **Status:** ready-for-agent
 
-- [ ] `factory-pr-feedback.yml` (`pull_request_review: submitted`, `pull_request_review_comment`, `issue_comment` em PR): debounce num job com `sleep 180` e `cancel-in-progress: true` (review enviada pula a espera); trabalho no grupo `factory-N`. Filtros: branch `factory/issue-N`, autor com `write`+, nunca o machine user.
-- [ ] `pr-feedback`: merge da `main`, Address/Decline/Defer por thread → Development → Review → E2E → prints; ao estourar 5 falhas, responde no PR e põe `ready-for-human` sem virar draft; nunca resolve threads.
-- [ ] `factory-update-branches.yml` (`push` na `main`): `git merge-tree --write-tree` em cada PR da Factory e despacho de `update-branch` só para os em conflito.
-- [ ] `update-branch`: merge limpo sem agente; conflito resolvido pelo agente com "preserve both intents, do not invent new behaviour"; depois o `Verify` e, se falhar, o loop normal.
-- [ ] Testes pela CLI contra os falsos: filtros, cada resposta de thread, merge limpo, conflito, "branch moved" (seam 1).
+- [x] `factory-pr-feedback.yml` (`pull_request_review: submitted`, `pull_request_review_comment`, `issue_comment` em PR): debounce num job com `sleep 180` e `cancel-in-progress: true` (review enviada pula a espera); trabalho no grupo `factory-N`. Filtros: branch `factory/issue-N`, autor com `write`+, nunca o machine user.
+- [x] `pr-feedback`: merge da `main`, Address/Decline/Defer por thread → Development → Review → E2E → prints; ao estourar 5 falhas, responde no PR e põe `ready-for-human` sem virar draft; nunca resolve threads.
+- [x] `factory-update-branches.yml` (`push` na `main`): `git merge-tree --write-tree` em cada PR da Factory e despacho de `update-branch` só para os em conflito.
+- [x] `update-branch`: merge limpo sem agente; conflito resolvido pelo agente com "preserve both intents, do not invent new behaviour"; depois o `Verify` e, se falhar, o loop normal.
+- [x] Testes pela CLI contra os falsos: filtros, cada resposta de thread, merge limpo, conflito, "branch moved" (seam 1).
 - [ ] Demonstração com um PR de teste comentado e um em conflito, apagados no fim.
+
+## Comments
+
+2026-10-20 (Sonnet 5.5, AFK round 2). Código e testes prontos; falta só a demonstração, que precisa do machine user.
+
+- Contrato: `pnpm factory pr-feedback --pr N --actor LOGIN` (claim com os filtros, lê o estado da forja), `pnpm factory update-branch <issue>` (claim) e `update-branch --scan`; `work <issue> --flow pr-feedback|update-branch --pr N`; `publish <issue> --pr N` (já existia). `CodeHost` ganhou `pullRequest(n)` e `commentPr(n, body)` (fake, local, GitHub).
+- Decisões: uma thread está aberta até o machine user ter a última palavra e quem escreveu por último ter `write`+ (o seam não tem flag de "resolvida"). `<replies>` ganhou a decisão `answer` (pergunta respondida sem commit; o prompt `pr-feedback.md` mudou). Rodada só com decline/defer/answer não faz commit e pula o Review. O `update-branch` roda o Verify logo após o merge; só uma falha entra no loop normal (conta como a 1ª das 5 tentativas). Conflito que o agente não resolve vira Escalation `needs-human` (merge abortado). O `update-branch` não roda o Pull Request Stage nem toca no corpo; o comentário de evidência continua o do ticket 16 (o ticket 06 do pr-bottleneck o substitui).
+- Desvio: o despacho do `scan` chama `factory-update-branches.yml` (o `update-branch` vive nesse mesmo arquivo, `workflow_dispatch` com `issue`) e não um `factory-update-branch.yml` à parte. O grupo `factory-<N>` fica só no job `work` (o N sai do `claim`, e num `issue_comment` o evento não traz a branch); a garantia continua sendo o `--force-with-lease`. Reviews/comentários de nível PR (`issue_comment`, corpo da review) sem thread inline não geram resposta: `claim` devolve `no-open-threads`.
+- Testes: `test/pr-feedback.test.ts`, `test/update-branch.test.ts`, `test/github/code-host.test.ts`, `test/ci-workflows.test.ts`. Pelo `FakeAgent`/`FakeCodeHost`, sem forja real.
+
+Pending (human): a demonstração (PR de teste comentado e outro em conflito, apagados no fim) precisa do machine user do ticket 16, ainda não criado. Passos: (1) `pnpm bootstrap factory` (PAT clássico `repo` de uma conta separada) e merge desta branch na `main` (os workflows `pull_request_review*`, `issue_comment` e `push` rodam da `main`); (2) abrir uma issue de teste `ready-for-agent` com critérios e esperar o PR `factory/issue-N`; (3) comentar numa linha do diff com uma conta `write`+ e conferir a espera de 180 s, a resposta na thread e o commit; comentar de novo dentro da espera e conferir que só uma rodada corre; (4) em outra branch/PR da Factory, mexer na mesma linha na `main` e conferir que o `scan` despacha o `update-branch` e o PR volta sem conflito; (5) apagar PRs, branches, issues de teste.

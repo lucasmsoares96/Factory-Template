@@ -1,0 +1,233 @@
+# After a push to the default branch, every in-progress Factory pull request that now conflicts with it is updated.
+#   scan    (push)  `git merge-tree --write-tree` per open Factory PR; dispatches this workflow only for the conflicting ones
+#   claim / image / work / publish  (workflow_dispatch, one issue)  merge the base branch: clean with no agent, a conflict
+#                                   resolved by the agent ("preserve both intents, do not invent new behaviour"); then E2E,
+#                                   and the normal loop if it fails. The PR body is left alone.
+# The agent never sees FACTORY_TOKEN. Off until `pnpm bootstrap factory` sets FACTORY_ENABLED.
+name: Factory update branches
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: Issue number
+        type: string
+        required: true
+
+permissions: {}
+
+env:
+  ISSUE: ${{ inputs.issue }}
+  FACTORY_ADAPTERS: github
+
+jobs:
+  scan:
+    if: ${{ vars.FACTORY_ENABLED == 'true' && github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: factory-update-scan
+      cancel-in-progress: true
+    # `actions: write` is how the job dispatches `update-branch`; everything else is read-only.
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+      actions: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: corepack enable pnpm && pnpm install --frozen-lockfile --ignore-scripts --filter @factory/harness
+      - env:
+          VARS_JSON: ${{ toJSON(vars) }}
+        run: node .factory/src/ci/vars.ts
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git fetch --no-tags origin "+refs/heads/factory/issue-*:refs/remotes/origin/factory/issue-*" || true
+      - env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: pnpm factory update-branch --scan
+
+  claim:
+    if: ${{ vars.FACTORY_ENABLED == 'true' && github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      claimed: ${{ steps.claim.outputs.claimed }}
+      issue: ${{ steps.claim.outputs.issue }}
+      pr: ${{ steps.claim.outputs.pr }}
+      branch: ${{ steps.claim.outputs.branch }}
+      start_sha: ${{ steps.claim.outputs.start_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: corepack enable pnpm && pnpm install --frozen-lockfile --ignore-scripts --filter @factory/harness
+      - env:
+          VARS_JSON: ${{ toJSON(vars) }}
+        run: node .factory/src/ci/vars.ts
+      - name: claim
+        id: claim
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: pnpm factory update-branch "$ISSUE"
+
+  image:
+    needs: claim
+    if: ${{ needs.claim.outputs.claimed == 'true' }}
+    uses: ./.github/workflows/factory-image.yml
+    permissions:
+      contents: read
+      packages: write
+    with:
+      ref: ${{ github.event.repository.default_branch }}
+
+  work:
+    needs: [claim, image]
+    if: ${{ needs.claim.outputs.claimed == 'true' }}
+    runs-on: ${{ vars.FACTORY_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 350
+    env:
+      ISSUE: ${{ needs.claim.outputs.issue }}
+      PR: ${{ needs.claim.outputs.pr }}
+    # The same group as the issue flow: one run per issue at a time. The guarantee is the lease of `publish`.
+    concurrency:
+      group: factory-${{ needs.claim.outputs.issue }}
+      cancel-in-progress: false
+    # `issues: read` is how `work` reads the issue (the job token cannot write anything).
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+      packages: read
+    container:
+      image: ${{ needs.image.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    services:
+      postgres:
+        image: ${{ vars.POSTGRES_IMAGE || 'postgres:18.6-alpine' }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    steps:
+      # Full history, no blob filter: after the checkout nothing can authenticate to fetch a missing object.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          fetch-depth: 0
+      # The branch the run continues, fetched with the read-only job token (held by this step alone, never on disk).
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ needs.claim.outputs.branch }}
+        run: |
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git fetch --no-tags origin "+refs/heads/$BRANCH:refs/heads/$BRANCH"
+      # The agent's HOME is the runner's, not the image's: link the shared pnpm and Playwright installs under it.
+      - run: |
+          mkdir -p "$HOME/.cache/node"
+          ln -sfn /opt/corepack "$HOME/.cache/node/corepack"
+          ln -sfn /ms-playwright "$HOME/.cache/ms-playwright"
+          git config --global user.name "Factory"
+          git config --global user.email "factory@users.noreply.github.com"
+      - run: pnpm install --frozen-lockfile
+      - env:
+          VARS_JSON: ${{ toJSON(vars) }}
+        run: node .factory/src/ci/vars.ts
+      - name: work
+        env:
+          CI: "true"
+          DATABASE_URL: postgres://postgres:postgres@postgres:5432/postgres
+          GITHUB_TOKEN: ${{ github.token }}
+          FACTORY_SESSIONS_DIR: ${{ runner.temp }}/out/sessions
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          # An empty secret is no credential: do not hand the agent an empty variable.
+          [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] || unset CLAUDE_CODE_OAUTH_TOKEN
+          [ -n "$ANTHROPIC_API_KEY" ] || unset ANTHROPIC_API_KEY
+          pnpm factory work "$ISSUE" --flow update-branch --pr "$PR" --out "$RUNNER_TEMP/out"
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: work-out
+          path: ${{ runner.temp }}/out
+          retention-days: 14
+          if-no-files-found: ignore
+
+  publish:
+    needs: [claim, work]
+    # Also when `work` failed, timed out or was cancelled: with no result.json it escalates "infra".
+    if: ${{ always() && needs.claim.outputs.claimed == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ISSUE: ${{ needs.claim.outputs.issue }}
+      PR: ${{ needs.claim.outputs.pr }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: corepack enable pnpm && pnpm install --frozen-lockfile --ignore-scripts --filter @factory/harness
+      - env:
+          VARS_JSON: ${{ toJSON(vars) }}
+        run: node .factory/src/ci/vars.ts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
+        with:
+          name: work-out
+          path: ${{ runner.temp }}/out
+      - name: publish
+        env:
+          FACTORY_TOKEN: ${{ secrets.FACTORY_TOKEN }}
+          START_SHA: ${{ needs.claim.outputs.start_sha }}
+          PR: ${{ needs.claim.outputs.pr }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          gh --version | head -1
+          pnpm factory publish "$ISSUE" --in "$RUNNER_TEMP/out" --pr "$PR" --start-sha "$START_SHA"

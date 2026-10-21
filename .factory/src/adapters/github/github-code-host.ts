@@ -87,6 +87,15 @@ export class GitHubCodeHost implements CodeHost {
     return rows[0] ? toPr(rows[0]) : null;
   }
 
+  async pullRequest(number: number): Promise<PullRequest | null> {
+    const row = await this.api.getOrNull(this.api.repoPath(`/pulls/${number}`), prRow);
+    return row ? toPr(row) : null;
+  }
+
+  async commentPr(pr: number, body: string): Promise<void> {
+    await this.api.send("POST", this.api.repoPath(`/issues/${pr}/comments`), { body });
+  }
+
   async openDraftPr(input: { branch: string; base: string; title: string; body: string }): Promise<PullRequest> {
     const row = await this.api.request("POST", this.api.repoPath("/pulls"), prRow, {
       body: { head: input.branch, base: input.base, title: input.title, body: input.body, draft: true },
