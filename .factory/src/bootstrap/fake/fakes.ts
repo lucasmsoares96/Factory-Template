@@ -15,6 +15,7 @@ import {
   type RepoInfo,
   type RulesetInfo,
   type RulesetSpec,
+  type WranglerAuth,
   type ResendClient,
   type ResendDnsRecord,
   type ResendDomain,
@@ -202,6 +203,25 @@ export class FakeCloudflare {
         this.workerDomains.push({ hostname: domain.hostname, service: domain.service, zoneId: domain.zoneId });
       },
     };
+  }
+}
+
+/** wrangler's saved login: `savedToken` is what `wrangler auth token` would print; `login` saves `tokenAfterLogin`. */
+export class FakeWrangler implements WranglerAuth {
+  logins = 0;
+  tokenChecks = 0;
+  saved: string | undefined;
+  tokenAfterLogin: string | undefined = "wrangler-oauth-token";
+  constructor(saved?: string) {
+    this.saved = saved;
+  }
+  async savedToken(): Promise<string | undefined> {
+    this.tokenChecks++;
+    return this.saved;
+  }
+  async login(): Promise<void> {
+    this.logins++;
+    this.saved = this.tokenAfterLogin;
   }
 }
 

@@ -1,3 +1,4 @@
+import { WranglerCli } from "../../src/bootstrap/wrangler.ts";
 import { describe, expect, it } from "vitest";
 import { NeonCli } from "../../src/bootstrap/neon.ts";
 import { GhCli } from "../../src/bootstrap/github.ts";
@@ -411,5 +412,39 @@ describe("NeonCli (fake neonctl)", () => {
     await keyed.neon.login();
     expect(keyed.calls[0]!.env).toEqual({ PATH: "/bin", HOME: "/home/x", NEON_API_KEY: "the-key" });
     expect(keyed.calls.some((c) => c.args[0] === "auth" || c.args[0] === "me")).toBe(false);
+  });
+});
+
+describe("WranglerCli", () => {
+  it("reads the saved OAuth login with `auth token --json`, without any CLOUDFLARE_* variable in the child", async () => {
+    const calls: { args: string[]; env: Record<string, string> }[] = [];
+    const wrangler = new WranglerCli({
+      env: { PATH: "/bin", HOME: "/h", CLOUDFLARE_API_TOKEN: "env-token" },
+      run: async (args, { env }) => {
+        calls.push({ args, env });
+        return JSON.stringify({ type: "oauth", token: "oauth-1" });
+      },
+    });
+
+    expect(await wrangler.savedToken()).toBe("oauth-1");
+    expect(calls[0]!.args).toEqual(["auth", "token", "--json"]);
+    expect(Object.keys(calls[0]!.env).sort()).toEqual(["HOME", "PATH"]);
+  });
+
+  it("has no saved login when wrangler fails or answers with something other than an OAuth token", async () => {
+    const fails = new WranglerCli({ env: {}, run: async () => { throw new Error("not logged in"); } });
+    const apiToken = new WranglerCli({ env: {}, run: async () => JSON.stringify({ type: "api_token", token: "t" }) });
+
+    expect(await fails.savedToken()).toBeUndefined();
+    expect(await apiToken.savedToken()).toBeUndefined();
+  });
+
+  it("logs in through `wrangler login` with the terminal", async () => {
+    const calls: { args: string[]; inherit?: boolean }[] = [];
+    const wrangler = new WranglerCli({ env: {}, run: async (args, { inherit }) => (calls.push({ args, inherit }), "") });
+
+    await wrangler.login();
+
+    expect(calls).toEqual([{ args: ["login"], inherit: true }]);
   });
 });
