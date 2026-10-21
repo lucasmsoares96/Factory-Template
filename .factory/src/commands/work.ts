@@ -19,6 +19,7 @@ import { changedSkeletonPaths, followUpTicket, productOf, revertToBase, skeleton
 import { parseReviewOutput, reviewExtraction } from "../review-output.ts";
 import { parseReplies, repliesExtraction, type ThreadReply } from "../replies-output.ts";
 import type { Usage } from "../seams/agent.ts";
+import type { ReviewThread } from "../seams/code-host.ts";
 import type { CommandContext } from "./context.ts";
 import { openThreads } from "./pr-threads.ts";
 
@@ -69,6 +70,7 @@ export async function work(ctx: CommandContext, number: number, options: { repo:
   const skeletonFiles = new Set<string>();
   const gaps = new Set<string>();
   const replies = new Map<string, ThreadReply>();
+  let roundThreads: ReviewThread[] = [];
   let bail = false;
 
   /** A Stage's timeout, cut to what is left of the global limit; null when nothing is left. */
@@ -76,6 +78,7 @@ export async function work(ctx: CommandContext, number: number, options: { repo:
     const left = deadline - ctx.now();
     return left > 0 ? Math.min(minutes * MINUTE, left) : null;
   };
+  const round = () => ({ threads: roundThreads, decisions: [...replies.values()] });
   const outOfTime = () => ctx.now() >= deadline;
 
   if (flow) {
@@ -138,10 +141,11 @@ export async function work(ctx: CommandContext, number: number, options: { repo:
     // Development
     let started = ctx.now();
     const feedbackRound = flow?.kind === "pr-feedback" && attempt === 1;
+    if (feedbackRound) roundThreads = await openThreads(ctx, config, flow.pr);
     const dev = await agent.run(
       "development",
       feedbackRound
-        ? prFeedbackPrompt({ issue, pr: flow.pr, log: await git.log(base, "HEAD"), threads: await openThreads(ctx, config, flow.pr) })
+        ? prFeedbackPrompt({ issue, pr: flow.pr, log: await git.log(base, "HEAD"), threads: roundThreads })
         : developmentPrompt({ issue, base: config.baseBranch, log: await git.log(base, "HEAD"), feedback }),
       { timeoutMs, model: config.models.development, ...(feedbackRound ? { extract: repliesExtraction } : {}) },
     );
@@ -186,7 +190,7 @@ export async function work(ctx: CommandContext, number: number, options: { repo:
       started = ctx.now();
       const reviewRun = await agent.run(
         "review",
-        reviewPrompt({ issue, log: await git.log(base, "HEAD"), since: lastReviewed, findings: reviews }),
+        reviewPrompt({ issue, log: await git.log(base, "HEAD"), since: lastReviewed, findings: reviews, round: flow?.kind === "pr-feedback" ? round() : undefined }),
         { timeoutMs, model: config.models.review, extract: reviewExtraction },
       );
       add(usage.review, reviewRun.usage);
@@ -277,6 +281,7 @@ export async function work(ctx: CommandContext, number: number, options: { repo:
             base: config.baseBranch,
             log: await git.log(base, "HEAD"),
             result: runOutcome({ ready, reason, question, attempts }),
+            round: flow?.kind === "pr-feedback" ? round() : undefined,
             prints: evidence.map((e) => ({ product: e.product, path: `${config.evidenceDir}/${e.product}/${e.name}` })),
           }),
           { timeoutMs, model: config.models.pullRequest, extract: pullRequestExtraction },
