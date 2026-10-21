@@ -6,11 +6,19 @@ Spec: [../spec.md](../spec.md)
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
 ## Acceptance criteria
 
-- [ ] O teste do `skeleton-scope` deixa de depender do tempo da máquina: menos chamadas ao git ou fixture compartilhada, como o ticket 09 fez para `work` e `publish`, sem só subir o timeout.
-- [ ] Todo diretório temporário criado pelos testes do harness é apagado no fim do teste, passando ou falhando; nenhum `factory-artifacts-*` sobra em `/tmp` depois da suíte.
-- [ ] Um teste confere que a suíte não deixa diretórios temporários.
+- [x] O teste do `skeleton-scope` deixa de depender do tempo da máquina: menos chamadas ao git ou fixture compartilhada, como o ticket 09 fez para `work` e `publish`, sem só subir o timeout.
+- [x] Todo diretório temporário criado pelos testes do harness é apagado no fim do teste, passando ou falhando; nenhum `factory-artifacts-*` sobra em `/tmp` depois da suíte.
+- [x] Um teste confere que a suíte não deixa diretórios temporários.
 - [ ] `TURBO_FORCE=1 pnpm factory:verify` verde duas vezes seguidas.
+
+## Comments
+
+- Causes (2026-10-20): each `git` call costs ~0.15 s here and `run()` made ~65 per test, so a loaded machine multiplied it past 120 s. Fixes: base commit with the Skeleton files made once per file (`derivedCheckout` in `test/helpers.ts`) instead of per test (commit + fetch + reset), `maintenance.auto=false` for test git, and `revertToBase` batched (one `ls-tree`, one `checkout`, one `rm` instead of 3 per path).
+- Temp dirs: `afterEach` removal now retries; the run gets a private `TMPDIR` (`test/global-setup.ts`) and fails if anything is left; `test/temp-hygiene.test.ts` runs a probe file (passing and failing tests) in a child vitest and checks its TMPDIR is empty. The old `factory-*` dirs in /tmp came from interrupted/killed runs.
+- Skeleton: `db.test.ts` timed out at the first CREATE DATABASE on a cold Postgres, now warmed up in the global setup; `email-outbox.test.ts` polls the row (Better Auth sends in `waitUntil`, nothing to await) up to the test's own timeout instead of 10 s.
+- `sandcastle-agent` resume test: 10 min Stage timeout checked, fine.
+- Pending (orchestrator): `TURBO_FORCE=1 pnpm factory:verify` green twice, checked at merge (criterion left unticked).

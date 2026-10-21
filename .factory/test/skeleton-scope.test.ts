@@ -5,7 +5,7 @@ import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
 import type { VerifyStep } from "../src/adapters/fake/fake-verify.ts";
 import { createGitHubIssue } from "../src/adapters/github/create-issue.ts";
 import { MarkdownTracker } from "../src/adapters/local/markdown-tracker.ts";
-import { checkout, commitFile, commitFiles, git, HUMAN, ISSUE_BODY, lastJson, tempDir, world } from "./helpers.ts";
+import { derivedCheckout, commitFile, commitFiles, git, HUMAN, ISSUE_BODY, lastJson, tempDir, world } from "./helpers.ts";
 
 const LAYOUT = "packages/skeleton/src/layout.tsx";
 const TEMPLATE = "packages/skeleton/template/src/home.tsx";
@@ -24,13 +24,16 @@ const review: AgentStep = () => ({
   output: `Reviewed.\n<skeleton-gap>The root layout needs a footer slot.</skeleton-gap>\n<review>${JSON.stringify({ summary: "Looks fine.", inline: [] })}</review>`,
 });
 
+/** A checkout whose base commit holds the Skeleton files; the commit is made once per file and copied. */
+const skeletonCheckout = () =>
+  derivedCheckout("skeleton", (dir) =>
+    commitFiles(dir, { [LAYOUT]: "export const Layout = 'plain';\n", [TEMPLATE]: "export const T = 'plain';\n" }, "chore: skeleton"),
+  );
+
 /** claim → work → publish on two checkouts that share a base commit holding the Skeleton files. */
 async function run(options: { labels: Record<string, string>; body?: string; develop?: AgentStep; verify?: VerifyStep[]; attempts?: number }) {
-  const workCheckout = await checkout();
-  await commitFiles(workCheckout, { [LAYOUT]: "export const Layout = 'plain';\n", [TEMPLATE]: "export const T = 'plain';\n" }, "chore: skeleton");
-  const publishCheckout = await checkout();
-  await git(publishCheckout, "fetch", "--quiet", workCheckout, "main");
-  await git(publishCheckout, "reset", "--quiet", "--hard", "FETCH_HEAD");
+  const workCheckout = await skeletonCheckout();
+  const publishCheckout = await skeletonCheckout();
   const artifacts = await tempDir("factory-artifacts-");
   const w = world({
     repo: workCheckout,
