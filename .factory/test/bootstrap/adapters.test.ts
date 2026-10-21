@@ -450,7 +450,7 @@ describe("WranglerCli", () => {
 });
 
 describe("delete methods of the real adapters (fake gh, fetch and neonctl; only `destroy` uses them)", () => {
-  it("GhCli deletes secrets, variables, environments, rulesets and collaborators with gh", async () => {
+  it("GhCli deletes secrets, variables, environments and rulesets with gh", async () => {
     const calls: string[][] = [];
     const gh = new GhCli(async (args) => (calls.push(args), ""));
 
@@ -459,7 +459,6 @@ describe("delete methods of the real adapters (fake gh, fetch and neonctl; only 
     await gh.deleteVariable("A_VAR");
     await gh.deleteEnvironment("shop-preview");
     await gh.deleteRuleset(7);
-    await gh.removeCollaborator("factory-bot");
 
     expect(calls).toEqual([
       ["secret", "delete", "A_SECRET"],
@@ -467,7 +466,6 @@ describe("delete methods of the real adapters (fake gh, fetch and neonctl; only 
       ["variable", "delete", "A_VAR"],
       ["api", "-X", "DELETE", "repos/{owner}/{repo}/environments/shop-preview"],
       ["api", "-X", "DELETE", "repos/{owner}/{repo}/rulesets/7"],
-      ["api", "-X", "DELETE", "repos/{owner}/{repo}/collaborators/factory-bot"],
     ]);
   });
 

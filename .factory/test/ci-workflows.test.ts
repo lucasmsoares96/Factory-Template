@@ -411,7 +411,7 @@ describe.each([[WORKFLOWS_DIR]])("Factory issue workflow in %s", (dir) => {
     expect(issue.on.issues).toEqual({ types: ["labeled"] });
     expect(issue.permissions).toEqual({});
     expect(claim!.if).toContain("vars.FACTORY_ENABLED == 'true'");
-    expect(Object.keys(issue.jobs)).toEqual(["claim", "image", "work", "publish"]);
+    expect(Object.keys(issue.jobs)).toEqual(["claim", "image", "work", "publish", "notify"]);
     expect(issue.jobs.image!.needs).toBe("claim");
     expect(work!.needs).toEqual(["claim", "image"]);
     expect(publish!.needs).toEqual(["claim", "work"]);
@@ -446,7 +446,7 @@ describe.each([[WORKFLOWS_DIR]])("Factory issue workflow in %s", (dir) => {
     expect(checkoutOf(claim!)?.with).toMatchObject({ "persist-credentials": false });
   });
 
-  it("`publish` is a fresh VM with the machine user's token, the harness from the default branch, and runs even when `work` failed", () => {
+  it("`publish` is a fresh VM with the owner's token, the harness from the default branch, and runs even when `work` failed", () => {
     expect(publish!["runs-on"]).toBe("ubuntu-latest");
     expect(publish!.container).toBeUndefined();
     expect(publish!.if).toContain("always()");
@@ -473,11 +473,25 @@ describe.each([[WORKFLOWS_DIR]])("Factory issue workflow in %s", (dir) => {
     for (const [id, job] of Object.entries(issue.jobs)) for (const script of runs(job)) expect(script, id).not.toContain("${{");
   });
 
+  it("`notify` is the Merge Gate notice: it leaves through the job's GITHUB_TOKEN, never FACTORY_TOKEN, only after `publish`", () => {
+    const notify = issue.jobs.notify!;
+    expect(notify.needs).toEqual(["claim", "publish"]);
+    expect(notify.if).toContain("needs.publish.outputs.outcome == 'ready'");
+    expect(notify.if).toContain("needs.publish.outputs.outcome == 'escalated'");
+    expect(notify.permissions).toEqual({ contents: "read", issues: "write" });
+    expect(secretsOf(notify)).toEqual([]);
+    expect(textOf(notify)).not.toContain("FACTORY_TOKEN");
+    expect(steps(notify).find((step) => step.name === "notify")?.env?.GITHUB_TOKEN).toBe("${{ github.token }}");
+    expect(runs(notify).join("\n")).toContain('pnpm factory notify "$ISSUE" --outcome "$OUTCOME" --url "$PR_URL" --to "$REQUESTER"');
+    expect(steps(notify).find((step) => step.name === "notify")?.env?.REQUESTER).toBe("${{ needs.claim.outputs.requester }}");
+    expect(publish!.permissions).toEqual({ contents: "read" });
+  });
+
   it("every Factory command the YAML runs exists in the CLI", () => {
     const cli = readFileSync(join(repo, ".factory/src/cli.ts"), "utf8");
     const called = new Set<string>();
     for (const job of Object.values(issue.jobs)) for (const script of runs(job)) for (const m of script.matchAll(/pnpm factory (\w+)/g)) called.add(m[1]!);
-    expect([...called].sort()).toEqual(["claim", "publish", "work"]);
+    expect([...called].sort()).toEqual(["claim", "notify", "publish", "work"]);
     for (const command of called) expect(cli).toContain(`"${command}"`);
   });
 });
@@ -513,7 +527,7 @@ describe.each([[WORKFLOWS_DIR]])("Factory triage and unblock workflows in %s", (
     expect(runs(work!).join("\n")).toMatch(/pnpm factory triage --out/);
   });
 
-  it("triage `apply` is a fresh VM with the machine user's token and the default branch's harness; the agent is nowhere near it", () => {
+  it("triage `apply` is a fresh VM with the owner's token and the default branch's harness; the agent is nowhere near it", () => {
     expect(apply!["runs-on"]).toBe("ubuntu-latest");
     expect(apply!.container).toBeUndefined();
     expect(apply!.permissions).toEqual({ contents: "read" });
@@ -636,7 +650,18 @@ describe("Factory PR feedback workflow", () => {
       pull_request_review_comment: { types: ["created"] },
       issue_comment: { types: ["created"] },
     });
-    expect(Object.keys(feedback.jobs)).toEqual(["wait", "claim", "image", "work", "publish"]);
+    expect(Object.keys(feedback.jobs)).toEqual(["wait", "claim", "image", "work", "publish", "notify"]);
+  });
+
+  it("`notify` tells the commenter through the job's GITHUB_TOKEN once `publish` has pushed the answers", () => {
+    const notify = feedback.jobs.notify!;
+    expect(notify.needs).toEqual(["claim", "publish"]);
+    expect(notify.permissions).toEqual({ contents: "read", issues: "write" });
+    expect(textOf(notify)).not.toContain("FACTORY_TOKEN");
+    expect(steps(notify).find((step) => step.name === "notify")?.env?.GITHUB_TOKEN).toBe("${{ github.token }}");
+    expect(steps(notify).find((step) => step.name === "notify")?.env?.REQUESTER).toBe("${{ github.actor }}");
+    expect(runs(notify).join("\n")).toContain("pnpm factory notify");
+    expect(runs(notify).join("\n")).toContain("--updated");
   });
 
   it("debounces: `wait` sleeps 180 s under a cancelling group per PR, a submitted review skips the sleep", () => {
@@ -650,9 +675,11 @@ describe("Factory PR feedback workflow", () => {
     expect(feedback.jobs.claim!.needs).toBe("wait");
   });
 
-  it("filters the machine user and non-Factory branches before spending a runner", () => {
+  it("filters the Factory's own texts (by marker, not by author) and non-Factory branches before spending a runner", () => {
     const filter = feedback.jobs.wait!.if!;
-    expect(filter).toContain("github.actor != vars.FACTORY_MACHINE_USER");
+    expect(filter).toContain("!contains(github.event.comment.body, '<!-- factory -->')");
+    expect(filter).toContain("!contains(github.event.review.body, '<!-- factory -->')");
+    expect(filter).not.toContain("MACHINE_USER");
     expect(filter).toContain("startsWith(github.event.pull_request.head.ref, 'factory/issue-')");
     expect(feedback.jobs.claim!.steps!.map((s) => s.run).join("\n")).toContain('pnpm factory pr-feedback --pr "$PR" --actor "$ACTOR"');
   });

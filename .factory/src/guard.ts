@@ -1,5 +1,6 @@
 import { issueBranch, type FactoryConfig } from "./config.ts";
 import type { CodeHost } from "./seams/code-host.ts";
+import { isMarked } from "./marker.ts";
 import type { Issue, Tracker } from "./seams/tracker.ts";
 
 export type Refusal =
@@ -43,19 +44,28 @@ export async function guard(
   const pr = await codeHost.openPrFor(issueBranch(config, number));
   if (pr && !pr.draft) return refuse("open-pr");
   if (!heading("Acceptance criteria").test(issue.body)) return refuse("missing-acceptance-criteria");
-  if (!hasSeams(issue, config)) return refuse("missing-seams");
+  if (!(await hasSeams(issue, config, tracker))) return refuse("missing-seams");
   const waitingOn = (await tracker.blockers(number)).filter((b) => !b.done).map((b) => b.number);
   if (waitingOn.length > 0) return { ok: false, reason: "blocked", issue, waitingOn };
   return { ok: true, issue };
 }
 
-/** Seams come from the parent's Testing Decisions or from the machine user's Triage comment. */
-function hasSeams(issue: Issue, config: FactoryConfig): boolean {
+/** Seams come from the parent's Testing Decisions or from the Factory's Triage comment. */
+async function hasSeams(issue: Issue, config: FactoryConfig, tracker: Tracker): Promise<boolean> {
   if (issue.parent && heading("Testing Decisions").test(issue.parent.body)) return true;
-  return issue.comments.some((c) => isFactoryComment(c, config, TRIAGE_MARKER));
+  return anyFactoryComment(tracker, issue.comments, TRIAGE_MARKER);
 }
 
-/** A comment the machine user wrote carrying `marker`. */
-export function isFactoryComment(comment: { author: string; body: string }, config: FactoryConfig, marker: string): boolean {
-  return config.machineUser !== "" && comment.author === config.machineUser && comment.body.includes(marker);
+/**
+ * A comment of the Factory carrying `marker`: it has the Factory marker and a topic marker, and its author has `write`+.
+ * The Factory writes as the owner, so the author alone proves nothing; the `write` check is what keeps a stranger's
+ * forged marker out (a writer could apply the labels by hand anyway, so forging it gives no new power).
+ */
+export async function isFactoryComment(tracker: Tracker, comment: { author: string; body: string }, marker: string): Promise<boolean> {
+  return isMarked(comment.body) && comment.body.includes(marker) && (await tracker.canWrite(comment.author));
+}
+
+async function anyFactoryComment(tracker: Tracker, comments: { author: string; body: string }[], marker: string): Promise<boolean> {
+  for (const comment of comments) if (await isFactoryComment(tracker, comment, marker)) return true;
+  return false;
 }

@@ -15,3 +15,9 @@ Spec: [../spec.md](../spec.md)
 - [ ] Configura o runner próprio do Forgejo (`--ephemeral`, `one-job`) e as labels.
 - [ ] Incorpora as notas de [Portabilidade GitHub → Forgejo](../../factory-harness/issues/14-forgejo-portability.md) e de [Segurança do CI do PR com código da Factory](../../factory-harness/issues/19-pr-ci-security.md) (token automático com escrita, `pull_request_target` com YAML da branch base, sem escopo `workflow`, registry da instância).
 - [ ] Termina com uma issue de teste de ponta a ponta no repo de destino.
+
+## Notas
+
+- **Token no Forgejo (do ticket 25).** A Factory escreve com o token do dono e se reconhece por um marcador oculto, não pelo autor; o Forgejo também não tem GitHub App. A v15 (LTS até 2027-07-15) tem tokens restritos a repos específicos, só com `read/write:repository` e `read/write:issue`.
+- **No Forgejo não existe escopo `workflow`.** Um token com `write:repository` consegue alterar `.forgejo/workflows/`. Lá, a única defesa é a recusa de caminhos protegidos antes do `publish` (Escalation `protected-paths`), e o token nunca vai para o job `work`. O prompt de instalação deve dizer isso.
+- O aviso do Merge Gate sai pelo token automático do job (`GITHUB_TOKEN` no GitHub; o equivalente no Forgejo), porque ninguém é notificado das ações da própria Factory.

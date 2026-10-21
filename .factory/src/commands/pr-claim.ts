@@ -8,14 +8,13 @@ export type PrClaim =
 
 /**
  * The guard of a comment on a pull request. It reads the forge, not the event: the only thing taken from the event
- * is who acted (`actor`) and which PR. Refuses the machine user's own comments, authors without `write`+, branches
+ * is who acted (`actor`) and which PR. Refuses authors without `write`+, branches
  * that are not `factory/issue-N`, closed PRs, issues no longer `in-progress`, and PRs with nothing to answer.
  */
 export async function claimPrFeedback(ctx: CommandContext, input: { pr: number; actor: string }): Promise<PrClaim> {
   const { tracker, codeHost, config } = ctx;
   const no = (reason: string): PrClaim => ({ claimed: false, reason });
-  if (config.machineUser === "") return no("no-machine-user");
-  if (input.actor === "" || input.actor === config.machineUser) return no("machine-user");
+  if (input.actor === "") return no("no-actor");
   if (!(await tracker.canWrite(input.actor))) return no("actor-cannot-write");
   const pr = await codeHost.pullRequest(input.pr);
   if (!pr || pr.state !== "open") return no("pr-not-open");

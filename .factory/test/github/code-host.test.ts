@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { GitHubCodeHost, childEnv, type GitRunner } from "../../src/adapters/github/github-code-host.ts";
+import { marked } from "../../src/marker.ts";
 import { FakeGitHubServer } from "./fake-github.ts";
 // Imported statically: helpers.ts registers the afterEach that removes temp dirs, which a dynamic import inside a test misses.
 import { git, tempDir } from "../helpers.ts";
@@ -87,7 +88,7 @@ describe("GitHubCodeHost", () => {
     expect(await h.openPrFor("factory/issue-7")).toEqual({ number: 3, url: "https://github.com/o/r/pull/3", branch: "factory/issue-7", headSha: "a".repeat(40), state: "open", draft: true });
     expect(await h.openPrFor("factory/issue-9")).toBeNull();
     await h.openDraftPr({ branch: "factory/issue-7", base: "main", title: "Fix #7: x", body: "B" });
-    expect(s.calls.at(-1)!.body).toEqual({ head: "factory/issue-7", base: "main", title: "Fix #7: x", body: "B", draft: true });
+    expect(s.calls.at(-1)!.body).toEqual({ head: "factory/issue-7", base: "main", title: "Fix #7: x", body: marked("B"), draft: true });
   });
 
   it("marks ready through GraphQL (REST has no endpoint), updates the body, labels and closes with a comment first", async () => {
@@ -125,7 +126,7 @@ describe("GitHubCodeHost", () => {
 
     await host(s).submitReview(4, { event: "COMMENT", body: "Looks fine", comments: [{ path: "a.ts", line: 3, body: "hm" }] });
 
-    expect(s.calls[0]!.body).toEqual({ event: "COMMENT", body: "Looks fine", comments: [{ path: "a.ts", line: 3, side: "RIGHT", body: "hm" }] });
+    expect(s.calls[0]!.body).toEqual({ event: "COMMENT", body: marked("Looks fine"), comments: [{ path: "a.ts", line: 3, side: "RIGHT", body: marked("hm") }] });
   });
 
   it("reads a pull request by number (null when missing) and comments on it as an issue comment", async () => {
@@ -137,7 +138,7 @@ describe("GitHubCodeHost", () => {
     expect(await h.pullRequest(4)).toMatchObject({ number: 4, branch: "factory/issue-7", draft: false, state: "open" });
     expect(await h.pullRequest(5)).toBeNull();
     await h.commentPr(4, "stopped");
-    expect(s.calls.at(-1)!.body).toEqual({ body: "stopped" });
+    expect(s.calls.at(-1)!.body).toEqual({ body: marked("stopped") });
   });
 
   it("groups review comments into threads by their root and replies to a thread", async () => {
@@ -153,7 +154,7 @@ describe("GitHubCodeHost", () => {
 
     expect(await h.threads(4)).toEqual([{ id: "10", path: "a.ts", author: "alice", body: "root", replies: [{ author: "bob", body: "reply" }] }]);
     await h.replyToThread(4, "10", "done");
-    expect(s.calls.at(-1)!.body).toEqual({ body: "done" });
+    expect(s.calls.at(-1)!.body).toEqual({ body: marked("done") });
   });
 
   describe("body with the evidence images", () => {
@@ -180,7 +181,7 @@ describe("GitHubCodeHost", () => {
       expect(r.calls).toHaveLength(1);
       expect(r.calls[0]!.args.slice(0, 5)).toEqual(["pr", "edit", "4", "--repo", "o/r"]);
       expect(r.calls[0]!.args.filter((a, i, all) => all[i - 1] === "--attach")).toEqual([img.path]);
-      expect(r.calls[0]!.file).toBe(body);
+      expect(r.calls[0]!.file).toBe(marked(body));
       expect(r.calls[0]!.env).toMatchObject({ GH_TOKEN: "tok-123" });
       expect(JSON.stringify(r.calls[0]!.args)).not.toContain("tok-123");
     });
@@ -203,7 +204,7 @@ describe("GitHubCodeHost", () => {
       await host(s, { gh: r.gh }).updatePrBody(4, "just text");
 
       expect(r.calls).toEqual([]);
-      expect(s.calls[0]!.body).toEqual({ body: "just text" });
+      expect(s.calls[0]!.body).toEqual({ body: marked("just text") });
     });
 
     it("keeps the delivery when gh cannot attach: the body is written with the prints named instead of linked", async () => {

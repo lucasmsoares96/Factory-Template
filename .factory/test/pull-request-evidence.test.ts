@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
-import { checkout, commitFile, lastJson, tempDir, world, type WorldOptions } from "./helpers.ts";
+import { checkout, commitFile, lastJson, tempDir, unmarked, world, type WorldOptions } from "./helpers.ts";
 import { commits, feedbackRound, finishRound, prWorld, PR, replies, reviewOk, thread } from "./pr-flow-helpers.ts";
 
 const url = (pr: number, product: string, name: string) => `https://forge.test/pr/${pr}/images/${product}/${name}`;
@@ -48,7 +48,7 @@ describe("evidence in the pull request body", () => {
       stage: writes(`## Summary\n\nGreets.\n\n## Evidence\n\n![home](${print("example", "home.png")})\n\n## Merge Danger\n\n**Door:** two-way`),
     });
 
-    const body = pr.body;
+    const body = unmarked(pr.body);
     const evidence = body.slice(body.indexOf("## Evidence"), body.indexOf("## Merge Danger"));
     expect(evidence).toMatch(/### admin\n\n!\[users\.png\]\(https:\/\/forge\.test\/pr\/101\/images\/admin\/users\.png\)/);
     expect(evidence).toMatch(/### example\n\n!\[about\.png\]\(https:\/\/forge\.test\/pr\/101\/images\/example\/about\.png\)/);
@@ -113,7 +113,7 @@ describe("evidence in the body on later rounds", () => {
     expect(pr.body).toContain("Round two.");
     expect(pr.body).toContain(url(PR, "example", "home.png"));
     expect(pr.body).toContain(url(PR, "example", "extra.png"));
-    expect(pr.body.trimEnd().endsWith("Closes #7")).toBe(true);
+    expect(unmarked(pr.body).trimEnd().endsWith("Closes #7")).toBe(true);
     expect(pr.comments).toEqual([]);
     expect(p.w.codeHost.writes.filter((x) => x.startsWith("updatePrBody"))).toEqual([`updatePrBody #${PR}`]);
   });
@@ -126,7 +126,7 @@ describe("evidence in the body on later rounds", () => {
     await finishRound(p, ["--flow", "update-branch"], claim.startSha);
 
     const pr = p.w.codeHost.pr(PR);
-    expect(pr.body).toBe("Original body\n\nCloses #7");
+    expect(unmarked(pr.body)).toBe("Original body\n\nCloses #7");
     expect(pr.images).toEqual([]);
     expect(p.w.codeHost.writes.some((x) => x.startsWith("updatePrBody"))).toBe(false);
   });

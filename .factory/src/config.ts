@@ -50,8 +50,6 @@ export const defaultConfig = {
   maxAttempts: 5,
   /** Open previews per Product before "preview skipped: limit reached". */
   previewLimit: 9,
-  /** Login of the machine user that writes as the Factory. */
-  machineUser: "",
   baseBranch: "main",
   /** The issue branch is `<branchPrefix><N>`. */
   branchPrefix: "factory/issue-",
@@ -83,7 +81,6 @@ const configSchema = z.object({
   image: z.object({ name: z.string() }),
   maxAttempts: positiveInt,
   previewLimit: positiveInt,
-  machineUser: z.string(),
   baseBranch: nonEmpty,
   branchPrefix: nonEmpty,
   evidenceDir: nonEmpty,

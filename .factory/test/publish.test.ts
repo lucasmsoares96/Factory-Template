@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
-import { checkout, commitFile, git, lastJson, tempDir, world } from "./helpers.ts";
+import { checkout, commitFile, git, lastJson, tempDir, unmarked, world } from "./helpers.ts";
 
 const develop: AgentStep = async ({ cwd }) => {
   await commitFile(cwd, "src/greet.ts", 'export const greet = () => "hi";\n', "feat: greet the user #7");
@@ -62,7 +62,7 @@ describe("factory publish", () => {
     expect(pr.reviews[0]!.event).toBe("COMMENT");
     expect(pr.reviews[0]!.body).toContain("Looks right. Tightened nothing.");
     expect(pr.reviews[0]!.body).toMatch(/Tokens: [\d,]+ in \/ [\d,]+ out\. Estimated cost: \$\d+\.\d\d\./);
-    expect(pr.reviews[0]!.comments).toEqual([
+    expect(pr.reviews[0]!.comments.map((c) => ({ ...c, body: unmarked(c.body) }))).toEqual([
       { path: "src/greet.ts", line: 1, body: "Consider a return type." },
       { path: "src/app.ts", line: 3, body: "Context line inside the hunk." },
     ]);

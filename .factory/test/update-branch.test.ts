@@ -2,7 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
-import { git, lastJson, MACHINE_USER } from "./helpers.ts";
+import { git, lastJson, OWNER } from "./helpers.ts";
 import { BRANCH, PR, finishRound, prCheckout, prWorld, reviewOk, commits, type MainChange } from "./pr-flow-helpers.ts";
 
 /** Resolves the conflict on `src/app.ts` keeping both lines' values, and commits the merge. */
@@ -29,8 +29,8 @@ describe("factory update-branch --scan", () => {
     const clean = await prCheckout("conflict");
     await git(clean, "checkout", "--quiet", "-b", "factory/issue-8", "main~1");
     const cleanSha = await git(clean, "rev-parse", "HEAD");
-    p.w.tracker.add({ number: 8, labels: { "in-progress": MACHINE_USER } });
-    p.w.tracker.add({ number: 9, labels: { "in-progress": MACHINE_USER } });
+    p.w.tracker.add({ number: 8, labels: { "in-progress": OWNER } });
+    p.w.tracker.add({ number: 9, labels: { "in-progress": OWNER } });
     p.w.codeHost.branches.set("factory/issue-8", cleanSha);
     p.w.codeHost.add({ number: 108, branch: "factory/issue-8", headSha: cleanSha });
 

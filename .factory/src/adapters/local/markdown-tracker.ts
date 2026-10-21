@@ -1,10 +1,11 @@
+import { marked } from "../../marker.ts";
 import type { Blocker, Issue, NewIssue, Tracker } from "../../seams/tracker.ts";
 import { comments, isClosed, MarkdownIssues } from "./markdown-issues.ts";
 
 export interface MarkdownTrackerOptions {
   /** The `issues/` directory of one feature, e.g. `.scratch/factory-base/issues`. */
   dir: string;
-  /** Login the Factory writes as (the machine user). */
+  /** Login the Factory writes as. */
   self: string;
   /** The local human: author of the hand-written comments and of every Status they set. */
   human: string;
@@ -68,7 +69,7 @@ export class MarkdownTracker implements Tracker {
   }
 
   async comment(number: number, body: string): Promise<void> {
-    await this.files.appendComment(number, this.self, body);
+    await this.files.appendComment(number, this.self, marked(body));
   }
 
   async createIssue(input: NewIssue): Promise<{ number: number; url: string | null }> {

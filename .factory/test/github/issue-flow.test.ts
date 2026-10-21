@@ -24,7 +24,7 @@ interface Issue {
   parent: number | null;
 }
 
-function githubWorld(issues: Partial<Issue>[], writers = ["alice"]) {
+function githubWorld(issues: Partial<Issue>[], writers = ["alice", "owner"]) {
   const server = new FakeGitHubServer();
   const store = new Map<number, Issue>();
   for (const seed of issues) {
@@ -38,7 +38,7 @@ function githubWorld(issues: Partial<Issue>[], writers = ["alice"]) {
     return parent ? { json: json(parent) } : { status: 404 };
   });
   server.on("GET", `${R}/issues/(\\d+)/sub_issues`, () => ({ json: [] }));
-  server.on("GET", `${R}/issues/(\\d+)/comments`, ({ params }) => ({ json: get(params[0]!)!.comments.map((body, i) => ({ id: i + 1, body, user: { login: "factory-bot" } })) }));
+  server.on("GET", `${R}/issues/(\\d+)/comments`, ({ params }) => ({ json: get(params[0]!)!.comments.map((body, i) => ({ id: i + 1, body, user: { login: "owner" } })) }));
   server.on("POST", `${R}/issues/(\\d+)/comments`, ({ params, body }) => (get(params[0]!)!.comments.push(body.body), { status: 201, json: {} }));
   server.on("GET", `${R}/issues/(\\d+)/events`, ({ params }) => ({ json: get(params[0]!)!.events.map((e) => ({ event: e.event, label: { name: e.label }, actor: { login: e.actor } })) }));
   server.on("GET", `${R}/issues/(\\d+)/dependencies/blocked_by`, ({ params }) => ({ json: get(params[0]!)!.blockedBy.map((n) => json(store.get(n)!)) }));
@@ -68,7 +68,7 @@ const ready = (extra: Partial<Issue> = {}): Partial<Issue>[] => [
 
 async function run(w: ReturnType<typeof githubWorld>, argv: string[], env: Record<string, string> = {}) {
   const logs: string[] = [];
-  const full = { FACTORY_MACHINE_USER: "factory-bot", ...env };
+  const full = { ...env };
   const code = await runFactory(argv, {
     env: full,
     log: (line) => logs.push(line),
@@ -92,7 +92,7 @@ describe("factory claim over the GitHub adapters", () => {
 
     expect(code).toBe(0);
     expect([...w.store.get(7)!.labels]).toEqual(["in-progress"]);
-    expect(await readFile(out, "utf8")).toBe("claimed=true\nstart_sha=\nbranch=factory/issue-7\n");
+    expect(await readFile(out, "utf8")).toBe("claimed=true\nrequester=alice\nstart_sha=\nbranch=factory/issue-7\n");
   });
 
   it("a second claim of the same issue loses the lock: the label is already gone", async () => {
@@ -104,7 +104,7 @@ describe("factory claim over the GitHub adapters", () => {
     const { logs } = await run(w, ["claim", "7"], { GITHUB_OUTPUT: out });
 
     expect(JSON.parse(logs.at(-1)!)).toMatchObject({ claimed: false, reason: "not-ready" });
-    expect(await readFile(out, "utf8")).toBe("claimed=false\nreason=not-ready\n");
+    expect(await readFile(out, "utf8")).toBe("claimed=false\nrequester=alice\nreason=not-ready\n");
   });
 
   it("refuses a label put by someone without write, read from the events and the permission API", async () => {

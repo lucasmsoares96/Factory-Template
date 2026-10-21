@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GitHubTracker } from "../../src/adapters/github/github-tracker.ts";
+import { marked } from "../../src/marker.ts";
 import { FakeGitHubServer } from "./fake-github.ts";
 
 const R = "/repos/o/r";
@@ -106,7 +107,7 @@ describe("GitHubTracker", () => {
 
     await tracker(s).comment(7, "hello");
 
-    expect(s.calls[0]!.body).toEqual({ body: "hello" });
+    expect(s.calls[0]!.body).toEqual({ body: marked("hello") });
   });
 
   it("creates an issue through the REST helper", async () => {
