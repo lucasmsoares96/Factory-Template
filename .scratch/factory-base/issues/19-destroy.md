@@ -22,3 +22,6 @@ Código implementado em 2026-10-20 (branch `ticket-19`). Escopos: `product <id>`
 Decisões: o ruleset `main` e as listas `DEPLOY_PRODUCTS`/`PREVIEW_PRODUCTS` (com `DEPLOY_ENABLED`/`PREVIEWS_ENABLED`) só somem com o último Product; secrets dos Products são nomeados um a um (nunca por prefixo `<ID>_`, que pegaria `SHOP_2_*`); projeto Neon com nome repetido não é apagado e vira falha; registros DNS e o subdomínio workers.dev nunca são tocados; a chave restrita do Resend não tem id guardado e fica (o domínio some). Falhas viram lista no fim e exit 1.
 
 Pending (human): demonstração na conta real (Product descartável com `new-product`, `bootstrap product`, `destroy product <id>`). Também conferir nela: (1) o nome do KV de produção criado pelo auto-provisionamento do wrangler (o `destroy` procura `<id>-oauth-kv`); (2) que `DELETE .../workers/scripts/<name>?force=true` leva junto os Worker Previews e os Custom Domains (o `destroy` desanexa os domínios antes); (3) `neonctl projects delete <id>` sem `--org-id`.
+
+
+Merge (2026-10-21): na `factory-base`; `verify` completo verde duas vezes. O `destroy` nunca rodou contra o repo ou as contas reais. Falta a demonstração com um Product descartável.

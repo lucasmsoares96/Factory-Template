@@ -25,3 +25,6 @@ Spec: [../spec.md](../spec.md)
 - Testes: `test/pr-feedback.test.ts`, `test/update-branch.test.ts`, `test/github/code-host.test.ts`, `test/ci-workflows.test.ts`. Pelo `FakeAgent`/`FakeCodeHost`, sem forja real.
 
 Pending (human): a demonstração (PR de teste comentado e outro em conflito, apagados no fim) precisa do machine user do ticket 16, ainda não criado. Passos: (1) `pnpm bootstrap factory` (PAT clássico `repo` de uma conta separada) e merge desta branch na `main` (os workflows `pull_request_review*`, `issue_comment` e `push` rodam da `main`); (2) abrir uma issue de teste `ready-for-agent` com critérios e esperar o PR `factory/issue-N`; (3) comentar numa linha do diff com uma conta `write`+ e conferir a espera de 180 s, a resposta na thread e o commit; comentar de novo dentro da espera e conferir que só uma rodada corre; (4) em outra branch/PR da Factory, mexer na mesma linha na `main` e conferir que o `scan` despacha o `update-branch` e o PR volta sem conflito; (5) apagar PRs, branches, issues de teste.
+
+
+Merge (2026-10-21): na `factory-base`, combinado com o 17 (conflitos resolvidos mantendo os dois lados). `verify` completo verde duas vezes. Falta a demonstração no repo.

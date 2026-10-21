@@ -34,3 +34,6 @@ Validador: todas as issues do lote têm veredito válido (Zod; `easy-call` exige
 - O schema do veredito virou estruturado (o prompt anterior tinha só `seams: string[]` e `comment` livre) para o harness renderizar o comentário.
 
 Pending (human): depois do ticket 16 (machine user + `pnpm bootstrap factory`) e do merge na `main`: (1) criar duas issues de teste com `## Acceptance criteria`, a 2ª bloqueada pela 1ª (dependência nativa), marcar ambas `ready-for-agent` com a conta com `write` e conferir o "Waiting on #1" na 2ª; mergear o PR da 1ª e conferir que o `factory-unblock.yml` despacha a 2ª sem ação manual; (2) criar uma 3ª issue sem spec pai, marcar `agent:explore`, conferir o `factory-triage.yml` (comentário `<!-- factory:triage -->`, label nova, `product:<id>` quando claro); (3) apagar as issues, PRs, branches `factory/issue-N` e previews no fim. Não rodar nada disso sem a conta real.
+
+
+Merge (2026-10-21): na `factory-base`, combinado com o 18 (conflitos em `cli.ts`, `AGENTS.md` e nos testes dos workflows resolvidos mantendo os dois lados). O ticket mudou o script do container local para receber o comando como argumento sem atualizar o teste do ticket 10 (`local-docker.test.ts`): corrigido no merge. `verify` completo verde duas vezes. Falta a demonstração no repo.
