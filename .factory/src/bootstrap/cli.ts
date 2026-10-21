@@ -9,8 +9,10 @@ import { CloudflareApi } from "./cloudflare.ts";
 import { commonSteps } from "./common.ts";
 import { doctor, formatReport, type Sections } from "./doctor.ts";
 import { GhCli } from "./github.ts";
+import { GitHubUserApi } from "./machine.ts";
 import { clackPrompter } from "./prompter.ts";
 import { domainSteps } from "./domain.ts";
+import { FACTORY_ENABLED, factorySteps } from "./factory.ts";
 import { productionSteps } from "./product.ts";
 import { PREVIEWS_ENABLED, previewSteps } from "./previews.ts";
 import { ResendApi } from "./resend.ts";
@@ -40,6 +42,11 @@ Commands:
                          login, or pasted once if Neon refuses), the preview KV, the <id>-preview environment and the id
                          in PREVIEW_PRODUCTS. One Neon login per run, only when there is Neon work. Turns
                          PREVIEWS_ENABLED on once the doctor of the previews passes.
+  factory                The Factory module (after the common part): the machine user (a separate GitHub account; its
+                         classic PAT with only the \`repo\` scope is the one thing asked, once, and goes straight to
+                         the FACTORY_TOKEN secret), its write invitation accepted with that PAT, and Claude's auth taken
+                         from CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in the environment (or an existing secret).
+                         Turns FACTORY_ENABLED on once the doctor passes. A rerun with the secrets in place asks nothing.
   help                   Show this message.
 
 Options:
@@ -47,7 +54,8 @@ Options:
                          for the domain command: resend-domain, dns-records, restricted-resend-key, worker-domain;
                          for the product command: neon-project, github-environment, database-secrets, auth-secret,
                          default-account (asks again, resets the password and the secret), the four domain steps, main-ruleset, deploy-products;
-                         for the previews command: preview-environment, preview-neon-project, preview-neon-key, preview-kv, preview-products.
+                         for the previews command: preview-environment, preview-neon-project, preview-neon-key, preview-kv, preview-products;
+                         for the factory command: labels, machine-user (asks for the PAT again), machine-collaborator, claude-auth.
 
 The wizard ends by running the doctor with the credentials it already holds, so one run is enough.
 Run \`pnpm bootstrap doctor [<id>]\` on its own whenever something looks off; it checks Cloudflare with
@@ -106,6 +114,11 @@ export async function runBootstrap(argv: string[], deps: BootstrapDeps): Promise
       await memory.neon?.close();
     }
   }
+  if (command === "factory") {
+    const memory: StepContext["memory"] = {};
+    await runSteps(factorySteps, { ...deps, memory }, values.redo ?? []);
+    return finish(deps, undefined, memory, { production: false, domain: false, previews: false, factory: true, cloudflare: false }, FACTORY_ENABLED);
+  }
   if (command === "doctor") {
     const memory: StepContext["memory"] = {};
     try {
@@ -149,7 +162,7 @@ async function finish(
   memory: StepContext["memory"],
   sections: Sections = { production: true },
   /** The module switch to turn on when the doctor passes (`DEPLOY_ENABLED` or `PREVIEWS_ENABLED`). */
-  enable?: "DEPLOY_ENABLED" | "PREVIEWS_ENABLED",
+  enable?: "DEPLOY_ENABLED" | "PREVIEWS_ENABLED" | "FACTORY_ENABLED",
 ): Promise<number> {
   deps.log("\nChecking everything:\n");
   let report = await doctor(deps, productId, memory, sections, { prompt: false });
@@ -174,6 +187,9 @@ async function finish(
     else if (!report.ok) deps.log("PREVIEWS_ENABLED stays off: fix what the doctor lists as missing and run this command again.");
     // The `base` branch gets its schema from the deploy of the default branch (which needs `main` to deploy the Product too).
     if (report.ok) deps.log("The preview database starts from `base`, which the next deploy of the default branch migrates (run the Deploy workflow by hand to do it now).");
+  } else if (enable === "FACTORY_ENABLED") {
+    if (switchedOn) deps.log("FACTORY_ENABLED=true: an issue labelled ready-for-agent by someone with write access now becomes a pull request of the machine user.");
+    else if (!report.ok) deps.log("FACTORY_ENABLED stays off: fix what the doctor lists as missing and run this command again.");
   }
   return report.ok ? 0 : 1;
 }
@@ -209,6 +225,7 @@ if (import.meta.main) {
         return client;
       },
       accounts: new SkeletonAccounts(),
+      machine: (token) => new GitHubUserApi(token),
       resend: (key) => new ResendApi(key),
       product: loadProduct,
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
