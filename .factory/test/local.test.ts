@@ -51,7 +51,7 @@ function fakeContainer(script: { agent?: Partial<Record<Stage, AgentStep[]>>; ve
       await mkdir(sessions, { recursive: true });
       await writeFile(join(sessions, "01-development.jsonl"), '{"type":"result","result":"Done."}\n');
       const env = { ...job.env, FACTORY_ADAPTERS: "local", FACTORY_TRACKER_DIR: join(job.inDir, IN_TRACKER, "issues") };
-      const exitCode = await runFactory(["work", String(job.issue), "--out", job.outDir, "--repo", repo], {
+      const exitCode = await runFactory([job.command ?? "work", String(job.issue), "--out", job.outDir, "--repo", repo], {
         env,
         log: () => {},
         adapters: (input) => ({
@@ -112,6 +112,30 @@ describe("pnpm factory local", () => {
     expect(await readdir(join(evidence, "sessions"))).toEqual(["01-development.jsonl"]);
     // The host's working tree is untouched apart from the ticket's folder.
     expect(await git(h.repo, "status", "--porcelain")).toBe("?? .scratch/");
+  });
+
+  it("Triage: a ticket with Status agent:explore is triaged in the container and applied here (comment, new Status)", async () => {
+    const h = await host("agent:explore");
+    const verdict = {
+      number: 7,
+      tag: "easy-call",
+      difficulty: "small",
+      approach: "Add greet().",
+      door: { kind: "two-way", blastRadius: "one module" },
+      seams: [{ seam: "The CLI against the fakes", catches: "wrong output", misses: "nothing real" }],
+    };
+    const container = fakeContainer({ agent: { triage: [() => ({ output: `<triage>${JSON.stringify({ issues: [verdict] })}</triage>` })] } });
+
+    const run = await local(h.repo, container.runner);
+
+    expect(run.code).toBe(0);
+    expect(container.jobs[0]).toMatchObject({ command: "triage", issue: 7 });
+    expect(run.json()).toMatchObject({ triage: { applied: [{ issue: 7, tag: "easy-call", label: "ready-for-agent" }] } });
+    const ticket = await h.ticket();
+    expect(ticket).toContain("**Status:** ready-for-agent");
+    expect(ticket).toContain("<!-- factory:triage -->");
+    expect(ticket).toContain("The CLI against the fakes");
+    expect(await git(h.repo, "branch", "--list", "factory/issue-7")).toBe("");
   });
 
   it("hands the container the base branch and the tickets, with Claude's auth and settings but no forge token", async () => {

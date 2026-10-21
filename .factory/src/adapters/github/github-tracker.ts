@@ -77,6 +77,10 @@ export class GitHubTracker implements Tracker {
     return true;
   }
 
+  async addLabel(number: number, label: string): Promise<void> {
+    await this.api.send("POST", this.api.repoPath(`/issues/${number}/labels`), { labels: [label] });
+  }
+
   async comment(number: number, body: string): Promise<void> {
     await this.api.send("POST", this.api.repoPath(`/issues/${number}/comments`), { body });
   }
