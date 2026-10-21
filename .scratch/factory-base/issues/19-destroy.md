@@ -25,3 +25,5 @@ Pending (human): demonstração na conta real (Product descartável com `new-pro
 
 
 Merge (2026-10-21): na `factory-base`; `verify` completo verde duas vezes. O `destroy` nunca rodou contra o repo ou as contas reais. Falta a demonstração com um Product descartável.
+
+- Review fixes 2 (2026-10-21): `refusal` recusa com `CI` definido mesmo vazio (`!== undefined`). `plan()` não abre mais login (wrangler/neonctl) nem pergunta a chave do Resend antes da lista e do id digitado: lista com o que já está à mão (memória, env, login salvo do wrangler) e diz em `Not listed:`/`Note:` o que não deu para listar (Cloudflare sem login, Neon sem `NEON_API_KEY` ou com várias orgs, Resend sem `RESEND_API_KEY`); a pessoa faz o login/exporta a chave e roda de novo.

@@ -415,7 +415,7 @@ describe.each([[WORKFLOWS_DIR]])("Factory issue workflow in %s", (dir) => {
     expect(issue.jobs.image!.needs).toBe("claim");
     expect(work!.needs).toEqual(["claim", "image"]);
     expect(publish!.needs).toEqual(["claim", "work"]);
-    expect(issue).toMatchObject({ concurrency: { "cancel-in-progress": false } });
+    expect(issue).toMatchObject({ concurrency: { "cancel-in-progress": false, queue: "max" } });
     expect(String((issue as unknown as { concurrency: { group: string } }).concurrency.group)).toMatch(/^factory-\$\{\{ github\.event\.issue\.number \|\| inputs\.issue \}\}$/);
   });
 
@@ -598,7 +598,7 @@ describe.each([["factory-pr-feedback.yml", "pr-feedback"], ["factory-update-bran
   });
 
   it("`work` shares the issue flow's factory-N group without cancelling a running job", () => {
-    expect(concurrencyOf(work!)).toEqual({ group: "factory-${{ needs.claim.outputs.issue }}", "cancel-in-progress": false });
+    expect(concurrencyOf(work!)).toEqual({ group: "factory-${{ needs.claim.outputs.issue }}", "cancel-in-progress": false, queue: "max" });
   });
 
   it("`claim` is read-only on a fresh VM; only `publish` holds FACTORY_TOKEN, and runs even when `work` failed", () => {

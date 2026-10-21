@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { GitHubCodeHost, type GitRunner } from "../../src/adapters/github/github-code-host.ts";
+import { GitHubCodeHost, childEnv, type GitRunner } from "../../src/adapters/github/github-code-host.ts";
 import { FakeGitHubServer } from "./fake-github.ts";
 // Imported statically: helpers.ts registers the afterEach that removes temp dirs, which a dynamic import inside a test misses.
 import { git, tempDir } from "../helpers.ts";
@@ -26,6 +26,20 @@ describe("GitHubCodeHost", () => {
 
     expect(await host(s).branchHead("factory/issue-7")).toBe("b".repeat(40));
     expect(await host(s).branchHead("factory/issue-8")).toBeNull();
+  });
+
+  it("encodes each segment of the branch in the ref URL, keeping the slashes", async () => {
+    const s = new FakeGitHubServer();
+    s.on("GET", `${R}/git/ref/heads/a%20b/c%23d%3Fe`, () => ({ json: { object: { sha: "c".repeat(40) } } }));
+
+    expect(await host(s).branchHead("a b/c#d?e")).toBe("c".repeat(40));
+    expect(s.calls[0]!.path).toBe(`${R}/git/ref/heads/a%20b/c%23d%3Fe`);
+  });
+
+  it("gives git and gh an allowlisted environment: the parent's secrets are not inherited", () => {
+    const parent = { PATH: "/bin", HOME: "/h", FACTORY_TOKEN: "secret", CLAUDE_CODE_OAUTH_TOKEN: "oauth", GH_TOKEN: "ambient", NODE_OPTIONS: "--x" };
+    expect(childEnv(parent, {})).toEqual({ PATH: "/bin", HOME: "/h" });
+    expect(childEnv(parent, { GH_TOKEN: "tok" })).toEqual({ PATH: "/bin", HOME: "/h", GH_TOKEN: "tok" });
   });
 
   it("pushes with a lease against the start SHA, the token only in the environment", async () => {

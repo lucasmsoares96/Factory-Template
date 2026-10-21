@@ -80,5 +80,3 @@ export class GitHubApi {
     await this.request(method, path, z.unknown(), { body });
   }
 }
-
-export const anything = z.unknown();
