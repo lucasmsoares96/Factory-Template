@@ -15,7 +15,7 @@ Spec: [../spec.md](../spec.md)
 - [x] O molde traz a pasta `e2e/` do Product (vazia, com um `.gitkeep`, ou com um spec de exemplo mínimo), e o `AGENTS.md` do Product diz onde ficam os specs dele.
 - [x] A skill `skeleton-evidence-test` e o `AGENTS.md` do Skeleton deixam de dizer que um Product não tem specs próprios.
 - [x] Um teste prova que um spec em `apps/example/e2e/` roda no `e2e` do `example` e salva o print no diretório de evidência do Product.
-- [ ] `TURBO_FORCE=1 pnpm factory:verify` verde.
+- [x] `TURBO_FORCE=1 pnpm factory:verify` verde.
 
 ## Comments
 
@@ -26,3 +26,6 @@ Validado só por execuções direcionadas (vitest do Skeleton, `example` e2e: 5 
 
 
 Merge (2026-10-20): typecheck, lint, testes do ticket e `CI=true pnpm factory:ci-probe` verdes na `factory-base`. O `verify` completo local falhou duas vezes em testes do Skeleton que não mudaram (`db.test.ts`, `email-outbox.test.ts`), sob carga de 200–400 vinda de fora do repo; os dois arquivos passam sozinhos (6/6, duas vezes). O `verify` completo fica com o CI do PR, numa VM limpa.
+
+
+Verify (2026-10-21): verde no CI do PR #4 (8 checks, incluindo `build (example)`, `build (@workspace/skeleton)` e `ci-probe`) e nos `verify` completos locais desde então (727 testes do harness no último).

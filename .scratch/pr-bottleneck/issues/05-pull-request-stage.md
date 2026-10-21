@@ -21,7 +21,7 @@ Spec: [../spec.md](../spec.md)
 - [x] Testes pela CLI contra os falsos: Stage depois do E2E verde; na Escalation com commits; ausente sem commits, em `infra`, com o tempo esgotado e por caminho protegido; ordem do corpo; corpo mínimo e motivo quando o Stage falha ou estoura o timeout; commit descartado; fora das tentativas; tokens no rodapé e no resumo; corpo reescrito ao continuar um PR (seam 1).
 - [x] Teste de configuração: timeout e modelo do Stage na config e nas variáveis (seam 2).
 - [x] Critério medido e registrado aqui: run local com o Claude real em que o Pull Request Stage escreve o corpo com a skill `pr` e uma retomada de extração funciona no adaptador do Sandcastle.
-- [ ] `pnpm factory:verify` verde.
+- [x] `pnpm factory:verify` verde.
 
 ## Comments
 
@@ -39,3 +39,6 @@ Medido com Claude real (2026-10-20, `pnpm factory local`, Opus 5.5):
 
 
 Merge (2026-10-20): mesmo caso do ticket 24 da base: o `verify` completo fica com o CI do PR.
+
+
+Verify (2026-10-21): verde no CI do PR #4 e nos `verify` completos locais desde então.
