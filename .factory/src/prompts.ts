@@ -104,7 +104,7 @@ export function pullRequestPrompt(ctx: PullRequestContext): string {
   });
 }
 
-/** Triage of a batch of `agent:explore` issues (ticket 17 runs it). */
+/** Triage of a batch of `agent:explore` issues (`pnpm factory triage`). */
 export function triagePrompt(ctx: { issues: Issue[] }): string {
   return renderTemplate("triage", {
     NUMBER: "N",

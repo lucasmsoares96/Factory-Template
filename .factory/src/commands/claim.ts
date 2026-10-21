@@ -54,7 +54,7 @@ async function answerRefusal(ctx: CommandContext, decision: Exclude<GuardDecisio
       return;
     case "blocked": {
       if (event !== "labeled") return;
-      if (decision.issue.comments.some((c) => isFactoryComment(c, config, WAITING_MARKER))) return;
+      for (const c of decision.issue.comments) if (await isFactoryComment(tracker, c, WAITING_MARKER)) return;
       const list = decision.waitingOn.map((n) => `#${n}`).join(", ");
       await tracker.comment(
         number,

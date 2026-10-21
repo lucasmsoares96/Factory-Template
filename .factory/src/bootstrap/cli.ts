@@ -7,14 +7,18 @@ import { loadConfig } from "../config.ts";
 import { SkeletonAccounts } from "./accounts.ts";
 import { CloudflareApi } from "./cloudflare.ts";
 import { commonSteps } from "./common.ts";
+import { runDestroy } from "./destroy.ts";
 import { doctor, formatReport, type Sections } from "./doctor.ts";
 import { GhCli } from "./github.ts";
+import { GitHubTokenApi } from "./token.ts";
 import { clackPrompter } from "./prompter.ts";
 import { domainSteps } from "./domain.ts";
+import { FACTORY_ENABLED, factorySteps } from "./factory.ts";
 import { productionSteps } from "./product.ts";
 import { PREVIEWS_ENABLED, previewSteps } from "./previews.ts";
 import { ResendApi } from "./resend.ts";
 import { NeonCli } from "./neon.ts";
+import { WranglerCli } from "./wrangler.ts";
 import { runSteps, type BootstrapDeps, type ProductIdentity, type StepContext } from "./steps.ts";
 
 export type { BootstrapDeps } from "./steps.ts";
@@ -39,6 +43,15 @@ Commands:
                          login, or pasted once if Neon refuses), the preview KV, the <id>-preview environment and the id
                          in PREVIEW_PRODUCTS. One Neon login per run, only when there is Neon work. Turns
                          PREVIEWS_ENABLED on once the doctor of the previews passes.
+  factory                The Factory module (after the common part): your own fine-grained token, limited to this
+                         repository (the one thing asked, once, hidden; a pre-filled link is printed, and it goes straight
+                         to the FACTORY_TOKEN secret), and Claude's auth taken from CLAUDE_CODE_OAUTH_TOKEN or
+                         ANTHROPIC_API_KEY in the environment (or an existing secret).
+                         Turns FACTORY_ENABLED on once the doctor passes. A rerun with the secrets in place asks nothing.
+  destroy [scope]        Deletes what the wizard made, after listing it (the production database is highlighted) and
+                         asking you to type the id. Scope: product <id>, previews <id>, factory, common; none = everything
+                         (type "all"). Needs a terminal and refuses when CI is set. Never deletes the repository, issues,
+                         labels, accounts or DNS records. Agents must never run it.
   help                   Show this message.
 
 Options:
@@ -46,11 +59,12 @@ Options:
                          for the domain command: resend-domain, dns-records, restricted-resend-key, worker-domain;
                          for the product command: neon-project, github-environment, database-secrets, auth-secret,
                          default-account (asks again, resets the password and the secret), the four domain steps, main-ruleset, deploy-products;
-                         for the previews command: preview-environment, preview-neon-project, preview-neon-key, preview-kv, preview-products.
+                         for the previews command: preview-environment, preview-neon-project, preview-neon-key, preview-kv, preview-products;
+                         for the factory command: labels, factory-token (asks for the token again), claude-auth.
 
 The wizard ends by running the doctor with the credentials it already holds, so one run is enough.
-Run \`pnpm bootstrap doctor [<id>]\` on its own whenever something looks off; with no CLOUDFLARE_API_TOKEN (or
-RESEND_API_KEY) in the environment it asks for it once, hidden and not stored (without a terminal it says \`skip\`).
+Run \`pnpm bootstrap doctor [<id>]\` on its own whenever something looks off; it checks Cloudflare with
+wrangler's saved login (or CLOUDFLARE_API_TOKEN) and never opens a browser; with no RESEND_API_KEY it asks once, hidden and not stored.
 Only \`gh\` (logged in with \`gh auth login\`) must be installed. Nothing is written to disk, secrets included.`;
 
 /** Entry point; returns the process exit code. */
@@ -58,6 +72,14 @@ export async function runBootstrap(argv: string[], deps: BootstrapDeps): Promise
   const { positionals, values } = parseArgs({ args: argv, allowPositionals: true, options: { redo: { type: "string", multiple: true } } });
   const [command, productId] = positionals;
 
+  if (command === "destroy") {
+    const memory: StepContext["memory"] = {};
+    try {
+      return await runDestroy(positionals.slice(1), { ...deps, memory });
+    } finally {
+      await memory.neon?.close();
+    }
+  }
   if (command === "help") {
     deps.log(USAGE);
     return 0;
@@ -105,6 +127,11 @@ export async function runBootstrap(argv: string[], deps: BootstrapDeps): Promise
       await memory.neon?.close();
     }
   }
+  if (command === "factory") {
+    const memory: StepContext["memory"] = {};
+    await runSteps(factorySteps, { ...deps, memory }, values.redo ?? []);
+    return finish(deps, undefined, memory, { production: false, domain: false, previews: false, factory: true, cloudflare: false }, FACTORY_ENABLED);
+  }
   if (command === "doctor") {
     const memory: StepContext["memory"] = {};
     try {
@@ -148,7 +175,7 @@ async function finish(
   memory: StepContext["memory"],
   sections: Sections = { production: true },
   /** The module switch to turn on when the doctor passes (`DEPLOY_ENABLED` or `PREVIEWS_ENABLED`). */
-  enable?: "DEPLOY_ENABLED" | "PREVIEWS_ENABLED",
+  enable?: "DEPLOY_ENABLED" | "PREVIEWS_ENABLED" | "FACTORY_ENABLED",
 ): Promise<number> {
   deps.log("\nChecking everything:\n");
   let report = await doctor(deps, productId, memory, sections, { prompt: false });
@@ -173,6 +200,9 @@ async function finish(
     else if (!report.ok) deps.log("PREVIEWS_ENABLED stays off: fix what the doctor lists as missing and run this command again.");
     // The `base` branch gets its schema from the deploy of the default branch (which needs `main` to deploy the Product too).
     if (report.ok) deps.log("The preview database starts from `base`, which the next deploy of the default branch migrates (run the Deploy workflow by hand to do it now).");
+  } else if (enable === "FACTORY_ENABLED") {
+    if (switchedOn) deps.log("FACTORY_ENABLED=true: an issue labelled ready-for-agent by someone with write access now becomes a pull request.");
+    else if (!report.ok) deps.log("FACTORY_ENABLED stays off: fix what the doctor lists as missing and run this command again.");
   }
   return report.ok ? 0 : 1;
 }
@@ -191,8 +221,8 @@ export async function loadProduct(id: string): Promise<ProductIdentity> {
 
 if (import.meta.main) {
   const env = process.env;
-  // Every Neon session opened by this process: a Ctrl+C (clack exits the process at once) must still log out and
-  // delete the throwaway login folder, so the cleanup also runs on `exit`, synchronously.
+  // Every Neon client opened by this process, closed on `exit` too (a Ctrl+C makes clack exit at once).
+  // Closing keeps neonctl's login, so the next run does not open the browser again.
   const openNeon = new Set<NeonCli>();
   process.on("exit", () => openNeon.forEach((client) => client.closeSync()));
   process.on("SIGINT", () => process.exit(130));
@@ -201,12 +231,14 @@ if (import.meta.main) {
     process.exitCode = await runBootstrap(process.argv.slice(2), {
       github: new GhCli(),
       cloudflare: (token) => new CloudflareApi(token),
+      wrangler: new WranglerCli({ env }),
       neon: (options) => {
         const client = new NeonCli({ ...options, env });
         openNeon.add(client);
         return client;
       },
       accounts: new SkeletonAccounts(),
+      token: (token) => new GitHubTokenApi(token),
       resend: (key) => new ResendApi(key),
       product: loadProduct,
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),

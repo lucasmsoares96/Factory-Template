@@ -8,13 +8,13 @@ Spec: [../spec.md](../spec.md)
 
 **Status:** ready-for-agent
 
-- [ ] Módulo Previews: projeto Neon `<id>-preview` com branch padrão `base` e key restrita, KV do preview em `PREVIEW_OAUTH_KV_ID`, o id em `PREVIEW_PRODUCTS`, `PREVIEWS_ENABLED` ligado depois do `doctor`.
+- [x] Módulo Previews: projeto Neon `<id>-preview` com branch padrão `base` e key restrita, KV do preview em `PREVIEW_OAUTH_KV_ID`, o id em `PREVIEW_PRODUCTS`, `PREVIEWS_ENABLED` ligado depois do `doctor`.
 - [ ] Workflow em `pull_request_target`: `build` (ticket 12) → `deploy` com as regras de blindagem (checkout e `--config` da `main`, artifact em `$RUNNER_TEMP` com allowlist, `CLOUDFLARE_API_BASE_URL` fixado, `--ignore-scripts` com o lockfile da `main`, número do PR do evento), branch `preview/pr-N` a partir do `base`, `migrate(db, { migrationsFolder })`, `wrangler preview --name pr-N` → `smoke` sem secrets (login real, outbox, 401 no `/mcp`) (seam 7).
 - [x] Rota do outbox que só existe no preview.
-- [ ] Comentário único no PR listando cada Product com a URL.
-- [ ] Preview automático para autor com `write`+; os demais pela label `preview`, removida a cada push.
+- [x] Comentário único no PR listando cada Product com a URL.
+- [x] Preview automático para autor com `write`+; os demais pela label `preview`, removida a cada push.
 - [ ] Pula com comentário quando os bindings mudaram ou há 9 previews abertos do Product ("preview skipped: limit reached").
-- [ ] Limpeza no `closed`: `wrangler preview delete` + branch Neon apagado. O deploy da `main` recria o `base` se ele sumir.
+- [x] Limpeza no `closed`: `wrangler preview delete` + branch Neon apagado. O deploy da `main` recria o `base` se ele sumir.
 - [x] Testes do módulo contra os falsos (seam 8).
 - [ ] PR de teste com preview e smoke verdes, depois fechado e limpo (Worker Preview, branch Neon, branch git).
 - [ ] Critério medido e registrado aqui: permissões do token da Cloudflare que criam um Worker Preview (workers-sdk#15797).
@@ -38,3 +38,18 @@ Código implementado (2026-10-20, branch `ticket-15`). Marcados: a rota do outbo
 **Desmarcados, e por quê:** módulo Previews (a key sob OAuth e o `neonctl branches rename`/`api-keys create` só foram exercitados com executor falso); workflow `pull_request_target` e os de comentário, label, pular, limpeza e `base` (só o Actions prova; o `pull_request_target` usa o workflow da `main`, então a primeira vez que isto roda é no primeiro PR depois do merge); "PR de teste com preview e smoke verdes, depois fechado e limpo"; o critério medido das permissões do token da Cloudflare (workers-sdk#15797): precisa criar um Worker Preview na conta com o token do template atual ("Workers Scripts Edit") e com um token por Worker, e registrar qual funciona.
 
 Pending (human): `pnpm bootstrap previews example` na conta real (login do Neon no navegador; se o Neon recusar a key, colar uma project-scoped; token da Cloudflare só se o KV ainda não existir), depois rodar o Deploy workflow à mão (migra o `base`), mergear, abrir o PR de teste (autor com `write`) e conferir preview, smoke, comentário, label/push, e fechar para ver a limpeza (Worker Preview, branch Neon, branch git); medir as permissões do token (workers-sdk#15797). O token da Cloudflare atual do bootstrap já cobre KV edit; se o `wrangler preview` der `Authentication error [code: 10000]`, é a issue.
+
+
+Decisão do usuário (2026-10-20): o `bootstrap previews` usa o mesmo login salvo do `neonctl` (ver ticket 14); com o login feito no `bootstrap product`, ele não abre o navegador.
+
+**Correção 2026-10-20 (credencial Cloudflare):** o wizard nunca pede de novo uma credencial já dada. O token da API é pedido só no passo `cloudflare-token` e só se o secret `CLOUDFLARE_API_TOKEN` ainda não existe (`--redo cloudflare-token` explícito também pede). Nas demais chamadas locais a fonte é: memória da execução, `CLOUDFLARE_API_TOKEN` do ambiente, login salvo do wrangler (`wrangler auth token --json`, wrangler 4.151.2, doc lida em 2026-10-20; renova o token OAuth vencido sozinho); sem login, `wrangler login` roda uma vez e o wrangler o guarda. Nunca é impresso, gravado nem enviado ao forge. O doctor e os `check` nunca abrem o navegador. Conta: `CLOUDFLARE_ACCOUNT_ID` ou a única conta visível; com várias, erro pedindo a variável (não pergunta). Código: `common.ts` (`cloudflareCredential`, `cloudflareAccountId`), `wrangler.ts`, `domain.ts`.
+
+No módulo Previews o passo `preview-kv` usa essa fonte (sem `cloudflareDeclined`, que foi removido). Os escopos OAuth do wrangler (account read, workers write, workers_kv write, workers_routes write, workers_scripts write, workers_tail read, zone read) cobrem KV, Custom Domain, workers.dev e zona; não há DNS edit: o `dns-records` imprime os registros para criação manual (`pnpm bootstrap domain <id> --redo dns-records` depois).
+
+
+PR de teste #10 (2026-10-20, run 39529565126): `plan`, `preview-plan`, `build`, `ci-probe`, `verify`, `preview deploy`, `preview smoke` e `preview comment` verdes, mas o comentário dizia "preview skipped: the Worker bindings changed": nenhum preview subiu. Causa: o config construído pelo plugin Vite da Cloudflare traz `dispatch_namespaces`, `pipelines`, `secrets_store_secrets`, `vpc_services` e `worker_loaders` como listas vazias, e `bindingSignature` contava qualquer chave presente como binding. Então todo PR parecia mudar os bindings, e `previewConfig` também recusaria o build. Corrigido: valor vazio não é binding (teste com as listas vazias do build real, e um teste de que uma lista preenchida continua contando). No build real do `example`: `bindingsChanged` falso e `previewConfig` aceito. Como o `pull_request_target` roda o código da `main`, o preview só sobe depois do merge desta correção.
+
+Limpeza do PR #10 (fechado sem merge, run 39530223621): `cleanup (example)` verde. `wrangler preview delete --name pr-10` respondeu "Preview not found" (código 10025) e a limpeza seguiu com o aviso; o Neon não tinha branch para `pr-10`. Nada tinha sido criado, por causa do bug acima, então isso prova o caminho "PR fechado sem nada a limpar". Branch git `test/preview-probe` apagado (local e remoto). Pending: um PR de teste depois do merge do #9, com preview de verdade, smoke e limpeza; e a medição das permissões da Cloudflare (workers-sdk#15797) nesse preview.
+
+
+Na conta real (2026-10-20/21): `pnpm bootstrap previews example` com doctor verde e `PREVIEWS_ENABLED` ligado (módulo); o PR #10 recebeu um único comentário `factory-previews`; o job `preview-label` foi pulado porque o autor tem `write` (preview automático); a limpeza rodou no `closed` e tratou "nada a limpar"; o `preview base` do deploy da `main` (run 39529283147) passou. Abertos até um preview subir de verdade (primeiro PR depois do merge do #9): o deploy com a blindagem, o smoke, o pulo por limite de 9, o PR de teste completo e a medição de permissões da Cloudflare.

@@ -1,6 +1,7 @@
+import { marked } from "../../marker.ts";
 import type {
   CodeHost,
-  EvidenceGroup,
+  EvidenceImage,
   PullRequest,
   PushResult,
   Review,
@@ -12,8 +13,8 @@ export interface FakePullRequest extends PullRequest {
   body: string;
   base: string;
   reviews: Review[];
-  /** The single evidence comment; `edits` counts how often it was rewritten. */
-  evidence: { groups: EvidenceGroup[]; edits: number } | null;
+  /** The images received with the last body write; their references are URLs in `body`. */
+  images: EvidenceImage[];
   threads: ReviewThread[];
   labels: string[];
   /** Comments left on the PR outside reviews (e.g. when it is closed). */
@@ -29,7 +30,11 @@ export class FakeCodeHost implements CodeHost {
   /** Every write, in order, e.g. `openDraftPr #101`. */
   readonly writes: string[] = [];
 
-  constructor(seed: { branches?: Record<string, string>; prs?: FakePullRequestSeed[] } = {}) {
+  /** Login the Factory writes as: author of its replies. */
+  readonly self: string;
+
+  constructor(seed: { branches?: Record<string, string>; prs?: FakePullRequestSeed[]; self?: string } = {}) {
+    this.self = seed.self ?? "factory";
     for (const [branch, sha] of Object.entries(seed.branches ?? {})) this.branches.set(branch, sha);
     for (const pr of seed.prs ?? []) this.add(pr);
   }
@@ -65,18 +70,31 @@ export class FakeCodeHost implements CodeHost {
     return pr ? { ...pr } : null;
   }
 
-  async openDraftPr(input: { branch: string; base: string; title: string; body: string }): Promise<PullRequest> {
+  async pullRequest(number: number): Promise<PullRequest | null> {
+    const pr = this.prs.find((p) => p.number === number);
+    return pr ? { ...pr } : null;
+  }
+
+  async commentPr(pr: number, body: string): Promise<void> {
+    this.pr(pr).comments.push(marked(body));
+    this.writes.push(`commentPr #${pr}`);
+  }
+
+  async openDraftPr(input: { branch: string; base: string; title: string; body: string; images?: EvidenceImage[] }): Promise<PullRequest> {
     const headSha = this.branches.get(input.branch);
     if (!headSha) throw new Error(`FakeCodeHost: branch ${input.branch} was never pushed`);
     const number = Math.max(100, ...this.prs.map((p) => p.number)) + 1;
-    const pr = fakePr({ number, headSha, draft: true, ...input });
+    const { images = [], ...rest } = input;
+    const pr = fakePr({ number, headSha, draft: true, ...rest, body: withUrls(marked(rest.body), number, images), images: structuredClone(images) });
     this.prs.push(pr);
     this.writes.push(`openDraftPr #${number}`);
     return { ...pr };
   }
 
-  async updatePrBody(pr: number, body: string): Promise<void> {
-    this.pr(pr).body = body;
+  async updatePrBody(pr: number, body: string, images: EvidenceImage[] = []): Promise<void> {
+    const target = this.pr(pr);
+    target.body = withUrls(marked(body), pr, images);
+    target.images = structuredClone(images);
     this.writes.push(`updatePrBody #${pr}`);
   }
 
@@ -87,7 +105,7 @@ export class FakeCodeHost implements CodeHost {
 
   async closePr(pr: number, comment?: string): Promise<void> {
     const target = this.pr(pr);
-    if (comment) target.comments.push(comment);
+    if (comment) target.comments.push(marked(comment));
     target.state = "closed";
     this.writes.push(`closePr #${pr}`);
   }
@@ -99,7 +117,7 @@ export class FakeCodeHost implements CodeHost {
   }
 
   async submitReview(pr: number, review: Review): Promise<void> {
-    this.pr(pr).reviews.push(structuredClone(review));
+    this.pr(pr).reviews.push(structuredClone({ ...review, body: marked(review.body), comments: review.comments.map((c) => ({ ...c, body: marked(c.body) })) }));
     this.writes.push(`submitReview #${pr}`);
   }
 
@@ -110,20 +128,19 @@ export class FakeCodeHost implements CodeHost {
   async replyToThread(pr: number, threadId: string, body: string): Promise<void> {
     const thread = this.pr(pr).threads.find((t) => t.id === threadId);
     if (!thread) throw new Error(`FakeCodeHost: no thread ${threadId} on PR #${pr}`);
-    thread.replies.push({ author: "factory", body });
+    thread.replies.push({ author: this.self, body: marked(body) });
     this.writes.push(`replyToThread #${pr} ${threadId}`);
-  }
-
-  async postEvidence(pr: number, groups: EvidenceGroup[]): Promise<void> {
-    const target = this.pr(pr);
-    target.evidence = { groups: structuredClone(groups), edits: (target.evidence?.edits ?? -1) + 1 };
-    this.writes.push(`postEvidence #${pr}`);
   }
 
   async dispatch(workflow: string, inputs: Record<string, string>): Promise<void> {
     this.dispatches.push({ workflow, inputs: { ...inputs } });
     this.writes.push(`dispatch ${workflow}`);
   }
+}
+
+/** Where the fake "uploads" a print. */
+function withUrls(body: string, pr: number, images: EvidenceImage[]): string {
+  return images.reduce((text, i) => text.replaceAll(i.path, `https://forge.test/pr/${pr}/images/${i.product}/${i.name}`), body);
 }
 
 export type FakePullRequestSeed = Pick<FakePullRequest, "number" | "branch"> & Partial<FakePullRequest>;
@@ -138,7 +155,7 @@ function fakePr(seed: FakePullRequestSeed): FakePullRequest {
     body: "",
     base: "main",
     reviews: [],
-    evidence: null,
+    images: [],
     threads: [],
     labels: [],
     comments: [],

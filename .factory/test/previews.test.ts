@@ -34,6 +34,12 @@ const exampleBuilt = {
   vars: { EMAIL_TRANSPORT: "resend" },
   secrets: { required: ["DATABASE_URL", "BETTER_AUTH_SECRET"] },
   configPath: "/home/runner/apps/example/wrangler.jsonc",
+  // The Cloudflare Vite plugin writes these empty in every build: they are no binding (seen on PR #10, 2026-10-20).
+  dispatch_namespaces: [],
+  pipelines: [],
+  secrets_store_secrets: [],
+  vpc_services: [],
+  worker_loaders: [],
 };
 
 describe("which Products get a preview", () => {
@@ -94,6 +100,12 @@ describe("the bindings of a PR against main", () => {
 
   it("are unchanged when the build only adds an id, a path or other settings", () => {
     expect(bindingsChanged(exampleBuilt, exampleSource)).toBe(false);
+  });
+
+  it("ignore the empty lists the Vite plugin writes, but a filled one is a binding", () => {
+    expect(bindingSignature(exampleBuilt)).toEqual(bindingSignature(exampleSource));
+    expect(bindingsChanged({ ...exampleBuilt, pipelines: [{ binding: "P", pipeline: "x" }] }, exampleSource)).toBe(true);
+    expect(bindingsChanged({ ...exampleBuilt, worker_loaders: [{ binding: "L" }] }, exampleSource)).toBe(true);
   });
 
   it("changed when the PR adds, drops or renames a binding of any kind", () => {

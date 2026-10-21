@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { labelSpecs } from "../../src/bootstrap/labels.ts";
-import { TOKEN, world } from "./helpers.ts";
+import { TOKEN, WRANGLER_TOKEN, world } from "./helpers.ts";
 
 // Seam 8 for the Previews module: every step against the fake GitHub, Cloudflare and Neon.
 const ENV = { CLOUDFLARE_API_TOKEN: TOKEN, CLOUDFLARE_ACCOUNT_ID: "acc-1" };
@@ -174,16 +174,28 @@ describe("pnpm bootstrap previews: Previews module", () => {
     });
   });
 
-  it("without a Cloudflare token the KV waits: a blank answer skips and is remembered, previews stay off", async () => {
-    const w = previewsWorld({ "cloudflare-token": "" }, {});
+  it("with no token in env or memory, the KV uses wrangler's saved login: zero Cloudflare prompts, the token is never shown", async () => {
+    const w = previewsWorld({}, {});
+    w.wrangler.saved = WRANGLER_TOKEN;
 
-    const { code, output } = await w.run("previews", "example");
+    const { code } = await w.run("previews", "example");
 
-    expect(code).toBe(1);
-    expect(w.cloudflare.kvNamespaces).toEqual([]);
-    expect(w.prompter.asked.filter((id) => id === "cloudflare-token")).toHaveLength(1);
-    expect(output).toMatch(/missing\s+EXAMPLE_PREVIEW_OAUTH_KV_ID/);
-    expect(w.github.variables.has("PREVIEWS_ENABLED")).toBe(false);
+    expect(code).toBe(0);
+    expect(w.cloudflare.kvNamespaces.map((ns) => ns.title)).toEqual(["example-preview-oauth"]);
+    expect(w.prompter.asked.filter((id) => id.startsWith("cloudflare"))).toEqual([]);
+    expect(w.wrangler.logins).toBe(0);
+    expect(JSON.stringify([w.lines, w.prompter.notes, w.prompter.printed, [...w.github.variables], [...w.github.secrets]])).not.toContain(WRANGLER_TOKEN);
+  });
+
+  it("with no wrangler login, logs in once, then makes the KV without any Cloudflare prompt", async () => {
+    const w = previewsWorld({}, {});
+
+    const { code } = await w.run("previews", "example");
+
+    expect(code).toBe(0);
+    expect(w.wrangler.logins).toBe(1);
+    expect(w.cloudflare.kvNamespaces).toHaveLength(1);
+    expect(w.prompter.asked.filter((id) => id.startsWith("cloudflare"))).toEqual([]);
   });
 
   it("reuses a KV namespace of that title instead of creating a second one", async () => {

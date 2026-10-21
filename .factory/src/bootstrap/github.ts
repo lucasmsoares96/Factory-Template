@@ -61,6 +61,22 @@ export class GhCli implements GitHubClient {
     await this.gh(["variable", "set", name, "--body", value]);
   }
 
+  async deleteSecret(name: string, options: { environment?: string } = {}): Promise<void> {
+    await this.gh(["secret", "delete", name, ...envFlag(options)]);
+  }
+
+  async deleteVariable(name: string): Promise<void> {
+    await this.gh(["variable", "delete", name]);
+  }
+
+  async deleteEnvironment(name: string): Promise<void> {
+    await this.gh(["api", "-X", "DELETE", `repos/{owner}/{repo}/environments/${encodeURIComponent(name)}`]);
+  }
+
+  async deleteRuleset(id: number): Promise<void> {
+    await this.gh(["api", "-X", "DELETE", `repos/{owner}/{repo}/rulesets/${id}`]);
+  }
+
   async listLabels(): Promise<LabelSpec[]> {
     const rows = JSON.parse(await this.gh(["label", "list", "--json", "name,color,description", "--limit", "500"])) as LabelSpec[];
     return rows.map(({ name, color, description }) => ({ name, color: color.toLowerCase(), description: description ?? "" }));

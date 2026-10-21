@@ -20,6 +20,7 @@ export const defaultConfig = {
     review: 30,
     e2e: 20,
     pullRequest: 15,
+    triage: 30,
     total: 330,
   },
   /**
@@ -49,8 +50,6 @@ export const defaultConfig = {
   maxAttempts: 5,
   /** Open previews per Product before "preview skipped: limit reached". */
   previewLimit: 9,
-  /** Login of the machine user that writes as the Factory. */
-  machineUser: "",
   baseBranch: "main",
   /** The issue branch is `<branchPrefix><N>`. */
   branchPrefix: "factory/issue-",
@@ -76,13 +75,12 @@ const nonEmpty = z.string().min(1);
 
 const configSchema = z.object({
   models: z.object({ development: nonEmpty, review: nonEmpty, triage: nonEmpty, pullRequest: nonEmpty }),
-  timeouts: z.object({ development: positiveInt, review: positiveInt, e2e: positiveInt, pullRequest: positiveInt, total: positiveInt }),
+  timeouts: z.object({ development: positiveInt, review: positiveInt, e2e: positiveInt, pullRequest: positiveInt, triage: positiveInt, total: positiveInt }),
   pricing: z.object({ inputPerMTok: z.coerce.number().nonnegative(), outputPerMTok: z.coerce.number().nonnegative() }),
   claudeCode: z.object({ version: z.string().regex(/^\d+\.\d+\.\d+$/) }),
   image: z.object({ name: z.string() }),
   maxAttempts: positiveInt,
   previewLimit: positiveInt,
-  machineUser: z.string(),
   baseBranch: nonEmpty,
   branchPrefix: nonEmpty,
   evidenceDir: nonEmpty,

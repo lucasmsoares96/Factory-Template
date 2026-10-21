@@ -75,7 +75,7 @@ export const resultSchema = z.object({
   question: z.string().nullable(),
   attempts: z.array(z.object({ number: z.number().int().positive(), stages: z.array(stageRecordSchema) })),
   review: reviewSchema,
-  threadReplies: z.array(z.object({ threadId: z.string().min(1), body: z.string().min(1) })),
+  threadReplies: z.array(z.object({ threadId: z.string().min(1), decision: z.enum(["address", "decline", "defer", "answer"]).default("address"), body: z.string().min(1) })),
   usage: z.object({
     development: usageSchema,
     review: usageSchema,

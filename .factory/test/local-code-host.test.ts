@@ -90,27 +90,29 @@ describe("local CodeHost", () => {
     expect(review?.body).toContain("- `src/greet.ts:1` Name the greeting.");
   });
 
-  it("copies the prints into the evidence folder and keeps one evidence comment, edited on each round", async () => {
+  it("copies the prints next to the local PR and writes the body with relative references, on open and on rewrite", async () => {
     const { host, from, codeHost, read } = await setup();
     await git(from, "push", "--quiet", "origin", "HEAD:refs/heads/factory/issue-7");
-    await codeHost.openDraftPr({ branch: "factory/issue-7", base: "main", title: "t", body: "b" });
     const prints = await tempDir("factory-prints-");
     await writeFile(join(prints, "home.png"), "png:home");
     await writeFile(join(prints, "login.png"), "png:login");
+    const home = { product: "example", name: "home.png", path: join(prints, "home.png") };
+    const login = { product: "other", name: "login.png", path: join(prints, "login.png") };
 
-    await codeHost.postEvidence(7, [{ product: "example", images: [{ name: "home.png", path: join(prints, "home.png") }] }]);
-    await codeHost.postEvidence(7, [
-      { product: "example", images: [{ name: "home.png", path: join(prints, "home.png") }] },
-      { product: "other", images: [{ name: "login.png", path: join(prints, "login.png") }] },
-    ]);
+    await codeHost.openDraftPr({ branch: "factory/issue-7", base: "main", title: "t", body: `## Evidence\n\n![home](${home.path})`, images: [home] });
+    const opened = await read();
+    expect(opened).toContain("![home](../evidence/07/example/home.png)");
+    expect(opened).not.toContain(prints);
+
+    await codeHost.updatePrBody(7, `## Evidence\n\n![home](${home.path})\n\n![login](${login.path})`, [home, login]);
 
     const evidence = join(host, ".scratch/greetings/evidence/07");
     expect(await readFile(join(evidence, "example/home.png"), "utf8")).toBe("png:home");
     expect(await readFile(join(evidence, "other/login.png"), "utf8")).toBe("png:login");
     const text = await read();
-    expect(text.match(/factory:evidence/g)).toHaveLength(1);
-    expect(text).toContain("![home.png](../evidence/07/example/home.png)");
-    expect(text).toContain("### other");
+    expect(text).toContain("![login](../evidence/07/other/login.png)");
+    expect(text).not.toContain(prints);
+    expect(text).not.toContain("factory:evidence");
   });
 
   it("has no review threads and cannot dispatch workflows", async () => {

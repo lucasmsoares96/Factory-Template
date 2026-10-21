@@ -32,4 +32,20 @@ export class Git {
   async log(from: string, to: string): Promise<string> {
     return (await this.run("log", "--format=%h %s", `${from}..${to}`)).trim();
   }
+
+  /**
+   * Files that conflict when `b` is merged into `a` (`git merge-tree --write-tree`, nothing touches the working
+   * tree); empty when the merge is clean.
+   */
+  async mergeConflicts(a: string, b: string): Promise<string[]> {
+    try {
+      await this.run("merge-tree", "--write-tree", "--name-only", "--no-messages", a, b);
+      return [];
+    } catch (error) {
+      const failure = error as { code?: number; stdout?: string };
+      if (failure.code !== 1) throw error;
+      const files = (failure.stdout ?? "").split("\n").slice(1).map((l) => l.trim()).filter(Boolean);
+      return [...new Set(files.filter((l) => !/^(CONFLICT|Auto-merging)\b/.test(l)))];
+    }
+  }
 }

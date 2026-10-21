@@ -52,6 +52,10 @@ export class ResendApi implements ResendClient {
     await this.call("POST", `/domains/${id}/verify`);
   }
 
+  async deleteDomain(id: string): Promise<void> {
+    await this.call("DELETE", `/domains/${encodeURIComponent(id)}`);
+  }
+
   async createRestrictedKey(input: { name: string; domainId: string }): Promise<string> {
     return apiKey.parse(await this.call("POST", "/api-keys", { name: input.name, permission: "sending_access", domain_id: input.domainId })).token;
   }

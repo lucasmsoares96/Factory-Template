@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { labelSpecs } from "../../src/bootstrap/labels.ts";
-import { TOKEN, world } from "./helpers.ts";
+import { TOKEN, WRANGLER_TOKEN, world } from "./helpers.ts";
 
 const ENV = { CLOUDFLARE_API_TOKEN: TOKEN, CLOUDFLARE_ACCOUNT_ID: "acc-1", RESEND_API_KEY: "re-full" };
 
@@ -100,13 +100,52 @@ describe("pnpm bootstrap domain: resend-domain", () => {
     expect(output).toContain("Resend deferred");
   });
 
-  it("a blank Cloudflare token is asked once, says why, and skips what needs it", async () => {
-    const w = domainWorld({ "cloudflare-token": "" }, { RESEND_API_KEY: "re-full" });
+  it("with no token in env or memory, uses wrangler's saved login: zero Cloudflare prompts, the token is never shown", async () => {
+    const w = domainWorld({}, { RESEND_API_KEY: "re-full" });
+    w.wrangler.saved = WRANGLER_TOKEN;
+    w.cloudflare.zones.push({ id: "zone-1", name: "example.com" });
+    w.cloudflare.workers.add("example");
+
+    const { code } = await w.run("domain", "example");
+
+    expect(code).toBe(0);
+    expect(w.prompter.asked).not.toContain("cloudflare-token");
+    expect(w.prompter.asked).not.toContain("cloudflare-account");
+    expect(w.wrangler.logins).toBe(0);
+    expect(w.cloudflare.workerDomains.map((d) => d.hostname)).toEqual(["example.com"]);
+    expect(JSON.stringify([w.lines, w.prompter.notes, w.prompter.printed, w.prompter.asked, [...w.github.secrets], w.github.variables.size, w.github.secretWrites])).not.toContain(WRANGLER_TOKEN);
+  });
+
+  it("with no wrangler login, logs in once and goes on without asking for a token", async () => {
+    const w = domainWorld({}, { RESEND_API_KEY: "re-full" });
+    w.cloudflare.zones.push({ id: "zone-1", name: "example.com" });
+    w.cloudflare.workers.add("example");
+
+    const { code, output } = await w.run("domain", "example");
+
+    expect(code).toBe(0);
+    expect(w.wrangler.logins).toBe(1);
+    expect(w.prompter.asked).not.toContain("cloudflare-token");
+    expect(output).toContain("wrangler opens your browser");
+    expect(w.cloudflare.workerDomains).toHaveLength(1);
+  });
+
+  it("when the login cannot create DNS records, prints each record on one unwrapped line and asks nothing", async () => {
+    const w = domainWorld({}, { RESEND_API_KEY: "re-full" });
+    w.wrangler.saved = WRANGLER_TOKEN;
+    w.cloudflare.zones.push({ id: "zone-1", name: "example.com" });
+    w.cloudflare.deny(WRANGLER_TOKEN, "dns");
 
     const { output } = await w.run("domain", "example");
 
-    expect(w.prompter.asked.filter((id) => id === "cloudflare-token")).toHaveLength(1);
-    expect(output).toContain("No Cloudflare token given");
+    expect(w.cloudflare.created).toEqual([]);
+    expect(w.prompter.asked).not.toContain("cloudflare-token");
+    expect(output).toContain("cannot edit DNS");
+    expect(output).toContain("dns-records: NOT done");
+    for (const record of w.resend.domains[0]!.records) {
+      expect(output.split("\n")).toContain([record.type, record.name || "@", record.value, ...(record.priority === undefined ? [] : [`priority ${record.priority}`])].join("  "));
+    }
+    expect(w.prompter.notes).toEqual([]);
   });
 
   it("redoes a step by name and refuses unknown ones", async () => {

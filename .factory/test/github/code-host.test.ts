@@ -1,0 +1,254 @@
+import { readFile } from "node:fs/promises";
+import { describe, expect, it } from "vitest";
+import { GitHubCodeHost, childEnv, type GitRunner } from "../../src/adapters/github/github-code-host.ts";
+import { marked } from "../../src/marker.ts";
+import { FakeGitHubServer } from "./fake-github.ts";
+// Imported statically: helpers.ts registers the afterEach that removes temp dirs, which a dynamic import inside a test misses.
+import { git, tempDir } from "../helpers.ts";
+
+const R = "/repos/o/r";
+const pr = (n: number, extra: Record<string, unknown> = {}) => ({
+  number: n, html_url: `https://github.com/o/r/pull/${n}`, state: "open", draft: true, node_id: `PR_${n}`,
+  head: { ref: "factory/issue-7", sha: "a".repeat(40) }, ...extra,
+});
+
+function host(server: FakeGitHubServer, extra: { git?: GitRunner; gh?: (args: string[], env: Record<string, string>) => Promise<void> } = {}) {
+  return new GitHubCodeHost({
+    repo: "o/r", token: "tok-123", fetch: server.fetch, baseBranch: "main", cwd: "/work",
+    git: extra.git ?? (async () => ({ code: 0, stderr: "" })),
+    gh: extra.gh ?? (async () => {}),
+  });
+}
+
+describe("GitHubCodeHost", () => {
+  it("reads the head of a branch, null when it does not exist", async () => {
+    const s = new FakeGitHubServer();
+    s.on("GET", `${R}/git/ref/heads/factory/issue-7`, () => ({ json: { object: { sha: "b".repeat(40) } } }));
+
+    expect(await host(s).branchHead("factory/issue-7")).toBe("b".repeat(40));
+    expect(await host(s).branchHead("factory/issue-8")).toBeNull();
+  });
+
+  it("encodes each segment of the branch in the ref URL, keeping the slashes", async () => {
+    const s = new FakeGitHubServer();
+    s.on("GET", `${R}/git/ref/heads/a%20b/c%23d%3Fe`, () => ({ json: { object: { sha: "c".repeat(40) } } }));
+
+    expect(await host(s).branchHead("a b/c#d?e")).toBe("c".repeat(40));
+    expect(s.calls[0]!.path).toBe(`${R}/git/ref/heads/a%20b/c%23d%3Fe`);
+  });
+
+  it("gives git and gh an allowlisted environment: the parent's secrets are not inherited", () => {
+    const parent = { PATH: "/bin", HOME: "/h", FACTORY_TOKEN: "secret", CLAUDE_CODE_OAUTH_TOKEN: "oauth", GH_TOKEN: "ambient", NODE_OPTIONS: "--x" };
+    expect(childEnv(parent, {})).toEqual({ PATH: "/bin", HOME: "/h" });
+    expect(childEnv(parent, { GH_TOKEN: "tok" })).toEqual({ PATH: "/bin", HOME: "/h", GH_TOKEN: "tok" });
+  });
+
+  it("pushes with a lease against the start SHA, the token only in the environment", async () => {
+    const seen: { args: string[]; env: Record<string, string>; cwd: string }[] = [];
+    const git: GitRunner = async (args, options) => (seen.push({ args, ...options }), { code: 0, stderr: "" });
+    const s = new FakeGitHubServer();
+
+    const out = await host(s, { git }).push({ branch: "factory/issue-7", sha: "c".repeat(40), expectedSha: "b".repeat(40) });
+
+    expect(out).toEqual({ ok: true });
+    expect(seen[0]!.args).toEqual([
+      "push", `--force-with-lease=refs/heads/factory/issue-7:${"b".repeat(40)}`, "https://github.com/o/r.git", `${"c".repeat(40)}:refs/heads/factory/issue-7`,
+    ]);
+    expect(seen[0]!.cwd).toBe("/work");
+    expect(JSON.stringify(seen[0]!.args)).not.toContain("tok-123");
+    expect(Object.values(seen[0]!.env).join("\n")).toContain(Buffer.from("x-access-token:tok-123").toString("base64"));
+  });
+
+  it("a branch that must not exist is leased against nothing", async () => {
+    const seen: string[][] = [];
+    const git: GitRunner = async (args) => (seen.push(args), { code: 0, stderr: "" });
+
+    await host(new FakeGitHubServer(), { git }).push({ branch: "factory/issue-7", sha: "c".repeat(40), expectedSha: null });
+
+    expect(seen[0]![1]).toBe("--force-with-lease=refs/heads/factory/issue-7:");
+  });
+
+  it("a rejected lease is branch-moved; any other failure throws without the token", async () => {
+    const stale: GitRunner = async () => ({ code: 1, stderr: " ! [rejected] x -> y (stale info)" });
+    const broken: GitRunner = async () => ({ code: 128, stderr: "fatal: could not read from https://x-access-token:tok-123@github.com" });
+    const input = { branch: "factory/issue-7", sha: "c".repeat(40), expectedSha: null };
+
+    expect(await host(new FakeGitHubServer(), { git: stale }).push(input)).toEqual({ ok: false, reason: "branch-moved" });
+    const error = await host(new FakeGitHubServer(), { git: broken }).push(input).catch((e: Error) => e);
+    expect((error as Error).message).toContain("git push failed");
+    expect((error as Error).message).not.toContain("tok-123");
+  });
+
+  it("finds the open pull request of a branch and opens a draft", async () => {
+    const s = new FakeGitHubServer();
+    s.on("GET", `${R}/pulls`, ({ query }) => ({ json: query.get("head") === "o:factory/issue-7" && query.get("state") === "open" ? [pr(3)] : [] }));
+    s.on("POST", `${R}/pulls`, ({ body }) => ({ status: 201, json: pr(4, { echo: body }) }));
+    const h = host(s);
+
+    expect(await h.openPrFor("factory/issue-7")).toEqual({ number: 3, url: "https://github.com/o/r/pull/3", branch: "factory/issue-7", headSha: "a".repeat(40), state: "open", draft: true });
+    expect(await h.openPrFor("factory/issue-9")).toBeNull();
+    await h.openDraftPr({ branch: "factory/issue-7", base: "main", title: "Fix #7: x", body: "B" });
+    expect(s.calls.at(-1)!.body).toEqual({ head: "factory/issue-7", base: "main", title: "Fix #7: x", body: marked("B"), draft: true });
+  });
+
+  it("marks ready through GraphQL (REST has no endpoint), updates the body, labels and closes with a comment first", async () => {
+    const s = new FakeGitHubServer();
+    s.on("GET", `${R}/pulls/4`, () => ({ json: pr(4) }));
+    s.on("POST", "/graphql", ({ body }) => ({ json: { data: { echo: body.variables } } }));
+    s.on("PATCH", `${R}/pulls/4`, () => ({ json: pr(4) }));
+    s.on("POST", `${R}/issues/4/comments`, () => ({ status: 201, json: {} }));
+    s.on("POST", `${R}/issues/4/labels`, () => ({ json: [] }));
+    const h = host(s);
+
+    await h.markReady(4);
+    await h.updatePrBody(4, "new body");
+    await h.labelPr(4, "harness-change");
+    await h.closePr(4, "Superseded");
+
+    expect(s.calls.find((c) => c.path === "/graphql")!.body).toMatchObject({ variables: { id: "PR_4" } });
+    expect(s.writes()).toEqual([
+      "POST /graphql", `PATCH ${R}/pulls/4`, `POST ${R}/issues/4/labels`, `POST ${R}/issues/4/comments`, `PATCH ${R}/pulls/4`,
+    ]);
+    expect(s.calls.at(-1)!.body).toEqual({ state: "closed" });
+  });
+
+  it("a GraphQL error fails markReady", async () => {
+    const s = new FakeGitHubServer();
+    s.on("GET", `${R}/pulls/4`, () => ({ json: pr(4) }));
+    s.on("POST", "/graphql", () => ({ json: { errors: [{ message: "nope" }] } }));
+
+    await expect(host(s).markReady(4)).rejects.toThrow("nope");
+  });
+
+  it("submits a COMMENT review with inline comments on the new side", async () => {
+    const s = new FakeGitHubServer();
+    s.on("POST", `${R}/pulls/4/reviews`, () => ({ json: {} }));
+
+    await host(s).submitReview(4, { event: "COMMENT", body: "Looks fine", comments: [{ path: "a.ts", line: 3, body: "hm" }] });
+
+    expect(s.calls[0]!.body).toEqual({ event: "COMMENT", body: marked("Looks fine"), comments: [{ path: "a.ts", line: 3, side: "RIGHT", body: marked("hm") }] });
+  });
+
+  it("reads a pull request by number (null when missing) and comments on it as an issue comment", async () => {
+    const s = new FakeGitHubServer();
+    s.on("GET", `${R}/pulls/4`, () => ({ json: pr(4, { draft: false }) }));
+    s.on("POST", `${R}/issues/4/comments`, () => ({ status: 201, json: {} }));
+    const h = host(s);
+
+    expect(await h.pullRequest(4)).toMatchObject({ number: 4, branch: "factory/issue-7", draft: false, state: "open" });
+    expect(await h.pullRequest(5)).toBeNull();
+    await h.commentPr(4, "stopped");
+    expect(s.calls.at(-1)!.body).toEqual({ body: marked("stopped") });
+  });
+
+  it("groups review comments into threads by their root and replies to a thread", async () => {
+    const s = new FakeGitHubServer();
+    s.on("GET", `${R}/pulls/4/comments`, () => ({
+      json: [
+        { id: 10, path: "a.ts", body: "root", user: { login: "alice" } },
+        { id: 11, path: "a.ts", body: "reply", user: { login: "bob" }, in_reply_to_id: 10 },
+      ],
+    }));
+    s.on("POST", `${R}/pulls/4/comments/10/replies`, () => ({ status: 201, json: {} }));
+    const h = host(s);
+
+    expect(await h.threads(4)).toEqual([{ id: "10", path: "a.ts", author: "alice", body: "root", replies: [{ author: "bob", body: "reply" }] }]);
+    await h.replyToThread(4, "10", "done");
+    expect(s.calls.at(-1)!.body).toEqual({ body: marked("done") });
+  });
+
+  describe("body with the evidence images", () => {
+    const img = { product: "example", name: "home.png", path: "/tmp/out/evidence/example/home.png" };
+    const body = `## Evidence\n\n![home](${img.path})`;
+
+    /** A gh runner that records the args, the env and the body file as gh would read it. */
+    const recorder = (fail?: Error) => {
+      const calls: { args: string[]; env: Record<string, string>; file: string }[] = [];
+      const gh = async (args: string[], env: Record<string, string>) => {
+        calls.push({ args, env, file: await readFile(args[args.indexOf("--body-file") + 1]!, "utf8") });
+        if (fail) throw fail;
+      };
+      return { calls, gh };
+    };
+
+    it("opens the draft over REST and has gh edit the body with each print attached, the token only in its env", async () => {
+      const s = new FakeGitHubServer();
+      s.on("POST", `${R}/pulls`, () => ({ status: 201, json: pr(4) }));
+      const r = recorder();
+
+      await host(s, { gh: r.gh }).openDraftPr({ branch: "factory/issue-7", base: "main", title: "t", body, images: [img] });
+
+      expect(r.calls).toHaveLength(1);
+      expect(r.calls[0]!.args.slice(0, 5)).toEqual(["pr", "edit", "4", "--repo", "o/r"]);
+      expect(r.calls[0]!.args.filter((a, i, all) => all[i - 1] === "--attach")).toEqual([img.path]);
+      expect(r.calls[0]!.file).toBe(marked(body));
+      expect(r.calls[0]!.env).toMatchObject({ GH_TOKEN: "tok-123" });
+      expect(JSON.stringify(r.calls[0]!.args)).not.toContain("tok-123");
+    });
+
+    it("rewrites the body of an open PR the same way", async () => {
+      const s = new FakeGitHubServer();
+      const r = recorder();
+
+      await host(s, { gh: r.gh }).updatePrBody(4, body, [img]);
+
+      expect(r.calls[0]!.args.slice(0, 3)).toEqual(["pr", "edit", "4"]);
+      expect(s.writes()).toEqual([]);
+    });
+
+    it("uses plain REST and no gh when the body has no images", async () => {
+      const s = new FakeGitHubServer();
+      s.on("PATCH", `${R}/pulls/4`, () => ({ json: pr(4) }));
+      const r = recorder();
+
+      await host(s, { gh: r.gh }).updatePrBody(4, "just text");
+
+      expect(r.calls).toEqual([]);
+      expect(s.calls[0]!.body).toEqual({ body: marked("just text") });
+    });
+
+    it("keeps the delivery when gh cannot attach: the body is written with the prints named instead of linked", async () => {
+      const s = new FakeGitHubServer();
+      s.on("PATCH", `${R}/pulls/4`, () => ({ json: pr(4) }));
+      const r = recorder(new Error("unknown flag: --attach"));
+
+      await host(s, { gh: r.gh }).updatePrBody(4, body, [img]);
+
+      const written = String((s.calls.at(-1)!.body as { body: string }).body);
+      expect(written).not.toContain("/tmp/out");
+      expect(written).toMatch(/## Evidence[\s\S]*home\.png[\s\S]*could not be attached[\s\S]*unknown flag/);
+    });
+  });
+
+  it("dispatches a Factory workflow on the base branch", async () => {
+    const s = new FakeGitHubServer();
+    s.on("POST", `${R}/actions/workflows/factory-issue.yml/dispatches`, () => ({ status: 204 }));
+
+    await host(s).dispatch("issue", { issue: "7" });
+
+    expect(s.calls[0]!.body).toEqual({ ref: "main", inputs: { issue: "7" } });
+  });
+});
+
+describe("GitHubCodeHost.push with the real git", () => {
+  it("leases against the start SHA: a moved branch is branch-moved, an absent one needs null", async () => {
+    const root = await tempDir();
+    const bare = `${root}/bare.git`;
+    const work = `${root}/work`;
+    await git(root, "init", "--quiet", "--bare", "--initial-branch=main", bare);
+    await git(root, "init", "--quiet", "--initial-branch=main", work);
+    await git(work, "config", "user.email", "t@t");
+    await git(work, "config", "user.name", "t");
+    await git(work, "commit", "--quiet", "--allow-empty", "-m", "one");
+    const one = await git(work, "rev-parse", "HEAD");
+    await git(work, "commit", "--quiet", "--allow-empty", "-m", "two");
+    const two = await git(work, "rev-parse", "HEAD");
+    const h = new GitHubCodeHost({ repo: "o/r", token: "tok", fetch: new FakeGitHubServer().fetch, baseBranch: "main", cwd: work, remoteUrl: bare });
+
+    expect(await h.push({ branch: "factory/issue-7", sha: one, expectedSha: null })).toEqual({ ok: true });
+    expect(await h.push({ branch: "factory/issue-7", sha: two, expectedSha: null })).toEqual({ ok: false, reason: "branch-moved" });
+    expect(await h.push({ branch: "factory/issue-7", sha: two, expectedSha: two })).toEqual({ ok: false, reason: "branch-moved" });
+    expect(await h.push({ branch: "factory/issue-7", sha: two, expectedSha: one })).toEqual({ ok: true });
+    expect(await git(bare, "rev-parse", "factory/issue-7")).toBe(two);
+  });
+});

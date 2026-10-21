@@ -6,7 +6,7 @@ Spec: [../spec.md](../spec.md)
 
 **Blocked by:** 01. Fecha antes do [ticket 21 da base](../../factory-base/issues/21-base-ready-adrs.md).
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] Stage `pull-request` depois do loop Development → Review → E2E, uma vez, quando houver commits; também na Escalation (`e2e-failures`, `needs-human`, `time` se sobrar tempo). Não roda sem commits, em `infra` nem com o limite global esgotado.
 - [x] Não conta para o limite de tentativas; aparece numa linha própria no histórico do run e no resumo do job.
@@ -21,14 +21,14 @@ Spec: [../spec.md](../spec.md)
 - [x] Testes pela CLI contra os falsos: Stage depois do E2E verde; na Escalation com commits; ausente sem commits, em `infra`, com o tempo esgotado e por caminho protegido; ordem do corpo; corpo mínimo e motivo quando o Stage falha ou estoura o timeout; commit descartado; fora das tentativas; tokens no rodapé e no resumo; corpo reescrito ao continuar um PR (seam 1).
 - [x] Teste de configuração: timeout e modelo do Stage na config e nas variáveis (seam 2).
 - [x] Critério medido e registrado aqui: run local com o Claude real em que o Pull Request Stage escreve o corpo com a skill `pr` e uma retomada de extração funciona no adaptador do Sandcastle.
-- [ ] `pnpm factory:verify` verde.
+- [x] `pnpm factory:verify` verde.
 
 ## Comments
 
 - Implementado por testes pela CLI contra os falsos (`pull-request-stage.test.ts`, `pull-request-body.test.ts`) mais ajustes em `prompts`, `local`, `local-code-host` e `work`. Rodei só os arquivos tocados e os afetados com vitest e o `typecheck`; o `pnpm factory:verify` completo fica para o orquestrador no merge.
 - Decisões: `result.json` ganha `pullRequestBody`, `pullRequestStage` (`ok|failed|timeout|skipped`, com `reason`) e `usage.pullRequest` (todos com default, então resultados antigos continuam válidos). `skipped` registra o run com commits e sem tempo global. Uma exceção da sessão também vira Stage `failed`, nunca derruba o run. O `CodeHost` ganha `updatePrBody` (fake e local) para reescrever o corpo ao continuar um PR; se o Stage falhar nesse caso o corpo antigo fica. O `publish` descarta do texto do agente qualquer `Closes/Fixes/Resolves #N`.
 - Config nova: `models.pullRequest` (`FACTORY_MODELS_PULL_REQUEST`) e `timeouts.pullRequest` = 15 min (`FACTORY_TIMEOUTS_PULL_REQUEST`).
-- Pending (human/orquestrador): critério medido (run local com o Claude real em que o Pull Request Stage escreve o corpo com a skill `pr` e uma retomada de extração funciona no adaptador do Sandcastle) e `pnpm factory:verify` verde. Por isso o Status segue `ready-for-agent`.
+- ~~Pending (human/orquestrador): critério medido e `pnpm factory:verify` verde.~~ Resolvido em 2026-10-20/21: ver a medição abaixo; `factory:verify` verde na `factory-base` e no CI do PR #9.
 
 
 Medido com Claude real (2026-10-20, `pnpm factory local`, Opus 5.5):
@@ -39,3 +39,7 @@ Medido com Claude real (2026-10-20, `pnpm factory local`, Opus 5.5):
 
 
 Merge (2026-10-20): mesmo caso do ticket 24 da base: o `verify` completo fica com o CI do PR.
+
+
+Verify (2026-10-21): verde no CI do PR #4 e nos `verify` completos locais desde então.
+- Decisão (2026-10-21, orquestrador): `Status: done` com a retomada de extração provada só pelo teste do adaptador com `claude` falso, porque o Claude real entregou o bloco na primeira resposta e não há como forçar o contrário. Se aparecer uma retomada num run real, registrar aqui.

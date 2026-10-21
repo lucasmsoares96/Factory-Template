@@ -73,3 +73,13 @@ Medido na conta (Cloudflare GraphQL Analytics, `workersInvocationsAdaptive`, scr
 - Não medido em separado: o CPU por request só do `/mcp` e o CPU do `PasswordHasher` (as consultas `durableObjectsInvocationsAdaptiveGroups` e `durableObjectsPeriodicGroups` voltaram vazias, sem erro); o 429 do rate limit por IP; as cotas do `RateLimiter`; o CPU do render do email (Resend adiado, outbox). Esses ficam abertos.
 
 Decisão (2026-10-20): o deploy de um push continua só com os Products afetados. O primeiro deploy de um Product é disparado à mão uma vez (Actions → Deploy → Run workflow, ou `gh workflow run factory-deploy.yml --ref main`), e o `bootstrap product` termina dizendo isso. Alternativas descartadas por gerar estado ou exigir token de escrita no deploy: variável `<ID>_DEPLOYED_SHA` gravada pelo deploy, `FORCE_DEPLOY`, label no PR de `new-product`, todo merge publicar todos os Products. O doctor no fim do `bootstrap product` agora mostra o `DEPLOY_ENABLED` já ligado (antes era lido antes de ligar).
+
+
+Decisão do usuário (2026-10-20): o login do `neonctl` fica salvo na pasta padrão do CLI (`~/.config/neonctl`), como em qualquer CLI. O wizard só abre o navegador quando `neonctl me` mostra que não há login salvo, então uma vez por máquina, e nunca faz logout. Substitui a pasta temporária com logout no fim, que fazia o usuário logar de novo a cada comando.
+
+Medições na conta (2026-10-20, ~23:00 UTC, produção `example`):
+- 429 por IP atrás da Cloudflare: 5 logins seguidos num email inexistente deram 401, 401, 401, 429, 429; depois de 11 s, 401 de novo (janela de 3 por 10 s, por `cf-connecting-ip`). Nenhuma conta criada nem bloqueada. A 6ª requisição, já em outra janela, voltou sem `Retry-After`.
+- `RateLimiter` (Durable Object, namespace `ee77e730…`): 15 chamadas, 10.347 µs de CPU no total, ~0,7 ms por chamada, 0 erros. As linhas no SQLite do DO ficam nas cotas do Free com folga nesse volume.
+- `PasswordHasher` (Durable Object, namespace `1e90b850…`): 7 chamadas, 785.807 µs de CPU no total, ~112 ms de CPU por hash (scrypt), wall time p50 202 ms, 0 erros. Roda no orçamento do DO, não no do request do Worker; login real sem `exceededCpu` confirmado pelo smoke.
+- Worker (todas as rotas, 6 h): 39 requests, 0 erros, CPU p50 21,2 ms, p90 76,4 ms, p99 115,8 ms. Acima dos 10 ms por request do Workers Free já na mediana, sem nenhum erro nem `exceededCpu` até aqui; a observar quando houver tráfego.
+- Não medido: o CPU por request só do `/mcp` (a analytics do Workers não agrupa por caminho) e o CPU do render do email (Resend adiado). A resposta da API num repo privado no Free continua pendente da permissão `delete_repo` do `gh`.
