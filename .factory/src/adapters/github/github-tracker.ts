@@ -82,6 +82,10 @@ export class GitHubTracker implements Tracker {
     await this.api.send("POST", this.api.repoPath(`/issues/${number}/labels`), { labels: [label] });
   }
 
+  async removeLabel(number: number, label: string): Promise<void> {
+    await this.api.request("DELETE", `${this.api.repoPath(`/issues/${number}/labels`)}/${encodeURIComponent(label)}`, z.unknown(), { allow404: true });
+  }
+
   async comment(number: number, body: string): Promise<void> {
     await this.api.send("POST", this.api.repoPath(`/issues/${number}/comments`), { body: marked(body) });
   }

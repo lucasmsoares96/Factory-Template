@@ -47,6 +47,11 @@ export const inlineCommentSchema = z.object({
 export const reviewSchema = z.object({
   summary: z.string(),
   inline: z.array(inlineCommentSchema),
+  /**
+   * Product run with a "The Skeleton must grow" follow-up: the Review says every acceptance criterion is met without
+   * the Skeleton change. Only this makes the run `ready`. `.default(false)`: old results stay valid.
+   */
+  criteriaMetWithoutSkeleton: z.boolean().default(false),
 });
 
 export const evidenceSchema = z.object({

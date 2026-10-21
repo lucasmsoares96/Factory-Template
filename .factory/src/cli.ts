@@ -49,7 +49,7 @@ Commands:
                                          ones given); writes triage.json. Changes nothing on the forge.
   apply --in <dir> [--repo <dir>]        Apply triage.json: the marked comment, then agent:explore → ready-for-agent
                                          (easy-call), ready-for-human (needs-a-human) or needs-info (blocked); adds product:<id>.
-  unblock                                Sweep the ready-for-agent issues and start the ones whose blockers are all done.
+  unblock [--issue N]                    Drop in-progress from the closed issue N, then sweep the ready-for-agent issues and start the ones whose blockers are all done.
   notify <issue> --outcome ready|escalated [--updated] [--url <url>] [--to <login>]
                                          The Merge Gate notice: a short comment on the issue that mentions <login> and
                                          links the PR. Run with the job's GITHUB_TOKEN, not FACTORY_TOKEN.
@@ -81,6 +81,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
       "run-url": { type: "string" },
       pr: { type: "string" },
       issues: { type: "string" },
+      issue: { type: "string" },
       actor: { type: "string" },
       flow: { type: "string" },
       scan: { type: "boolean" },
@@ -186,7 +187,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
       return 0;
     }
     case "unblock": {
-      const result = await unblock(ctx);
+      const result = await unblock(ctx, { closed: values.issue ? parseIssue(values.issue) : undefined });
       deps.log(JSON.stringify(result));
       return result.failed.length > 0 ? 1 : 0;
     }

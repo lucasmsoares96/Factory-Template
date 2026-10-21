@@ -75,4 +75,43 @@ describe("factory unblock", () => {
     expect(w.codeHost.dispatches.map((d) => d.inputs.issue)).toEqual(["12"]);
     expect(lastJson(w.logs)).toMatchObject({ dispatched: [12], failed: [10] });
   });
+
+  describe("--issue <N> (the issue that closed)", () => {
+    const world2 = (state: "open" | "closed") =>
+      world({
+        issues: [
+          { number: 1, body: SPEC_BODY },
+          { number: 12, body: ISSUE_BODY, parent: 1, state, labels: { "in-progress": HUMAN, "product:example": HUMAN } },
+          { number: 13, body: ISSUE_BODY, parent: 1, labels: ready },
+        ],
+      });
+
+    it("removes in-progress from a closed issue, keeps its other labels, then sweeps", async () => {
+      const w = world2("closed");
+
+      expect(await w.factory("unblock", "--issue", "12")).toBe(0);
+
+      expect(w.tracker.labelsOf(12)).toEqual(["product:example"]);
+      expect(w.codeHost.dispatches).toEqual([{ workflow: "issue", inputs: { issue: "13" } }]);
+      expect(lastJson(w.logs)).toMatchObject({ released: [12], dispatched: [13] });
+    });
+
+    it("never touches an issue that is still open, whatever the event said", async () => {
+      const w = world2("open");
+
+      await w.factory("unblock", "--issue", "12");
+
+      expect(w.tracker.labelsOf(12)).toContain("in-progress");
+      expect(lastJson(w.logs)).toMatchObject({ released: [] });
+    });
+
+    it("is a no-op for a closed issue without the label", async () => {
+      const w = world2("closed");
+      await w.tracker.removeLabel(12, "in-progress");
+
+      await w.factory("unblock", "--issue", "12");
+
+      expect(lastJson(w.logs)).toMatchObject({ released: [] });
+    });
+  });
 });
