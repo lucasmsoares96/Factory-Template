@@ -17,7 +17,7 @@ export default defineProduct({
     },
     "pt-BR": {
       app: { title: "Example" },
-      auth: { signIn: { description: "Seu espaço, a um login de distância." } },
+      auth: { signIn: { description: "Seu espaço de trabalho, a um login de distância." } },
     },
   },
 });
