@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { z } from "zod";
-import type { GitHubClient, LabelSpec, RepoInfo, RulesetInfo, RulesetSpec } from "./clients.ts";
+import type { CollaboratorPermission, GitHubClient, LabelSpec, RepoInfo, RulesetInfo, RulesetSpec } from "./clients.ts";
 
 /** Runs `gh <args>` with optional stdin and returns stdout. */
 export type GhExec = (args: string[], input?: string) => Promise<string>;
@@ -59,6 +59,21 @@ export class GhCli implements GitHubClient {
 
   async setVariable(name: string, value: string): Promise<void> {
     await this.gh(["variable", "set", name, "--body", value]);
+  }
+
+  async inviteCollaborator(login: string): Promise<void> {
+    // 201 with an invitation, or 204 when the user already is a collaborator; `push` is the API's name for `write`.
+    await this.gh(["api", "-X", "PUT", `repos/{owner}/{repo}/collaborators/${encodeURIComponent(login)}`, "--input", "-"], JSON.stringify({ permission: "push" }));
+  }
+
+  async collaboratorPermission(login: string): Promise<CollaboratorPermission> {
+    try {
+      const role = (await this.gh(["api", `repos/{owner}/{repo}/collaborators/${encodeURIComponent(login)}/permission`, "--jq", ".role_name"])).trim();
+      return (["admin", "maintain", "write", "triage", "read"] as const).find((r) => r === role) ?? "none";
+    } catch (error) {
+      if (isRefusal(error)) return "none";
+      throw error;
+    }
   }
 
   async listLabels(): Promise<LabelSpec[]> {
