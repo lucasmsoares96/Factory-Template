@@ -74,6 +74,17 @@ export interface CloudflareAccount {
 /** The API refused the call for lack of permission (HTTP 403 or error 10000): the token is valid but too narrow. */
 export class CloudflareRefused extends Error {}
 
+/**
+ * wrangler's own saved login (`wrangler login`, kept by wrangler like neonctl keeps its login). The wizard never stores
+ * the token it hands out; it only holds it in memory for the run.
+ */
+export interface WranglerAuth {
+  /** The token of wrangler's saved login, or undefined when there is none. Never opens a browser. */
+  savedToken(): Promise<string | undefined>;
+  /** Opens the browser (`wrangler login`); the login is kept by wrangler for the next run. */
+  login(): Promise<void>;
+}
+
 /** Bound to one API token, held in memory. */
 export interface CloudflareClient {
   /** Read-only: the token is active (account-token verify, falling back to the user-token verify). */

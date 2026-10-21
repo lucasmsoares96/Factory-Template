@@ -41,3 +41,7 @@ Pending (human): `pnpm bootstrap previews example` na conta real (login do Neon 
 
 
 Decisão do usuário (2026-10-20): o `bootstrap previews` usa o mesmo login salvo do `neonctl` (ver ticket 14); com o login feito no `bootstrap product`, ele não abre o navegador.
+
+**Correção 2026-10-20 (credencial Cloudflare):** o wizard nunca pede de novo uma credencial já dada. O token da API é pedido só no passo `cloudflare-token` e só se o secret `CLOUDFLARE_API_TOKEN` ainda não existe (`--redo cloudflare-token` explícito também pede). Nas demais chamadas locais a fonte é: memória da execução, `CLOUDFLARE_API_TOKEN` do ambiente, login salvo do wrangler (`wrangler auth token --json`, wrangler 4.151.2, doc lida em 2026-10-20; renova o token OAuth vencido sozinho); sem login, `wrangler login` roda uma vez e o wrangler o guarda. Nunca é impresso, gravado nem enviado ao forge. O doctor e os `check` nunca abrem o navegador. Conta: `CLOUDFLARE_ACCOUNT_ID` ou a única conta visível; com várias, erro pedindo a variável (não pergunta). Código: `common.ts` (`cloudflareCredential`, `cloudflareAccountId`), `wrangler.ts`, `domain.ts`.
+
+No módulo Previews o passo `preview-kv` usa essa fonte (sem `cloudflareDeclined`, que foi removido). Os escopos OAuth do wrangler (account read, workers write, workers_kv write, workers_routes write, workers_scripts write, workers_tail read, zone read) cobrem KV, Custom Domain, workers.dev e zona; não há DNS edit: o `dns-records` imprime os registros para criação manual (`pnpm bootstrap domain <id> --redo dns-records` depois).

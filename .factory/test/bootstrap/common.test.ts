@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { cloudflareTokenUrl, TOKEN_PERMISSIONS } from "../../src/bootstrap/common.ts";
-import { TOKEN, staticLabelNames, world } from "./helpers.ts";
+import { TOKEN, WRANGLER_TOKEN, staticLabelNames, world } from "./helpers.ts";
 
 describe("pnpm bootstrap (common part)", () => {
   it("sets up Cloudflare and the labels on a fresh repo", async () => {
@@ -235,5 +235,32 @@ describe("pnpm bootstrap (common part)", () => {
     const w = world();
 
     await expect(w.run("--redo", "nope")).rejects.toThrow(/cloudflare-token.*workers-dev.*labels/s);
+  });
+
+  it("the cloudflare-token step prompts only when the CI secret is missing", async () => {
+    const missing = world();
+    await missing.run();
+    expect(missing.prompter.asked.filter((id) => id === "cloudflare-token")).toHaveLength(1);
+
+    // The token secret exists (it cannot be read back); only the account secret is missing: no prompt, wrangler's login is used.
+    const present = world({}, {}, WRANGLER_TOKEN);
+    present.github.secrets.set("CLOUDFLARE_API_TOKEN", TOKEN);
+    present.cloudflare.subdomains.set("acc-1", "my-team");
+    const { code } = await present.run();
+
+    expect(code).toBe(0);
+    expect(present.prompter.asked).toEqual([]);
+    expect(present.github.secrets.get("CLOUDFLARE_API_TOKEN")).toBe(TOKEN);
+    expect(present.github.secrets.get("CLOUDFLARE_ACCOUNT_ID")).toBe("acc-1");
+    expect(JSON.stringify([present.lines, [...present.github.secrets.values()]])).not.toContain(WRANGLER_TOKEN);
+  });
+
+  it("with several accounts and no CLOUDFLARE_ACCOUNT_ID, the wrangler login never asks which: it says how to pick", async () => {
+    const w = world({}, {}, WRANGLER_TOKEN);
+    w.github.secrets.set("CLOUDFLARE_API_TOKEN", TOKEN);
+    w.cloudflare.accounts.push({ id: "acc-2", name: "Other" });
+
+    await expect(w.run()).rejects.toThrow(/CLOUDFLARE_ACCOUNT_ID/);
+    expect(w.prompter.asked).toEqual([]);
   });
 });

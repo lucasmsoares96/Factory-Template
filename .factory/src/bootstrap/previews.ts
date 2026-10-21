@@ -142,7 +142,7 @@ export function previewKvStep(product: ProductIdentity): Step {
     },
     async run(ctx) {
       const cloudflare = await cloudflareHandle(ctx, true);
-      if (!cloudflare) return ctx.log(`  No Cloudflare token: the preview KV was not made. Run this command again to do it.`);
+      if (!cloudflare) return ctx.log(`  No saved Cloudflare login: the preview KV was not made. Run this command again to do it.`);
       const title = previewKvTitle(product.id);
       const found = await cloudflare.client.findKvNamespace(cloudflare.accountId, title);
       const kv = found ?? (await cloudflare.client.createKvNamespace(cloudflare.accountId, title));
