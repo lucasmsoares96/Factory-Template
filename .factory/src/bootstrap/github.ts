@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { z } from "zod";
-import type { GitHubClient, LabelSpec, RepoInfo, RulesetInfo, RulesetSpec } from "./clients.ts";
+import type { GitHubClient, IssueRef, LabelSpec, PullRequestInfo, RepoInfo, RulesetInfo, RulesetSpec, WorkflowRun } from "./clients.ts";
 
 /** Runs `gh <args>` with optional stdin and returns stdout. */
 export type GhExec = (args: string[], input?: string) => Promise<string>;
@@ -162,7 +162,84 @@ export class GhCli implements GitHubClient {
       throw error;
     }
   }
+
+  async createIssue(input: { title: string; body: string; labels: string[] }): Promise<IssueRef> {
+    const raw = issueRef.parse(JSON.parse(await this.gh(["api", "-X", "POST", "repos/{owner}/{repo}/issues", "--input", "-"], JSON.stringify(input))));
+    return { number: raw.number, url: raw.html_url };
+  }
+
+  async addSubIssue(parent: number, child: number): Promise<void> {
+    const { id } = z.object({ id: z.number() }).parse(JSON.parse(await this.gh(["api", `repos/{owner}/{repo}/issues/${child}`])));
+    await this.gh(["api", "-X", "POST", `repos/{owner}/{repo}/issues/${parent}/sub_issues`, "--input", "-"], JSON.stringify({ sub_issue_id: id }));
+  }
+
+  async issueLabels(issue: number): Promise<string[]> {
+    const raw = z.object({ labels: z.array(z.object({ name: z.string() })) }).parse(JSON.parse(await this.gh(["issue", "view", String(issue), "--json", "labels"])));
+    return raw.labels.map((l) => l.name);
+  }
+
+  async addLabels(issue: number, labels: string[]): Promise<void> {
+    await this.gh(["issue", "edit", String(issue), "--add-label", labels.join(",")]);
+  }
+
+  async cancelRun(run: number): Promise<void> {
+    await this.gh(["run", "cancel", String(run)]);
+  }
+
+  async findPullRequest(branch: string): Promise<PullRequestInfo | null> {
+    const rows = z
+      .array(z.object({ number: z.number(), url: z.string(), state: z.string() }))
+      .parse(JSON.parse(await this.gh(["pr", "list", "--head", branch, "--state", "all", "--json", "number,url,state", "--limit", "1"])));
+    const row = rows[0];
+    return row ? { number: row.number, url: row.url, state: row.state.toLowerCase() as PullRequestInfo["state"] } : null;
+  }
+
+  async pullRequestStatus(pr: number): Promise<{ previewComment: string | null; checksDone: boolean }> {
+    const raw = z
+      .object({ comments: z.array(z.object({ body: z.string() })), statusCheckRollup: z.array(z.object({ status: z.string().optional(), state: z.string().optional() })) })
+      .parse(JSON.parse(await this.gh(["pr", "view", String(pr), "--json", "comments,statusCheckRollup"])));
+    const preview = raw.comments.find((c) => c.body.includes(PREVIEW_MARKER));
+    const done = raw.statusCheckRollup.length > 0 && raw.statusCheckRollup.every((c) => c.status === "COMPLETED" || (c.state !== undefined && c.state !== "PENDING"));
+    return { previewComment: preview?.body ?? null, checksDone: done };
+  }
+
+  async workflowRuns(workflow: string): Promise<WorkflowRun[]> {
+    const rows = z
+      .array(z.object({ databaseId: z.number(), url: z.string(), status: z.string(), conclusion: z.string().nullish(), createdAt: z.string() }))
+      .parse(JSON.parse(await this.gh(["run", "list", "--workflow", workflow, "--limit", "30", "--json", "databaseId,url,status,conclusion,createdAt"])));
+    return rows.map((r) => ({ id: r.databaseId, url: r.url, status: r.status, conclusion: r.conclusion || null, createdAt: r.createdAt }));
+  }
+
+  async closePullRequest(pr: number): Promise<void> {
+    await this.gh(["pr", "close", String(pr)]);
+  }
+
+  async deleteBranch(branch: string): Promise<void> {
+    const default_ = (await this.repo()).defaultBranch;
+    if (branch === default_) throw new Error(`Refusing to delete the default branch ${default_}.`);
+    try {
+      await this.gh(["api", "-X", "DELETE", `repos/{owner}/{repo}/git/refs/heads/${branch.split("/").map(encodeURIComponent).join("/")}`]);
+    } catch (error) {
+      if (/HTTP (404|422)|Reference does not exist/.test((error as Error).message)) return;
+      throw error;
+    }
+  }
+
+  async deleteIssue(issue: number): Promise<void> {
+    await this.gh(["issue", "delete", String(issue), "--yes"]);
+  }
+
+  async findSkeletonFollowUps(issue: number): Promise<IssueRef[]> {
+    const rows = z
+      .array(z.object({ number: z.number(), url: z.string(), title: z.string(), body: z.string().nullish() }))
+      .parse(JSON.parse(await this.gh(["issue", "list", "--state", "all", "--search", "\"The Skeleton must grow\" in:title", "--json", "number,url,title,body", "--limit", "100"])));
+    const mention = new RegExp(`#${issue}(?!\\d)`);
+    return rows.filter((r) => r.title.startsWith("The Skeleton must grow") && mention.test(r.body ?? "")).map(({ number, url }) => ({ number, url }));
+  }
 }
+
+const PREVIEW_MARKER = "<!-- factory-previews -->";
+const issueRef = z.object({ number: z.number(), html_url: z.string() });
 
 const envFlag = (options: { environment?: string }) => (options.environment ? ["--env", options.environment] : []);
 

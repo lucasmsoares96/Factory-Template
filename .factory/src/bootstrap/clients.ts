@@ -49,6 +49,49 @@ export interface GitHubClient {
   /** Deleting an environment deletes its secrets and variables. */
   deleteEnvironment(name: string): Promise<void>;
   deleteRuleset(id: number): Promise<void>;
+  /** Creates an issue with the labels (they must exist) and returns it. Only the example issue of the Factory module calls the methods below. */
+  createIssue(input: { title: string; body: string; labels: string[] }): Promise<IssueRef>;
+  /** Links `child` under `parent` as a sub-issue. */
+  addSubIssue(parent: number, child: number): Promise<void>;
+  issueLabels(issue: number): Promise<string[]>;
+  /** Adds labels (they must exist); this is what fires the `issues: labeled` event. */
+  addLabels(issue: number, labels: string[]): Promise<void>;
+  /** Cancels a workflow run that is still going. */
+  cancelRun(run: number): Promise<void>;
+  /** The newest pull request whose head is `branch`, in any state, or null. */
+  findPullRequest(branch: string): Promise<PullRequestInfo | null>;
+  /** The preview comment of the PR (`<!-- factory-previews -->`, its text) or null, and whether every check has finished. */
+  pullRequestStatus(pr: number): Promise<{ previewComment: string | null; checksDone: boolean }>;
+  /** Runs of a workflow file, newest first. */
+  workflowRuns(workflow: string): Promise<WorkflowRun[]>;
+  /** Closes a pull request without merging it. */
+  closePullRequest(pr: number): Promise<void>;
+  /** Deletes a branch of the repo; a branch that is already gone is not an error. Never the default branch. */
+  deleteBranch(branch: string): Promise<void>;
+  /** Deletes an issue for good (GraphQL `deleteIssue`; `gh issue delete`). */
+  deleteIssue(issue: number): Promise<void>;
+  /** Open or closed issues titled "The Skeleton must grow: ..." whose body mentions `#issue`. */
+  findSkeletonFollowUps(issue: number): Promise<IssueRef[]>;
+}
+
+export interface IssueRef {
+  number: number;
+  url: string;
+}
+
+export interface PullRequestInfo extends IssueRef {
+  state: "open" | "closed" | "merged";
+}
+
+export interface WorkflowRun {
+  id: number;
+  url: string;
+  /** `queued`, `in_progress` or `completed`. */
+  status: string;
+  /** Set once completed: `success`, `failure`, `cancelled`, `skipped`... */
+  conclusion: string | null;
+  /** ISO time. */
+  createdAt: string;
 }
 
 /**
@@ -247,4 +290,8 @@ export interface Prompter {
   password(input: { id: string; message: string }): Promise<string>;
   select<T extends string>(input: { id: string; message: string; options: { value: T; label: string }[] }): Promise<T>;
   confirm(input: { id: string; message: string; initial?: boolean }): Promise<boolean>;
+  /** Waits for Enter. Unlike the others, Ctrl-C returns instead of ending the process, so the caller can still clean up. */
+  pause(input: { id: string; message: string }): Promise<void>;
+  /** A spinner for a long wait; `stop` ends it with a final line. */
+  spinner(message: string): { update(message: string): void; stop(message: string): void };
 }

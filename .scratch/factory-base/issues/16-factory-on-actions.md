@@ -14,7 +14,7 @@ Spec: [../spec.md](../spec.md)
 - [x] Evidência agrupada por Product no comentário único; `stream-json` como artifact por 14 dias; resumo no `$GITHUB_STEP_SUMMARY`.
 - [x] Testes estáticos do YAML: `work` sem `FACTORY_TOKEN` e só em `container:`; `claim` e `publish` não aceitam `vars.FACTORY_RUNNER` (seam 2).
 - [x] Testes do módulo contra os falsos: PAT do mesmo login recusado, aviso de duas auths (seam 8).
-- [ ] Issue de exemplo opcional (padrão "não"); quando usada, ela, o PR, o branch e o preview são apagados no fim.
+- [x] Issue de exemplo opcional (padrão "não"); quando usada, ela, o PR, o branch e o preview são apagados no fim.
 
 ## Comments
 
@@ -61,3 +61,6 @@ Demonstração real (2026-10-21, conta do dono com o `FACTORY_TOKEN` do ticket 2
 - **Resumo do job:** o código escreve em `$GITHUB_STEP_SUMMARY`, mas não conferi pela API, porque o resumo só aparece na UI do run.
 - **Defeito achado na #13 e corrigido no PR #21:** um run que só acrescentou `test.fixme` terminou `ready`.
 - **Ainda aberto: a issue de exemplo opcional.** O `pnpm bootstrap factory` não oferece a issue de exemplo, porque não há prompt no código. Ou se implementa, ou se tira o critério (decisão do usuário). Por isso o Status segue `ready-for-agent`.
+
+Issue de exemplo (2026-10-21, `.factory/src/bootstrap/example.ts`): ao fim de `pnpm bootstrap factory`, com doctor verde, `FACTORY_ENABLED` ligado e TTY, um `confirm` (padrão não, perguntado de novo a cada execução). Sim: cria o pai (`## Testing Decisions`) e o filho (`## Acceptance criteria`, override de `auth.signIn.title` no Product), liga o sub-issue e só então põe `product:<id>` (criada se faltar) e `ready-for-agent`; faz poll a cada 30 s por até 40 min e imprime cada passo com a URL. Em qualquer desfecho (try/finally; o primeiro Ctrl-C para a espera e limpa): imprime PR e preview, espera Enter, cancela run em andamento, fecha o PR sem merge (o `factory-pr-cleanup.yml` apaga o preview e o branch do Neon; o wizard espera esse run), apaga `factory/issue-N`, os follow-ups "The Skeleton must grow" e as duas issues; o que falhar é listado com o comando para remover. Sai 0 só com o PR pronto. Usa só a sessão do `gh` (novos métodos do `GitHubClient`), nunca o `FACTORY_TOKEN`. Testes: `test/bootstrap/example.test.ts` (19, contra o GitHub falso) e um em `adapters.test.ts`.
+Pending (human): a execução real (`pnpm bootstrap factory` na conta real, respondendo sim) é do orquestrador.

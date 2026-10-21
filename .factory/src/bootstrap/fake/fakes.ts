@@ -6,6 +6,9 @@ import {
   type CloudflareDnsRecord,
   type CloudflareZone,
   type GitHubClient,
+  type IssueRef,
+  type PullRequestInfo,
+  type WorkflowRun,
   type LabelSpec,
   type TokenClient,
   type NewDnsRecord,
@@ -65,6 +68,97 @@ export class FakeGitHub implements GitHubClient {
     this.deleting("ruleset");
     const at = this.rulesets.findIndex((r) => r.id === id);
     if (at >= 0) this.rulesets.splice(at, 1);
+  }
+
+  /** The example issue flow: issues, sub-issue links, pull requests, branches and workflow runs. */
+  readonly issues = new Map<number, { title: string; body: string; labels: string[]; url: string }>();
+  readonly subIssues: { parent: number; child: number }[] = [];
+  readonly pulls = new Map<number, PullRequestInfo & { head: string }>();
+  readonly branches = new Set<string>();
+  readonly runs = new Map<string, WorkflowRun[]>();
+  readonly previewComments = new Map<number, string>();
+  readonly checksDone = new Set<number>();
+  /** Called once per poll of the example wait (on the child's label read): lets a test play the Factory. */
+  onPoll: ((poll: number, github: FakeGitHub) => void) | undefined;
+  polls = 0;
+  /** Set to make the wait throw. */
+  failStatus = false;
+  nextNumber = 1;
+  private addIssue(title: string, body: string, labels: string[]): number {
+    const number = this.nextNumber++;
+    this.issues.set(number, { title, body, labels: [...labels], url: `https://github.com/owner/repo/issues/${number}` });
+    return number;
+  }
+  async createIssue(input: { title: string; body: string; labels: string[] }): Promise<IssueRef> {
+    this.deleting("create-issue");
+    for (const l of input.labels) if (!this.labels.has(l)) throw new Error(`gh issue create failed: label ${l} does not exist (HTTP 422)`);
+    const number = this.addIssue(input.title, input.body, input.labels);
+    return { number, url: this.issues.get(number)!.url };
+  }
+  /** What a run of the Factory does: a follow-up issue about `child`. */
+  openSkeletonFollowUp(child: number): number {
+    return this.addIssue(`The Skeleton must grow: x`, `The Skeleton must grow: needs a change to finish #${child} (x).`, []);
+  }
+  async addSubIssue(parent: number, child: number): Promise<void> {
+    this.deleting("sub-issue");
+    this.subIssues.push({ parent, child });
+  }
+  async issueLabels(issue: number): Promise<string[]> {
+    this.polls++;
+    this.onPoll?.(this.polls, this);
+    return [...(this.issues.get(issue)?.labels ?? [])];
+  }
+  readonly cancelled: number[] = [];
+  async addLabels(issue: number, labels: string[]): Promise<void> {
+    this.deleting("add-labels");
+    for (const l of labels) if (!this.labels.has(l)) throw new Error(`gh issue edit failed: label ${l} does not exist`);
+    const found = this.issues.get(issue)!;
+    found.labels.push(...labels);
+    this.labelEvents.push({ issue, labels });
+  }
+  /** Every `labeled` event: the real one starts the workflow. */
+  readonly labelEvents: { issue: number; labels: string[] }[] = [];
+  async cancelRun(run: number): Promise<void> {
+    this.cancelled.push(run);
+  }
+  async findPullRequest(branch: string): Promise<PullRequestInfo | null> {
+    const found = [...this.pulls.values()].find((p) => p.head === branch);
+    return found ? { number: found.number, url: found.url, state: found.state } : null;
+  }
+  async pullRequestStatus(pr: number): Promise<{ previewComment: string | null; checksDone: boolean }> {
+    if (this.failStatus) throw new Error("gh pr view failed: boom");
+    return { previewComment: this.previewComments.get(pr) ?? null, checksDone: this.checksDone.has(pr) };
+  }
+  async workflowRuns(workflow: string): Promise<WorkflowRun[]> {
+    return [...(this.runs.get(workflow) ?? [])];
+  }
+  addRun(workflow: string, run: Partial<WorkflowRun> = {}): WorkflowRun {
+    const list = this.runs.get(workflow) ?? [];
+    const full: WorkflowRun = { id: 100 + list.length, url: `https://github.com/owner/repo/actions/runs/${100 + list.length}`, status: "completed", conclusion: "success", createdAt: new Date().toISOString(), ...run };
+    this.runs.set(workflow, [full, ...list]);
+    return full;
+  }
+  /** What the closed-PR workflow does. Set to false to leave no run behind. */
+  cleanupRunOnClose = true;
+  async closePullRequest(pr: number): Promise<void> {
+    this.deleting("close-pr");
+    const found = this.pulls.get(pr);
+    if (found) found.state = "closed";
+    if (this.cleanupRunOnClose) this.addRun("factory-pr-cleanup.yml");
+  }
+  async deleteBranch(branch: string): Promise<void> {
+    if (branch === this.info.defaultBranch) throw new Error("refusing the default branch");
+    this.deleting(`branch:${branch}`);
+    this.branches.delete(branch);
+  }
+  async deleteIssue(issue: number): Promise<void> {
+    this.deleting(`issue:${issue}`);
+    this.issues.delete(issue);
+  }
+  async findSkeletonFollowUps(issue: number): Promise<IssueRef[]> {
+    return [...this.issues.entries()]
+      .filter(([, i]) => i.title.startsWith("The Skeleton must grow") && i.body.includes(`#${issue}`))
+      .map(([number, i]) => ({ number, url: i.url }));
   }
 
   async repo(): Promise<RepoInfo> {
@@ -491,6 +585,17 @@ export class FakePrompter implements Prompter {
   }
   async confirm(input: { id: string }): Promise<boolean> {
     return this.answer(input.id) === true;
+  }
+  /** Ids of the `pause` prompts shown (the answer does not matter). */
+  readonly paused: string[] = [];
+  /** Lines shown through the spinner, in order. */
+  readonly spun: string[] = [];
+  async pause(input: { id: string }): Promise<void> {
+    this.paused.push(input.id);
+  }
+  spinner(message: string) {
+    this.spun.push(message);
+    return { update: (next: string) => void this.spun.push(next), stop: (last: string) => void this.spun.push(last) };
   }
 }
 
