@@ -6,18 +6,18 @@ Spec: [../spec.md](../spec.md)
 
 **Blocked by:** 14
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] Módulo Previews: projeto Neon `<id>-preview` com branch padrão `base` e key restrita, KV do preview em `PREVIEW_OAUTH_KV_ID`, o id em `PREVIEW_PRODUCTS`, `PREVIEWS_ENABLED` ligado depois do `doctor`.
-- [ ] Workflow em `pull_request_target`: `build` (ticket 12) → `deploy` com as regras de blindagem (checkout e `--config` da `main`, artifact em `$RUNNER_TEMP` com allowlist, `CLOUDFLARE_API_BASE_URL` fixado, `--ignore-scripts` com o lockfile da `main`, número do PR do evento), branch `preview/pr-N` a partir do `base`, `migrate(db, { migrationsFolder })`, `wrangler preview --name pr-N` → `smoke` sem secrets (login real, outbox, 401 no `/mcp`) (seam 7).
+- [x] Workflow em `pull_request_target`: `build` (ticket 12) → `deploy` com as regras de blindagem (checkout e `--config` da `main`, artifact em `$RUNNER_TEMP` com allowlist, `CLOUDFLARE_API_BASE_URL` fixado, `--ignore-scripts` com o lockfile da `main`, número do PR do evento), branch `preview/pr-N` a partir do `base`, `migrate(db, { migrationsFolder })`, `wrangler preview --name pr-N` → `smoke` sem secrets (login real, outbox, 401 no `/mcp`) (seam 7).
 - [x] Rota do outbox que só existe no preview.
 - [x] Comentário único no PR listando cada Product com a URL.
 - [x] Preview automático para autor com `write`+; os demais pela label `preview`, removida a cada push.
-- [ ] Pula com comentário quando os bindings mudaram ou há 9 previews abertos do Product ("preview skipped: limit reached").
+- [x] Pula com comentário quando os bindings mudaram ou há 9 previews abertos do Product ("preview skipped: limit reached").
 - [x] Limpeza no `closed`: `wrangler preview delete` + branch Neon apagado. O deploy da `main` recria o `base` se ele sumir.
 - [x] Testes do módulo contra os falsos (seam 8).
-- [ ] PR de teste com preview e smoke verdes, depois fechado e limpo (Worker Preview, branch Neon, branch git).
-- [ ] Critério medido e registrado aqui: permissões do token da Cloudflare que criam um Worker Preview (workers-sdk#15797).
+- [x] PR de teste com preview e smoke verdes, depois fechado e limpo (Worker Preview, branch Neon, branch git).
+- [x] Critério medido e registrado aqui: permissões do token da Cloudflare que criam um Worker Preview (workers-sdk#15797).
 
 ## Comments
 
@@ -53,3 +53,16 @@ Limpeza do PR #10 (fechado sem merge, run 39530223621): `cleanup (example)` verd
 
 
 Na conta real (2026-10-20/21): `pnpm bootstrap previews example` com doctor verde e `PREVIEWS_ENABLED` ligado (módulo); o PR #10 recebeu um único comentário `factory-previews`; o job `preview-label` foi pulado porque o autor tem `write` (preview automático); a limpeza rodou no `closed` e tratou "nada a limpar"; o `preview base` do deploy da `main` (run 39529283147) passou. Abertos até um preview subir de verdade (primeiro PR depois do merge do #9): o deploy com a blindagem, o smoke, o pulo por limite de 9, o PR de teste completo e a medição de permissões da Cloudflare.
+
+Demonstração real (2026-10-21, conta do dono com o `FACTORY_TOKEN` do ticket 25):
+- **PR #15** (da issue #12): preview `https://pr-15-example.bytewer.workers.dev` com smoke verde e comentário com a URL. Depois de uma rodada de pr-feedback, o preview foi refeito no commit novo (5e0668c). Com o merge, a limpeza apagou o Worker Preview (404) e o branch Neon: no projeto de preview só resta `base`. O branch git saiu na limpeza da demonstração.
+- **PRs #17 e #20:** fechados sem merge. A limpeza rodou verde, `pr-17` e `pr-20` respondem 404, e os branches git foram apagados.
+- **Pulo por bindings:** observado no PR #9: "preview skipped: the Worker bindings changed". O limite de 9 previews só está coberto pelos testes.
+- **Permissões medidas:** o token da Cloudflare com as 5 permissões do template cria o Worker Preview:
+  - `workers_scripts` edit;
+  - `workers_kv_storage` edit;
+  - `account_settings` read;
+  - `dns` edit;
+  - `zone` read.
+
+  Nenhuma permissão extra foi preciso (workers-sdk#15797).

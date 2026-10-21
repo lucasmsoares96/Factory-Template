@@ -6,14 +6,14 @@ Spec: [../spec.md](../spec.md)
 
 **Blocked by:** 16
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] `factory-unblock.yml` (`issues: closed` + `workflow_dispatch`) varre todas as issues `ready-for-agent` e despacha as destravadas; sem cron.
 - [x] `factory-triage.yml` (label `agent:explore` posta por quem tem `write`+, em lote, concorrência global): `work` só leitura → `apply`. Veredito `easy-call | needs-a-human | blocked` com comentário marcado `<!-- factory:triage -->` (dificuldade, arquivos, claims verificados, perguntas, abordagem, door, seams com o que pegam e o que deixam passar); agrupa duplicadas.
 - [x] `apply`: `easy-call` → `ready-for-agent` com o `FACTORY_TOKEN`; `needs-a-human` → `ready-for-human`; `blocked` → `needs-info`. Confere `product:<id>` e a acrescenta quando o caso é claro.
 - [x] Triage local por `pnpm factory local NN`.
 - [x] Testes pela CLI contra os falsos: varredura, comentário único, cada veredito (seam 1).
-- [ ] Demonstração no repo com duas issues de teste encadeadas e uma em Triage, apagadas no fim junto com PRs, branches e previews.
+- [x] Demonstração no repo com duas issues de teste encadeadas e uma em Triage, apagadas no fim junto com PRs, branches e previews.
 
 ## Comments
 
@@ -40,3 +40,18 @@ Merge (2026-10-21): na `factory-base`, combinado com o 18 (conflitos em `cli.ts`
 
 - Review fixes 2 (2026-10-21): `apply` agora põe `product:<id>` ANTES de trocar para `ready-for-agent` (a troca dispara a run).
 - Demo real 2 (2026-10-21): a issue #12, fechada pelo merge do PR, manteve o label `in-progress`. Correção: `pnpm factory unblock --issue N` (o `factory-unblock.yml` passa `github.event.issue.number` por variável de ambiente, só como dica) lê o estado no forge e, se a issue está fechada, remove `in-progress` pelo novo `Tracker.removeLabel` (fake, GitHub `DELETE .../labels/{name}` tolerando 404, Markdown no-op) antes da varredura. O job do unblock passou de `issues: read` para `issues: write`. Testes: `test/unblock.test.ts`, `test/github/tracker.test.ts`, `test/ci-workflows.test.ts`. Só vale depois do merge na `main` (evento `issues` roda o workflow da branch padrão).
+
+Demonstração real (2026-10-21, conta do dono com o `FACTORY_TOKEN` do ticket 25):
+- **Encadeamento:** a #13 estava bloqueada pela #12 e marcada `ready-for-agent`. A Factory a recusou com o comentário "Waiting on #12".
+  - Com o merge do PR #15, a #12 fechou.
+  - 13 s depois, o `factory-unblock` despachou a #13, que virou o PR #20.
+- **Triage:** a #14, com `agent:explore`, recebeu veredito `easy-call` e o comentário marcado, e entrou na fila sozinha. Virou o PR #17.
+  - A Factory removeu do PR a mudança que fez no Skeleton e abriu a #16 ("The Skeleton must grow").
+  - **Defeito:** a Triage sugeriu importar uma constante que o Skeleton não exporta. Uma afirmação do comentário ficou sem conferir.
+- **Defeito corrigido no PR #21:** a #12 fechou com `in-progress`. Agora o `unblock --issue N` tira a label.
+- **Limpeza:**
+  - os PRs #17 e #20 foram fechados sem merge;
+  - as issues #11, #13, #14, #16 e #19 foram apagadas;
+  - os branches `factory/issue-12`, `factory/issue-13` e `factory/issue-14` foram apagados, e os previews e os branches Neon também.
+
+  O PR #15 foi mesclado de propósito, para destravar a #13, e deixou a frase de apoio no `example`.

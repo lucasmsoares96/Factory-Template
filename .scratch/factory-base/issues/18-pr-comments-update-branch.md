@@ -33,3 +33,11 @@ Merge (2026-10-21): na `factory-base`, combinado com o 17 (conflitos resolvidos 
 
 - Defeito achado na demonstração real (PR #15, 2026-10-21): uma writer pediu, numa thread, um tagline pt-BR mais curto em `apps/example/product.config.ts`. A rodada `pr-feedback` fez (f36056a, resposta "Address: Done in f36056a"), mas o Review da mesma rodada desfez (cb3b067, "restore the pt-BR sign-in tagline the issue asks for"): `reviewPrompt` só recebia a issue, nunca as threads. A resposta seguia dizendo "Done" e o aviso do Merge Gate dizia que as respostas foram enviadas; o pedido humano foi desfeito em silêncio.
 - Correção: numa rodada `pr-feedback`, o Review e o Pull Request Stage recebem também as threads da rodada e a decisão da Factory em cada uma (`<feedback-round>` com `<thread>` e `<decision kind=...>`, conteúdo não confiável como o bloco da issue). O Review ganhou a regra: o que uma writer pediu e a Factory atendeu (Address) prevalece sobre o texto da issue, nunca é revertido; se conflitar com os critérios, vira achado para o humano no resumo, sem commit que desfaça. O Pull Request Stage descreve a mudança combinada e diz quando ela se afasta da issue. Run normal de issue: prompts inalterados. Testes em `test/pr-feedback.test.ts` e `test/work.test.ts`.
+
+Demonstração real (2026-10-21, conta do dono com o `FACTORY_TOKEN` do ticket 25):
+- **PR comentado: feito no PR #15.**
+  - **1ª rodada:** o Address fez o pedido (f36056a), mas a Review do mesmo round o desfez (cb3b067). Corrigido no PR #18: a Review e o Pull Request Stage recebem as threads.
+  - **2ª rodada:** com a correção, o pedido ficou (8ac41d4), a resposta "Done in 8ac41d4" bate com o commit e o corpo foi reescrito.
+  - Nenhuma resposta da Factory disparou outra rodada: o claim deu `no-open-threads` graças ao marcador.
+  - A rodada começou mesclando a `main` no branch.
+- **Ainda aberto: um PR da Factory em conflito com a `main`.** Ficou sem demonstração, e o Status segue `ready-for-agent`.

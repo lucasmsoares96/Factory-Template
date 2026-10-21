@@ -11,7 +11,7 @@ Decisão do usuário (2026-10-21):
 
 **Blocked by:** 16, 17, 18
 
-**Status:** ready-for-agent
+**Status:** done
 
 ## Acceptance criteria
 
@@ -77,3 +77,9 @@ Decisão do usuário (2026-10-21):
 - **Verificação:** só testes direcionados (os arquivos tocados e afetados), `typecheck` e `lint` do `@factory/harness`; o `factory:verify` completo fica com o orquestrador, então o último critério continua aberto.
 
 Pending (human): rodar `pnpm bootstrap factory` na conta real: criar o token pelo link impresso (escolher "Only select repositories" → este repo), colar uma vez; depois, na `main`, marcar uma issue de teste `ready-for-agent` e conferir que o PR sai com o marcador oculto, que um comentário humano numa thread dispara a rodada, que o comentário da Factory não dispara, e que `github-actions[bot]` menciona quem aplicou a label.
+
+Demonstração real (2026-10-21, conta do dono com o `FACTORY_TOKEN` do ticket 25):
+- O `pnpm bootstrap factory` pediu o token uma vez pelo link pré-preenchido, avisou sobre `workflows` e passou no doctor. Ele ligou o `FACTORY_ENABLED`.
+- O PR #15 foi aberto em nome do dono, e o CI e o preview rodaram sem aprovação.
+- O marcador evitou o loop: o claim do pr-feedback deu `no-open-threads`.
+- O aviso do `github-actions[bot]` notificou o dono.
