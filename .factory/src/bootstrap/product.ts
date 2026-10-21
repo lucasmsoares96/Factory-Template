@@ -62,7 +62,7 @@ export async function neonHandle(ctx: StepContext, prompt: boolean): Promise<Neo
   const client = ctx.neon({ apiKey });
   ctx.memory.neon = client;
   if (!apiKey) {
-    ctx.log("Signing in to Neon: your browser opens. The login lives in a temporary folder that is removed (and logged out) when this command ends.");
+    // neonctl keeps its login: the browser opens only on the first run on this machine.
     await client.login();
   }
   return client;
@@ -312,8 +312,8 @@ export function deployProductsStep(product: ProductIdentity): Step {
 }
 
 /**
- * The Production module of `pnpm bootstrap product <id>`. The Neon login is the wizard's own (a throwaway `neonctl`
- * session) and is never stored; the production deploy needs no Neon API key, only the connection strings (a
+ * The Production module of `pnpm bootstrap product <id>`. The Neon login is neonctl's own, kept by the CLI and asked
+ * once per machine; the production deploy needs no Neon API key, only the connection strings (a
  * project-scoped key is the Previews module's, to branch).
  * `DEPLOY_ENABLED` is not a step: the command turns it on after the doctor of the Product passes.
  */
