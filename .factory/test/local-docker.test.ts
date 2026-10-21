@@ -109,7 +109,9 @@ describe("Docker container runner", () => {
 
     const exec = all.find((a) => a[0] === "exec")!;
     expect(exec.join(" ")).toContain("git clone");
-    expect(exec.join(" ")).toContain("pnpm factory work");
+    // The script takes the command as an argument (`work` or `triage`), then the base, the issue and the command.
+    expect(exec.join(" ")).toContain('pnpm factory "$command"');
+    expect(exec.slice(-3)).toEqual(["main", "7", "work"]);
 
     const names = [network.at(-1)!, ...all.filter((a) => a[0] === "create" || a[0] === "run").map((a) => a[a.indexOf("--name") + 1]!)];
     for (const name of names) expect(name.startsWith(ns)).toBe(true);
