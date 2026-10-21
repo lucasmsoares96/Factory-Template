@@ -290,8 +290,8 @@ export interface Prompter {
   password(input: { id: string; message: string }): Promise<string>;
   select<T extends string>(input: { id: string; message: string; options: { value: T; label: string }[] }): Promise<T>;
   confirm(input: { id: string; message: string; initial?: boolean }): Promise<boolean>;
-  /** Waits for Enter. Unlike the others, Ctrl-C returns instead of ending the process, so the caller can still clean up. */
-  pause(input: { id: string; message: string }): Promise<void>;
+  /** A `select` where Ctrl-C returns `onCancel` instead of ending the process, so the caller can still clean up. */
+  choose<T extends string>(input: { id: string; message: string; options: { value: T; label: string }[]; onCancel: T }): Promise<T>;
   /** A spinner for a long wait; `stop` ends it with a final line. */
   spinner(message: string): { update(message: string): void; stop(message: string): void };
 }

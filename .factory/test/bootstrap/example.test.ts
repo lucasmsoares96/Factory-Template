@@ -158,7 +158,7 @@ describe("bootstrap factory: the optional example issue", () => {
     expect(w.github.labels.get("product:example")?.color).toBe("123456");
   });
 
-  it("a ready PR: prints the URLs, waits for Enter, cleans up everything and exits 0", async () => {
+  it("a ready PR: prints the URLs, asks, deletes everything by default and exits 0", async () => {
     const w = exampleWorld(true);
     w.github.onPoll = (poll, github) => opensReadyPr(github, poll);
 
@@ -167,12 +167,38 @@ describe("bootstrap factory: the optional example issue", () => {
     expect(code).toBe(0);
     expect(output).toContain("https://github.com/owner/repo/pull/50");
     expect(output).toContain("https://pr-50.example.workers.dev");
-    expect(w.prompter.paused).toEqual(["example-delete"]);
+    expect(w.prompter.chosen).toEqual(["example-delete"]);
     expect(w.github.pulls.get(50)?.state).toBe("closed");
     expect(output).toMatch(/Closed pull request #50 without merging/);
     expect(output).toMatch(/preview cleanup finished/);
     nothingLeft(w);
     expect(w.prompter.spun.length).toBeGreaterThan(0);
+  });
+
+  it("a ready PR kept on request: nothing is deleted, and the commands to delete it later are printed", async () => {
+    const w = exampleWorld(true, { "example-delete": "keep" });
+    w.github.onPoll = (poll, github) => opensReadyPr(github, poll);
+
+    const { code, output } = await w.run("factory");
+
+    expect(code).toBe(0);
+    const child = [...w.github.subIssues][0]!.child;
+    expect(w.github.pulls.get(50)?.state).toBe("open");
+    expect([...w.github.branches]).toEqual([`factory/issue-${child}`]);
+    expect(w.github.issues.size).toBe(2);
+    expect(output).toContain("The example stays.");
+    expect(output).toContain("gh pr close 50 --delete-branch");
+    expect(output).toContain(`gh issue delete ${child} --yes`);
+  });
+
+  it("Ctrl-C on the question deletes the example, like the default", async () => {
+    const w = exampleWorld(true, { "example-delete": "cancel" });
+    w.github.onPoll = (poll, github) => opensReadyPr(github, poll);
+
+    await w.run("factory");
+
+    expect(w.github.pulls.get(50)?.state).toBe("closed");
+    nothingLeft(w);
   });
 
   it("an Escalation cleans up and exits non-zero", async () => {
@@ -186,7 +212,7 @@ describe("bootstrap factory: the optional example issue", () => {
     expect(code).toBe(1);
     expect(output).toMatch(/escalated/);
     expect(output).toMatch(/Factory setup itself is fine|setup itself is fine/);
-    expect(w.prompter.paused).toEqual([]);
+    expect(w.prompter.chosen).toEqual([]);
     nothingLeft(w);
   });
 
@@ -246,7 +272,7 @@ describe("bootstrap factory: the optional example issue", () => {
 
     expect(code).toBe(1);
     expect(output).toMatch(/Interrupted/);
-    expect(w.prompter.paused).toEqual([]);
+    expect(w.prompter.chosen).toEqual([]);
     expect(holds).toEqual([true, false]);
     nothingLeft(w);
   });

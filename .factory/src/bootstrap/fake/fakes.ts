@@ -586,12 +586,14 @@ export class FakePrompter implements Prompter {
   async confirm(input: { id: string }): Promise<boolean> {
     return this.answer(input.id) === true;
   }
-  /** Ids of the `pause` prompts shown (the answer does not matter). */
-  readonly paused: string[] = [];
+  /** Ids of the `choose` prompts shown. An unscripted one, or the answer `cancel`, plays Ctrl-C (its `onCancel`). */
+  readonly chosen: string[] = [];
   /** Lines shown through the spinner, in order. */
   readonly spun: string[] = [];
-  async pause(input: { id: string }): Promise<void> {
-    this.paused.push(input.id);
+  async choose<T extends string>(input: { id: string; onCancel: T }): Promise<T> {
+    this.chosen.push(input.id);
+    const value = this.answers[input.id];
+    return value === undefined || value === "cancel" ? input.onCancel : (String(value) as T);
   }
   spinner(message: string) {
     this.spun.push(message);
