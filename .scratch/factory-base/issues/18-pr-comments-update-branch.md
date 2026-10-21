@@ -6,14 +6,14 @@ Spec: [../spec.md](../spec.md)
 
 **Blocked by:** 16
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] `factory-pr-feedback.yml` (`pull_request_review: submitted`, `pull_request_review_comment`, `issue_comment` em PR): debounce num job com `sleep 180` e `cancel-in-progress: true` (review enviada pula a espera); trabalho no grupo `factory-N`. Filtros: branch `factory/issue-N`, autor com `write`+, nunca o machine user.
 - [x] `pr-feedback`: merge da `main`, Address/Decline/Defer por thread → Development → Review → E2E → prints; ao estourar 5 falhas, responde no PR e põe `ready-for-human` sem virar draft; nunca resolve threads.
 - [x] `factory-update-branches.yml` (`push` na `main`): `git merge-tree --write-tree` em cada PR da Factory e despacho de `update-branch` só para os em conflito.
 - [x] `update-branch`: merge limpo sem agente; conflito resolvido pelo agente com "preserve both intents, do not invent new behaviour"; depois o `Verify` e, se falhar, o loop normal.
 - [x] Testes pela CLI contra os falsos: filtros, cada resposta de thread, merge limpo, conflito, "branch moved" (seam 1).
-- [ ] Demonstração com um PR de teste comentado e um em conflito, apagados no fim.
+- [x] Demonstração com um PR de teste comentado e um em conflito, apagados no fim.
 
 ## Comments
 
@@ -41,3 +41,13 @@ Demonstração real (2026-10-21, conta do dono com o `FACTORY_TOKEN` do ticket 2
   - Nenhuma resposta da Factory disparou outra rodada: o claim deu `no-open-threads` graças ao marcador.
   - A rodada começou mesclando a `main` no branch.
 - **Ainda aberto: um PR da Factory em conflito com a `main`.** Ficou sem demonstração, e o Status segue `ready-for-agent`.
+
+PR em conflito, demonstração real (2026-10-21, orquestrador):
+- **Preparação:** a issue #29 (texto abaixo do título do cadastro) virou o PR #32 da Factory, que mexe nas linhas `auth: { … }` de `apps/example/product.config.ts`. O PR #30 mexia nas mesmas linhas com um texto da tela "esqueci a senha". Antes do merge, o `git merge-tree` deu conflito.
+- **Merge do #30 (22:26 UTC):**
+  - o `scan` do `factory-update-branches.yml` (push) achou o conflito e despachou o `update-branch 29`;
+  - o run 39686498336 passou por `claim` → `image` → `work` → `publish`;
+  - o agente fez o commit de merge c3cd1b8 (pais 3db0a4b e 38e622a), mantendo os três textos (`signIn`, `signUp` e `forgotPassword`) em `en` e em `pt-BR`.
+- **Depois:** o GitHub passou o PR de `CONFLICTING` para `MERGEABLE`. O CI do PR ficou todo verde, com `verify`, preview deploy, smoke e comentário.
+- **Limpeza:** o PR #32 foi fechado sem merge, e o cleanup rodou verde (`pr-32` e `pr-30` dão 404). O branch `factory/issue-29` e as issues #28 e #29 foram apagados. O texto do PR #30 ficou na `main`, de propósito.
+- **O que se vê:** o update-branch não deixa comentário nem aviso na issue, porque não há quem marcar (ticket 25). A atualização aparece no PR como o commit `chore: merge main into ...`.
