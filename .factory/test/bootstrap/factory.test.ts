@@ -14,6 +14,9 @@ function factoryWorld(answers: Record<string, string | boolean | string[]> = {},
   return w;
 }
 
+/** The credential prompts; the optional example question (answered No by the helper) is not one. */
+const credentialPrompts = (w: { prompter: { asked: string[] } }) => w.prompter.asked.filter((id) => id !== "example-issue");
+
 const shown = (w: ReturnType<typeof factoryWorld>) => JSON.stringify([w.lines, w.prompter.notes, w.prompter.printed]);
 
 describe("pnpm bootstrap factory: Factory module", () => {
@@ -28,7 +31,7 @@ describe("pnpm bootstrap factory: Factory module", () => {
     expect(w.github.secrets.get("CLAUDE_CODE_OAUTH_TOKEN")).toBe("sk-ant-oat-x");
     expect(w.github.variables.get("FACTORY_ENABLED")).toBe("true");
     expect(output).toMatch(/ok\s+FACTORY_ENABLED/);
-    expect(w.prompter.asked).toEqual(["factory-token"]);
+    expect(credentialPrompts(w)).toEqual(["factory-token"]);
     expect(w.tokens.asked).toEqual(["owner/repo"]);
     expect(shown(w)).not.toContain(PAT);
     expect(shown(w)).not.toContain("sk-ant-oat-x");
@@ -65,7 +68,7 @@ describe("pnpm bootstrap factory: Factory module", () => {
     expect(code).toBe(0);
     expect(output).toMatch(/classic token/);
     expect(w.github.secrets.get("FACTORY_TOKEN")).toBe(PAT);
-    expect(w.prompter.asked).toEqual(["factory-token", "factory-token"]);
+    expect(credentialPrompts(w)).toEqual(["factory-token", "factory-token"]);
     expect(w.tokens.asked).toEqual(["owner/repo"]);
   });
 
@@ -81,7 +84,7 @@ describe("pnpm bootstrap factory: Factory module", () => {
 
     await expect(w.run("factory")).rejects.toThrow(/cannot write/);
 
-    expect(w.prompter.asked).toEqual(["factory-token", "factory-token", "factory-token"]);
+    expect(credentialPrompts(w)).toEqual(["factory-token", "factory-token", "factory-token"]);
     expect(w.github.secretWrites.map((s) => s.name)).not.toContain("FACTORY_TOKEN");
   });
 
@@ -96,12 +99,12 @@ describe("pnpm bootstrap factory: Factory module", () => {
     const { code } = await w.run("factory");
     expect(code).toBe(0);
     expect(w.github.secrets.get("FACTORY_TOKEN")).toBe(PAT);
-    expect(w.prompter.asked).toEqual([]);
+    expect(credentialPrompts(w)).toEqual([]);
     expect(w.prompter.printed).toEqual([]);
 
     const bad = factoryWorld({}, { CLAUDE_CODE_OAUTH_TOKEN: "x", FACTORY_TOKEN: "ghp_classic" });
     await expect(bad.run("factory")).rejects.toThrow(/classic/);
-    expect(bad.prompter.asked).toEqual([]);
+    expect(credentialPrompts(bad)).toEqual([]);
   });
 
   it("a rerun after a complete run asks nothing and writes nothing", async () => {
@@ -113,7 +116,7 @@ describe("pnpm bootstrap factory: Factory module", () => {
     const { code, output } = await w.run("factory");
 
     expect(code).toBe(0);
-    expect(w.prompter.asked).toEqual([]);
+    expect(credentialPrompts(w)).toEqual([]);
     expect(w.github.writes).toBe(writes);
     expect(output).toContain("already done");
   });
@@ -137,7 +140,7 @@ describe("pnpm bootstrap factory: Factory module", () => {
     const { code } = await w.run("factory");
 
     expect(code).toBe(0);
-    expect(w.prompter.asked).toEqual([]);
+    expect(credentialPrompts(w)).toEqual([]);
   });
 
   it("warns when both Claude auths exist and says which wins", async () => {
@@ -172,7 +175,7 @@ describe("pnpm bootstrap factory: Factory module", () => {
     expect(output).toMatch(/missing\s+Claude auth/);
     expect(w.github.variables.has("FACTORY_ENABLED")).toBe(false);
     expect(output).toContain("FACTORY_ENABLED stays off");
-    expect(w.prompter.asked).toEqual(["factory-token"]);
+    expect(credentialPrompts(w)).toEqual(["factory-token"]);
   });
 
   it("--redo factory-token replaces the token", async () => {
@@ -185,7 +188,7 @@ describe("pnpm bootstrap factory: Factory module", () => {
     await w.run("factory", "--redo", "factory-token");
 
     expect(w.github.secrets.get("FACTORY_TOKEN")).toBe("github_pat_second");
-    expect(w.prompter.asked).toEqual(["factory-token"]);
+    expect(credentialPrompts(w)).toEqual(["factory-token"]);
   });
 
   it("the doctor shows the Factory section", async () => {

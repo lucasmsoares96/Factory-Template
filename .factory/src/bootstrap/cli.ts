@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
@@ -14,6 +14,7 @@ import { GitHubTokenApi } from "./token.ts";
 import { clackPrompter } from "./prompter.ts";
 import { domainSteps } from "./domain.ts";
 import { FACTORY_ENABLED, factorySteps } from "./factory.ts";
+import { offerExample } from "./example.ts";
 import { productionSteps } from "./product.ts";
 import { PREVIEWS_ENABLED, previewSteps } from "./previews.ts";
 import { ResendApi } from "./resend.ts";
@@ -47,7 +48,9 @@ Commands:
                          repository (the one thing asked, once, hidden; a pre-filled link is printed, and it goes straight
                          to the FACTORY_TOKEN secret), and Claude's auth taken from CLAUDE_CODE_OAUTH_TOKEN or
                          ANTHROPIC_API_KEY in the environment (or an existing secret).
-                         Turns FACTORY_ENABLED on once the doctor passes. A rerun with the secrets in place asks nothing.
+                         Turns FACTORY_ENABLED on once the doctor passes. A rerun with the secrets in place asks nothing
+                         about credentials. At the end, with a terminal, it offers (default no) an example issue that the
+                         Factory solves in about 15 minutes, using Claude credits; everything it creates is deleted.
   destroy [scope]        Deletes what the wizard made, after listing it (the production database is highlighted) and
                          asking you to type the id. Scope: product <id>, previews <id>, factory, common; none = everything
                          (type "all"). Needs a terminal and refuses when CI is set. Never deletes the repository, issues,
@@ -130,7 +133,10 @@ export async function runBootstrap(argv: string[], deps: BootstrapDeps): Promise
   if (command === "factory") {
     const memory: StepContext["memory"] = {};
     await runSteps(factorySteps, { ...deps, memory }, values.redo ?? []);
-    return finish(deps, undefined, memory, { production: false, domain: false, previews: false, factory: true, cloudflare: false }, FACTORY_ENABLED);
+    const code = await finish(deps, undefined, memory, { production: false, domain: false, previews: false, factory: true, cloudflare: false }, FACTORY_ENABLED);
+    // Only a Factory that passed the doctor and is switched on can solve an example issue.
+    if (code !== 0 || !deps.interactive || (await deps.github.listVariables())[FACTORY_ENABLED] !== "true") return code;
+    return offerExample({ ...deps, memory });
   }
   if (command === "doctor") {
     const memory: StepContext["memory"] = {};
@@ -207,6 +213,15 @@ async function finish(
   return report.ok ? 0 : 1;
 }
 
+/** Ids of the directories of `apps/` that hold a `product.config.ts`. */
+export async function listProducts(): Promise<string[]> {
+  const apps = resolve(import.meta.dirname, "../../../apps");
+  if (!existsSync(apps)) return [];
+  return readdirSync(apps)
+    .filter((id) => existsSync(resolve(apps, id, "product.config.ts")))
+    .sort();
+}
+
 const ProductFile = z.object({ id: z.string(), title: z.string(), emailFrom: z.string(), domain: z.string() });
 
 /** Imports `apps/<id>/product.config.ts` (data only, as ticket 07 requires). */
@@ -225,7 +240,13 @@ if (import.meta.main) {
   // Closing keeps neonctl's login, so the next run does not open the browser again.
   const openNeon = new Set<NeonCli>();
   process.on("exit", () => openNeon.forEach((client) => client.closeSync()));
-  process.on("SIGINT", () => process.exit(130));
+  // While the example issue exists, the first Ctrl-C stops the wait and lets the cleanup run; a second one exits.
+  const interrupt = new AbortController();
+  let holdInterrupt = false;
+  process.on("SIGINT", () => {
+    if (holdInterrupt && !interrupt.signal.aborted) interrupt.abort();
+    else process.exit(130);
+  });
   process.on("SIGTERM", () => process.exit(143));
   try {
     process.exitCode = await runBootstrap(process.argv.slice(2), {
@@ -241,12 +262,14 @@ if (import.meta.main) {
       token: (token) => new GitHubTokenApi(token),
       resend: (key) => new ResendApi(key),
       product: loadProduct,
+      listProducts,
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
       prompter: clackPrompter,
       env,
       log: (line) => console.log(line),
       config: loadConfig(env),
       interactive: Boolean(process.stdin.isTTY),
+      example: { interrupt: { signal: interrupt.signal, hold: (on) => void (holdInterrupt = on) } },
     });
   } catch (error) {
     console.error(`bootstrap: ${(error as Error).message}`);
