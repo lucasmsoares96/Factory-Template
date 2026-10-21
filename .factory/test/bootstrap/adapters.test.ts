@@ -165,6 +165,22 @@ describe("CloudflareApi: token probes (fake fetch)", () => {
     expect(seen).toEqual(["/accounts/acc/workers/scripts", "/accounts/acc/storage/kv/namespaces", "/accounts/acc", "/zones?per_page=1"]);
   });
 
+  it("finds a KV namespace by exact title across pages and creates one with POST", async () => {
+    const seen: { url: string; method?: string; body?: unknown }[] = [];
+    const client = new CloudflareApi("tok", async (url, init) => {
+      const path = String(url).replace("https://api.cloudflare.com/client/v4", "");
+      seen.push({ url: path, method: init?.method, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+      if (init?.method === "POST") return new Response(JSON.stringify({ success: true, result: { id: "kv-new", title: "t" } }), { status: 200 });
+      const page = path.includes("page=2") ? [{ id: "kv2", title: "wanted" }] : [{ id: "kv1", title: "other" }];
+      return new Response(JSON.stringify({ success: true, result: page, result_info: { total_pages: 2 } }), { status: 200 });
+    });
+
+    expect(await client.findKvNamespace("acc", "wanted")).toEqual({ id: "kv2", title: "wanted" });
+    expect(await client.findKvNamespace("acc", "absent")).toBeNull();
+    expect(await client.createKvNamespace("acc", "t")).toEqual({ id: "kv-new", title: "t" });
+    expect(seen.at(-1)).toEqual({ url: "/accounts/acc/storage/kv/namespaces", method: "POST", body: { title: "t" } });
+  });
+
   it("verifies an account-owned token, falling back to the user token verify", async () => {
     const account = api(() => ok({ status: "active" }));
     await account.client.verifyToken("acc");
@@ -345,6 +361,29 @@ describe("NeonCli (fake neonctl, real throwaway folder)", () => {
     const { neon, calls } = cli({ projects: JSON.stringify({ project: { id: "p9", name: "shop" }, connection_uris: [] }) });
     expect(await neon.createProject("shop", "org-1")).toEqual({ id: "p9", name: "shop" });
     expect(calls[0]!.args).toEqual(expect.arrayContaining(["projects", "create", "--name", "shop", "--org-id", "org-1", "--no-secrets"]));
+    await neon.close();
+  });
+
+  it("mints a key limited to one project with `api-keys create --project-id` (no --org-id), reading only `key` from the JSON", async () => {
+    const { neon, calls } = cli({ "api-keys": JSON.stringify({ id: 7, key: "napi_secret_value", name: "x", created_at: "now" }) });
+    expect(await neon.createApiKey("example-preview-ci", "p1")).toBe("napi_secret_value");
+    expect(calls[0]!.args.filter((a) => a !== "--config-dir").slice(0, 8)).toEqual(["api-keys", "create", "--name", "example-preview-ci", "--project-id", "p1", "-o", "json"]);
+    expect(calls[0]!.args).not.toContain("--org-id");
+    await neon.close();
+  });
+
+  it("does not echo a refusal's output when minting fails", async () => {
+    const { neon } = cli({}, { failOn: "api-keys" });
+    await expect(neon.createApiKey("k", "p1")).rejects.toThrow("api-keys failed");
+    await neon.close();
+  });
+
+  it("reads the default branch and renames it", async () => {
+    const { neon, calls } = cli({ branches: JSON.stringify([{ id: "br-1", name: "dev", default: false }, { id: "br-2", name: "main", default: true }]) });
+    expect(await neon.defaultBranchName("p1")).toBe("main");
+    await neon.renameBranch("p1", "main", "base");
+    expect(calls[0]!.args.filter((a) => a !== "--config-dir").slice(0, 6)).toEqual(["branches", "list", "--project-id", "p1", "-o", "json"]);
+    expect(calls[1]!.args.slice(0, 6)).toEqual(["branches", "rename", "main", "base", "--project-id", "p1"]);
     await neon.close();
   });
 
