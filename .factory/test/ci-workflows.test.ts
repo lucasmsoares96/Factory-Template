@@ -3,9 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
-// Seam 2: the CI workflows are read as data. Until a human installs them, they
-// wait in the pending directory; once copied to `.github/workflows`, this is the
-// only line to change (and `.scratch/factory-base/pending/ticket-12` goes away).
+// Seam 2: the CI workflows are read as data.
 const WORKFLOWS_DIR = ".github/workflows";
 
 const repo = join(import.meta.dirname, "../..");
