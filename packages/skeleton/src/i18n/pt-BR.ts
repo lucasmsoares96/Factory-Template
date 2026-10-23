@@ -8,6 +8,20 @@ export const ptBR: Messages = {
     title: "Olá, {name}",
     description: "Você entrou no {appName}.",
   },
+  nav: {
+    label: "Principal",
+    home: "Início",
+  },
+  account: {
+    nav: "Conta",
+    title: "A sua conta",
+    description: "Mude como o {appName} mostra você.",
+    name: "Nome",
+    nameHint: "Até 100 caracteres.",
+    submit: "Salvar",
+    submitting: "Salvando…",
+    saved: "O seu nome foi salvo.",
+  },
   auth: {
     signIn: {
       title: "Entrar",

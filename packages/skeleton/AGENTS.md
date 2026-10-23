@@ -5,7 +5,7 @@ The shared package every Product builds on: a Hono + OpenAPI Worker, Better Auth
 ## Layout
 
 - `src/platform/`: Worker side (`app.ts` `createApp`, `feature.ts` the `Feature` interface, auth, db, email, rate limit, `mcp/`).
-- `src/features/`: Skeleton features (`auth`, `home`, `me`), written like a Product's.
+- `src/features/`: Skeleton features (`auth`, `home`, `me`, `account`), written like a Product's. `account` is a `Feature` that `createApp()` mounts in every Product before the Product's own; the signed-in shell (`src/client/signed-in.tsx`) renders every feature's `nav` from `GET /api/nav` (`src/platform/nav.ts`).
 - `src/client/`: SPA shell and shadcn components. `src/i18n/`: messages per locale.
 - `src/db/schema.ts` and `drizzle/`: Skeleton tables and their migrations (a Product's migrations come after these).
 - `src/node/`: Node-only tooling (`skeleton generate`, `db`, `migrations`, Postgres helper, test helpers).

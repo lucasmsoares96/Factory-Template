@@ -3,7 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import type { Database } from "./db.ts";
 import type { SkeletonEnv } from "./env.ts";
 
-/** An entry in the signed-in navigation (rendered by the shell that comes with the Factory's account feature). */
+/** An entry in the signed-in navigation: `GET /api/nav` serves it and the signed-in shell renders it. */
 export type FeatureNav = {
   /** The text shown, already translated for the build's locale or a message path of the Product. */
   label: string;
