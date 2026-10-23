@@ -4,16 +4,19 @@ import { createRouter } from "./errors.ts";
 import type { Feature, FeatureNav } from "./feature.ts";
 import { requireIdentity, unauthenticatedResponse } from "./identity.ts";
 
+const NavEntry = z
+  .object({
+    label: z.string().openapi({ description: "The text shown, in the build's locale.", example: "Account" }),
+    to: z.string().openapi({ description: "The SPA path the entry opens.", example: "/account" }),
+  })
+  .openapi("NavEntry");
+
 const Nav = z
   .object({
-    entries: z
-      .array(
-        z.object({
-          label: z.string().openapi({ description: "The text shown, in the build's locale.", example: "Account" }),
-          to: z.string().openapi({ description: "The SPA path the entry opens.", example: "/account" }),
-        }),
-      )
-      .openapi({ description: "The features' `nav` entries, in mount order: the Skeleton's, then the Product's." }),
+    entries: z.array(NavEntry).openapi({
+      description: "The features' `nav` entries, in mount order: the Skeleton's, then the Product's.",
+      example: [{ label: "Account", to: "/account" }],
+    }),
   })
   .openapi("Nav");
 
