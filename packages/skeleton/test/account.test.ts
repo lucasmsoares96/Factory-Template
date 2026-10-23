@@ -67,6 +67,20 @@ test("PATCH /api/me answers 400 VALIDATION_FAILED for a missing, blank or too lo
   });
 });
 
+test("PATCH /api/me answers 400 VALIDATION_FAILED for a malformed or empty JSON body", async () => {
+  const { cookie } = await signedInUser();
+
+  for (const body of ["{", ""]) {
+    const response = await worker.fetch("/api/me", {
+      method: "PATCH",
+      headers: { "content-type": "application/json", cookie },
+      body,
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ code: "VALIDATION_FAILED", message: "The request is invalid." });
+  }
+});
+
 test("PATCH /api/me answers 401 UNAUTHENTICATED without a session", async () => {
   const response = await updateMe({ name: "Ana Lima" });
 
