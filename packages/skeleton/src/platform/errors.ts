@@ -1,5 +1,6 @@
 import { OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Context } from "hono";
+import { HTTPException } from "hono/http-exception";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { SkeletonEnv } from "./env.ts";
 import { errorMessages, type ErrorCode } from "./error-codes.ts";
@@ -42,10 +43,15 @@ export function createRouter() {
   });
 }
 
-/** Unknown routes answer 404 `NOT_FOUND`; uncaught errors answer 500 `INTERNAL_ERROR`. */
+/**
+ * Unknown routes answer 404 `NOT_FOUND`; a body the validator cannot parse
+ * (malformed JSON) answers 400 `VALIDATION_FAILED`; other uncaught errors answer
+ * 500 `INTERNAL_ERROR`.
+ */
 export function handleErrors(app: OpenAPIHono<SkeletonEnv>) {
   app.notFound((c) => respond(c, 404, "NOT_FOUND"));
   app.onError((error, c) => {
+    if (error instanceof HTTPException && error.status === 400) return respond(c, 400, "VALIDATION_FAILED");
     console.error(error);
     return respond(c, 500, "INTERNAL_ERROR");
   });
