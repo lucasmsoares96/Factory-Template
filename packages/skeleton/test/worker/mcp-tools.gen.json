@@ -82,7 +82,7 @@
         },
         "name": {
           "type": "string",
-          "description": "The name the user signed up with.",
+          "description": "The user's name: the one they signed up with, or the last one they chose.",
           "example": "Ana Souza"
         },
         "email": {
@@ -176,6 +176,76 @@
         "shout"
       ],
       "body": false,
+      "output": "object"
+    }
+  },
+  {
+    "name": "updateMe",
+    "title": "Rename the signed-in user",
+    "description": "Changes the name of the user the request acts for (the spaces around it are removed) and answers the user as getMe does.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "body": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100,
+              "description": "The new name: 1 to 100 characters once the spaces around it are removed.",
+              "example": "Ana Lima"
+            }
+          },
+          "required": [
+            "name"
+          ]
+        }
+      },
+      "required": [
+        "body"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The user's id."
+        },
+        "name": {
+          "type": "string",
+          "description": "The user's name: the one they signed up with, or the last one they chose.",
+          "example": "Ana Souza"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "The user's verified email.",
+          "example": "ana@example.com"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "email"
+      ]
+    },
+    "annotations": {
+      "title": "Rename the signed-in user",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "scope": "write",
+    "http": {
+      "method": "PATCH",
+      "path": "/api/me",
+      "pathParams": [],
+      "queryParams": [],
+      "body": true,
       "output": "object"
     }
   }

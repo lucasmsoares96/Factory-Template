@@ -1,16 +1,18 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Outlet, createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
+import { Link, Outlet, createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { Alert, AlertDescription } from "#ui/alert";
-import { Button } from "#ui/button";
+import { Button, buttonVariants } from "#ui/button";
 import { getMeQueryOptions, useGetMe } from "../gen/hooks/useGetMe.ts";
+import { useGetNav } from "../gen/hooks/useGetNav.ts";
 import { SIGN_IN_PATH, authClient, orThrow } from "./auth.ts";
 import { errorCode, useErrorMessage, useMessages } from "./i18n.tsx";
 
 /**
- * The layout of every page that needs a signed-in user (the home page, and the
- * Product's feature routes). Before any of them loads it asks `GET /api/me`;
- * without a session the visitor goes to the sign-in screen, and comes back here
- * after signing in.
+ * The layout of every page that needs a signed-in user (the home page, the
+ * account page, and the Product's feature routes). Before any of them loads it
+ * asks `GET /api/me`; without a session the visitor goes to the sign-in screen,
+ * and comes back here after signing in. Its navigation shows home and the
+ * features' `nav` entries (`GET /api/nav`): the Skeleton's and the Product's.
  */
 export const Route = createFileRoute("/_signed-in")({
   beforeLoad: async ({ context, location }) => {
@@ -29,6 +31,7 @@ function SignedIn() {
   const t = useMessages();
   const errorMessage = useErrorMessage();
   const me = useGetMe();
+  const nav = useGetNav();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const signOut = useMutation({
@@ -41,7 +44,20 @@ function SignedIn() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-end gap-3 text-sm">
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <nav aria-label={t.nav.label} className="flex flex-1 flex-wrap items-center gap-1">
+          {[{ label: t.nav.home, to: "/" }, ...(nav.data?.entries ?? [])].map((entry) => (
+            <Link
+              key={entry.to}
+              to={entry.to}
+              activeOptions={{ exact: entry.to === "/" }}
+              className={buttonVariants({ variant: "ghost", size: "sm" })}
+              activeProps={{ className: "bg-muted" }}
+            >
+              {entry.label}
+            </Link>
+          ))}
+        </nav>
         <span data-testid="user-name" className="text-muted-foreground">
           {me.data?.name}
         </span>

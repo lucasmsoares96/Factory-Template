@@ -17,6 +17,8 @@ export default createApp({
       api(app) {
         app.route("/", notes);
       },
+      // An entry the signed-in navigation shows next to the Skeleton's own.
+      nav: { label: "Notes", to: "/notes" },
       // A tool the OpenAPI document cannot describe: the `mcp?(server)` hook.
       mcp(server) {
         server.registerTool(

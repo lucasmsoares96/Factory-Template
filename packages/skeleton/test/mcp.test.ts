@@ -23,7 +23,7 @@ import { startTestWorker, type TestWorker } from "./support/worker.ts";
 // Seam 3: an agent connects to the test composition's `/mcp` the way an MCP
 // client does (discovery, registration, consent, code exchange) and uses the
 // tools through the SDK's client. The composition's tools: getMe and getNote
-// (read), createNote (write).
+// (read), createNote and updateMe (write).
 
 /** A client that publishes its metadata (CIMD) instead of registering. */
 const CIMD_CLIENT_ID = "https://agent.example.com/oauth/client.json";
@@ -132,6 +132,25 @@ test("a `read` Connection calls getMe as the user who consented, and never sees 
   await expect(client.callTool({ name: "createNote", arguments: { body: { text: "Hi" } } })).rejects.toThrow(
     "Tool createNote not found",
   );
+  await expect(client.callTool({ name: "updateMe", arguments: { body: { name: "Mallory" } } })).rejects.toThrow(
+    "Tool updateMe not found",
+  );
+  await client.close();
+});
+
+test("a `write` Connection renames the user who consented with updateMe, and getMe answers the new name", async () => {
+  const { user, cookie } = await signedInUser();
+  const { client } = await connectAgent(cookie, { access: "write" });
+
+  const renamed = await client.callTool({ name: "updateMe", arguments: { body: { name: " Ana Lima " } } });
+
+  expect(renamed.isError).toBeFalsy();
+  expect(renamed.structuredContent).toEqual({ id: user.id, name: "Ana Lima", email: user.email });
+  expect((await client.callTool({ name: "getMe", arguments: {} })).structuredContent).toMatchObject({ name: "Ana Lima" });
+  expect(await (await worker.fetch("/api/me", { headers: { cookie } })).json()).toMatchObject({ name: "Ana Lima" });
+  const blank = await client.callTool({ name: "updateMe", arguments: { body: { name: "  " } } });
+  expect(blank.isError).toBe(true);
+  expect(blank.content).toEqual([{ type: "text", text: "VALIDATION_FAILED: The request is invalid." }]);
   await client.close();
 });
 
@@ -140,7 +159,7 @@ test("a `write` Connection sees every tool and its writes reach the route as the
   const { tokens, client } = await connectAgent(cookie, { access: "write" });
 
   expect(tokens.scope.split(" ").sort()).toEqual(["read", "write"]);
-  expect(names((await client.listTools()).tools)).toEqual(["createNote", "getMe", "getNote", "manualPing"]);
+  expect(names((await client.listTools()).tools)).toEqual(["createNote", "getMe", "getNote", "updateMe", "manualPing"]);
   const result = await client.callTool({ name: "createNote", arguments: { body: { text: "Buy milk" } } });
   expect(result.isError).toBeFalsy();
   expect(result.structuredContent).toEqual({ id: expect.any(String), text: "Buy milk", authorId: user.id });
