@@ -1,12 +1,11 @@
 import { createRoute, z } from "@hono/zod-openapi";
-import { and, asc, eq, sql, type SQL } from "drizzle-orm";
-import type { AnyPgColumn } from "drizzle-orm/pg-core";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { companies, members, users } from "../../db/schema.ts";
 import { apiError, createRouter, errorResponse } from "../../platform/errors.ts";
 import { emitMemberJoined } from "../../platform/feature.ts";
 import { requireIdentity, unauthenticatedResponse } from "../../platform/identity.ts";
 import { CompanyParams, companyNotFoundResponse, requireMember } from "../../platform/member.ts";
-import { PageQuery, decodeCursor, pageOf, toPage, type Position } from "../../platform/pagination.ts";
+import { PageQuery, afterPosition, decodeCursor, pageOf, toPage } from "../../platform/pagination.ts";
 
 const role = z.string().openapi({
   description: "The Member's role: `owner`, `employee`, or a role the Product adds.",
@@ -37,7 +36,7 @@ const CompanyPage = pageOf(Company, "CompanyPage");
 
 const CompanyMember = z
   .object({
-    userId: z.string().openapi({ description: "The Member's user id." }),
+    userId: z.string().openapi({ description: "The Member's user id.", example: "8yW1kQfV0d3sLx9bTq2nZ" }),
     name: z.string().openapi({ description: "The Member's name.", example: "Ana Souza" }),
     email: z.email().openapi({ description: "The Member's email.", example: "ana@example.com" }),
     role,
@@ -135,15 +134,8 @@ function toCompany(row: { id: string; name: string; createdAt: Date; role: strin
   return { id: row.id, name: row.name, role: row.role, createdAt: row.createdAt.toISOString() };
 }
 
-/** Rows after `position` in `(at, id)` order: the keyset condition of a page. */
-function after(position: Position | undefined, at: AnyPgColumn, id: AnyPgColumn): SQL | undefined {
-  return position ? sql`(${at}, ${id}) > (${position.at.toISOString()}::timestamptz, ${position.id})` : undefined;
-}
-
 /** The cursor's position: `undefined` for the first page, `null` when the cursor is not one of ours. */
-function positionOf(cursor: string | undefined) {
-  return cursor === undefined ? undefined : decodeCursor(cursor);
-}
+const positionOf = (cursor: string | undefined) => (cursor === undefined ? undefined : decodeCursor(cursor));
 
 export const companiesApi = createRouter()
   .openapi(createCompany, async (c) => {
@@ -168,7 +160,7 @@ export const companiesApi = createRouter()
       .select({ ...companyColumns, joinedAt: members.createdAt })
       .from(members)
       .innerJoin(companies, eq(companies.id, members.companyId))
-      .where(and(eq(members.userId, c.var.identity.user.id), after(position, members.createdAt, members.companyId)))
+      .where(and(eq(members.userId, c.var.identity.user.id), afterPosition(position, members.createdAt, members.companyId)))
       .orderBy(asc(members.createdAt), asc(members.companyId))
       .limit(limit + 1);
     return c.json(toPage(rows, limit, { item: toCompany, position: (row) => ({ at: row.joinedAt, id: row.id }) }), 200);
@@ -209,7 +201,7 @@ export const companiesApi = createRouter()
       .select({ userId: users.id, name: users.name, email: users.email, role: members.role, joinedAt: members.createdAt })
       .from(members)
       .innerJoin(users, eq(users.id, members.userId))
-      .where(and(eq(members.companyId, c.var.member.companyId), after(position, members.createdAt, members.userId)))
+      .where(and(eq(members.companyId, c.var.member.companyId), afterPosition(position, members.createdAt, members.userId)))
       .orderBy(asc(members.createdAt), asc(members.userId))
       .limit(limit + 1);
     return c.json(

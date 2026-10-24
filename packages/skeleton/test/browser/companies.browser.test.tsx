@@ -64,7 +64,7 @@ test("without a Company, the signed-in root asks to create one or wait for an in
   const { screen, router, t } = await renderSpa();
 
   await expect.element(screen.getByRole("heading", { name: format(t.home.title, { name: ana.name }) })).toBeVisible();
-  await expect.element(screen.getByText(t.home.noCompany)).toBeVisible();
+  await expect.element(screen.getByTestId("no-company")).toHaveTextContent(t.home.noCompany);
   await expect.element(screen.getByRole("button", { name: t.companies.create.submit })).toBeVisible();
   await expect.element(screen.getByRole("combobox", { name: t.companies.switcher.label })).not.toBeInTheDocument();
   expect(router.state.location.pathname).toBe("/");
@@ -81,7 +81,7 @@ test("creating a Company from the root enters it: its page, with the user as Own
   await expect.element(screen.getByRole("heading", { level: 1, name: "Initech" })).toBeVisible();
   expect(router.state.location.pathname).toBe("/c/company-1");
   expect(api.created).toEqual([{ name: "  Initech  " }]);
-  await expect.element(screen.getByText(format(t.companies.page.role, { role: t.companies.roles.owner }))).toBeVisible();
+  await expect.element(screen.getByTestId("company-role")).toHaveTextContent(format(t.companies.page.role, { role: t.companies.roles.owner }));
   await expect.element(screen.getByRole("combobox", { name: t.companies.switcher.label })).toHaveValue("company-1");
 });
 
@@ -121,7 +121,7 @@ test("the switcher lists the user's Companies and changes the active one through
 
   await expect.element(screen.getByRole("heading", { level: 1, name: globex.name })).toBeVisible();
   expect(router.state.location.pathname).toBe(`/c/${globex.id}`);
-  await expect.element(screen.getByText(format(t.companies.page.role, { role: t.companies.roles.employee }))).toBeVisible();
+  await expect.element(screen.getByTestId("company-role")).toHaveTextContent(format(t.companies.page.role, { role: t.companies.roles.employee }));
 });
 
 test("the switcher's New Company opens the creation form", async ({ worker }) => {

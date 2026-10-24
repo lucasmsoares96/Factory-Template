@@ -265,7 +265,8 @@
         },
         "cursor": {
           "type": "string",
-          "description": "The `nextCursor` of the previous page; without it, the first page."
+          "description": "The `nextCursor` of the previous page; without it, the first page.",
+          "example": "WyIyMDI2LTEwLTI0VDEyOjAwOjAwLjAwMFoiLCJpZCJd"
         }
       },
       "additionalProperties": false
@@ -362,7 +363,8 @@
         },
         "cursor": {
           "type": "string",
-          "description": "The `nextCursor` of the previous page; without it, the first page."
+          "description": "The `nextCursor` of the previous page; without it, the first page.",
+          "example": "WyIyMDI2LTEwLTI0VDEyOjAwOjAwLjAwMFoiLCJpZCJd"
         }
       },
       "required": [
@@ -380,7 +382,8 @@
             "properties": {
               "userId": {
                 "type": "string",
-                "description": "The Member's user id."
+                "description": "The Member's user id.",
+                "example": "8yW1kQfV0d3sLx9bTq2nZ"
               },
               "name": {
                 "type": "string",
