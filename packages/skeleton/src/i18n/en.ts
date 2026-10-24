@@ -26,6 +26,13 @@ export const en = {
     submit: "Save",
     submitting: "Saving…",
     saved: "Your name was saved.",
+    email: "Email",
+    currentEmail: "You sign in with {email}.",
+    newEmail: "New email",
+    newEmailHint: "We send a link to the new address. Your email changes only when you open it.",
+    changeEmail: "Change email",
+    changingEmail: "Sending…",
+    emailPending: "Waiting for {email}: open the link we sent there. Until then, you keep signing in with {current}.",
   },
   auth: {
     signIn: {
@@ -114,6 +121,16 @@ export const en = {
       button: "Verify email",
       fallback: "If the button does not work, open this link:",
       ignore: "If you did not create an account, you can ignore this email.",
+    },
+    changeEmail: {
+      subject: "Confirm your new email",
+      preview: "Confirm {email} as your {appName} email.",
+      heading: "Confirm your new email",
+      greeting: "Hi {name},",
+      body: "You asked to sign in to {appName} with {email} from now on. Open the link to confirm it. Until you do, your email stays the same.",
+      button: "Confirm new email",
+      fallback: "If the button does not work, open this link:",
+      ignore: "If you did not ask for this, you can ignore this email: the account's email stays the same.",
     },
     resetPassword: {
       subject: "Reset your password",

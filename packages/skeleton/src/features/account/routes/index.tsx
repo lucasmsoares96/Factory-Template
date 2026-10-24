@@ -1,5 +1,5 @@
 import { useForm } from "@tanstack/react-form";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { Alert, AlertDescription } from "#ui/alert";
@@ -7,6 +7,7 @@ import { Button } from "#ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "#ui/card";
 import { Input } from "#ui/input";
 import { Label } from "#ui/label";
+import { EMAIL_VERIFIED_PATH, authClient, orThrow } from "../../../client/auth.ts";
 import { getMeQueryKey, useGetMe } from "../../../gen/hooks/useGetMe.ts";
 import { useUpdateMe } from "../../../gen/hooks/useUpdateMe.ts";
 import { useErrorMessage, useMessages } from "../../../client/i18n.tsx";
@@ -15,13 +16,22 @@ import { format } from "../../../i18n/index.ts";
 // Under the signed-in layout, which has already loaded GET /api/me.
 export const Route = createFileRoute("/_signed-in/account/")({ component: Account });
 
+function Account() {
+  return (
+    <div className="flex flex-col gap-6">
+      <ChangeName />
+      <ChangeEmail />
+    </div>
+  );
+}
+
 /**
  * The signed-in user changes their name. The API is the only judge of a valid
  * name (it answers VALIDATION_FAILED, shown translated); its answer replaces
  * `GET /api/me` in the cache, so the name on top and the home page's title
  * change without a reload.
  */
-function Account() {
+function ChangeName() {
   const t = useMessages();
   const errorMessage = useErrorMessage();
   const { data: me } = useGetMe();
@@ -96,6 +106,92 @@ function Account() {
             {(isSubmitting) => (
               <Button type="submit" className="self-start" disabled={isSubmitting}>
                 {isSubmitting ? t.account.submitting : t.account.submit}
+              </Button>
+            )}
+          </form.Subscribe>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * The signed-in user asks to change their email through Better Auth
+ * (`/api/auth/change-email`, outside the MCP). The link goes to the new address
+ * and the email changes only when it is opened; until then `GET /api/me`
+ * answers the address as `pendingEmail`, which this card shows.
+ */
+function ChangeEmail() {
+  const t = useMessages();
+  const errorMessage = useErrorMessage();
+  const { data: me } = useGetMe();
+  const queryClient = useQueryClient();
+  const changeEmail = useMutation({
+    mutationFn: (newEmail: string) => orThrow(authClient.changeEmail({ newEmail, callbackURL: EMAIL_VERIFIED_PATH })),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: getMeQueryKey() }),
+  });
+  const form = useForm({
+    defaultValues: { newEmail: "" },
+    onSubmit: async ({ value }) => {
+      try {
+        await changeEmail.mutateAsync(value.newEmail);
+      } catch {
+        return;
+      }
+      form.reset();
+    },
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>
+          <h2>{t.account.email}</h2>
+        </CardTitle>
+        <CardDescription data-testid="current-email">{format(t.account.currentEmail, { email: me?.email ?? "" })}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void form.handleSubmit();
+          }}
+        >
+          <form.Field name="newEmail">
+            {(field) => (
+              <div className="flex flex-col gap-2">
+                <Label htmlFor={field.name}>{t.account.newEmail}</Label>
+                <Input
+                  id={field.name}
+                  type="email"
+                  required
+                  autoComplete="email"
+                  aria-describedby="new-email-hint"
+                  value={field.state.value}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                  onBlur={field.handleBlur}
+                />
+                <p id="new-email-hint" className="text-muted-foreground text-xs">
+                  {t.account.newEmailHint}
+                </p>
+              </div>
+            )}
+          </form.Field>
+          {changeEmail.isError ? (
+            <Alert variant="destructive">
+              <AlertDescription>{errorMessage(changeEmail.error)}</AlertDescription>
+            </Alert>
+          ) : null}
+          {me?.pendingEmail ? (
+            <p role="status" data-testid="email-pending" className="text-sm">
+              {format(t.account.emailPending, { email: me.pendingEmail, current: me.email })}
+            </p>
+          ) : null}
+          <form.Subscribe selector={(state) => state.isSubmitting}>
+            {(isSubmitting) => (
+              <Button type="submit" className="self-start" disabled={isSubmitting}>
+                {isSubmitting ? t.account.changingEmail : t.account.changeEmail}
               </Button>
             )}
           </form.Subscribe>
