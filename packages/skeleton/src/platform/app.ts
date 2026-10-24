@@ -2,6 +2,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { swaggerUI } from "@hono/swagger-ui";
 import { messagesFor } from "../i18n/index.ts";
 import type { ProductConfig } from "../product.ts";
+import { account } from "../features/account/index.ts";
 import { me } from "../features/me/api.ts";
 import { authContext, authRoutes } from "./auth.ts";
 import { database } from "./db.ts";
@@ -12,15 +13,19 @@ import { health } from "./health.ts";
 import { buildLocale } from "./locale.ts";
 import { AUTHORIZE_PATH, mcpBridge } from "./mcp/connections.ts";
 import type { McpTool } from "./mcp/tool.ts";
+import { navRoutes } from "./nav.ts";
 import { openApiConfig } from "./openapi.ts";
 import { previewOutbox } from "./preview-outbox.ts";
 
 export { openApiConfig };
 
+/** The Skeleton's own features, in every Product, mounted before the Product's. */
+const skeletonFeatures: readonly Feature[] = [account];
+
 export type AppOptions = {
   /** The Product's identity (`product.config.ts`). */
   product: ProductConfig;
-  /** The Product's features, mounted in order after the Skeleton's own routes. */
+  /** The Product's features, mounted in order after the Skeleton's own routes and features. */
   features?: readonly Feature[];
   /** The MCP tools `pnpm generate` wrote for the Product (`mcp-tools.gen.json`). */
   mcpTools?: readonly McpTool[];
@@ -36,7 +41,8 @@ export type AppOptions = {
  * OAuth provider's `/oauth/*` and `/.well-known/*` routes; `/oauth/authorize` is
  * the consent page.
  */
-export function createApp({ product, features = [], mcpTools = [] }: AppOptions) {
+export function createApp({ product, features: productFeatures = [], mcpTools = [] }: AppOptions) {
+  const features = [...skeletonFeatures, ...productFeatures];
   assertUniqueFeatures(features);
   const { id: title, emailFrom, messages } = product;
   const t = messagesFor(buildLocale, messages);
@@ -49,6 +55,7 @@ export function createApp({ product, features = [], mcpTools = [] }: AppOptions)
   api.route("/", health);
   api.route("/", authRoutes);
   api.route("/", me);
+  api.route("/", navRoutes({ features, t }));
   // Answers only in a preview (see preview-outbox.ts); anywhere else it is a 404.
   api.route("/", previewOutbox);
   for (const feature of features) {

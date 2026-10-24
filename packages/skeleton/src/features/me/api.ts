@@ -9,10 +9,12 @@ import { requireIdentity, unauthenticatedResponse } from "../../platform/identit
 // acts for a user. The handler reads the user from `c.var.identity`, never from
 // a cookie or a token.
 
-const Me = z
+export const Me = z
   .object({
     id: z.string().openapi({ description: "The user's id." }),
-    name: z.string().openapi({ description: "The name the user signed up with.", example: "Ana Souza" }),
+    name: z
+      .string()
+      .openapi({ description: "The user's name: the one they signed up with, or the last one they chose.", example: "Ana Souza" }),
     email: z.email().openapi({ description: "The user's verified email.", example: "ana@example.com" }),
   })
   .openapi("Me");
