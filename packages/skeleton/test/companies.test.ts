@@ -245,6 +245,30 @@ test("GET /api/companies/{companyId}/members lists the Members with name, email 
   expect(second).toEqual({ items: [expect.objectContaining({ userId: bruno.user.id })], nextCursor: null });
 });
 
+test("GET /api/companies/{companyId}/members pages Members who joined in the same millisecond by user id, each once", async () => {
+  const ana = await signedInUser();
+  const company = await createCompany(ana.cookie);
+  const others = await Promise.all(["Bruno Lima", "Carla Dias", "Davi Rocha"].map((name) => signedInUser(name)));
+  for (const { user } of others) await join(company.id, user.id);
+  const sameMillisecond = "2026-10-24T12:00:00.123Z";
+  await db.query(`UPDATE skeleton.members SET created_at = '${sameMillisecond}' WHERE company_id = '${company.id}'`);
+
+  const seen: string[] = [];
+  let cursor: string | null = null;
+  do {
+    const query: string = cursor ? `limit=1&cursor=${cursor}` : "limit=1";
+    const page = (await (await api(`/api/companies/${company.id}/members?${query}`, { cookie: ana.cookie })).json()) as Page<{
+      userId: string;
+    }>;
+    seen.push(...page.items.map((member) => member.userId));
+    cursor = page.nextCursor;
+  } while (cursor && seen.length < 10);
+
+  // The tie order is the database's collation of the ids; what matters is that no Member repeats or goes missing.
+  expect(seen).toHaveLength(4);
+  expect([...seen].sort()).toEqual([ana.user.id, ...others.map(({ user }) => user.id)].sort());
+});
+
 test("GET /api/me/last-company answers the Company opened last, the first joined before any, and 404 without one", async () => {
   const { cookie } = await signedInUser();
 

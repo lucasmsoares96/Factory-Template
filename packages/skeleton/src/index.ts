@@ -31,6 +31,7 @@ export {
   PAGE_LIMIT,
   PageQuery,
   afterPosition,
+  cursorPosition,
   decodeCursor,
   encodeCursor,
   pageOf,
