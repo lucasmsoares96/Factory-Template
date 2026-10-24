@@ -31,6 +31,23 @@ export const ptBR: Messages = {
       submitting: "Trocando…",
       changed: "A sua senha foi trocada. As suas outras sessões foram encerradas.",
     },
+    connections: {
+      link: "Conexões",
+      title: "Conexões",
+      description: "Os agentes de IA que você autorizou a usar o {appName} pelo MCP. Revogue um e ele perde o acesso na hora.",
+      empty: "Nenhum agente de IA está conectado à sua conta.",
+      connectedOn: "Conectado em {date}",
+      read: "Somente leitura",
+      write: "Leitura e escrita",
+      revoke: "Revogar",
+      confirmTitle: "Revogar {app}?",
+      confirmDescription: "{app} perde o acesso ao {appName} na hora. Para usá-lo de novo, conecte-o outra vez.",
+      confirm: "Revogar acesso",
+      revoking: "Revogando…",
+      cancel: "Cancelar",
+      revoked: "{app} não tem mais acesso.",
+      more: "Mostrar mais",
+    },
   },
   auth: {
     signIn: {

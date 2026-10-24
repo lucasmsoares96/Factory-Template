@@ -1,9 +1,9 @@
 import { useForm } from "@tanstack/react-form";
 import { useQueryClient } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { Link, createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { Alert, AlertDescription } from "#ui/alert";
-import { Button } from "#ui/button";
+import { Button, buttonVariants } from "#ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "#ui/card";
 import { Input } from "#ui/input";
 import { Label } from "#ui/label";
@@ -20,7 +20,7 @@ export const Route = createFileRoute("/_signed-in/account/")({ component: Accoun
  * The signed-in user changes their name. The API is the only judge of a valid
  * name (it answers VALIDATION_FAILED, shown translated); its answer replaces
  * `GET /api/me` in the cache, so the name on top and the home page's title
- * change without a reload.
+ * change without a reload. It links to the Connections page.
  */
 function Account() {
   const t = useMessages();
@@ -102,6 +102,9 @@ function Account() {
               )}
             </form.Subscribe>
           </form>
+          <Link to="/account/connections" className={`${buttonVariants({ variant: "link" })} mt-4 px-0`}>
+            {t.account.connections.link}
+          </Link>
         </CardContent>
       </Card>
       <ChangePassword />

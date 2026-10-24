@@ -173,10 +173,12 @@ async function authorize(c: Context<SkeletonEnv>, t: Messages): Promise<Response
     if (!identity) return failed(t.connect.signInAgain, 401);
     const scope = form.get("access") === "write" ? ["read", "write"] : ["read"];
     const approved = await oauth.approveConsent(c.req.raw, handle, { scope });
+    // Stored on the grant, so the Connections page names the app without fetching its metadata again.
+    const details = await oauth.describeConsent(approved.request);
     const { redirectTo } = await oauth.completeAuthorization({
       request: approved.request,
       userId: grantUserId(identity.user.id),
-      metadata: {},
+      metadata: { appName: details.clientName } satisfies GrantMetadata,
       scope,
       props: { userId: identity.user.id } satisfies McpConnection,
     });
@@ -218,4 +220,60 @@ export async function revokeConnections(c: Context<SkeletonEnv>, user: { id: str
     cursor = page.cursor;
   } while (cursor);
   for (const id of grantIds) await oauth.revokeGrant(id, grantUserId(user.id));
+}
+
+/** One MCP Connection of a user, as the account's Connections page shows it. */
+export type ConnectionSummary = { id: string; appName: string; createdAt: string; access: "read" | "write" };
+
+/** What `completeAuthorization` stores on a grant: the app's name as the consent page showed it. */
+type GrantMetadata = { appName?: string };
+
+/**
+ * One page of the user's MCP Connections (their grants), newest first within
+ * the page. A grant made before its app's name was stored names it from the
+ * client's registration, or its client id when that cannot be read.
+ */
+export async function listConnections(
+  c: Context<SkeletonEnv>,
+  user: { id: string },
+  { limit, cursor }: { limit: number; cursor?: string },
+): Promise<{ connections: ConnectionSummary[]; nextCursor: string | null }> {
+  const oauth = c.var.connections();
+  const page = await oauth.listUserGrants(grantUserId(user.id), { limit, cursor });
+  const connections = await Promise.all(
+    page.items.map(async (grant) => ({
+      id: grant.id,
+      appName: (grant.metadata as GrantMetadata | undefined)?.appName ?? (await clientName(oauth, grant.clientId)),
+      createdAt: new Date(grant.createdAt * 1000).toISOString(),
+      access: grant.scope.includes("write") ? ("write" as const) : ("read" as const),
+    })),
+  );
+  connections.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return { connections, nextCursor: page.cursor ?? null };
+}
+
+async function clientName(oauth: OAuthHelpers, clientId: string) {
+  try {
+    return (await oauth.lookupClient(clientId))?.clientName ?? clientId;
+  } catch {
+    // A CIMD client whose metadata document cannot be fetched right now.
+    return clientId;
+  }
+}
+
+/** Whether the user has a Connection with this id (a grant id is unique only per user). */
+export async function findConnection(c: Context<SkeletonEnv>, user: { id: string }, id: string): Promise<boolean> {
+  const oauth = c.var.connections();
+  let cursor: string | undefined;
+  do {
+    const page = await oauth.listUserGrants(grantUserId(user.id), { cursor });
+    if (page.items.some((grant) => grant.id === id)) return true;
+    cursor = page.cursor;
+  } while (cursor);
+  return false;
+}
+
+/** Revokes one Connection of the user: its grant and its tokens, so its agent gets 401 at `/mcp` at once. */
+export async function revokeConnection(c: Context<SkeletonEnv>, user: { id: string }, id: string): Promise<void> {
+  await c.var.connections().revokeGrant(id, grantUserId(user.id));
 }
