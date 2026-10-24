@@ -7,6 +7,7 @@ export const ptBR: Messages = {
   home: {
     title: "Olá, {name}",
     description: "Você entrou no {appName}.",
+    noCompany: "Você ainda não está em nenhuma Company. Crie uma Company ou aguarde um convite para entrar numa.",
   },
   nav: {
     label: "Principal",
@@ -21,6 +22,34 @@ export const ptBR: Messages = {
     submit: "Salvar",
     submitting: "Salvando…",
     saved: "O seu nome foi salvo.",
+  },
+  companies: {
+    switcher: {
+      label: "Company",
+      choose: "Escolha uma Company",
+      new: "Nova Company",
+    },
+    create: {
+      title: "Criar uma Company",
+      description: "Você será o Owner dela. Depois, pode convidar pessoas.",
+      name: "Nome da Company",
+      nameHint: "Até 100 caracteres. Outras Companies podem ter o mesmo nome.",
+      submit: "Criar Company",
+      submitting: "Criando…",
+    },
+    roles: {
+      owner: "Owner",
+      employee: "Employee",
+    },
+    page: {
+      role: "A sua role: {role}",
+      sections: "Seções",
+      members: "Members",
+      memberName: "Nome",
+      memberEmail: "Email",
+      memberRole: "Role",
+      moreMembers: "Mostrar mais Members",
+    },
   },
   auth: {
     signIn: {

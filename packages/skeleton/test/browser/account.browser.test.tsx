@@ -1,4 +1,5 @@
 import { HttpResponse } from "msw";
+import { getLastCompanyHandler, getLastCompanyHandlerResponse404 } from "../../src/gen/msw/getLastCompanyHandler.ts";
 import { getMeHandler } from "../../src/gen/msw/getMeHandler.ts";
 import { getNavHandler } from "../../src/gen/msw/getNavHandler.ts";
 import { updateMeHandler, updateMeHandlerResponse400 } from "../../src/gen/msw/updateMeHandler.ts";
@@ -8,13 +9,17 @@ import { expect, test } from "../spa/test.ts";
 
 const ana = { id: "user-1", name: "Ana Souza", email: "ana@example.com" };
 
-/** The test composition's navigation: the Skeleton's account entry, then a Product feature's (`notes`). */
+/** The test composition's navigation: the Skeleton's account entry, then a Product feature's (`notes`), and its Company page section. */
 const nav = (t = messagesFor("en")) => ({
   entries: [
     { label: t.account.nav, to: "/account" },
     { label: "Notes", to: "/notes" },
   ],
+  companyPage: [{ label: "Notes", to: "/notes" }],
 });
+
+/** A user in no Company: the signed-in root stays home. */
+const noCompany = getLastCompanyHandler(() => getLastCompanyHandlerResponse404({ code: "NOT_FOUND", message: "Not found." }));
 
 /** `GET` and `PATCH /api/me` over one user, as the Worker does: a rename shows in the next read. */
 function meApi() {
@@ -35,7 +40,7 @@ function meApi() {
 }
 
 test("the signed-in navigation shows home, the account page and every feature's nav entry", async ({ worker }) => {
-  worker.use(getMeHandler(ana), getNavHandler(nav()));
+  worker.use(getMeHandler(ana), getNavHandler(nav()), noCompany);
 
   const { screen, router, t } = await renderSpa();
 
@@ -49,7 +54,7 @@ test("the signed-in navigation shows home, the account page and every feature's 
 
 test("saving a new name on the account page updates the name on top and the home page's title", async ({ worker }) => {
   const api = meApi();
-  worker.use(...api.handlers, getNavHandler(nav()));
+  worker.use(...api.handlers, getNavHandler(nav()), noCompany);
   const { screen, router, t } = await renderSpa({ path: "/account" });
 
   const name = screen.getByLabelText(t.account.name);
