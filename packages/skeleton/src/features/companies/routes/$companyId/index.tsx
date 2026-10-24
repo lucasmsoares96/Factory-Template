@@ -44,7 +44,7 @@ function CompanyPage() {
           <CardTitle>
             <h1>{company.data.name}</h1>
           </CardTitle>
-          <CardDescription>{format(t.companies.page.role, { role: roleLabel(company.data.role) })}</CardDescription>
+          <CardDescription data-testid="company-role">{format(t.companies.page.role, { role: roleLabel(company.data.role) })}</CardDescription>
         </CardHeader>
         {sections.length > 0 ? (
           <CardContent>

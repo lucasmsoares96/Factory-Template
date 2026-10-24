@@ -1,6 +1,8 @@
 import { z } from "@hono/zod-openapi";
+import { sql, type SQL } from "drizzle-orm";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 
-/** The default and the largest `limit` of a list. */
+/** The default `limit` of a list; it never goes above 100. */
 export const PAGE_LIMIT = 50;
 const MAX_LIMIT = 100;
 
@@ -16,7 +18,10 @@ export const PageQuery = z.object({
   cursor: z
     .string()
     .optional()
-    .openapi({ description: "The `nextCursor` of the previous page; without it, the first page." }),
+    .openapi({
+      description: "The `nextCursor` of the previous page; without it, the first page.",
+      example: "WyIyMDI2LTEwLTI0VDEyOjAwOjAwLjAwMFoiLCJpZCJd",
+    }),
 });
 
 /** A list's answer: one page of `item`, and the cursor of the next one. */
@@ -53,6 +58,14 @@ export function decodeCursor(cursor: string): Position | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * The keyset condition of a page: rows after `position` in `(at, id)` order,
+ * or no condition for the first page. `at` must keep milliseconds only.
+ */
+export function afterPosition(position: Position | undefined, at: AnyPgColumn, id: AnyPgColumn): SQL | undefined {
+  return position ? sql`(${at}, ${id}) > (${position.at.toISOString()}::timestamptz, ${position.id})` : undefined;
 }
 
 /**

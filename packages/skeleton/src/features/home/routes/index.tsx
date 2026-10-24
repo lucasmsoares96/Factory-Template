@@ -34,7 +34,7 @@ function Home() {
         <CardTitle>
           <h1>{format(t.home.title, { name: me?.name ?? "" })}</h1>
         </CardTitle>
-        <CardDescription>{t.home.noCompany}</CardDescription>
+        <CardDescription data-testid="no-company">{t.home.noCompany}</CardDescription>
       </CardHeader>
       <CardContent>
         <CreateCompanyForm />

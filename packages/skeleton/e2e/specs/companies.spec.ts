@@ -20,7 +20,7 @@ test("a signed-in user creates a Company and enters it", { tag: "@evidence" }, a
 
   // In no Company yet: the root asks to create one or wait for an invitation.
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByText(t.home.noCompany)).toBeVisible();
+  await expect(page.getByTestId("no-company")).toHaveText(t.home.noCompany);
   await evidence("no-company");
 
   await page.getByLabel(t.companies.create.name).fill("  Acme  ");
