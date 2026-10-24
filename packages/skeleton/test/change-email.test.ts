@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { sign } from "hono/jwt";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { messagesFor } from "../src/i18n/index.ts";
 import { linkIn } from "../src/node/email-link.ts";
@@ -139,7 +140,7 @@ test("a link to an address another account took in the meantime is refused with 
   const location = new URL(verified.headers.get("location")!, worker.origin);
   expect(location.pathname).toBe("/email-verified");
   expect(location.searchParams.get("error")).toBe("USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL");
-  expect(await me(cookie)).toMatchObject({ email });
+  expect(await me(cookie)).toMatchObject({ email, pendingEmail: null });
   expect((await signIn(email)).status).toBe(200);
 });
 
@@ -156,4 +157,32 @@ test("GET /api/me answers no pending email when no change was asked", async () =
   const { email, cookie } = await signedInUser();
 
   expect(await me(cookie)).toMatchObject({ email, pendingEmail: null });
+});
+
+test("a forged change-of-email link says nothing about who owns an address: it is refused as an invalid token", async () => {
+  const other = await signedInUser();
+  const { email } = await signedInUser();
+  const exp = Math.floor(Date.now() / 1000) + 3600;
+  const token = await sign({ email, updateTo: other.email, exp }, "not-the-auth-secret", "HS256");
+
+  const response = await open(`${worker.origin}${VERIFY_PATH}?token=${token}&callbackURL=/email-verified`);
+
+  expect(response.status).toBe(302);
+  expect(new URL(response.headers.get("location")!, worker.origin).searchParams.get("error")).toBe("INVALID_TOKEN");
+});
+
+test("opening the link a second time, once the email changed, changes nothing", async () => {
+  const { cookie } = await signedInUser();
+  const newEmail = newAddress();
+  await changeEmail(newEmail, cookie);
+  const [message] = await emailsTo(newEmail);
+  const link = linkIn(message!.html, VERIFY_PATH);
+  await open(link);
+
+  const again = await open(link);
+
+  expect(again.status).toBe(302);
+  expect(new URL(again.headers.get("location")!, worker.origin).searchParams.get("error")).toBe("USER_NOT_FOUND");
+  expect(await me(cookie)).toMatchObject({ email: newEmail, pendingEmail: null });
+  expect((await signIn(newEmail)).status).toBe(200);
 });

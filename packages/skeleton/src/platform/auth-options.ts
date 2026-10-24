@@ -1,9 +1,9 @@
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import type { BetterAuthOptions } from "better-auth";
 import { APIError, createAuthMiddleware, getSessionFromCtx, isAPIError } from "better-auth/api";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
-import { decode } from "hono/jwt";
+import { decode, verify } from "hono/jwt";
 import { authSchema, users } from "../db/schema.ts";
 import { changeEmailEmail } from "../emails/change-email.tsx";
 import { resetPasswordEmail } from "../emails/reset-password.tsx";
@@ -62,6 +62,27 @@ function changeEmailTarget(token: string): string | undefined {
     // Not a JWT: Better Auth refuses it as INVALID_TOKEN.
     return undefined;
   }
+}
+
+/**
+ * The account a change-of-email link moves (its `email`) and the address it
+ * moves it to (its `updateTo`), only when Better Auth signed the token (HS256
+ * with the auth secret) and it has not expired; `undefined` otherwise, and
+ * Better Auth refuses the link itself.
+ */
+async function verifiedChangeEmail(token: string, secret: string) {
+  try {
+    const { email, updateTo } = await verify(token, secret, "HS256");
+    return typeof email === "string" && typeof updateTo === "string" ? { email, updateTo } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Whether `url` is a path on this app's own origin (never `//host` or `/\host`). */
+function isOwnPath(url: string, baseURL: string): boolean {
+  const origin = new URL(baseURL).origin;
+  return url.startsWith("/") && new URL(url, origin).origin === origin;
 }
 
 /**
@@ -134,10 +155,20 @@ export function authOptions({
         // Someone took the new address after the link was sent: changing to it
         // would break the unique email, so the link is refused like a bad token.
         if (ctx.path === "/verify-email" && typeof ctx.query?.token === "string") {
-          const newEmail = changeEmailTarget(ctx.query.token);
-          if (!newEmail || !(await ownerOf(db, newEmail))) return;
+          // Only a token Better Auth signed: a forged one must not tell who owns an address.
+          const change = await verifiedChangeEmail(ctx.query.token, ctx.context.secret);
+          if (!change) return;
+          const requester = await ownerOf(db, change.email);
+          const owner = await ownerOf(db, change.updateTo);
+          // No requester: the link was already used, and Better Auth answers USER_NOT_FOUND.
+          if (!requester || !owner || owner === requester) return;
+          // The change can no longer happen: the account page stops showing it as pending.
+          await db
+            .update(users)
+            .set({ pendingEmail: null })
+            .where(and(eq(users.id, requester), eq(users.pendingEmail, change.updateTo.toLowerCase())));
           const callbackURL = ctx.query.callbackURL;
-          if (typeof callbackURL === "string" && callbackURL.startsWith("/") && !callbackURL.startsWith("//")) {
+          if (typeof callbackURL === "string" && isOwnPath(callbackURL, ctx.context.baseURL)) {
             const separator = callbackURL.includes("?") ? "&" : "?";
             throw ctx.redirect(`${callbackURL}${separator}error=${EMAIL_TAKEN.code}`);
           }
