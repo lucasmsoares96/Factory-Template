@@ -20,7 +20,25 @@ export {
   type IdentityUser,
 } from "./platform/identity.ts";
 export {
+  CompanyParams,
+  companyNotFoundResponse,
+  requireMember,
+  skeletonRole,
+  type Member,
+  type SkeletonRole,
+} from "./platform/member.ts";
+export {
+  PAGE_LIMIT,
+  PageQuery,
+  decodeCursor,
+  encodeCursor,
+  pageOf,
+  toPage,
+  type Position,
+} from "./platform/pagination.ts";
+export {
   assertUniqueFeatures,
+  emitMemberJoined,
   defineFeature,
   seedFeatures,
   type Feature,

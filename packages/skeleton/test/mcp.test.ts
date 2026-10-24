@@ -22,8 +22,9 @@ import { startTestWorker, type TestWorker } from "./support/worker.ts";
 
 // Seam 3: an agent connects to the test composition's `/mcp` the way an MCP
 // client does (discovery, registration, consent, code exchange) and uses the
-// tools through the SDK's client. The composition's tools: getMe and getNote
-// (read), createNote and updateMe (write).
+// tools through the SDK's client. The composition's tools: getMe, getNote,
+// getCompanyNote and the Companies' reads (read), createNote, updateMe and
+// createCompany (write).
 
 /** A client that publishes its metadata (CIMD) instead of registering. */
 const CIMD_CLIENT_ID = "https://agent.example.com/oauth/client.json";
@@ -104,6 +105,8 @@ async function connectAgent(cookie: string, { access = "read", modern = false }:
 /** The tool the test composition's feature registers by hand (`mcp(server)`); it is not in the generated list. */
 const MANUAL_TOOL = "manualPing";
 const names = (tools: { name: string }[]) => tools.map((tool) => tool.name);
+/** What a `read` Connection sees: the GET operations, and the hand-registered tool. */
+const READ_TOOLS = ["getCompany", "getCompanyNote", "getLastCompany", "getMe", "getNote", "listCompanies", "listMembers", "manualPing"];
 
 test("without a token, /mcp answers 401 with a challenge that leads to the authorization server", async () => {
   expect(discovery.challenge).toMatch(/^Bearer /);
@@ -125,7 +128,7 @@ test("a `read` Connection calls getMe as the user who consented, and never sees 
   const { tokens, client } = await connectAgent(cookie, { access: "read" });
 
   expect(tokens.scope).toBe("read");
-  expect(names((await client.listTools()).tools)).toEqual(["getMe", "getNote", "manualPing"]);
+  expect(names((await client.listTools()).tools)).toEqual(READ_TOOLS);
   const result = await client.callTool({ name: "getMe", arguments: {} });
   expect(result.isError).toBeFalsy();
   expect(result.structuredContent).toEqual({ id: user.id, name: "Ana Souza", email: user.email });
@@ -159,7 +162,19 @@ test("a `write` Connection sees every tool and its writes reach the route as the
   const { tokens, client } = await connectAgent(cookie, { access: "write" });
 
   expect(tokens.scope.split(" ").sort()).toEqual(["read", "write"]);
-  expect(names((await client.listTools()).tools)).toEqual(["createNote", "getMe", "getNote", "updateMe", "manualPing"]);
+  expect(names((await client.listTools()).tools)).toEqual([
+    "createCompany",
+    "createNote",
+    "getCompany",
+    "getCompanyNote",
+    "getLastCompany",
+    "getMe",
+    "getNote",
+    "listCompanies",
+    "listMembers",
+    "updateMe",
+    "manualPing",
+  ]);
   const result = await client.callTool({ name: "createNote", arguments: { body: { text: "Buy milk" } } });
   expect(result.isError).toBeFalsy();
   expect(result.structuredContent).toEqual({ id: expect.any(String), text: "Buy milk", authorId: user.id });
@@ -175,6 +190,37 @@ test("a route's 4xx comes back as a tool error with the API's message; its param
   expect(missing.content).toEqual([{ type: "text", text: "NOT_FOUND: Not found." }]);
   const found = await client.callTool({ name: "getNote", arguments: { id: "welcome", shout: "yes" } });
   expect(found.structuredContent).toEqual({ id: "welcome", text: "WELCOME", authorId: user.id });
+  await client.close();
+});
+
+test("an agent creates and lists Companies as the user, and a Company they are not a Member of is not found", async () => {
+  const { cookie } = await signedInUser();
+  const other = await signedInUser("Mallory");
+  const { client } = await connectAgent(cookie, { access: "write" });
+  const foreign = (await (
+    await worker.post("/api/companies", { name: "Not yours" }, { cookie: other.cookie })
+  ).json()) as { id: string };
+
+  const created = await client.callTool({ name: "createCompany", arguments: { body: { name: "Acme" } } });
+  expect(created.isError).toBeFalsy();
+  const company = created.structuredContent as { id: string };
+  expect(company).toMatchObject({ name: "Acme", role: "owner" });
+  const listed = await client.callTool({ name: "listCompanies", arguments: {} });
+  expect(listed.structuredContent).toEqual({ items: [company], nextCursor: null });
+  const got = await client.callTool({ name: "getCompany", arguments: { companyId: company.id } });
+  expect(got.structuredContent).toEqual(company);
+
+  for (const name of ["getCompany", "listMembers", "getCompanyNote"]) {
+    const result = await client.callTool({ name, arguments: { companyId: foreign.id } });
+    expect(result.isError, name).toBe(true);
+    expect(result.content).toEqual([{ type: "text", text: "NOT_FOUND: Not found." }]);
+  }
+  // An agent's reads never decide where the user lands in the app.
+  const last = await worker.fetch("/api/me/last-company", { headers: { cookie } });
+  expect((await last.json()) as { id: string }).toEqual(company);
+  expect(
+    await db.query(`SELECT last_used_at FROM skeleton.members WHERE company_id = '${company.id}'`),
+  ).toEqual([{ last_used_at: null }]);
   await client.close();
 });
 
@@ -216,7 +262,7 @@ test("a client on the 2026-07-28 protocol uses the same tools", async () => {
   const { user, cookie } = await signedInUser();
   const { client } = await connectAgent(cookie, { modern: true });
 
-  expect(names((await client.listTools()).tools)).toEqual(["getMe", "getNote", "manualPing"]);
+  expect(names((await client.listTools()).tools)).toEqual(READ_TOOLS);
   expect((await client.callTool({ name: "getMe", arguments: {} })).structuredContent).toMatchObject({ id: user.id });
   await client.close();
 });

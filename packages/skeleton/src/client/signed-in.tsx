@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, Outlet, createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { Alert, AlertDescription } from "#ui/alert";
 import { Button, buttonVariants } from "#ui/button";
+import { CompanySwitcher } from "../features/companies/switcher.tsx";
 import { getMeQueryOptions, useGetMe } from "../gen/hooks/useGetMe.ts";
 import { useGetNav } from "../gen/hooks/useGetNav.ts";
 import { SIGN_IN_PATH, authClient, orThrow } from "./auth.ts";
@@ -12,7 +13,8 @@ import { errorCode, useErrorMessage, useMessages } from "./i18n.tsx";
  * account page, and the Product's feature routes). Before any of them loads it
  * asks `GET /api/me`; without a session the visitor goes to the sign-in screen,
  * and comes back here after signing in. Its navigation shows home and the
- * features' `nav` entries (`GET /api/nav`): the Skeleton's and the Product's.
+ * features' `nav` entries (`GET /api/nav`): the Skeleton's and the Product's,
+ * and the Company switcher.
  */
 export const Route = createFileRoute("/_signed-in")({
   beforeLoad: async ({ context, location }) => {
@@ -58,6 +60,7 @@ function SignedIn() {
             </Link>
           ))}
         </nav>
+        <CompanySwitcher />
         <span data-testid="user-name" className="text-muted-foreground">
           {me.data?.name}
         </span>

@@ -18,6 +18,8 @@ import { Route as SignInRouteImport } from "./../../../../packages/skeleton/src/
 import { Route as SignUpRouteImport } from "./../../../../packages/skeleton/src/features/auth/routes/sign-up"
 import { Route as IndexRouteImport } from "./../../../../packages/skeleton/src/features/home/routes/index"
 import { Route as AccountIndexRouteImport } from "./../../../../packages/skeleton/src/features/account/routes/index"
+import { Route as CNewRouteImport } from "./../../../../packages/skeleton/src/features/companies/routes/new"
+import { Route as CCompanyIdIndexRouteImport } from "./../../../../packages/skeleton/src/features/companies/routes/$companyId/index"
 
 const DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRoute =
   DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRouteImport.update({
@@ -66,6 +68,18 @@ const AccountIndexRoute = AccountIndexRouteImport.update({
   getParentRoute: () =>
     DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRoute,
 } as any)
+const CNewRoute = CNewRouteImport.update({
+  id: "/c/new",
+  path: "/c/new",
+  getParentRoute: () =>
+    DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRoute,
+} as any)
+const CCompanyIdIndexRoute = CCompanyIdIndexRouteImport.update({
+  id: "/c/$companyId/",
+  path: "/c/$companyId/",
+  getParentRoute: () =>
+    DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   "/": typeof IndexRoute
@@ -75,7 +89,9 @@ export interface FileRoutesByFullPath {
   "/reset-password": typeof ResetPasswordRoute
   "/sign-in": typeof SignInRoute
   "/sign-up": typeof SignUpRoute
+  "/c/new": typeof CNewRoute
   "/account/": typeof AccountIndexRoute
+  "/c/$companyId/": typeof CCompanyIdIndexRoute
 }
 export interface FileRoutesByTo {
   "/check-email": typeof CheckEmailRoute
@@ -85,7 +101,9 @@ export interface FileRoutesByTo {
   "/sign-in": typeof SignInRoute
   "/sign-up": typeof SignUpRoute
   "/": typeof IndexRoute
+  "/c/new": typeof CNewRoute
   "/account": typeof AccountIndexRoute
+  "/c/$companyId": typeof CCompanyIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -97,7 +115,9 @@ export interface FileRoutesById {
   "/sign-in": typeof SignInRoute
   "/sign-up": typeof SignUpRoute
   "/_signed-in/": typeof IndexRoute
+  "/_signed-in/c/new": typeof CNewRoute
   "/_signed-in/account/": typeof AccountIndexRoute
+  "/_signed-in/c/$companyId/": typeof CCompanyIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -109,7 +129,9 @@ export interface FileRouteTypes {
     | "/reset-password"
     | "/sign-in"
     | "/sign-up"
+    | "/c/new"
     | "/account/"
+    | "/c/$companyId/"
   fileRoutesByTo: FileRoutesByTo
   to:
     | "/check-email"
@@ -119,7 +141,9 @@ export interface FileRouteTypes {
     | "/sign-in"
     | "/sign-up"
     | "/"
+    | "/c/new"
     | "/account"
+    | "/c/$companyId"
   id:
     | "__root__"
     | "/_signed-in"
@@ -130,7 +154,9 @@ export interface FileRouteTypes {
     | "/sign-in"
     | "/sign-up"
     | "/_signed-in/"
+    | "/_signed-in/c/new"
     | "/_signed-in/account/"
+    | "/_signed-in/c/$companyId/"
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -208,18 +234,36 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof AccountIndexRouteImport
       parentRoute: typeof DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRoute
     }
+    "/_signed-in/c/new": {
+      id: "/_signed-in/c/new"
+      path: "/c/new"
+      fullPath: "/c/new"
+      preLoaderRoute: typeof CNewRouteImport
+      parentRoute: typeof DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRoute
+    }
+    "/_signed-in/c/$companyId/": {
+      id: "/_signed-in/c/$companyId/"
+      path: "/c/$companyId"
+      fullPath: "/c/$companyId/"
+      preLoaderRoute: typeof CCompanyIdIndexRouteImport
+      parentRoute: typeof DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRoute
+    }
   }
 }
 
 interface DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRouteChildren {
   IndexRoute: typeof IndexRoute
+  CNewRoute: typeof CNewRoute
   AccountIndexRoute: typeof AccountIndexRoute
+  CCompanyIdIndexRoute: typeof CCompanyIdIndexRoute
 }
 
 const DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRouteChildren: DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRouteChildren =
   {
     IndexRoute: IndexRoute,
+    CNewRoute: CNewRoute,
     AccountIndexRoute: AccountIndexRoute,
+    CCompanyIdIndexRoute: CCompanyIdIndexRoute,
   }
 
 const DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRouteWithChildren =
