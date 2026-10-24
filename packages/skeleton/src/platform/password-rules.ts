@@ -1,4 +1,4 @@
-/** Better Auth's defaults, written down: sign-up, password reset and the bootstrap's accounts all apply them. */
+/** Better Auth's defaults, written down: sign-up, password reset, password change and the bootstrap's accounts all apply them. */
 export const PASSWORD_MIN_LENGTH = 8;
 export const PASSWORD_MAX_LENGTH = 128;
 

@@ -15,6 +15,9 @@ import type { SendEmail } from "./email.ts";
 
 export { AUTH_BASE_PATH };
 
+/** Better Auth's route for a signed-in user's password change (current plus new password). */
+const CHANGE_PASSWORD_PATH = "/change-password";
+
 export type AuthOptionsInput = {
   db: NodePgDatabase;
   secret: string;
@@ -31,10 +34,10 @@ export type AuthOptionsInput = {
    */
   rateLimit?: NonNullable<BetterAuthOptions["rateLimit"]>["customStorage"];
   /**
-   * Revokes what outlives a password reset besides the sessions, which Better
-   * Auth deletes itself. The Worker passes `revokeAccessAfterPasswordReset`.
+   * Revokes what outlives a password reset or change besides the sessions, which
+   * Better Auth deletes itself. The Worker passes `revokeAccessAfterCredentialChange`.
    */
-  onPasswordReset?: (user: { id: string }) => Promise<void>;
+  onCredentialChange?: (user: { id: string }) => Promise<void>;
   /** Runs work (emails) after the response, so a new and an existing email answer alike. */
   defer?: (task: Promise<unknown>) => void;
 };
@@ -98,7 +101,7 @@ export function authOptions({
   sendEmail,
   password,
   rateLimit,
-  onPasswordReset,
+  onCredentialChange,
   defer,
 }: AuthOptionsInput) {
   return {
@@ -119,7 +122,7 @@ export function authOptions({
       // Whoever reset the password may be taking the account back: every session
       // ends, and the user signs in again with the new password.
       revokeSessionsOnPasswordReset: true,
-      onPasswordReset: async ({ user }) => onPasswordReset?.(user),
+      onPasswordReset: async ({ user }) => onCredentialChange?.(user),
     },
     emailVerification: {
       sendOnSignUp: true,
@@ -143,6 +146,12 @@ export function authOptions({
     user: { changeEmail: { enabled: true } },
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
+        // A password change from the account page ends every other session, whatever
+        // the request asks: the old password may be what someone else signed in with.
+        // Better Auth deletes them and opens a new session for this browser.
+        if (ctx.path === CHANGE_PASSWORD_PATH) {
+          return { context: { ...ctx, body: { ...ctx.body, revokeOtherSessions: true } } };
+        }
         // Better Auth answers an address another account owns like a free one and
         // sends nothing; the account page must say so, translated by the code.
         if (ctx.path === "/change-email" && typeof ctx.body?.newEmail === "string") {
@@ -175,8 +184,15 @@ export function authOptions({
           throw emailTaken();
         }
       }),
-      // The request was accepted: the account page shows the change as pending.
       after: createAuthMiddleware(async (ctx) => {
+        // After a password change, as after a reset, the rest of the user's access goes too.
+        if (ctx.path === CHANGE_PASSWORD_PATH) {
+          const returned: unknown = ctx.context.returned;
+          if (isAPIError(returned) || !hasUser(returned)) return;
+          await onCredentialChange?.(returned.user);
+          return;
+        }
+        // A change of email was accepted: the account page shows it as pending.
         if (ctx.path !== "/change-email" || isAPIError(ctx.context.returned)) return;
         const session = await getSessionFromCtx(ctx);
         if (!session) return;
@@ -198,4 +214,10 @@ export function authOptions({
     },
     telemetry: { enabled: false },
   } satisfies BetterAuthOptions;
+}
+
+/** What `/change-password` answers on success: `{ token, user }`. */
+function hasUser(value: unknown): value is { user: { id: string } } {
+  const user = typeof value === "object" && value !== null && "user" in value ? value.user : undefined;
+  return typeof user === "object" && user !== null && "id" in user && typeof user.id === "string";
 }

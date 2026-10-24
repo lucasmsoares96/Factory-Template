@@ -53,10 +53,24 @@ export async function startTestWorker({ databaseUrl, vars }: { databaseUrl: stri
         headers: { "content-type": "application/json", origin, ...headers },
         body: JSON.stringify(body),
       }),
+    /**
+     * The ids of the user's MCP Connections (OAuth grants), read from the
+     * Worker's `OAUTH_KV` in `workers-oauth-provider`'s key layout
+     * (`grant:<userId>:<grantId>`, the user id URL-encoded as the Skeleton stores it).
+     */
+    grantsOf: async (userId: string) => {
+      const env = await server.getWorker<{ OAUTH_KV: GrantStore }>().getEnv();
+      const prefix = `grant:${encodeURIComponent(userId)}:`;
+      const { keys } = await env.OAUTH_KV.list({ prefix });
+      return keys.map((key) => key.name.slice(prefix.length)).filter((id) => !id.includes(":"));
+    },
     /** Prints the Worker's runtime logs; call it when a test fails. */
     debug: () => server.debug(),
     close: () => server.close(),
   };
 }
 
-export type TestWorker = Awaited<ReturnType<typeof startTestWorker>>;
+/** The part of a KV namespace `grantsOf` reads (the Worker types are not in scope here). */
+type GrantStore = { list(options: { prefix: string }): Promise<{ keys: { name: string }[] }> };
+
+export type TestWorker =Awaited<ReturnType<typeof startTestWorker>>;

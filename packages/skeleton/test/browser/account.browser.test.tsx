@@ -1,5 +1,5 @@
 import { HttpResponse } from "msw";
-import { authError, changeEmailHandler } from "../spa/auth-handlers.ts";
+import { authError, changeEmailHandler, changePasswordHandler } from "../spa/auth-handlers.ts";
 import { getMeHandler } from "../../src/gen/msw/getMeHandler.ts";
 import { getNavHandler } from "../../src/gen/msw/getNavHandler.ts";
 import { updateMeHandler, updateMeHandlerResponse400 } from "../../src/gen/msw/updateMeHandler.ts";
@@ -126,4 +126,43 @@ test("an email that belongs to another account is refused with the message trans
   await expect.element(screen.getByRole("alert")).toHaveTextContent(t.errors.USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL);
   await expect.element(screen.getByRole("alert")).not.toHaveTextContent(message);
   await expect.element(screen.getByTestId("email-pending")).not.toBeInTheDocument();
+});
+
+test("changing the password on the account page sends the current and the new one and says the other sessions ended", async ({ worker }) => {
+  const change = changePasswordHandler();
+  worker.use(getMeHandler(ana), getNavHandler(nav()), change.handler);
+  const { screen, router, t } = await renderSpa({ path: "/account" });
+
+  const current = screen.getByLabelText(t.account.password.current);
+  const next = screen.getByLabelText(t.account.password.new);
+  await current.fill("correct horse battery");
+  await next.fill("a brand new passphrase");
+  await screen.getByRole("button", { name: t.account.password.submit }).click();
+
+  await expect.element(screen.getByRole("status")).toHaveTextContent(t.account.password.changed);
+  await expect.element(current).toHaveValue("");
+  await expect.element(next).toHaveValue("");
+  expect(change.requests).toEqual([{ currentPassword: "correct horse battery", newPassword: "a brand new passphrase" }]);
+  expect(router.state.location.pathname).toBe("/account");
+  await expect.element(screen.getByTestId("user-name")).toHaveTextContent(ana.name);
+});
+
+test("a wrong current password and a new one outside the rules show the message translated by its code", async ({ worker }) => {
+  const t = messagesFor("pt-BR");
+  worker.use(getMeHandler(ana), getNavHandler(nav(t)));
+  const { screen } = await renderSpa({ path: "/account", locale: "pt-BR" });
+
+  for (const [code, message] of [
+    ["INVALID_PASSWORD", "Invalid password"],
+    ["PASSWORD_TOO_SHORT", "Password too short"],
+  ] as const) {
+    worker.use(changePasswordHandler(authError(400, code, message)).handler);
+    await screen.getByLabelText(t.account.password.current).fill("correct horse battery");
+    await screen.getByLabelText(t.account.password.new).fill("short");
+    await screen.getByRole("button", { name: t.account.password.submit }).click();
+
+    await expect.element(screen.getByRole("alert")).toHaveTextContent(t.errors[code]);
+    await expect.element(screen.getByRole("alert")).not.toHaveTextContent(message);
+    await expect.element(screen.getByLabelText(t.account.password.current)).toHaveValue("correct horse battery");
+  }
 });
