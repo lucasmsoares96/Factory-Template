@@ -30,10 +30,10 @@ function connectionsApi(initial: Connection[]) {
 }
 
 const claude: Connection = { id: "grant-1", appName: "Claude", createdAt: "2026-10-20T12:00:00.000Z", access: "write" };
-const cursor: Connection = { id: "grant-2", appName: "Cursor", createdAt: "2026-09-03T12:00:00.000Z", access: "read" };
+const cursorAgent: Connection = { id: "grant-2", appName: "Cursor", createdAt: "2026-09-03T12:00:00.000Z", access: "read" };
 
 test("the account page leads to Connections, which lists each agent with its date and access", async ({ worker }) => {
-  const api = connectionsApi([claude, cursor]);
+  const api = connectionsApi([claude, cursorAgent]);
   worker.use(getMeHandler(ana), getNavHandler(nav()), ...api.handlers);
   const { screen, router, t } = await renderSpa({ path: "/account" });
 
@@ -54,7 +54,7 @@ test("the account page leads to Connections, which lists each agent with its dat
 });
 
 test("revoking asks for confirmation first; once confirmed the agent leaves the list", async ({ worker }) => {
-  const api = connectionsApi([claude, cursor]);
+  const api = connectionsApi([claude, cursorAgent]);
   worker.use(getMeHandler(ana), getNavHandler(nav()), ...api.handlers);
   const { screen, t } = await renderSpa({ path: "/account/connections" });
 
@@ -73,6 +73,31 @@ test("revoking asks for confirmation first; once confirmed the agent leaves the 
   await expect.element(screen.getByRole("listitem").filter({ hasText: "Claude" })).not.toBeInTheDocument();
   await expect.element(screen.getByRole("listitem").filter({ hasText: "Cursor" })).toBeVisible();
   expect(api.revoked).toEqual(["grant-1"]);
+});
+
+test("Show more reads the next page with the cursor the first one answered", async ({ worker }) => {
+  const cursors: (string | null)[] = [];
+  worker.use(
+    getMeHandler(ana),
+    getNavHandler(nav()),
+    listConnectionsHandler(({ request }) => {
+      const cursor = new URL(request.url).searchParams.get("cursor");
+      cursors.push(cursor);
+      return HttpResponse.json(
+        cursor === "page-2" ? { connections: [cursorAgent], nextCursor: null } : { connections: [claude], nextCursor: "page-2" },
+      );
+    }),
+  );
+  const { screen, t } = await renderSpa({ path: "/account/connections" });
+  const more = screen.getByRole("button", { name: t.account.connections.more });
+
+  await expect.element(screen.getByRole("listitem").filter({ hasText: "Claude" })).toBeVisible();
+  await more.click();
+
+  await expect.element(screen.getByRole("listitem").filter({ hasText: "Cursor" })).toBeVisible();
+  await expect.element(screen.getByRole("listitem").filter({ hasText: "Claude" })).toBeVisible();
+  await expect.element(more).not.toBeInTheDocument();
+  expect(cursors).toEqual([null, "page-2"]);
 });
 
 test("without Connections, the page says there are none", async ({ worker }) => {

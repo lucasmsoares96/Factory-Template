@@ -152,6 +152,19 @@ test("GET /api/connections pages with `limit` and the cursor it answers", async 
   }
 });
 
+test("a cursor the route did not answer pages nothing of another user's Connections", async () => {
+  const ana = await signedInUser("Ana Souza");
+  const bia = await signedInUser("Bia Lima");
+  for (const name of ["Ana's Agent 1", "Ana's Agent 2"]) await connectAgent(ana.cookie, name);
+  const { nextCursor } = (await (await listConnections(ana.cookie, "?limit=1")).json()) as Connections;
+
+  for (const cursor of [nextCursor!, "not-a-cursor"]) {
+    const response = await listConnections(bia.cookie, `?cursor=${encodeURIComponent(cursor)}`);
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as Connections).connections).toEqual([]);
+  }
+});
+
 test("without a session, listing and revoking answer 401 UNAUTHENTICATED", async () => {
   for (const response of [await listConnections(), await revokeConnection("any")]) {
     expect(response.status).toBe(401);
