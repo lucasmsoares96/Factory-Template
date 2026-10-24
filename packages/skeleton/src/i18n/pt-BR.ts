@@ -21,6 +21,13 @@ export const ptBR: Messages = {
     submit: "Salvar",
     submitting: "Salvando…",
     saved: "O seu nome foi salvo.",
+    email: "Email",
+    currentEmail: "Você entra com {email}.",
+    newEmail: "Email novo",
+    newEmailHint: "Enviamos um link para o endereço novo. O seu email só muda quando você abrir o link.",
+    changeEmail: "Trocar o email",
+    changingEmail: "Enviando…",
+    emailPending: "Aguardando {email}: abra o link que enviamos para lá. Até lá, você continua entrando com {current}.",
   },
   auth: {
     signIn: {
@@ -109,6 +116,16 @@ export const ptBR: Messages = {
       button: "Confirmar email",
       fallback: "Se o botão não funcionar, abra este link:",
       ignore: "Se você não criou uma conta, pode ignorar este email.",
+    },
+    changeEmail: {
+      subject: "Confirme o seu email novo",
+      preview: "Confirme {email} como o seu email no {appName}.",
+      heading: "Confirme o seu email novo",
+      greeting: "Olá, {name},",
+      body: "Você pediu para entrar no {appName} com {email} daqui em diante. Abra o link para confirmar. Até lá, o seu email continua o mesmo.",
+      button: "Confirmar email novo",
+      fallback: "Se o botão não funcionar, abra este link:",
+      ignore: "Se não foi você que pediu, pode ignorar este email: o email da conta continua o mesmo.",
     },
     resetPassword: {
       subject: "Redefina a sua senha",

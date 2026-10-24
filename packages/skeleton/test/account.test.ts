@@ -46,7 +46,7 @@ test("PATCH /api/me renames the signed-in user, trimmed, and answers what GET /a
   const response = await updateMe({ name: "  Ana Lima  " }, cookie);
 
   expect(response.status).toBe(200);
-  const renamed = { id: user.id, name: "Ana Lima", email: user.email };
+  const renamed = { id: user.id, name: "Ana Lima", email: user.email, pendingEmail: null };
   expect(await response.json()).toEqual(renamed);
   expect(await (await worker.fetch("/api/me", { headers: { cookie } })).json()).toEqual(renamed);
 });

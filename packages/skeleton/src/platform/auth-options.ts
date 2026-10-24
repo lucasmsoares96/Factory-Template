@@ -1,7 +1,11 @@
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import type { BetterAuthOptions } from "better-auth";
+import { APIError, createAuthMiddleware, getSessionFromCtx, isAPIError } from "better-auth/api";
+import { eq } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
-import { authSchema } from "../db/schema.ts";
+import { decode } from "hono/jwt";
+import { authSchema, users } from "../db/schema.ts";
+import { changeEmailEmail } from "../emails/change-email.tsx";
 import { resetPasswordEmail } from "../emails/reset-password.tsx";
 import { verificationEmail } from "../emails/verify-email.tsx";
 import type { Messages } from "../i18n/index.ts";
@@ -73,7 +77,54 @@ export function authOptions({
     },
     emailVerification: {
       sendOnSignUp: true,
-      sendVerificationEmail: async ({ user, url }) => sendEmail(await verificationEmail({ t, user, url })),
+      // A change of email sends its link to the new address, which the token
+      // carries as `updateTo` (Better Auth passes `user.email` as that address).
+      sendVerificationEmail: async ({ user, url, token }) => {
+        const { updateTo } = decode(token).payload;
+        return sendEmail(
+          typeof updateTo === "string"
+            ? await changeEmailEmail({ t, user, newEmail: updateTo, url })
+            : await verificationEmail({ t, user, url }),
+        );
+      },
+      // The link in the new address was opened: the change is no longer pending.
+      afterEmailVerification: async (user) => {
+        await db.update(users).set({ pendingEmail: null }).where(eq(users.id, user.id));
+      },
+    },
+    // The verification email goes to the new address; until its link is opened
+    // the account keeps the old email, for signing in too.
+    user: { changeEmail: { enabled: true } },
+    hooks: {
+      // Better Auth answers an address another account owns like a free one and
+      // sends nothing; the account page must say so, translated by the code.
+      before: createAuthMiddleware(async (ctx) => {
+        if (ctx.path !== "/change-email" || typeof ctx.body?.newEmail !== "string") return;
+        const session = await getSessionFromCtx(ctx);
+        // Better Auth answers 401 itself, before anyone learns who owns the address.
+        if (!session) return;
+        const [owner] = await db
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.email, ctx.body.newEmail.toLowerCase()));
+        if (owner && owner.id !== session.user.id) {
+          // Better Auth's own code (and message) for an address taken at sign-up.
+          throw new APIError("BAD_REQUEST", {
+            code: "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL",
+            message: "User already exists. Use another email.",
+          });
+        }
+      }),
+      // The request was accepted: the account page shows the change as pending.
+      after: createAuthMiddleware(async (ctx) => {
+        if (ctx.path !== "/change-email" || isAPIError(ctx.context.returned)) return;
+        const session = await getSessionFromCtx(ctx);
+        if (!session) return;
+        await db
+          .update(users)
+          .set({ pendingEmail: String(ctx.body.newEmail).toLowerCase() })
+          .where(eq(users.id, session.user.id));
+      }),
     },
     // Always on: Better Auth only turns it on when NODE_ENV is "production", which
     // a Worker never sees. Its rules stay the defaults (sign-in and sign-up: 3 per

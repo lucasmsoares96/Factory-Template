@@ -27,6 +27,11 @@ export const users = skeletonSchema.table("users", {
   email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified").notNull().default(false),
   image: text("image"),
+  /**
+   * The address the user asked to change to, until they open the link sent
+   * there. Not a Better Auth field: the Skeleton sets and clears it (auth-options.ts).
+   */
+  pendingEmail: text("pending_email"),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
