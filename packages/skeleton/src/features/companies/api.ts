@@ -5,7 +5,7 @@ import { apiError, createRouter, errorResponse } from "../../platform/errors.ts"
 import { emitMemberJoined } from "../../platform/feature.ts";
 import { requireIdentity, unauthenticatedResponse } from "../../platform/identity.ts";
 import { CompanyParams, companyNotFoundResponse, requireMember } from "../../platform/member.ts";
-import { PageQuery, afterPosition, decodeCursor, pageOf, toPage } from "../../platform/pagination.ts";
+import { PageQuery, afterPosition, cursorPosition, pageOf, toPage } from "../../platform/pagination.ts";
 
 const role = z.string().openapi({
   description: "The Member's role: `owner`, `employee`, or a role the Product adds.",
@@ -134,9 +134,6 @@ function toCompany(row: { id: string; name: string; createdAt: Date; role: strin
   return { id: row.id, name: row.name, role: row.role, createdAt: row.createdAt.toISOString() };
 }
 
-/** The cursor's position: `undefined` for the first page, `null` when the cursor is not one of ours. */
-const positionOf = (cursor: string | undefined) => (cursor === undefined ? undefined : decodeCursor(cursor));
-
 export const companiesApi = createRouter()
   .openapi(createCompany, async (c) => {
     const { name } = c.req.valid("json");
@@ -154,7 +151,7 @@ export const companiesApi = createRouter()
   })
   .openapi(listCompanies, async (c) => {
     const { limit, cursor } = c.req.valid("query");
-    const position = positionOf(cursor);
+    const position = cursorPosition(cursor);
     if (position === null) return c.json(apiError("VALIDATION_FAILED"), 400);
     const rows = await c.var.db
       .select({ ...companyColumns, joinedAt: members.createdAt })
@@ -195,7 +192,7 @@ export const companiesApi = createRouter()
   })
   .openapi(listMembers, async (c) => {
     const { limit, cursor } = c.req.valid("query");
-    const position = positionOf(cursor);
+    const position = cursorPosition(cursor);
     if (position === null) return c.json(apiError("VALIDATION_FAILED"), 400);
     const rows = await c.var.db
       .select({ userId: users.id, name: users.name, email: users.email, role: members.role, joinedAt: members.createdAt })

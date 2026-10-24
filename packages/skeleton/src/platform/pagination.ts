@@ -61,6 +61,15 @@ export function decodeCursor(cursor: string): Position | null {
 }
 
 /**
+ * The position of a list's `cursor` query parameter: `undefined` for the first
+ * page, `null` when the cursor is not one this API wrote (answer 400
+ * `VALIDATION_FAILED`).
+ */
+export function cursorPosition(cursor: string | undefined): Position | null | undefined {
+  return cursor === undefined ? undefined : decodeCursor(cursor);
+}
+
+/**
  * The keyset condition of a page: rows after `position` in `(at, id)` order,
  * or no condition for the first page. `at` must keep milliseconds only.
  */
