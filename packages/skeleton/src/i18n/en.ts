@@ -33,6 +33,23 @@ export const en = {
     changeEmail: "Change email",
     changingEmail: "Sending…",
     emailPending: "Waiting for {email}: open the link we sent there. Until then, you keep signing in with {current}.",
+    connections: {
+      link: "Connections",
+      title: "Connections",
+      description: "The AI agents you allowed to use {appName} through MCP. Revoke one and it loses access at once.",
+      empty: "No AI agent is connected to your account.",
+      connectedOn: "Connected on {date}",
+      read: "Read only",
+      write: "Read and write",
+      revoke: "Revoke",
+      confirmTitle: "Revoke {app}?",
+      confirmDescription: "{app} loses access to {appName} right away. To use it again, connect it again.",
+      confirm: "Revoke access",
+      revoking: "Revoking…",
+      cancel: "Cancel",
+      revoked: "{app} no longer has access.",
+      more: "Show more",
+    },
   },
   auth: {
     signIn: {
