@@ -7,6 +7,7 @@ import { Button } from "#ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "#ui/card";
 import { Input } from "#ui/input";
 import { Label } from "#ui/label";
+import { authClient, orThrow } from "../../../client/auth.ts";
 import { getMeQueryKey, useGetMe } from "../../../gen/hooks/useGetMe.ts";
 import { useUpdateMe } from "../../../gen/hooks/useUpdateMe.ts";
 import { useErrorMessage, useMessages } from "../../../client/i18n.tsx";
@@ -46,12 +47,104 @@ function Account() {
   });
 
   return (
+    <div className="flex flex-col gap-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            <h1>{t.account.title}</h1>
+          </CardTitle>
+          <CardDescription>{format(t.account.description, { appName: t.app.title })}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form
+            className="flex flex-col gap-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void form.handleSubmit();
+            }}
+          >
+            <form.Field name="name">
+              {(field) => (
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor={field.name}>{t.account.name}</Label>
+                  <Input
+                    id={field.name}
+                    autoComplete="name"
+                    aria-describedby="name-hint"
+                    value={field.state.value}
+                    onChange={(event) => {
+                      setSaved(false);
+                      field.handleChange(event.target.value);
+                    }}
+                    onBlur={field.handleBlur}
+                  />
+                  <p id="name-hint" className="text-muted-foreground text-xs">
+                    {t.account.nameHint}
+                  </p>
+                </div>
+              )}
+            </form.Field>
+            {updateMe.isError ? (
+              <Alert variant="destructive">
+                <AlertDescription>{errorMessage(updateMe.error)}</AlertDescription>
+              </Alert>
+            ) : null}
+            {saved ? (
+              <p role="status" className="text-sm">
+                {t.account.saved}
+              </p>
+            ) : null}
+            <form.Subscribe selector={(state) => state.isSubmitting}>
+              {(isSubmitting) => (
+                <Button type="submit" className="self-start" disabled={isSubmitting}>
+                  {isSubmitting ? t.account.submitting : t.account.submit}
+                </Button>
+              )}
+            </form.Subscribe>
+          </form>
+        </CardContent>
+      </Card>
+      <ChangePassword />
+    </div>
+  );
+}
+
+/**
+ * The signed-in user changes their password with the current one. Better Auth
+ * is the only judge (`INVALID_PASSWORD`, `PASSWORD_TOO_SHORT`, ... shown
+ * translated). The Worker ends every other session and revokes the MCP
+ * Connections; this browser gets a new session cookie and stays signed in.
+ */
+function ChangePassword() {
+  const t = useMessages().account.password;
+  const errorMessage = useErrorMessage();
+  const [error, setError] = useState<unknown>();
+  const [changed, setChanged] = useState(false);
+  const form = useForm({
+    defaultValues: { currentPassword: "", newPassword: "" },
+    onSubmit: async ({ value }) => {
+      setError(undefined);
+      setChanged(false);
+      try {
+        await orThrow(
+          authClient.changePassword({ currentPassword: value.currentPassword, newPassword: value.newPassword }),
+        );
+      } catch (failure) {
+        setError(failure);
+        return;
+      }
+      form.reset();
+      setChanged(true);
+    },
+  });
+
+  return (
     <Card>
       <CardHeader>
         <CardTitle>
-          <h1>{t.account.title}</h1>
+          <h2>{t.title}</h2>
         </CardTitle>
-        <CardDescription>{format(t.account.description, { appName: t.app.title })}</CardDescription>
+        <CardDescription>{t.description}</CardDescription>
       </CardHeader>
       <CardContent>
         <form
@@ -61,41 +154,62 @@ function Account() {
             void form.handleSubmit();
           }}
         >
-          <form.Field name="name">
+          <form.Field name="currentPassword">
             {(field) => (
               <div className="flex flex-col gap-2">
-                <Label htmlFor={field.name}>{t.account.name}</Label>
+                <Label htmlFor={field.name}>{t.current}</Label>
                 <Input
                   id={field.name}
-                  autoComplete="name"
-                  aria-describedby="name-hint"
+                  type="password"
+                  autoComplete="current-password"
+                  required
                   value={field.state.value}
                   onChange={(event) => {
-                    setSaved(false);
+                    setChanged(false);
                     field.handleChange(event.target.value);
                   }}
                   onBlur={field.handleBlur}
                 />
-                <p id="name-hint" className="text-muted-foreground text-xs">
-                  {t.account.nameHint}
+              </div>
+            )}
+          </form.Field>
+          <form.Field name="newPassword">
+            {(field) => (
+              <div className="flex flex-col gap-2">
+                <Label htmlFor={field.name}>{t.new}</Label>
+                <Input
+                  id={field.name}
+                  type="password"
+                  autoComplete="new-password"
+                  aria-describedby="new-password-hint"
+                  required
+                  value={field.state.value}
+                  onChange={(event) => {
+                    setChanged(false);
+                    field.handleChange(event.target.value);
+                  }}
+                  onBlur={field.handleBlur}
+                />
+                <p id="new-password-hint" className="text-muted-foreground text-xs">
+                  {t.newHint}
                 </p>
               </div>
             )}
           </form.Field>
-          {updateMe.isError ? (
+          {error ? (
             <Alert variant="destructive">
-              <AlertDescription>{errorMessage(updateMe.error)}</AlertDescription>
+              <AlertDescription>{errorMessage(error)}</AlertDescription>
             </Alert>
           ) : null}
-          {saved ? (
+          {changed ? (
             <p role="status" className="text-sm">
-              {t.account.saved}
+              {t.changed}
             </p>
           ) : null}
           <form.Subscribe selector={(state) => state.isSubmitting}>
             {(isSubmitting) => (
               <Button type="submit" className="self-start" disabled={isSubmitting}>
-                {isSubmitting ? t.account.submitting : t.account.submit}
+                {isSubmitting ? t.submitting : t.submit}
               </Button>
             )}
           </form.Subscribe>

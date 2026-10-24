@@ -323,6 +323,34 @@ test("a password reset revokes every Connection of the user: access and refresh 
   }
 });
 
+test("a password change revokes every Connection of the user, and the session it was changed in carries on", async () => {
+  const email = `user-${randomUUID()}@example.com`;
+  await worker.post("/api/auth/sign-up/email", { name: "Ana Souza", email, password: "correct horse battery" });
+  await expect.poll(() => sent.some((message) => message.to.includes(email)), { timeout: 10_000 }).toBe(true);
+  const verify = new URL(linkIn(sent.find((message) => message.to.includes(email))!.html, "/api/auth/verify-email"));
+  await worker.fetch(`${verify.pathname}${verify.search}`, { redirect: "manual" });
+  const signIn = await worker.post("/api/auth/sign-in/email", { email, password: "correct horse battery" });
+  const cookie = cookiesOf(signIn).join("; ");
+  const { clientId, tokens, client } = await connectAgent(cookie, { access: "write" });
+  await client.close();
+  expect((await listWith(tokens.access_token)).status).toBe(200);
+
+  const change = await worker.post(
+    "/api/auth/change-password",
+    { currentPassword: "correct horse battery", newPassword: "a brand new passphrase" },
+    { cookie },
+  );
+  expect(change.status).toBe(200);
+
+  expect((await listWith(tokens.access_token)).status).toBe(401);
+  // The grant is gone: its refresh token no longer gets a new access token.
+  expect((await refresh(clientId, tokens.refresh_token!)).status).toBe(400);
+  // A new Connection, from the session that changed the password, works.
+  const again = await connectAgent(cookiesOf(change).join("; "));
+  await again.client.close();
+  expect((await listWith(again.tokens.access_token)).status).toBe(200);
+});
+
 test("a token issued for one Product's /mcp is rejected by another Product's /mcp (US73)", async () => {
   const otherDb = await createEmptyDatabase();
   await migrateDatabase({ databaseUrl: otherDb.url });

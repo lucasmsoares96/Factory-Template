@@ -21,6 +21,16 @@ export const ptBR: Messages = {
     submit: "Salvar",
     submitting: "Salvando…",
     saved: "O seu nome foi salvo.",
+    password: {
+      title: "Senha",
+      description: "As suas outras sessões são encerradas, e todo agente conectado perde o acesso. Você continua conectado aqui.",
+      current: "Senha atual",
+      new: "Nova senha",
+      newHint: "Pelo menos 8 caracteres.",
+      submit: "Trocar a senha",
+      submitting: "Trocando…",
+      changed: "A sua senha foi trocada. As suas outras sessões foram encerradas.",
+    },
   },
   auth: {
     signIn: {
@@ -134,6 +144,7 @@ export const ptBR: Messages = {
     USER_ALREADY_EXISTS: "Já existe uma conta com este email.",
     USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL: "Já existe uma conta com este email. Use outro email.",
     INVALID_EMAIL_OR_PASSWORD: "O email ou a senha estão errados.",
+    INVALID_PASSWORD: "A senha atual está errada.",
     EMAIL_NOT_VERIFIED: "Confirme o seu email antes de continuar.",
     INVALID_TOKEN: "Este link não é válido. Peça um novo.",
     TOKEN_EXPIRED: "Este link expirou. Peça um novo.",
