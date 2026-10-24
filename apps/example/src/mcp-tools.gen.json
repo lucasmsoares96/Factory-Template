@@ -59,6 +59,141 @@
     }
   },
   {
+    "name": "listConnections",
+    "title": "List the signed-in user's Connections",
+    "description": "Answers the AI agents the user the request acts for authorized over MCP: the app's name, when it was authorized and its access (`read` or `write`). Pages of `limit` (default 50); pass `nextCursor` back as `cursor` for the next one.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 50,
+          "description": "How many Connections per page, 1 to 100.",
+          "example": 50
+        },
+        "cursor": {
+          "type": "string",
+          "description": "The `nextCursor` of the previous page.",
+          "example": "AAAAANuhNPA"
+        }
+      },
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "connections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "The Connection's id: what revokeConnection takes.",
+                "example": "Xk2pQ9vT4mWs1aLb"
+              },
+              "appName": {
+                "type": "string",
+                "description": "The name the agent's app gave itself when it connected.",
+                "example": "Claude"
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time",
+                "description": "When the user authorized the agent.",
+                "example": "2026-10-24T14:30:00.000Z"
+              },
+              "access": {
+                "type": "string",
+                "enum": [
+                  "read",
+                  "write"
+                ],
+                "description": "`read`: the agent only reads; `write`: it also changes data.",
+                "example": "read"
+              }
+            },
+            "required": [
+              "id",
+              "appName",
+              "createdAt",
+              "access"
+            ]
+          },
+          "description": "One page of the user's Connections."
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Pass it as `cursor` for the next page; `null` on the last page.",
+          "example": null
+        }
+      },
+      "required": [
+        "connections",
+        "nextCursor"
+      ]
+    },
+    "annotations": {
+      "title": "List the signed-in user's Connections",
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "scope": "read",
+    "http": {
+      "method": "GET",
+      "path": "/api/connections",
+      "pathParams": [],
+      "queryParams": [
+        "limit",
+        "cursor"
+      ],
+      "body": false,
+      "output": "object"
+    }
+  },
+  {
+    "name": "revokeConnection",
+    "title": "Revoke one of the signed-in user's Connections",
+    "description": "Deletes the Connection with this id and its tokens: the agent loses access at once and must be authorized again. Only the user's own Connections can be revoked.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The Connection's id, from listConnections.",
+          "example": "Xk2pQ9vT4mWs1aLb"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "title": "Revoke one of the signed-in user's Connections",
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "scope": "write",
+    "http": {
+      "method": "DELETE",
+      "path": "/api/connections/{id}",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "body": false,
+      "output": "none"
+    }
+  },
+  {
     "name": "updateMe",
     "title": "Rename the signed-in user",
     "description": "Changes the name of the user the request acts for (the spaces around it are removed) and answers the user as getMe does.",
