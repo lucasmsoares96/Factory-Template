@@ -18,6 +18,7 @@ import { Route as SignInRouteImport } from "./../../src/features/auth/routes/sig
 import { Route as SignUpRouteImport } from "./../../src/features/auth/routes/sign-up"
 import { Route as IndexRouteImport } from "./../../src/features/home/routes/index"
 import { Route as AccountIndexRouteImport } from "./../../src/features/account/routes/index"
+import { Route as AccountConnectionsRouteImport } from "./../../src/features/account/routes/connections"
 
 const DotDotDotDotSrcClientSignedInRoute =
   DotDotDotDotSrcClientSignedInRouteImport.update({
@@ -64,6 +65,11 @@ const AccountIndexRoute = AccountIndexRouteImport.update({
   path: "/account/",
   getParentRoute: () => DotDotDotDotSrcClientSignedInRoute,
 } as any)
+const AccountConnectionsRoute = AccountConnectionsRouteImport.update({
+  id: "/account/connections",
+  path: "/account/connections",
+  getParentRoute: () => DotDotDotDotSrcClientSignedInRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   "/": typeof IndexRoute
@@ -73,6 +79,7 @@ export interface FileRoutesByFullPath {
   "/reset-password": typeof ResetPasswordRoute
   "/sign-in": typeof SignInRoute
   "/sign-up": typeof SignUpRoute
+  "/account/connections": typeof AccountConnectionsRoute
   "/account/": typeof AccountIndexRoute
 }
 export interface FileRoutesByTo {
@@ -83,6 +90,7 @@ export interface FileRoutesByTo {
   "/sign-in": typeof SignInRoute
   "/sign-up": typeof SignUpRoute
   "/": typeof IndexRoute
+  "/account/connections": typeof AccountConnectionsRoute
   "/account": typeof AccountIndexRoute
 }
 export interface FileRoutesById {
@@ -95,6 +103,7 @@ export interface FileRoutesById {
   "/sign-in": typeof SignInRoute
   "/sign-up": typeof SignUpRoute
   "/_signed-in/": typeof IndexRoute
+  "/_signed-in/account/connections": typeof AccountConnectionsRoute
   "/_signed-in/account/": typeof AccountIndexRoute
 }
 export interface FileRouteTypes {
@@ -107,6 +116,7 @@ export interface FileRouteTypes {
     | "/reset-password"
     | "/sign-in"
     | "/sign-up"
+    | "/account/connections"
     | "/account/"
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -117,6 +127,7 @@ export interface FileRouteTypes {
     | "/sign-in"
     | "/sign-up"
     | "/"
+    | "/account/connections"
     | "/account"
   id:
     | "__root__"
@@ -128,6 +139,7 @@ export interface FileRouteTypes {
     | "/sign-in"
     | "/sign-up"
     | "/_signed-in/"
+    | "/_signed-in/account/connections"
     | "/_signed-in/account/"
   fileRoutesById: FileRoutesById
 }
@@ -206,17 +218,26 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof AccountIndexRouteImport
       parentRoute: typeof DotDotDotDotSrcClientSignedInRoute
     }
+    "/_signed-in/account/connections": {
+      id: "/_signed-in/account/connections"
+      path: "/account/connections"
+      fullPath: "/account/connections"
+      preLoaderRoute: typeof AccountConnectionsRouteImport
+      parentRoute: typeof DotDotDotDotSrcClientSignedInRoute
+    }
   }
 }
 
 interface DotDotDotDotSrcClientSignedInRouteChildren {
   IndexRoute: typeof IndexRoute
+  AccountConnectionsRoute: typeof AccountConnectionsRoute
   AccountIndexRoute: typeof AccountIndexRoute
 }
 
 const DotDotDotDotSrcClientSignedInRouteChildren: DotDotDotDotSrcClientSignedInRouteChildren =
   {
     IndexRoute: IndexRoute,
+    AccountConnectionsRoute: AccountConnectionsRoute,
     AccountIndexRoute: AccountIndexRoute,
   }
 
