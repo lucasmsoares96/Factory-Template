@@ -13,6 +13,20 @@ export const en = {
     title: "Hi, {name}",
     description: "You are signed in to {appName}.",
   },
+  nav: {
+    label: "Main",
+    home: "Home",
+  },
+  account: {
+    nav: "Account",
+    title: "Your account",
+    description: "Change how {appName} shows you.",
+    name: "Name",
+    nameHint: "Up to 100 characters.",
+    submit: "Save",
+    submitting: "Saving…",
+    saved: "Your name was saved.",
+  },
   auth: {
     signIn: {
       title: "Sign in",
