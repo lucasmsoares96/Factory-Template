@@ -26,6 +26,16 @@ export const en = {
     submit: "Save",
     submitting: "Saving…",
     saved: "Your name was saved.",
+    password: {
+      title: "Password",
+      description: "Your other sessions end, and every connected agent loses access. You stay signed in here.",
+      current: "Current password",
+      new: "New password",
+      newHint: "At least 8 characters.",
+      submit: "Change the password",
+      submitting: "Changing…",
+      changed: "Your password was changed. Your other sessions ended.",
+    },
   },
   auth: {
     signIn: {
@@ -139,6 +149,7 @@ export const en = {
     USER_ALREADY_EXISTS: "An account with this email already exists.",
     USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL: "An account with this email already exists. Use another email.",
     INVALID_EMAIL_OR_PASSWORD: "The email or the password is wrong.",
+    INVALID_PASSWORD: "The current password is wrong.",
     EMAIL_NOT_VERIFIED: "Verify your email before you continue.",
     INVALID_TOKEN: "This link is not valid. Ask for a new one.",
     TOKEN_EXPIRED: "This link has expired. Ask for a new one.",
