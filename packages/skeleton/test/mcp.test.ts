@@ -22,8 +22,8 @@ import { startTestWorker, type TestWorker } from "./support/worker.ts";
 
 // Seam 3: an agent connects to the test composition's `/mcp` the way an MCP
 // client does (discovery, registration, consent, code exchange) and uses the
-// tools through the SDK's client. The composition's tools: getMe and getNote
-// (read), createNote and updateMe (write).
+// tools through the SDK's client. The composition's tools: getMe, getNote and
+// listConnections (read), createNote, revokeConnection and updateMe (write).
 
 /** A client that publishes its metadata (CIMD) instead of registering. */
 const CIMD_CLIENT_ID = "https://agent.example.com/oauth/client.json";
@@ -125,7 +125,7 @@ test("a `read` Connection calls getMe as the user who consented, and never sees 
   const { tokens, client } = await connectAgent(cookie, { access: "read" });
 
   expect(tokens.scope).toBe("read");
-  expect(names((await client.listTools()).tools)).toEqual(["getMe", "getNote", "manualPing"]);
+  expect(names((await client.listTools()).tools)).toEqual(["getMe", "getNote", "listConnections", "manualPing"]);
   const result = await client.callTool({ name: "getMe", arguments: {} });
   expect(result.isError).toBeFalsy();
   expect(result.structuredContent).toEqual({ id: user.id, name: "Ana Souza", email: user.email });
@@ -159,7 +159,7 @@ test("a `write` Connection sees every tool and its writes reach the route as the
   const { tokens, client } = await connectAgent(cookie, { access: "write" });
 
   expect(tokens.scope.split(" ").sort()).toEqual(["read", "write"]);
-  expect(names((await client.listTools()).tools)).toEqual(["createNote", "getMe", "getNote", "updateMe", "manualPing"]);
+  expect(names((await client.listTools()).tools)).toEqual(["createNote", "getMe", "getNote", "listConnections", "revokeConnection", "updateMe", "manualPing"]);
   const result = await client.callTool({ name: "createNote", arguments: { body: { text: "Buy milk" } } });
   expect(result.isError).toBeFalsy();
   expect(result.structuredContent).toEqual({ id: expect.any(String), text: "Buy milk", authorId: user.id });
@@ -216,7 +216,7 @@ test("a client on the 2026-07-28 protocol uses the same tools", async () => {
   const { user, cookie } = await signedInUser();
   const { client } = await connectAgent(cookie, { modern: true });
 
-  expect(names((await client.listTools()).tools)).toEqual(["getMe", "getNote", "manualPing"]);
+  expect(names((await client.listTools()).tools)).toEqual(["getMe", "getNote", "listConnections", "manualPing"]);
   expect((await client.callTool({ name: "getMe", arguments: {} })).structuredContent).toMatchObject({ id: user.id });
   await client.close();
 });
