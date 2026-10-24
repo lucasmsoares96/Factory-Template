@@ -314,9 +314,11 @@ test("a password reset revokes every Connection of the user: access and refresh 
   await expect.poll(() => sent.some((email) => email.to.includes(user.email)), { timeout: 10_000 }).toBe(true);
   const link = linkIn(sent.find((email) => email.to.includes(user.email))!.html, "/api/auth/reset-password/");
   const token = new URL(link).pathname.split("/").pop()!;
+  expect(await worker.grantsOf(user.id)).toHaveLength(2);
   const reset = await worker.post("/api/auth/reset-password", { token, newPassword: "a brand new passphrase" });
   expect(reset.status).toBe(200);
 
+  expect(await worker.grantsOf(user.id)).toEqual([]);
   for (const { clientId, accessToken, refreshToken } of connections) {
     expect((await listWith(accessToken)).status).toBe(401);
     expect((await refresh(clientId, refreshToken)).status).toBe(400);
@@ -331,9 +333,11 @@ test("a password change revokes every Connection of the user, and the session it
   await worker.fetch(`${verify.pathname}${verify.search}`, { redirect: "manual" });
   const signIn = await worker.post("/api/auth/sign-in/email", { email, password: "correct horse battery" });
   const cookie = cookiesOf(signIn).join("; ");
+  const { user } = (await signIn.json()) as { user: { id: string } };
   const { clientId, tokens, client } = await connectAgent(cookie, { access: "write" });
   await client.close();
   expect((await listWith(tokens.access_token)).status).toBe(200);
+  expect(await worker.grantsOf(user.id)).toHaveLength(1);
 
   const change = await worker.post(
     "/api/auth/change-password",
@@ -342,6 +346,8 @@ test("a password change revokes every Connection of the user, and the session it
   );
   expect(change.status).toBe(200);
 
+  // The Connection is gone from the user's grants, and its tokens with it.
+  expect(await worker.grantsOf(user.id)).toEqual([]);
   expect((await listWith(tokens.access_token)).status).toBe(401);
   // The grant is gone: its refresh token no longer gets a new access token.
   expect((await refresh(clientId, tokens.refresh_token!)).status).toBe(400);
