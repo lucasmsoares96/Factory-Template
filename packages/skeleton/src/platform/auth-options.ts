@@ -39,6 +39,31 @@ export type AuthOptionsInput = {
   defer?: (task: Promise<unknown>) => void;
 };
 
+/** Better Auth's own code (and message) for an address taken at sign-up. */
+const EMAIL_TAKEN = { code: "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL", message: "User already exists. Use another email." };
+
+const emailTaken = () => new APIError("BAD_REQUEST", EMAIL_TAKEN);
+
+/** The id of the user who signs in with `email`, if any (emails are stored lower-cased). */
+async function ownerOf(db: NodePgDatabase, email: string): Promise<string | undefined> {
+  const [owner] = await db.select({ id: users.id }).from(users).where(eq(users.email, email.toLowerCase()));
+  return owner?.id;
+}
+
+/**
+ * The new address a change-of-email token moves the account to (its
+ * `updateTo`), or `undefined` for any other verification token.
+ */
+function changeEmailTarget(token: string): string | undefined {
+  try {
+    const { updateTo } = decode(token).payload;
+    return typeof updateTo === "string" ? updateTo : undefined;
+  } catch {
+    // Not a JWT: Better Auth refuses it as INVALID_TOKEN.
+    return undefined;
+  }
+}
+
 /**
  * The Skeleton's Better Auth config: email and password, with a verified email
  * required before any session. The Worker builds one per request (bindings only
@@ -80,10 +105,10 @@ export function authOptions({
       // A change of email sends its link to the new address, which the token
       // carries as `updateTo` (Better Auth passes `user.email` as that address).
       sendVerificationEmail: async ({ user, url, token }) => {
-        const { updateTo } = decode(token).payload;
+        const newEmail = changeEmailTarget(token);
         return sendEmail(
-          typeof updateTo === "string"
-            ? await changeEmailEmail({ t, user, newEmail: updateTo, url })
+          newEmail
+            ? await changeEmailEmail({ t, user, newEmail, url })
             : await verificationEmail({ t, user, url }),
         );
       },
@@ -96,23 +121,27 @@ export function authOptions({
     // the account keeps the old email, for signing in too.
     user: { changeEmail: { enabled: true } },
     hooks: {
-      // Better Auth answers an address another account owns like a free one and
-      // sends nothing; the account page must say so, translated by the code.
       before: createAuthMiddleware(async (ctx) => {
-        if (ctx.path !== "/change-email" || typeof ctx.body?.newEmail !== "string") return;
-        const session = await getSessionFromCtx(ctx);
-        // Better Auth answers 401 itself, before anyone learns who owns the address.
-        if (!session) return;
-        const [owner] = await db
-          .select({ id: users.id })
-          .from(users)
-          .where(eq(users.email, ctx.body.newEmail.toLowerCase()));
-        if (owner && owner.id !== session.user.id) {
-          // Better Auth's own code (and message) for an address taken at sign-up.
-          throw new APIError("BAD_REQUEST", {
-            code: "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL",
-            message: "User already exists. Use another email.",
-          });
+        // Better Auth answers an address another account owns like a free one and
+        // sends nothing; the account page must say so, translated by the code.
+        if (ctx.path === "/change-email" && typeof ctx.body?.newEmail === "string") {
+          const session = await getSessionFromCtx(ctx);
+          // Better Auth answers 401 itself, before anyone learns who owns the address.
+          if (!session) return;
+          const owner = await ownerOf(db, ctx.body.newEmail);
+          if (owner && owner !== session.user.id) throw emailTaken();
+        }
+        // Someone took the new address after the link was sent: changing to it
+        // would break the unique email, so the link is refused like a bad token.
+        if (ctx.path === "/verify-email" && typeof ctx.query?.token === "string") {
+          const newEmail = changeEmailTarget(ctx.query.token);
+          if (!newEmail || !(await ownerOf(db, newEmail))) return;
+          const callbackURL = ctx.query.callbackURL;
+          if (typeof callbackURL === "string" && callbackURL.startsWith("/") && !callbackURL.startsWith("//")) {
+            const separator = callbackURL.includes("?") ? "&" : "?";
+            throw ctx.redirect(`${callbackURL}${separator}error=${EMAIL_TAKEN.code}`);
+          }
+          throw emailTaken();
         }
       }),
       // The request was accepted: the account page shows the change as pending.

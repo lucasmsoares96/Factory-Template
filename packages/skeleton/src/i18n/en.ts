@@ -160,6 +160,7 @@ export const en = {
     INVALID_TOKEN: "This link is not valid. Ask for a new one.",
     TOKEN_EXPIRED: "This link has expired. Ask for a new one.",
     USER_NOT_FOUND: "We could not find this account.",
+    INVALID_USER: "This link is for another account. Sign out and open it again.",
     unexpected: "Something went wrong. Check your connection and try again.",
   } satisfies Record<KnownErrorCode | "unexpected", string>,
 };

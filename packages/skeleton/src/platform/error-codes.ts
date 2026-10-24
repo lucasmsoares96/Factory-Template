@@ -31,6 +31,7 @@ export const authErrorCodes = [
   "INVALID_TOKEN",
   "TOKEN_EXPIRED",
   "USER_NOT_FOUND",
+  "INVALID_USER",
 ] as const;
 
 export type AuthErrorCode = (typeof authErrorCodes)[number];

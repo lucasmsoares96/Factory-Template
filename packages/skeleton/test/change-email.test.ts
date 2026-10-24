@@ -126,6 +126,23 @@ test("an email that belongs to another account is refused with a stable code, an
   expect(await me(cookie)).toMatchObject({ email, pendingEmail: null });
 });
 
+test("a link to an address another account took in the meantime is refused with a stable code, and changes nothing", async () => {
+  const { email, cookie } = await signedInUser();
+  const newEmail = newAddress();
+  await changeEmail(newEmail, cookie);
+  const [message] = await emailsTo(newEmail);
+  await worker.post("/api/auth/sign-up/email", { name: "Bruno", email: newEmail, password: PASSWORD, callbackURL: "/email-verified" });
+
+  const verified = await open(linkIn(message!.html, VERIFY_PATH));
+
+  expect(verified.status).toBe(302);
+  const location = new URL(verified.headers.get("location")!, worker.origin);
+  expect(location.pathname).toBe("/email-verified");
+  expect(location.searchParams.get("error")).toBe("USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL");
+  expect(await me(cookie)).toMatchObject({ email });
+  expect((await signIn(email)).status).toBe(200);
+});
+
 test("asking to change the email needs a session, and says nothing about who owns an address", async () => {
   const other = await signedInUser();
 

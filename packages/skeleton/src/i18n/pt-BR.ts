@@ -155,6 +155,7 @@ export const ptBR: Messages = {
     INVALID_TOKEN: "Este link não é válido. Peça um novo.",
     TOKEN_EXPIRED: "Este link expirou. Peça um novo.",
     USER_NOT_FOUND: "Não encontramos esta conta.",
+    INVALID_USER: "Este link é de outra conta. Saia e abra o link de novo.",
     unexpected: "Algo deu errado. Confira a sua conexão e tente de novo.",
   },
 };
