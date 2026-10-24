@@ -207,7 +207,8 @@ function grantUserId(userId: string) {
 
 /**
  * Revokes every MCP Connection of the user: its grants and their tokens. A
- * password reset calls it, so an agent connected before the reset loses access.
+ * credential change (a password reset or change) calls it, so an agent
+ * connected before it loses access.
  */
 export async function revokeConnections(c: Context<SkeletonEnv>, user: { id: string }): Promise<void> {
   const oauth = c.var.connections();
