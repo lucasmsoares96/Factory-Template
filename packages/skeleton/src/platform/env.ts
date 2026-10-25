@@ -1,7 +1,9 @@
 import type { OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import type { Auth } from "./auth.ts";
 import type { Database } from "./db.ts";
+import type { Feature } from "./feature.ts";
 import type { Identity } from "./identity.ts";
+import type { Member } from "./member.ts";
 import type { PasswordHasherPool } from "./password.ts";
 import type { RateLimiterPool } from "./rate-limit.ts";
 
@@ -47,6 +49,10 @@ export type SkeletonEnv = {
     auth: () => Auth;
     /** Who is calling: set by `requireIdentity` on the routes that need a user. */
     identity: Identity;
+    /** The caller's membership in the Company of the path: set by `requireMember` on the Company routes. */
+    member: Member;
+    /** Every feature of the Product, in mount order (the Skeleton's first): their events run from the routes. */
+    features: readonly Feature[];
     /** The OAuth helpers over the Product's MCP Connections, for this request's origin. */
     connections: () => OAuthHelpers;
   };

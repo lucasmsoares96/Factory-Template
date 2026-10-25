@@ -12,6 +12,7 @@ export const en = {
   home: {
     title: "Hi, {name}",
     description: "You are signed in to {appName}.",
+    noCompany: "You are not in any Company yet. Create a Company, or wait for an invitation to join one.",
   },
   nav: {
     label: "Main",
@@ -59,6 +60,34 @@ export const en = {
       cancel: "Cancel",
       revoked: "{app} no longer has access.",
       more: "Show more",
+    },
+  },
+  companies: {
+    switcher: {
+      label: "Company",
+      choose: "Choose a Company",
+      new: "New Company",
+    },
+    create: {
+      title: "Create a Company",
+      description: "You will be its Owner. You can invite people to it later.",
+      name: "Company name",
+      nameHint: "Up to 100 characters. Other Companies may have the same name.",
+      submit: "Create Company",
+      submitting: "Creating…",
+    },
+    roles: {
+      owner: "Owner",
+      employee: "Employee",
+    },
+    page: {
+      role: "Your role: {role}",
+      sections: "Sections",
+      members: "Members",
+      memberName: "Name",
+      memberEmail: "Email",
+      memberRole: "Role",
+      moreMembers: "Show more Members",
     },
   },
   auth: {

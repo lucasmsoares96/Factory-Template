@@ -1,5 +1,205 @@
 [
   {
+    "name": "createCompany",
+    "title": "Create a Company",
+    "description": "Creates a Company with this name (the spaces around it are removed; names may repeat) and makes the signed-in user its Owner. Answers the new Company.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "body": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100,
+              "description": "The Company's name: 1 to 100 characters once the spaces around it are removed.",
+              "example": "Acme"
+            }
+          },
+          "required": [
+            "name"
+          ]
+        }
+      },
+      "required": [
+        "body"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The Company's id: random, and it never changes.",
+          "example": "2f1c6a0e-8d1b-4a51-9f3e-6b0c1d2e3f40"
+        },
+        "name": {
+          "type": "string",
+          "description": "The Company's name; several Companies may share it.",
+          "example": "Acme"
+        },
+        "role": {
+          "type": "string",
+          "description": "The signed-in user's role in the Company.",
+          "example": "owner"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the Company was created.",
+          "example": "2026-10-24T12:00:00.000Z"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "role",
+        "createdAt"
+      ]
+    },
+    "annotations": {
+      "title": "Create a Company",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "scope": "write",
+    "http": {
+      "method": "POST",
+      "path": "/api/companies",
+      "pathParams": [],
+      "queryParams": [],
+      "body": true,
+      "output": "object"
+    }
+  },
+  {
+    "name": "getCompany",
+    "title": "Get a Company",
+    "description": "Answers a Company the signed-in user is a Member of, with their role. Opened from the app (not by an agent), it becomes the Company they land on next time.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "companyId": {
+          "type": "string",
+          "description": "The Company's id.",
+          "example": "2f1c6a0e-8d1b-4a51-9f3e-6b0c1d2e3f40"
+        }
+      },
+      "required": [
+        "companyId"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The Company's id: random, and it never changes.",
+          "example": "2f1c6a0e-8d1b-4a51-9f3e-6b0c1d2e3f40"
+        },
+        "name": {
+          "type": "string",
+          "description": "The Company's name; several Companies may share it.",
+          "example": "Acme"
+        },
+        "role": {
+          "type": "string",
+          "description": "The signed-in user's role in the Company.",
+          "example": "owner"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the Company was created.",
+          "example": "2026-10-24T12:00:00.000Z"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "role",
+        "createdAt"
+      ]
+    },
+    "annotations": {
+      "title": "Get a Company",
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "scope": "read",
+    "http": {
+      "method": "GET",
+      "path": "/api/companies/{companyId}",
+      "pathParams": [
+        "companyId"
+      ],
+      "queryParams": [],
+      "body": false,
+      "output": "object"
+    }
+  },
+  {
+    "name": "getLastCompany",
+    "title": "Get the Company the signed-in user used last",
+    "description": "Answers the Company the signed-in user last opened in the app or, if they never opened one, the first they joined. Answers 404 when they are a Member of no Company.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The Company's id: random, and it never changes.",
+          "example": "2f1c6a0e-8d1b-4a51-9f3e-6b0c1d2e3f40"
+        },
+        "name": {
+          "type": "string",
+          "description": "The Company's name; several Companies may share it.",
+          "example": "Acme"
+        },
+        "role": {
+          "type": "string",
+          "description": "The signed-in user's role in the Company.",
+          "example": "owner"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the Company was created.",
+          "example": "2026-10-24T12:00:00.000Z"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "role",
+        "createdAt"
+      ]
+    },
+    "annotations": {
+      "title": "Get the Company the signed-in user used last",
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "scope": "read",
+    "http": {
+      "method": "GET",
+      "path": "/api/me/last-company",
+      "pathParams": [],
+      "queryParams": [],
+      "body": false,
+      "output": "object"
+    }
+  },
+  {
     "name": "getMe",
     "title": "Get the signed-in user",
     "description": "Answers the id, name and email of the user the request acts for, and the email they asked to change to, if any.",
@@ -54,6 +254,99 @@
       "path": "/api/me",
       "pathParams": [],
       "queryParams": [],
+      "body": false,
+      "output": "object"
+    }
+  },
+  {
+    "name": "listCompanies",
+    "title": "List the signed-in user's Companies",
+    "description": "Answers the Companies the signed-in user is a Member of, with their role in each, in the order they joined: a page of `limit` (50 by default) and the `nextCursor` of the next page.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 50,
+          "description": "How many items to answer, 1 to 100.",
+          "example": 50
+        },
+        "cursor": {
+          "type": "string",
+          "description": "The `nextCursor` of the previous page; without it, the first page.",
+          "example": "WyIyMDI2LTEwLTI0VDEyOjAwOjAwLjAwMFoiLCJpZCJd"
+        }
+      },
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "The Company's id: random, and it never changes.",
+                "example": "2f1c6a0e-8d1b-4a51-9f3e-6b0c1d2e3f40"
+              },
+              "name": {
+                "type": "string",
+                "description": "The Company's name; several Companies may share it.",
+                "example": "Acme"
+              },
+              "role": {
+                "type": "string",
+                "description": "The signed-in user's role in the Company.",
+                "example": "owner"
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time",
+                "description": "When the Company was created.",
+                "example": "2026-10-24T12:00:00.000Z"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "role",
+              "createdAt"
+            ]
+          },
+          "description": "This page's items."
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Pass it as `cursor` for the next page; `null` on the last page."
+        }
+      },
+      "required": [
+        "items",
+        "nextCursor"
+      ]
+    },
+    "annotations": {
+      "title": "List the signed-in user's Companies",
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "scope": "read",
+    "http": {
+      "method": "GET",
+      "path": "/api/companies",
+      "pathParams": [],
+      "queryParams": [
+        "limit",
+        "cursor"
+      ],
       "body": false,
       "output": "object"
     }
@@ -148,6 +441,109 @@
       "method": "GET",
       "path": "/api/connections",
       "pathParams": [],
+      "queryParams": [
+        "limit",
+        "cursor"
+      ],
+      "body": false,
+      "output": "object"
+    }
+  },
+  {
+    "name": "listMembers",
+    "title": "List a Company's Members",
+    "description": "Answers the Members of a Company the signed-in user belongs to (name, email and role), in the order they joined: a page of `limit` (50 by default) and the `nextCursor` of the next page.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "companyId": {
+          "type": "string",
+          "description": "The Company's id.",
+          "example": "2f1c6a0e-8d1b-4a51-9f3e-6b0c1d2e3f40"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 50,
+          "description": "How many items to answer, 1 to 100.",
+          "example": 50
+        },
+        "cursor": {
+          "type": "string",
+          "description": "The `nextCursor` of the previous page; without it, the first page.",
+          "example": "WyIyMDI2LTEwLTI0VDEyOjAwOjAwLjAwMFoiLCJpZCJd"
+        }
+      },
+      "required": [
+        "companyId"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "userId": {
+                "type": "string",
+                "description": "The Member's user id.",
+                "example": "8yW1kQfV0d3sLx9bTq2nZ"
+              },
+              "name": {
+                "type": "string",
+                "description": "The Member's name.",
+                "example": "Ana Souza"
+              },
+              "email": {
+                "type": "string",
+                "format": "email",
+                "description": "The Member's email.",
+                "example": "ana@example.com"
+              },
+              "role": {
+                "type": "string",
+                "description": "The Member's role: `owner`, `employee`, or a role the Product adds.",
+                "example": "owner"
+              }
+            },
+            "required": [
+              "userId",
+              "name",
+              "email",
+              "role"
+            ]
+          },
+          "description": "This page's items."
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Pass it as `cursor` for the next page; `null` on the last page."
+        }
+      },
+      "required": [
+        "items",
+        "nextCursor"
+      ]
+    },
+    "annotations": {
+      "title": "List a Company's Members",
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "scope": "read",
+    "http": {
+      "method": "GET",
+      "path": "/api/companies/{companyId}/members",
+      "pathParams": [
+        "companyId"
+      ],
       "queryParams": [
         "limit",
         "cursor"
