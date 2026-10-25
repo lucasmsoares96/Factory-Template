@@ -52,7 +52,8 @@ export function featureRoutes(dir: string, routeTree: string = PRODUCT_ROUTE_TRE
  * TanStack Router's generator config, shared by `skeleton generate` and the Vite
  * plugin so both write the same `routeTree.gen.ts`. The Skeleton's root layout
  * holds the public auth screens and the signed-in layout, which holds the home
- * page, the account page and the composition's routes; each feature's routes enter by `physical()`.
+ * page, the account page, the Company pages (`/c/...`) and the composition's
+ * routes; each feature's routes enter by `physical()`.
  */
 export function routerConfig({ dir, routeTree, routes = [], publicRoutes = [] }: SpaLayout) {
   const generatedRouteTree = join(dir, routeTree);
@@ -72,6 +73,7 @@ export function routerConfig({ dir, routeTree, routes = [], publicRoutes = [] }:
       layout("_signed-in", skeleton("client/signed-in.tsx"), [
         physical(skeleton("features/home/routes")),
         physical("/account", skeleton("features/account/routes")),
+        physical("/c", skeleton("features/companies/routes")),
         ...routes,
       ]),
     ]),
