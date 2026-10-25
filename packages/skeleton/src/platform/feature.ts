@@ -11,14 +11,15 @@ export type FeatureNav = {
   to: string;
 };
 
-/** A section of the company page (rendered by the Factory's companies feature). */
+/** A section of the Company page: `GET /api/nav` serves it and the Skeleton's companies feature links to it. */
 export type FeatureCompanyPage = {
+  /** The text shown, already translated for the build's locale or a message path of the Product. */
   label: string;
-  /** The SPA path of the section, under the company's page. */
+  /** The SPA path of the section, under the Company's page: `/projects` opens `/c/<companyId>/projects`. */
   to: string;
 };
 
-/** What a feature may hook into when the Factory's companies feature emits it. */
+/** What a feature may hook into when the Skeleton's companies feature emits it. */
 export type FeatureEvents = {
   /** A user joined a company. */
   memberJoined?: (event: { db: Database; companyId: string; userId: string }) => Promise<void>;
@@ -75,4 +76,12 @@ export function assertUniqueFeatures(features: readonly Feature[]) {
 /** Runs every feature's seed, in order. */
 export async function seedFeatures(db: Database, features: readonly Feature[]) {
   for (const feature of features) await feature.seed?.(db);
+}
+
+/** Runs every feature's `memberJoined`, in mount order: a user just became a Member of a Company. */
+export async function emitMemberJoined(
+  features: readonly Feature[],
+  event: Parameters<NonNullable<FeatureEvents["memberJoined"]>>[0],
+) {
+  for (const feature of features) await feature.events?.memberJoined?.(event);
 }

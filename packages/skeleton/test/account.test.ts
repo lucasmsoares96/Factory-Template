@@ -102,18 +102,19 @@ test("PATCH /api/me is described in the OpenAPI document with its errors", async
   expect(Object.keys(operation!.responses as object).sort()).toEqual(["200", "400", "401"]);
 });
 
-test("GET /api/nav answers the account page's entry, translated, then each Product feature's nav entry", async () => {
+test("GET /api/nav answers the account page's entry, translated, then each Product feature's nav entry, and the Company page's sections", async () => {
   const { cookie } = await signedInUser();
 
   const response = await worker.fetch("/api/nav", { headers: { cookie } });
 
   expect(response.status).toBe(200);
-  // The test composition's `notes` feature declares `nav: { label: "Notes", to: "/notes" }`.
+  // The test composition's `notes` feature declares `nav` and `companyPage`, both `{ label: "Notes", to: "/notes" }`.
   expect(await response.json()).toEqual({
     entries: [
       { label: "Account", to: "/account" },
       { label: "Notes", to: "/notes" },
     ],
+    companyPage: [{ label: "Notes", to: "/notes" }],
   });
 });
 
