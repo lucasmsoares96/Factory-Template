@@ -1,10 +1,12 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import { apiError, createRouter, errorResponse } from "../../src/platform/errors.ts";
 import { requireIdentity, unauthenticatedResponse } from "../../src/platform/identity.ts";
+import { CompanyParams, companyNotFoundResponse, requireMember, skeletonRole } from "../../src/index.ts";
 
 // Test-only routes of the Skeleton's test composition: a read with a path and a
 // query parameter that can answer 404, and a write with a JSON body. They give
-// the MCP tests a `read` and a `write` tool; no table behind them.
+// the MCP tests a `read` and a `write` tool; no table behind them. A Company
+// route shows how a Product guards its own routes with the Skeleton's `requireMember`.
 
 const Note = z
   .object({
@@ -52,6 +54,30 @@ const createNote = createRoute({
   },
 });
 
+const CompanyNote = z
+  .object({
+    companyId: z.string().openapi({ description: "The Company of the path." }),
+    userId: z.string().openapi({ description: "The id of the user the request acts for." }),
+    role: z.string().openapi({ description: "Their role in the Company, as stored." }),
+    skeletonRole: z.enum(["owner", "employee"]).openapi({ description: "What the role counts as on the Skeleton's routes." }),
+  })
+  .openapi("CompanyNote");
+
+const getCompanyNote = createRoute({
+  method: "get",
+  path: "/companies/{companyId}/notes/welcome",
+  operationId: "getCompanyNote",
+  summary: "Get a Company's welcome note",
+  description: "Answers who the signed-in user is in the Company, as the Skeleton's `requireMember` resolved it.",
+  middleware: [requireIdentity, requireMember] as const,
+  request: { params: CompanyParams },
+  responses: {
+    200: { description: "The caller's membership.", content: { "application/json": { schema: CompanyNote } } },
+    401: unauthenticatedResponse,
+    404: companyNotFoundResponse,
+  },
+});
+
 export const notes = createRouter()
   .openapi(getNote, (c) => {
     if (c.req.valid("param").id !== "welcome") return c.json(apiError("NOT_FOUND"), 404);
@@ -60,4 +86,5 @@ export const notes = createRouter()
   })
   .openapi(createNote, (c) =>
     c.json({ id: crypto.randomUUID(), text: c.req.valid("json").text, authorId: c.var.identity.user.id }, 201),
-  );
+  )
+  .openapi(getCompanyNote, (c) => c.json({ ...c.var.member, skeletonRole: skeletonRole(c.var.member.role) }, 200));

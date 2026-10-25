@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, index, pgSchema, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { boolean, index, pgSchema, primaryKey, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
 /** Every Skeleton table lives in this Postgres schema, apart from the Product's tables in `public`. */
 export const skeletonSchema = pgSchema("skeleton");
@@ -103,4 +103,46 @@ export const emailOutbox = skeletonSchema.table(
     createdAt: createdAt(),
   },
   (table) => [index("email_outbox_to_idx").on(table.to, table.createdAt)],
+);
+
+/**
+ * The tenants. The id is random and never changes (the SPA's URLs and the
+ * Products' foreign keys use it); names may repeat.
+ */
+export const companies = skeletonSchema.table("companies", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  name: text("name").notNull(),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+/**
+ * A user's membership in a Company, with exactly one role. The database keeps
+ * one Member per Company and user, and a single Owner per Company. Deleting the
+ * Company or the user deletes the Member. `createdAt` (when they joined) keeps
+ * milliseconds only, so a list cursor built from it in JavaScript is exact.
+ */
+export const members = skeletonSchema.table(
+  "members",
+  {
+    companyId: text("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: text("role")
+      .notNull()
+      .references(() => memberRoles.id),
+    createdAt: timestamp("created_at", { withTimezone: true, precision: 3 }).notNull().defaultNow(),
+    /** When the user last opened the Company in the SPA: where they land after signing in. */
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true, precision: 3 }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.companyId, table.userId] }),
+    index("members_user_id_idx").on(table.userId, table.createdAt),
+    uniqueIndex("members_one_owner_idx").on(table.companyId).where(sql`${table.role} = 'owner'`),
+  ],
 );

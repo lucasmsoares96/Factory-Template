@@ -3,6 +3,7 @@ import { swaggerUI } from "@hono/swagger-ui";
 import { messagesFor } from "../i18n/index.ts";
 import type { ProductConfig } from "../product.ts";
 import { account } from "../features/account/index.ts";
+import { companies } from "../features/companies/index.ts";
 import { me } from "../features/me/api.ts";
 import { authContext, authRoutes } from "./auth.ts";
 import { database } from "./db.ts";
@@ -20,7 +21,7 @@ import { previewOutbox } from "./preview-outbox.ts";
 export { openApiConfig };
 
 /** The Skeleton's own features, in every Product, mounted before the Product's. */
-const skeletonFeatures: readonly Feature[] = [account];
+const skeletonFeatures: readonly Feature[] = [account, companies];
 
 export type AppOptions = {
   /** The Product's identity (`product.config.ts`). */
@@ -51,7 +52,10 @@ export function createApp({ product, features: productFeatures = [], mcpTools = 
   const auth = authContext({ emailFrom, t });
 
   const api = createRouter();
-  api.use(database, auth, mcp.context);
+  api.use(database, auth, mcp.context, async (c, next) => {
+    c.set("features", features);
+    await next();
+  });
   api.route("/", health);
   api.route("/", authRoutes);
   api.route("/", me);
