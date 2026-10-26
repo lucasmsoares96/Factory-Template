@@ -45,3 +45,59 @@ test("the Owner invites someone by email and sees the pending Invitation", { tag
   expect(invitation.text).toContain("Ana Souza");
   expect(linkIn(invitation.html, "/invitations/")).toMatch(/\/invitations\/[\w-]+$/);
 });
+
+test(
+  "an invited visitor signs up through the link, verifies, signs in and lands on the Company",
+  { tag: "@evidence" },
+  async ({ page, baseURL, t, mailbox, evidence }) => {
+    const owner = `owner-${randomUUID()}@example.com`;
+    const guest = `guest-${randomUUID()}@example.com`;
+    const password = "correct horse battery";
+
+    // The Owner of Acme, through the API, invites the visitor's address as an Employee.
+    const headers = { origin: baseURL! };
+    expect((await page.request.post("/api/auth/sign-up/email", { headers, data: { name: "Ana Souza", email: owner, password } })).ok()).toBe(true);
+    const ownerVerification = await mailbox.latest(owner, { subject: t.emails.verifyEmail.subject });
+    expect((await page.request.get(linkIn(ownerVerification.html, "/api/auth/verify-email"))).ok()).toBe(true);
+    expect((await page.request.post("/api/auth/sign-in/email", { headers, data: { email: owner, password } })).ok()).toBe(true);
+    const company = (await (await page.request.post("/api/companies", { headers, data: { name: "Acme" } })).json()) as { id: string };
+    const invited = await page.request.post(`/api/companies/${company.id}/invitations`, { headers, data: { email: guest, role: "employee" } });
+    expect(invited.status()).toBe(201);
+    await page.context().clearCookies();
+
+    // The visitor opens the link of the email: the Company and the role, before any account.
+    const email = await mailbox.latest(guest, {
+      subject: format(t.emails.invitation.subject, { inviterName: "Ana Souza", companyName: "Acme" }),
+    });
+    await page.goto(linkIn(email.html, "/invitations/"));
+    await expect(page.getByRole("heading", { level: 1, name: format(t.invitations.accept.title, { companyName: "Acme" }) })).toBeVisible();
+    await expect(page.getByTestId("invited-email")).toHaveText(format(t.invitations.accept.invitedEmail, { email: guest }));
+    await evidence("invitation-link");
+
+    // No account yet: they sign up, and verify the email.
+    await page.getByRole("link", { name: t.invitations.accept.signUp }).click();
+    await page.getByLabel(t.auth.signUp.name).fill("Bruno Lima");
+    await page.getByLabel(t.auth.signUp.email).fill(guest);
+    await page.getByLabel(t.auth.signUp.password).fill(password);
+    await page.getByRole("button", { name: t.auth.signUp.submit }).click();
+    await expect(page.getByRole("heading", { name: t.auth.checkEmail.title })).toBeVisible();
+    const verification = await mailbox.latest(guest, { subject: t.emails.verifyEmail.subject });
+    await page.goto(linkIn(verification.html, "/api/auth/verify-email"));
+    await expect(page.getByRole("heading", { name: t.auth.emailVerified.title })).toBeVisible();
+
+    // They sign in and are back on the Invitation, which they accept.
+    await page.getByRole("link", { name: t.auth.emailVerified.signIn }).click();
+    await page.getByLabel(t.auth.signIn.email).fill(guest);
+    await page.getByLabel(t.auth.signIn.password).fill(password);
+    await page.getByRole("button", { name: t.auth.signIn.submit }).click();
+    await expect(page).toHaveURL(/\/invitations\/[\w-]+$/);
+    await page.getByRole("button", { name: t.invitations.accept.submit }).click();
+
+    // A Member of Acme, as an Employee, on the Company page.
+    await expect(page.getByRole("heading", { level: 1, name: "Acme" })).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/c/${company.id}$`));
+    await expect(page.getByTestId("company-role")).toHaveText(format(t.companies.page.role, { role: t.companies.roles.employee }));
+    await expect(page.getByRole("table", { name: t.companies.page.members }).getByRole("row").filter({ hasText: guest })).toBeVisible();
+    await evidence("joined-company");
+  },
+);
