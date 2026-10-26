@@ -5,6 +5,7 @@ import { getLastCompanyHandler, getLastCompanyHandlerResponse404 } from "../../s
 import { getMeHandler } from "../../src/gen/msw/getMeHandler.ts";
 import { getNavHandler } from "../../src/gen/msw/getNavHandler.ts";
 import { listCompaniesHandler } from "../../src/gen/msw/listCompaniesHandler.ts";
+import { listInvitationsHandler } from "../../src/gen/msw/listInvitationsHandler.ts";
 import { listMembersHandler } from "../../src/gen/msw/listMembersHandler.ts";
 import { format, messagesFor } from "../../src/i18n/index.ts";
 import { renderSpa } from "../spa/render.tsx";
@@ -47,6 +48,8 @@ function companiesApi(companies: (typeof acme)[]) {
           : getCompanyHandlerResponse404({ code: "NOT_FOUND", message: "Not found." });
       }),
       listMembersHandler(members),
+      // The Owner's page also shows the pending Invitations (none here).
+      listInvitationsHandler({ items: [], nextCursor: null }),
       createCompanyHandler(async ({ request }) => {
         const body = await request.json();
         created.push(body);

@@ -47,6 +47,18 @@ export const requireMember = createMiddleware<SkeletonEnv>(async (c, next) => {
   await next();
 });
 
+/**
+ * Lets only the Company's Owner through: any other role answers 403
+ * `FORBIDDEN`. Put it after `requireMember`; declare the 403 with `forbiddenResponse`.
+ */
+export const requireOwner = createMiddleware<SkeletonEnv>(async (c, next) => {
+  if (skeletonRole(c.var.member.role) !== "owner") return c.json(apiError("FORBIDDEN"), 403);
+  await next();
+});
+
+/** The 403 every route behind `requireOwner` declares in its `responses`. */
+export const forbiddenResponse = errorResponse("The signed-in user's role in the Company does not allow this.", "FORBIDDEN");
+
 /** The 404 every route behind `requireMember` declares in its `responses`. */
 export const companyNotFoundResponse = errorResponse(
   "No such Company, or the signed-in user is not one of its Members.",

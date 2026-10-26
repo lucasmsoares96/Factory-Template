@@ -1,6 +1,9 @@
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { createMiddleware } from "hono/factory";
 import { Resend } from "resend";
 import { emailOutbox } from "../db/schema.ts";
+import type { Messages } from "../i18n/index.ts";
+import type { SkeletonEnv } from "./env.ts";
 
 /** A rendered email, ready for a transport. */
 export type Email = { to: string; subject: string; html: string; text: string };
@@ -41,4 +44,24 @@ export function createEmailSender({
     const { error } = await new Resend(resendApiKey).emails.send({ from, ...email });
     if (error) throw new Error(`Resend refused the email (${error.name}): ${error.message}`);
   };
+}
+
+/**
+ * Gives every `/api` route `c.var.t` and `c.var.sendEmail`, the adapter the
+ * routes' own emails (an Invitation) leave through, like Better Auth's.
+ */
+export function emailContext({ emailFrom, t }: { emailFrom: string; t: Messages }) {
+  return createMiddleware<SkeletonEnv>(async (c, next) => {
+    c.set("t", t);
+    c.set(
+      "sendEmail",
+      createEmailSender({
+        transport: emailTransport(c.env.EMAIL_TRANSPORT),
+        from: emailFrom,
+        resendApiKey: c.env.RESEND_API_KEY,
+        db: c.var.db,
+      }),
+    );
+    await next();
+  });
 }

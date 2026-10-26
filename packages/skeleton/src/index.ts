@@ -22,7 +22,9 @@ export {
 export {
   CompanyParams,
   companyNotFoundResponse,
+  forbiddenResponse,
   requireMember,
+  requireOwner,
   skeletonRole,
   type Member,
   type SkeletonRole,
@@ -48,5 +50,11 @@ export {
   type FeatureEvents,
   type FeatureNav,
 } from "./platform/feature.ts";
+export {
+  createInvitation,
+  type CreateInvitationResult,
+  type Invitation,
+  type InvitationRefusal,
+} from "./features/invitations/service.ts";
 export { defineProduct, type ProductConfig } from "./product.ts";
 export type { JsonSchema, McpScope, McpTool } from "./platform/mcp/tool.ts";
