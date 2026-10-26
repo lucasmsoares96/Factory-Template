@@ -42,7 +42,6 @@ export {
 } from "./platform/pagination.ts";
 export {
   assertUniqueFeatures,
-  emitCompanyDeleting,
   emitMemberJoined,
   defineFeature,
   seedFeatures,
