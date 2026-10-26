@@ -15,7 +15,9 @@
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "@types/pg": "catalog:",
     "neonctl": "catalog:",
+    "pg": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:",
     "wrangler": "catalog:",
