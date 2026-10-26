@@ -38,7 +38,7 @@ _Avoid_: Exploration, explore
 The point where a human reviews and merges the factory's pull request; the factory never merges its own work. When a pull request is ready or escalated, the Merge Gate notice, a comment from `github-actions[bot]`, mentions whoever started the run, since nobody is notified of what the factory itself writes.
 
 **Escalation**:
-What the factory does when it cannot finish an issue: it explains why on the issue, swaps `in-progress` for `ready-for-human`, and opens a draft pull request with its progress when there are commits. The reason is one of `e2e-failures` (five attempts failed), `time` (the global limit ran out), `needs-human` (a question for a person, or the criteria cannot be met without changing the Skeleton) or `infra` (the run left no result). A diff in a protected path also ends in an Escalation, without a pull request.
+What the factory does when it cannot finish an issue: it explains why on the issue, swaps `in-progress` for `ready-for-human`, and opens a draft pull request with its progress when there are commits. The reason is one of `e2e-failures` (five attempts failed), `time` (the global limit ran out), `needs-human` (a question for a person, or the criteria cannot be met without changing the Skeleton) or `infra` (the run left no result).
 _Avoid_: Failure, abort
 
 **Merge Danger**:
@@ -73,7 +73,7 @@ The one verified account `bootstrap product` creates in a Product's production d
 _Avoid_: Admin user, test user
 
 **Harness change**:
-A change to the factory's own environment (`.factory/`, `AGENTS.md`, `GLOSSARY.md`, `docs/agents/`, `docs/adr/`, `CODING_STANDARDS.md`). The pull request gets the `harness-change` label and a warning.
+A change to the factory's own environment (`.factory/`, `AGENTS.md`, `GLOSSARY.md`, `docs/agents/`, `docs/adr/`, `CODING_STANDARDS.md`), or to a sensitive file (`.github/workflows/`, skills, `.claude/`, `.mcp.json`). The pull request gets the `harness-change` label and a warning; nothing is refused.
 
 ### Organization (Skeleton)
 

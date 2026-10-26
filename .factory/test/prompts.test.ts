@@ -60,7 +60,7 @@ describe("prompt templates", () => {
     for (const rule of [
       "Write code, comments, commits and docs in English.",
       "Never create a `CLAUDE.md`.",
-      "Never edit `.github/workflows/`",
+      "only when the issue needs it: the pull request is flagged",
       "Never change a published migration",
       "Never run `pnpm bootstrap destroy`.",
       "Do not push, open pull requests, comment, or change labels",

@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { issueBranch } from "../config.ts";
 import { diffLines, filterToDiff, type DiffLines } from "../diff.ts";
 import { Git } from "../git.ts";
-import { isHarnessPath, isProtectedPath } from "../paths.ts";
+import { isHarnessPath, isSensitivePath } from "../paths.ts";
 import { costFooter, escalationComment, followUpComment, type EscalationReason, type FollowUpRef } from "../report.ts";
 import { BUNDLE_FILE, EVIDENCE_DIR, RESULT_FILE, readResult, type FactoryResult } from "../result.ts";
 import { withEvidence } from "../pull-request-evidence.ts";
@@ -31,8 +31,9 @@ export interface PublishOptions {
 /**
  * The `publish` job: the only one with the forge token. Re-reads forge state
  * and discards the run if it changed, validates the artifacts of `work` (none
- * or invalid: Escalation "infra"), refuses protected paths, then pushes with a
- * lease and either delivers a ready PR or escalates.
+ * or invalid: Escalation "infra"), then pushes with a lease and either delivers
+ * a ready PR or escalates. A diff in a sensitive or harness path is flagged on
+ * the PR, never refused.
  */
 export async function publish(ctx: CommandContext, number: number, options: PublishOptions): Promise<PublishResult> {
   const { config } = ctx;
@@ -52,11 +53,6 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
 
   const head = result.head;
   const changed = head ? await changedFiles(git, result.base, head) : [];
-  const protectedPaths = changed.filter(isProtectedPath);
-  if (head && protectedPaths.length > 0) {
-    const patch = await git.run("diff", "--no-color", "--no-ext-diff", `${result.base}...${head}`);
-    return escalate(ctx, issue, { reason: "protected-paths", result, protectedPaths, patch, pr: null, runUrl: options.runUrl }, options.pr);
-  }
   if (!head) {
     const followUps = await openFollowUps(ctx, issue, result);
     return escalate(ctx, issue, { reason: result.reason ?? "infra", result, pr: null, runUrl: options.runUrl, followUps }, options.pr);
@@ -67,9 +63,10 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
 
   const followUps = await openFollowUps(ctx, issue, result);
   const lines = await diffLines(git, result.base, head);
-  const harnessPaths = changed.filter(isHarnessPath);
+  const sensitivePaths = changed.filter(isSensitivePath);
+  const harnessPaths = changed.filter((path) => isHarnessPath(path) && !isSensitivePath(path));
   const escalated = result.outcome === "escalated" ? (result.reason ?? "infra") : null;
-  const pr = await pullRequest(ctx, issue, { branch, openPr, continues: options.pr !== null, harnessPaths, escalated, followUps, text: result.pullRequestBody, images: evidenceImages(result, options.in) });
+  const pr = await pullRequest(ctx, issue, { branch, openPr, continues: options.pr !== null, sensitivePaths, harnessPaths, escalated, followUps, text: result.pullRequestBody, images: evidenceImages(result, options.in) });
   if (!escalated || result.review.summary !== "") {
     // A PR round without a Review (update-branch, a round that only answers) leaves no empty review behind.
     if (options.pr === null || result.review.summary !== "") await submitReview(ctx, pr.number, result, lines);
@@ -136,7 +133,7 @@ async function changedFiles(git: Git, base: string, head: string): Promise<strin
 async function pullRequest(
   ctx: CommandContext,
   issue: Issue,
-  input: { branch: string; openPr: PullRequest | null; continues: boolean; harnessPaths: string[]; escalated: EscalationReason | null; followUps: FollowUpRef[]; text: string | null; images: EvidenceImage[] },
+  input: { branch: string; openPr: PullRequest | null; continues: boolean; sensitivePaths: string[]; harnessPaths: string[]; escalated: EscalationReason | null; followUps: FollowUpRef[]; text: string | null; images: EvidenceImage[] },
 ): Promise<PullRequest> {
   const { codeHost, config } = ctx;
   let pr: PullRequest;
@@ -159,7 +156,7 @@ async function pullRequest(
       images: input.images,
     });
   }
-  if (input.harnessPaths.length > 0) await codeHost.labelPr(pr.number, config.labels.harnessChange);
+  if (input.sensitivePaths.length + input.harnessPaths.length > 0) await codeHost.labelPr(pr.number, config.labels.harnessChange);
   return pr;
 }
 
@@ -170,7 +167,7 @@ async function pullRequest(
  */
 function prBody(
   issue: Issue,
-  input: { continues: boolean; harnessPaths: string[]; escalated: EscalationReason | null; followUps: FollowUpRef[]; text: string | null; images: EvidenceImage[] },
+  input: { continues: boolean; sensitivePaths: string[]; harnessPaths: string[]; escalated: EscalationReason | null; followUps: FollowUpRef[]; text: string | null; images: EvidenceImage[] },
 ): string {
   const warnings: string[] = [];
   // A round on a ready PR leaves it as it is (the comment on the PR and the issue say so): only a draft "holds progress".
@@ -178,6 +175,13 @@ function prBody(
     warnings.push(
       "> [!WARNING]",
       `> The Factory escalated this work (\`${input.escalated}\`): this draft holds its progress. See the comment on #${issue.number}.`,
+      "",
+    );
+  }
+  if (input.sensitivePaths.length > 0) {
+    warnings.push(
+      "> [!WARNING]",
+      `> This pull request changes sensitive files: ${input.sensitivePaths.map((p) => `\`${p}\``).join(", ")}. A workflow runs with the repository's secrets, and skills, \`.claude/\` and \`.mcp.json\` steer every agent: read them line by line before merging.`,
       "",
     );
   }

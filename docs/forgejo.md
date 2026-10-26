@@ -11,7 +11,7 @@ The Factory is built for GitHub; only the adapters are designed to fit Forgejo. 
 
 ## Tokens
 
-- **No `workflow` scope exists.** A token with `write:repository` can change `.forgejo/workflows/`. The only defence there is the `protected-paths` Escalation before `publish`, plus keeping the token out of the `work` job. State this in the install prompt.
+- **No `workflow` scope exists.** A token with `write:repository` can change `.forgejo/workflows/`. The Factory does not refuse workflow changes on either forge (ADR 0012): the defence is the human review of the flagged pull request, plus keeping the token out of the `work` job. State this in the install prompt.
 - Since v15 tokens can be restricted to specific repositories, with only `read/write:repository` and `read/write:issue`. There is no GitHub App equivalent, and the Factory already writes as the owner and recognizes its texts by a marker (ADR 0002), which works there too.
 - The Merge Gate notice must come from the job's automatic token (the Forgejo equivalent of `GITHUB_TOKEN`), because nobody is notified of what the Factory's own token does.
 - The automatic token has write access to the repository in same-repository PRs; PRs from forks and AGit PRs get read-only, even under `pull_request_target`. The documentation of v17 still says the `pull_request` token has no write permission, which contradicts the code.

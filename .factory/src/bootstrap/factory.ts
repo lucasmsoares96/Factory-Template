@@ -10,19 +10,20 @@ const ATTEMPTS = 3;
 
 /**
  * The fine-grained token form of GitHub, pre-filled (docs checked 2026-10-21): name, description, owner, no expiry and
- * the three permissions the Factory needs. The form has no parameter to pick repositories, and `workflows` is left out
- * on purpose, so the Factory can never change a workflow file.
+ * the four permissions the Factory needs. The form has no parameter to pick repositories. `workflows` is in: GitHub
+ * refuses a push that changes `.github/workflows/` without it, and the Factory may change workflow files (ADR 0012).
  */
 export function tokenUrl(repoFullName: string): string {
   const [owner, name] = repoFullName.split("/") as [string, string];
   const query = new URLSearchParams({
     name: `Factory ${name}`,
-    description: `Factory for ${repoFullName}: opens pull requests and comments on issues. No workflows permission, on purpose.`,
+    description: `Factory for ${repoFullName}: opens pull requests and comments on issues.`,
     target_name: owner,
     expires_in: "none",
     contents: "write",
     pull_requests: "write",
     issues: "write",
+    workflows: "write",
   });
   return `https://github.com/settings/personal-access-tokens/new?${query}`;
 }
@@ -56,7 +57,7 @@ export const factoryToken: Step = {
     const fromEnv = ctx.env[FACTORY_TOKEN]?.trim();
     if (!fromEnv) {
       ctx.log("The Factory writes as you, with a fine-grained token of yours limited to this repository. The one manual step on the form: under Repository access choose \"Only select repositories\" and pick this repository.");
-      ctx.prompter.link("Open the form (everything else is filled in; do not add Workflows):", tokenUrl(repo));
+      ctx.prompter.link("Open the form (everything else is filled in):", tokenUrl(repo));
     }
     for (let attempt = 1; ; attempt++) {
       const token = (fromEnv || (await ctx.prompter.password({ id: "factory-token", message: "Paste the fine-grained token" }))).trim();
@@ -64,7 +65,7 @@ export const factoryToken: Step = {
       if (refused === null) {
         await ctx.github.setSecret(FACTORY_TOKEN, token);
         // GitHub offers no way to read the permissions of a fine-grained token (checked 2026-10-21), so this cannot be tested.
-        ctx.log("Stored. GitHub cannot tell whether the token has the Workflows permission: make sure you did not add it, or the Factory could edit workflow files.");
+        ctx.log("Stored. GitHub cannot tell whether the token has the Workflows permission: without it, a Factory pull request that changes a workflow file fails to push.");
         return;
       }
       if (fromEnv || attempt >= ATTEMPTS) throw new Error(`${refused} Nothing was stored.`);
