@@ -2,9 +2,15 @@ import { createRoute, z } from "@hono/zod-openapi";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { companies, members, users } from "../../db/schema.ts";
 import { apiError, createRouter, errorResponse } from "../../platform/errors.ts";
-import { emitMemberJoined } from "../../platform/feature.ts";
+import { emitCompanyDeleting, emitMemberJoined } from "../../platform/feature.ts";
 import { requireIdentity, unauthenticatedResponse } from "../../platform/identity.ts";
-import { CompanyParams, companyNotFoundResponse, requireMember } from "../../platform/member.ts";
+import {
+  CompanyParams,
+  companyNotFoundResponse,
+  forbiddenResponse,
+  requireMember,
+  requireOwner,
+} from "../../platform/member.ts";
 import { PageQuery, afterPosition, cursorPosition, pageOf, toPage } from "../../platform/pagination.ts";
 
 const role = z.string().openapi({
@@ -21,16 +27,25 @@ export const Company = z
   })
   .openapi("Company");
 
-const CreateCompany = z
+const companyName = z
+  .string()
+  .trim()
+  .min(1)
+  .max(100)
+  .openapi({ description: "The Company's name: 1 to 100 characters once the spaces around it are removed.", example: "Acme" });
+
+const CreateCompany = z.object({ name: companyName }).openapi("CreateCompany");
+
+const RenameCompany = z.object({ name: companyName }).openapi("RenameCompany");
+
+const DeleteCompany = z
   .object({
-    name: z
-      .string()
-      .trim()
-      .min(1)
-      .max(100)
-      .openapi({ description: "The Company's name: 1 to 100 characters once the spaces around it are removed.", example: "Acme" }),
+    name: z.string().trim().openapi({
+      description: "The Company's current name, typed to confirm (the spaces around it are removed).",
+      example: "Acme",
+    }),
   })
-  .openapi("CreateCompany");
+  .openapi("DeleteCompany");
 
 const CompanyPage = pageOf(Company, "CompanyPage");
 
@@ -127,6 +142,54 @@ const listMembers = createRoute({
   },
 });
 
+const renameCompany = createRoute({
+  method: "patch",
+  path: "/companies/{companyId}",
+  operationId: "renameCompany",
+  summary: "Rename a Company",
+  description:
+    "Gives a Company a new name (the spaces around it are removed; names may repeat). Only its Owner may. The id, and so every link to the Company, stays the same. Answers the renamed Company.",
+  middleware: [requireIdentity, requireMember, requireOwner] as const,
+  request: {
+    params: CompanyParams,
+    body: { required: true, content: { "application/json": { schema: RenameCompany } } },
+  },
+  responses: {
+    200: { description: "The renamed Company.", content: { "application/json": { schema: Company } } },
+    400: errorResponse("The name is missing, blank or longer than 100 characters.", "VALIDATION_FAILED"),
+    401: unauthenticatedResponse,
+    403: forbiddenResponse,
+    404: companyNotFoundResponse,
+  },
+});
+
+const deleteCompany = createRoute({
+  method: "delete",
+  path: "/companies/{companyId}",
+  operationId: "deleteCompany",
+  summary: "Delete a Company",
+  description:
+    "Deletes a Company for good, right away, with everything in it: every feature's `companyDeleting` runs first, in the Product's order, then the Company and its Members are deleted. Only its Owner may, confirming with the Company's current name. Its former Members get 404 on it from then on.",
+  // Deleting a Company needs a person's confirmation: never an agent's call.
+  "x-mcp": false,
+  middleware: [requireIdentity, requireMember, requireOwner] as const,
+  request: {
+    params: CompanyParams,
+    body: { required: true, content: { "application/json": { schema: DeleteCompany } } },
+  },
+  responses: {
+    204: { description: "The Company and its Members are gone." },
+    400: errorResponse(
+      "The confirmation is missing (`VALIDATION_FAILED`), or is not the Company's current name (`CONFIRMATION_MISMATCH`).",
+      "VALIDATION_FAILED",
+      "CONFIRMATION_MISMATCH",
+    ),
+    401: unauthenticatedResponse,
+    403: forbiddenResponse,
+    404: companyNotFoundResponse,
+  },
+});
+
 /** What a Company row is answered as. */
 const companyColumns = { id: companies.id, name: companies.name, createdAt: companies.createdAt, role: members.role };
 
@@ -208,4 +271,34 @@ export const companiesApi = createRouter()
       }),
       200,
     );
+  })
+  .openapi(renameCompany, async (c) => {
+    const { name } = c.req.valid("json");
+    const [company] = await c.var.db
+      .update(companies)
+      .set({ name })
+      .where(eq(companies.id, c.var.member.companyId))
+      .returning({ id: companies.id, name: companies.name, createdAt: companies.createdAt });
+    // Deleted after `requireMember` found the Member.
+    if (!company) return c.json(apiError("NOT_FOUND"), 404);
+    return c.json(toCompany({ ...company, role: c.var.member.role }), 200);
+  })
+  .openapi(deleteCompany, async (c) => {
+    const { companyId } = c.var.member;
+    const { name } = c.req.valid("json");
+    // One transaction: a hook that throws leaves the Company and everything in it,
+    // and the row lock keeps a concurrent rename from slipping past the confirmation.
+    const outcome = await c.var.db.transaction(async (tx) => {
+      const [company] = await tx.select({ name: companies.name }).from(companies).where(eq(companies.id, companyId)).for("update");
+      // Deleted after `requireMember` found the Member.
+      if (!company) return "NOT_FOUND";
+      if (name !== company.name) return "CONFIRMATION_MISMATCH";
+      await emitCompanyDeleting(c.var.features, { db: tx, companyId });
+      // The Members go with it (`ON DELETE CASCADE`).
+      await tx.delete(companies).where(eq(companies.id, companyId));
+      return "DELETED";
+    });
+    if (outcome === "NOT_FOUND") return c.json(apiError("NOT_FOUND"), 404);
+    if (outcome === "CONFIRMATION_MISMATCH") return c.json(apiError("CONFIRMATION_MISMATCH"), 400);
+    return c.body(null, 204);
   });

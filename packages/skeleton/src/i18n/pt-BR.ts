@@ -77,6 +77,25 @@ export const ptBR: Messages = {
       memberRole: "Role",
       moreMembers: "Mostrar mais Members",
     },
+    settings: {
+      title: "Configurações da Company",
+      description: "Só o Owner vê estas ações.",
+      rename: {
+        name: "Novo nome",
+        nameHint: "Até 100 caracteres. O link da Company continua o mesmo.",
+        submit: "Renomear",
+        submitting: "Renomeando…",
+        saved: "A Company foi renomeada.",
+      },
+      delete: {
+        title: "Apagar a Company",
+        description:
+          "Isto apaga a Company e tudo o que há nela, de forma definitiva e imediata. Todos os Members perdem o acesso a ela, inclusive pelos agentes.",
+        confirm: "Digite {name} para confirmar",
+        submit: "Apagar Company",
+        submitting: "Apagando…",
+      },
+    },
   },
   invitations: {
     title: "Convites",
@@ -233,6 +252,7 @@ export const ptBR: Messages = {
     DATABASE_UNAVAILABLE: "O serviço está indisponível no momento. Tente de novo em breve.",
     UNAUTHENTICATED: "Entre para continuar.",
     TOO_MANY_REQUESTS: "Tentativas demais. Espere alguns segundos e tente de novo.",
+    CONFIRMATION_MISMATCH: "O nome digitado não é o nome da Company.",
     INVALID_EMAIL: "Informe um endereço de email válido.",
     PASSWORD_TOO_SHORT: "A senha é curta demais.",
     PASSWORD_TOO_LONG: "A senha é longa demais.",
