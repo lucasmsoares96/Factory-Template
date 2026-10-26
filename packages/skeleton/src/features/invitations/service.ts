@@ -69,7 +69,13 @@ export async function createInvitation(
     .returning();
   if (!created) return { refused: "INVITATION_PENDING" };
 
-  await sendInvitationEmail(c, { email, role, inviterName: inviter.name, token });
+  try {
+    await sendInvitationEmail(c, { email, role, inviterName: inviter.name, token });
+  } catch (error) {
+    // An Invitation whose email never left would block the address with INVITATION_PENDING.
+    await db.delete(invitations).where(eq(invitations.id, created.id));
+    throw error;
+  }
   return { invitation: toInvitation({ ...created, inviterName: inviter.name }) };
 }
 

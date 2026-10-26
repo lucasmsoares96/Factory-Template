@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, expect, test } from "vitest";
+import { http, HttpResponse } from "msw";
 import { migrateDatabase } from "../src/node/migrate.ts";
-import { mockResend, type SentEmail } from "../src/node/resend-mock.ts";
+import { RESEND_EMAILS_URL, mockResend, type SentEmail } from "../src/node/resend-mock.ts";
 import { createTestAuth } from "./support/auth.ts";
 import { createEmptyDatabase } from "./support/database.ts";
 import { TEST_EMAIL_FROM, startTestWorker, type TestWorker } from "./support/worker.ts";
@@ -139,6 +140,24 @@ test("a second pending Invitation for the same address and Company answers 409 I
   });
   expect(emailsTo(address)).toHaveLength(1);
   expect((await invite(other.id, ana.cookie, { email: address, role: "employee" })).status).toBe(201);
+});
+
+test("an Invitation whose email fails to leave is not kept: inviting the address again works", async () => {
+  const ana = await signedInUser();
+  const company = await createCompany(ana.cookie);
+  const address = newAddress();
+  resend.use(
+    http.post(RESEND_EMAILS_URL, () => HttpResponse.json({ name: "application_error", message: "down" }, { status: 500 }), {
+      once: true,
+    }),
+  );
+
+  const failed = await invite(company.id, ana.cookie, { email: address, role: "employee" });
+
+  expect(failed.status).toBe(500);
+  expect(await db.query(`SELECT 1 FROM skeleton.invitations WHERE company_id = '${company.id}'`)).toEqual([]);
+  expect((await invite(company.id, ana.cookie, { email: address, role: "employee" })).status).toBe(201);
+  expect(emailsTo(address)).toHaveLength(1);
 });
 
 test("the role owner, a role the Product does not have and an invalid email answer 400 VALIDATION_FAILED", async () => {
