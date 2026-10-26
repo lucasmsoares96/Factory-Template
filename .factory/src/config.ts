@@ -13,6 +13,7 @@ export const defaultConfig = {
     review: "claude-opus-5-5",
     triage: "claude-opus-5-5",
     pullRequest: "claude-opus-5-5",
+    retro: "claude-opus-5-5",
   },
   /** Minutes. A Stage timeout counts as a failure; `total` leads to Escalation "time". */
   timeouts: {
@@ -21,6 +22,7 @@ export const defaultConfig = {
     e2e: 20,
     pullRequest: 15,
     triage: 30,
+    retro: 30,
     total: 330,
   },
   /**
@@ -46,6 +48,13 @@ export const defaultConfig = {
   image: {
     name: "",
   },
+  /**
+   * The automatic Retro (`factory-retro.yml`): after an Escalation, and after a Factory PR that a human commented on
+   * closes. It only proposes, in a `needs-triage` issue. `FACTORY_RETRO_ENABLED=false` turns it off.
+   */
+  retro: {
+    enabled: true,
+  },
   /** Attempts of Development → Review → E2E before Escalation. */
   maxAttempts: 5,
   /** Open previews per Product before "preview skipped: limit reached". */
@@ -65,6 +74,7 @@ export const defaultConfig = {
     agentExplore: "agent:explore",
     harnessChange: "harness-change",
     preview: "preview",
+    retro: "retro",
     /** One `product:<id>` label per Product. */
     productPrefix: "product:",
   },
@@ -72,13 +82,16 @@ export const defaultConfig = {
 
 const positiveInt = z.coerce.number().int().positive();
 const nonEmpty = z.string().min(1);
+/** A repo variable is text: `"false"` turns a switch off, `"true"` on. */
+const flag = z.union([z.boolean(), z.enum(["true", "false"]).transform((v) => v === "true")]);
 
 const configSchema = z.object({
-  models: z.object({ development: nonEmpty, review: nonEmpty, triage: nonEmpty, pullRequest: nonEmpty }),
-  timeouts: z.object({ development: positiveInt, review: positiveInt, e2e: positiveInt, pullRequest: positiveInt, triage: positiveInt, total: positiveInt }),
+  models: z.object({ development: nonEmpty, review: nonEmpty, triage: nonEmpty, pullRequest: nonEmpty, retro: nonEmpty }),
+  timeouts: z.object({ development: positiveInt, review: positiveInt, e2e: positiveInt, pullRequest: positiveInt, triage: positiveInt, retro: positiveInt, total: positiveInt }),
   pricing: z.object({ inputPerMTok: z.coerce.number().nonnegative(), outputPerMTok: z.coerce.number().nonnegative() }),
   claudeCode: z.object({ version: z.string().regex(/^\d+\.\d+\.\d+$/) }),
   image: z.object({ name: z.string() }),
+  retro: z.object({ enabled: flag }),
   maxAttempts: positiveInt,
   previewLimit: positiveInt,
   baseBranch: nonEmpty,
@@ -94,6 +107,7 @@ const configSchema = z.object({
     agentExplore: nonEmpty,
     harnessChange: nonEmpty,
     preview: nonEmpty,
+    retro: nonEmpty,
     productPrefix: nonEmpty,
   }),
 });

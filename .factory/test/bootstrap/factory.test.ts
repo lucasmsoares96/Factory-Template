@@ -37,15 +37,14 @@ describe("pnpm bootstrap factory: Factory module", () => {
     expect(shown(w)).not.toContain("sk-ant-oat-x");
   });
 
-  it("prints one pre-filled link, without workflows, after saying the one manual step", async () => {
+  it("prints one pre-filled link, with workflows, after saying the one manual step", async () => {
     const w = factoryWorld({}, { CLAUDE_CODE_OAUTH_TOKEN: "x" });
 
     const { output } = await w.run("factory");
 
     expect(w.prompter.printed.filter((line) => line.startsWith("https://"))).toEqual([
-      "https://github.com/settings/personal-access-tokens/new?name=Factory+repo&description=Factory+for+owner%2Frepo%3A+opens+pull+requests+and+comments+on+issues.+No+workflows+permission%2C+on+purpose.&target_name=owner&expires_in=none&contents=write&pull_requests=write&issues=write",
+      "https://github.com/settings/personal-access-tokens/new?name=Factory+repo&description=Factory+for+owner%2Frepo%3A+opens+pull+requests+and+comments+on+issues.&target_name=owner&expires_in=none&contents=write&pull_requests=write&issues=write&workflows=write",
     ]);
-    expect(w.prompter.printed.join()).not.toContain("workflows=");
     expect(w.prompter.printed.filter((line) => line.startsWith("https://"))).toHaveLength(1);
     expect(output + w.prompter.notes.join()).toMatch(/Only select repositories/);
     expect(output).toMatch(/cannot tell whether the token has the Workflows permission/);

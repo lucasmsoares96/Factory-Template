@@ -19,6 +19,7 @@ interface Job {
   "timeout-minutes"?: number;
   steps?: Array<{ uses?: string; run?: string; with?: Record<string, unknown>; name?: string; env?: Record<string, string>; if?: string; "continue-on-error"?: boolean }>;
   uses?: string;
+  with?: Record<string, unknown>;
   if?: string;
   environment?: unknown;
   env?: Record<string, string>;
@@ -31,7 +32,7 @@ interface Workflow {
 
 /** Reads and parses every workflow in `dir`, relative to the repository root. */
 function load(dir: string): Record<string, Workflow> {
-  const names = ["factory-image.yml", "factory-pr.yml", "factory-deploy.yml", "factory-pr-cleanup.yml", "factory-issue.yml", "factory-unblock.yml", "factory-triage.yml", "factory-pr-feedback.yml", "factory-update-branches.yml"];
+  const names = ["factory-image.yml", "factory-pr.yml", "factory-deploy.yml", "factory-pr-cleanup.yml", "factory-issue.yml", "factory-unblock.yml", "factory-triage.yml", "factory-pr-feedback.yml", "factory-update-branches.yml", "factory-retro.yml"];
   return Object.fromEntries(names.map((name) => [name, parse(readFileSync(join(repo, dir, name), "utf8")) as Workflow]));
 }
 
@@ -57,7 +58,7 @@ describe.each([[WORKFLOWS_DIR]])("CI workflows in %s", (dir) => {
 
   it("only `build` and `work` take vars.FACTORY_RUNNER, always in a container; `claim` and `publish` never do", () => {
     const takers = allJobs.filter(({ job }) => runsOn(job).includes("vars.FACTORY_RUNNER")).map(({ file, id }) => `${file} ${id}`);
-    expect(takers.sort()).toEqual(["factory-deploy.yml build", "factory-issue.yml work", "factory-pr-feedback.yml work", "factory-pr.yml build", "factory-triage.yml work", "factory-update-branches.yml work"]);
+    expect(takers.sort()).toEqual(["factory-deploy.yml build", "factory-issue.yml work", "factory-pr-feedback.yml work", "factory-pr.yml build", "factory-retro.yml work", "factory-triage.yml work", "factory-update-branches.yml work"]);
     for (const { file, id, job } of allJobs.filter(({ job }) => runsOn(job).includes("vars.FACTORY_RUNNER"))) {
       expect(job.container?.image, `${file} ${id}`).toBe("${{ needs.image.outputs.image }}");
       expect(runsOn(job), `${file} ${id}`).toContain("ubuntu-latest");
@@ -576,6 +577,95 @@ describe.each([[WORKFLOWS_DIR]])("Factory triage and unblock workflows in %s", (
     }
     expect([...called].sort()).toEqual(["apply", "triage", "unblock"]);
     for (const command of called) expect(cli).toContain(`"${command}"`);
+  });
+});
+
+describe.each([[WORKFLOWS_DIR]])("Factory retro workflow in %s", (dir) => {
+  const { workflows } = checkWorkflows(dir);
+  const retro = workflows["factory-retro.yml"]!;
+  const { collect, image, work, publish } = retro.jobs;
+  const secretsOf = (job: Job) => [...new Set(textOf(job).match(/secrets\.\w+|secrets\[[^\]]*\]/g) ?? [])].sort();
+  const checkouts = (job: Job) => steps(job).filter((step) => step.uses?.startsWith("actions/checkout@"));
+
+  it("starts when a PR closes and by hand (the Escalation dispatches it), off until FACTORY_ENABLED and with FACTORY_RETRO_ENABLED=false", () => {
+    expect(retro.on.pull_request_target).toEqual({ types: ["closed"] });
+    expect(Object.keys(retro.on).sort()).toEqual(["pull_request_target", "workflow_dispatch"]);
+    expect(retro.permissions).toEqual({});
+    expect(Object.keys(retro.jobs)).toEqual(["collect", "image", "work", "publish"]);
+    expect(collect!.if).toContain("vars.FACTORY_ENABLED == 'true'");
+    expect(collect!.if).toContain("vars.FACTORY_RETRO_ENABLED != 'false'");
+  });
+
+  it("a closed PR counts only on a Factory branch of this repository", () => {
+    expect(collect!.if).toContain("startsWith(github.event.pull_request.head.ref, 'factory/issue-')");
+    expect(collect!.if).toContain("github.event.pull_request.head.repo.full_name == github.repository");
+  });
+
+  it("never runs the PR's code: every job checks out the default branch without keeping the token", () => {
+    for (const [id, job] of Object.entries(retro.jobs)) {
+      for (const step of checkouts(job)) {
+        expect(step.with?.ref, id).toBe("${{ github.event.repository.default_branch }}");
+        expect(step.with?.["persist-credentials"], id).toBe(false);
+      }
+    }
+    expect(image!.with).toEqual({ ref: "${{ github.event.repository.default_branch }}" });
+  });
+
+  it("`collect` is read-only and holds no secret; the rest waits for what it collected", () => {
+    expect(collect!.permissions).toEqual({ contents: "read", issues: "read", "pull-requests": "read", actions: "read" });
+    expect(secretsOf(collect!)).toEqual([]);
+    expect(runsOn(collect!)).toBe('"ubuntu-latest"');
+    expect(runs(collect!).join("\n")).toContain("pnpm factory retro-collect");
+    expect(image!.if).toBe("${{ needs.collect.outputs.collected == 'true' }}");
+    expect(work!.needs).toEqual(["collect", "image"]);
+    expect(publish!.needs).toBe("work");
+  });
+
+  it("`work` never gets FACTORY_TOKEN, only Claude's auth, runs in the image read-only and may take FACTORY_RUNNER", () => {
+    expect(textOf(work!)).not.toContain("FACTORY_TOKEN");
+    expect(secretsOf(work!)).toEqual(["secrets.ANTHROPIC_API_KEY", "secrets.CLAUDE_CODE_OAUTH_TOKEN"]);
+    expect(work!.container?.image).toBe("${{ needs.image.outputs.image }}");
+    expect(work!["runs-on"]).toBe("${{ vars.FACTORY_RUNNER || 'ubuntu-latest' }}");
+    expect(work!.permissions).toEqual({ contents: "read", packages: "read" });
+    expect(runs(work!).join("\n")).toMatch(/pnpm factory retro --in/);
+  });
+
+  it("`publish` is a fresh VM with the owner's token and the default branch's harness; the agent is nowhere near it", () => {
+    expect(publish!["runs-on"]).toBe("ubuntu-latest");
+    expect(publish!.container).toBeUndefined();
+    expect(publish!.permissions).toEqual({ contents: "read" });
+    expect(secretsOf(publish!)).toEqual(["secrets.FACTORY_TOKEN"]);
+    expect(textOf(publish!)).not.toMatch(/CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_API_KEY/);
+    expect(runs(publish!).join("\n")).toContain("pnpm factory retro-publish");
+    expect(runs(publish!).join("\n")).toContain("--filter @factory/harness");
+  });
+
+  it("the jobs meet only through the retro-in and retro-out artifacts", () => {
+    const upload = (job: Job) => steps(job).find((step) => step.uses?.startsWith("actions/upload-artifact@"))?.with;
+    const download = (job: Job) => steps(job).find((step) => step.uses?.startsWith("actions/download-artifact@"))?.with;
+    expect(upload(collect!)).toMatchObject({ name: "retro-in", "retention-days": 14 });
+    expect(download(work!)).toMatchObject({ name: "retro-in" });
+    expect(upload(work!)).toMatchObject({ name: "retro-out", "retention-days": 14 });
+    expect(download(publish!)).toMatchObject({ name: "retro-out" });
+  });
+
+  it("nothing interpolates an expression into a script, and every command the YAML runs exists in the CLI", () => {
+    const cli = readFileSync(join(repo, ".factory/src/cli.ts"), "utf8");
+    const called = new Set<string>();
+    for (const job of Object.values(retro.jobs)) {
+      for (const script of runs(job)) {
+        expect(script).not.toContain("${{");
+        for (const m of script.matchAll(/pnpm factory ([\w-]+)/g)) called.add(m[1]!);
+      }
+    }
+    expect([...called].sort()).toEqual(["retro", "retro-collect", "retro-publish"]);
+    for (const command of called) expect(cli).toContain(`"${command}"`);
+  });
+
+  it("the Factory workflows put `#N` in their run titles, which is how the Retro finds an issue's runs", () => {
+    const runName = (file: string) => (workflows[file] as unknown as { "run-name"?: string })["run-name"] ?? "";
+    expect(runName("factory-issue.yml")).toContain("#${{ github.event.issue.number || inputs.issue }}");
+    expect(runName("factory-update-branches.yml")).toContain("format('#{0} update branch', inputs.issue)");
   });
 });
 

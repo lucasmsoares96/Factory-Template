@@ -24,4 +24,5 @@ The Factory adds these to the five above. Their names live in `.factory/src/conf
 | `agent:explore` | a human | Ask the Factory to triage this issue: it explores and comments, and changes no code. |
 | `harness-change` | the Factory (`publish`) | The pull request touches `AGENTS.md`, `docs/agents/`, `GLOSSARY.md`, `CODING_STANDARDS.md`, `docs/adr/` or `.factory/`. Review it with care. |
 | `preview` | a human with `write`+ access (CI removes it on each push) | Asks CI to deploy a preview of a pull request whose author has no `write` access. It must be re-applied after each push. |
+| `retro` | the Factory (`retro-publish`) | The issue holds the candidates of an automatic Retro (with `needs-triage`). A human picks what becomes work and closes the rest. |
 | `product:<id>` | a human or the Factory | The issue or pull request concerns the Product `<id>`. One label per Product (for example `product:example`). |

@@ -1,0 +1,175 @@
+# The automatic Retro: it looks back at a Factory run and proposes changes to the Factory's environment (checks,
+# coding standards, navigation), never to the code. It only proposes: the candidates land in one `needs-triage` +
+# `retro` issue per origin, and a person picks what becomes work.
+#   collect  (job token, read-only)  a closed PR goes on only if a writer left a thread or review on it; then the run's
+#                                    record: the issue, writer-only threads and reviews, the work-out artifact of each run
+#   image    the published Factory image of the default branch
+#   work     (the image, read-only, Claude's auth only)  one Retro session (the `retro` skill) over retro-in -> retro.json
+#   publish  (fresh VM, FACTORY_TOKEN, the harness of the default branch)  creates or edits the Retro issue
+# Started by `publish` on every Escalation (workflow_dispatch) and when a Factory PR closes. The PR's code never runs:
+# every job checks out the default branch, and the downloaded record is data the agent reads, never runs. The agent
+# never sees FACTORY_TOKEN; the jobs meet only through the `retro-in` and `retro-out` artifacts. Off until
+# `pnpm bootstrap factory` sets FACTORY_ENABLED, and with FACTORY_RETRO_ENABLED=false.
+name: Factory retro
+run-name: Retro of ${{ inputs.issue && format('#{0}', inputs.issue) || format('PR #{0}', github.event.pull_request.number || inputs.pr) }}
+
+on:
+  pull_request_target:
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: Issue number (or give the pull request)
+        type: string
+        required: false
+      pr:
+        description: Pull request number
+        type: string
+        required: false
+
+concurrency:
+  group: factory-retro-${{ inputs.issue || github.event.pull_request.number || inputs.pr }}
+  cancel-in-progress: false
+
+permissions: {}
+
+env:
+  FACTORY_ADAPTERS: github
+
+jobs:
+  collect:
+    # A closed PR counts only on a Factory branch of this repository (a fork can name its branch anything).
+    if: ${{ vars.FACTORY_ENABLED == 'true' && vars.FACTORY_RETRO_ENABLED != 'false' && (github.event_name == 'workflow_dispatch' || (startsWith(github.event.pull_request.head.ref, 'factory/issue-') && github.event.pull_request.head.repo.full_name == github.repository)) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # `actions: read` finds the runs and downloads their artifacts; nothing here can write.
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+      actions: read
+    outputs:
+      collected: ${{ steps.collect.outputs.collected }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: corepack enable pnpm && pnpm install --frozen-lockfile --ignore-scripts --filter @factory/harness
+      - env:
+          VARS_JSON: ${{ toJSON(vars) }}
+        run: node .factory/src/ci/vars.ts
+      - id: collect
+        name: collect
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ISSUE: ${{ inputs.issue }}
+          PR: ${{ github.event.pull_request.number || inputs.pr }}
+          TRIGGER: ${{ github.event_name == 'workflow_dispatch' && 'dispatch' || 'closed' }}
+        run: pnpm factory retro-collect --issue "$ISSUE" --pr "$PR" --trigger "$TRIGGER" --out "$RUNNER_TEMP/retro-in"
+      - if: ${{ steps.collect.outputs.collected == 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: retro-in
+          path: ${{ runner.temp }}/retro-in
+          retention-days: 14
+
+  image:
+    needs: collect
+    if: ${{ needs.collect.outputs.collected == 'true' }}
+    uses: ./.github/workflows/factory-image.yml
+    permissions:
+      contents: read
+      packages: write
+    with:
+      ref: ${{ github.event.repository.default_branch }}
+
+  work:
+    needs: [collect, image]
+    runs-on: ${{ vars.FACTORY_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.image.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          fetch-depth: 0
+      # The agent's HOME is the runner's, not the image's: link the shared pnpm install under it.
+      - run: |
+          mkdir -p "$HOME/.cache/node"
+          ln -sfn /opt/corepack "$HOME/.cache/node/corepack"
+      - run: pnpm install --frozen-lockfile
+      - env:
+          VARS_JSON: ${{ toJSON(vars) }}
+        run: node .factory/src/ci/vars.ts
+      # A new, empty directory outside the checkout: the record is data, and nothing in it is run.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: retro-in
+          path: ${{ runner.temp }}/retro-in
+      - name: retro
+        env:
+          CI: "true"
+          GITHUB_TOKEN: ${{ github.token }}
+          FACTORY_SESSIONS_DIR: ${{ runner.temp }}/retro-out/sessions
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          # An empty secret is no credential: do not hand the agent an empty variable.
+          [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] || unset CLAUDE_CODE_OAUTH_TOKEN
+          [ -n "$ANTHROPIC_API_KEY" ] || unset ANTHROPIC_API_KEY
+          pnpm factory retro --in "$RUNNER_TEMP/retro-in" --out "$RUNNER_TEMP/retro-out"
+      - if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: retro-out
+          path: ${{ runner.temp }}/retro-out
+          retention-days: 14
+          if-no-files-found: ignore
+
+  publish:
+    needs: work
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: corepack enable pnpm && pnpm install --frozen-lockfile --ignore-scripts --filter @factory/harness
+      - env:
+          VARS_JSON: ${{ toJSON(vars) }}
+        run: node .factory/src/ci/vars.ts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: retro-out
+          path: ${{ runner.temp }}/retro-out
+      - name: retro-publish
+        env:
+          FACTORY_TOKEN: ${{ secrets.FACTORY_TOKEN }}
+        run: pnpm factory retro-publish --in "$RUNNER_TEMP/retro-out"

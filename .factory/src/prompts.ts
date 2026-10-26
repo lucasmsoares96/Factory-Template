@@ -4,6 +4,7 @@ import type { ThreadReply } from "./replies-output.ts";
 import type { ReviewOutput } from "./result.ts";
 import type { ReviewThread } from "./seams/code-host.ts";
 import type { Issue } from "./seams/tracker.ts";
+import type { RetroSources } from "./commands/retro.ts";
 
 /**
  * Prompts for each agent session, rendered from the English templates in
@@ -15,7 +16,7 @@ import type { Issue } from "./seams/tracker.ts";
 
 export const PROMPTS_DIR = fileURLToPath(new URL("../prompts/", import.meta.url));
 
-export type Template = "development" | "review" | "triage" | "pull-request" | "pr-feedback" | "update-branch";
+export type Template = "development" | "review" | "triage" | "pull-request" | "pr-feedback" | "update-branch" | "retro";
 
 const cache = new Map<string, string>();
 function load(name: string): string {
@@ -170,5 +171,23 @@ export function updateBranchPrompt(ctx: { issue: Issue; base: string; conflicts:
     BASE: ctx.base,
     CONFLICTS: ctx.conflicts.map((path) => `- \`${path}\``).join("\n"),
     ISSUE: issueBlock(ctx.issue),
+  });
+}
+
+/** The `retro` skill, read by the Retro session (the skill is user-invoked, so the session opens it by path). */
+export const RETRO_SKILL = ".agents/skills/retro/SKILL.md";
+
+/** The automatic Retro over what `retro-collect` gathered in `dir` (`pnpm factory retro`). */
+export function retroPrompt(ctx: { sources: RetroSources; dir: string; base: string }): string {
+  const { sources } = ctx;
+  const runs = sources.runs.map((r) => `  - \`runs/${r.id}/\`: ${r.workflow}, ${r.createdAt}, ${r.url}${r.files.length === 0 ? " (artifact expired: no sessions)" : ""}`);
+  return renderTemplate("retro", {
+    NUMBER: String(sources.issue),
+    PR: sources.pr === null ? "" : ` (pull request #${sources.pr})`,
+    SKILL: RETRO_SKILL,
+    SOURCES: ctx.dir,
+    RUNS: runs.length > 0 ? `  Runs found:\n${runs.join("\n")}` : "  No run of this issue was found: work from the issue and the pull request.",
+    BRANCH: sources.branch,
+    BASE: ctx.base,
   });
 }
