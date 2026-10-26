@@ -6,13 +6,15 @@ import type {
   PushResult,
   Review,
   ReviewThread,
+  SubmittedReview,
 } from "../../seams/code-host.ts";
 
 export interface FakePullRequest extends PullRequest {
   title: string;
   body: string;
   base: string;
-  reviews: Review[];
+  /** Reviews on the PR; `author` is the Factory's login when unset (the ones `submitReview` adds). */
+  reviews: (Review & { author?: string })[];
   /** The images received with the last body write; their references are URLs in `body`. */
   images: EvidenceImage[];
   threads: ReviewThread[];
@@ -123,6 +125,10 @@ export class FakeCodeHost implements CodeHost {
 
   async threads(pr: number): Promise<ReviewThread[]> {
     return structuredClone(this.pr(pr).threads);
+  }
+
+  async reviews(pr: number): Promise<SubmittedReview[]> {
+    return this.pr(pr).reviews.map((r) => ({ author: r.author ?? this.self, body: r.body }));
   }
 
   async replyToThread(pr: number, threadId: string, body: string): Promise<void> {

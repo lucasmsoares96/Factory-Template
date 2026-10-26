@@ -27,6 +27,12 @@ export interface Review {
   comments: InlineComment[];
 }
 
+/** A review someone submitted on a pull request: its body only (the inline comments come with `threads`). */
+export interface SubmittedReview {
+  author: string;
+  body: string;
+}
+
 export interface ReviewThread {
   id: string;
   path: string | null;
@@ -72,6 +78,8 @@ export interface CodeHost {
   labelPr(pr: number, label: string): Promise<void>;
   submitReview(pr: number, review: Review): Promise<void>;
   threads(pr: number): Promise<ReviewThread[]>;
+  /** The reviews submitted on the pull request, oldest first. */
+  reviews(pr: number): Promise<SubmittedReview[]>;
   replyToThread(pr: number, threadId: string, body: string): Promise<void>;
   /** Starts a Factory workflow run (e.g. `issue` for an unblocked issue). */
   dispatch(workflow: string, inputs: Record<string, string>): Promise<void>;

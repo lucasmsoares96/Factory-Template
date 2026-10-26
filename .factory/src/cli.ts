@@ -7,6 +7,8 @@ import { CLAUDE_AUTH, local } from "./commands/local.ts";
 import { claimPrFeedback, claimUpdateBranch, scanBranches, type PrClaim } from "./commands/pr-claim.ts";
 import { notify } from "./commands/notify.ts";
 import { publish } from "./commands/publish.ts";
+import { retro, retroCollect, retroPublish, type RunLogs } from "./commands/retro.ts";
+import { GitHubRunLogs } from "./adapters/github/run-logs.ts";
 import { apply, triage } from "./commands/triage.ts";
 import { unblock } from "./commands/unblock.ts";
 import { resolveBase, work, type WorkFlow } from "./commands/work.ts";
@@ -24,6 +26,8 @@ export interface FactoryDeps {
   now?: () => number;
   /** Where `local` runs the work job; defaults to a Docker container. */
   container?: (config: FactoryConfig) => ContainerRunner;
+  /** The runs of an issue and their artifacts, for `retro-collect`; defaults to GitHub Actions. */
+  runLogs?: () => RunLogs;
 }
 
 const USAGE = `Usage: pnpm factory <command> [options]
@@ -50,6 +54,15 @@ Commands:
   apply --in <dir> [--repo <dir>]        Apply triage.json: the marked comment, then agent:explore → ready-for-agent
                                          (easy-call), ready-for-human (needs-a-human) or needs-info (blocked); adds product:<id>.
   unblock [--issue N]                    Drop in-progress from the closed issue N, then sweep the ready-for-agent issues and start the ones whose blockers are all done.
+  retro-collect [--issue N] [--pr N] --trigger closed|dispatch --out <dir>
+                                         The automatic Retro, read-only: for a closed PR (closed), only when a writer left a
+                                         thread or review on it. Writes the run's record into <dir>: the issue, the writer-only
+                                         threads and reviews, and the work-out artifact of each run.
+  retro --in <dir> --out <dir>           One read-only Retro session over that record (the retro skill); writes retro.json.
+                                         With no valid answer it fails and nothing is published.
+  retro-publish --in <dir> [--run-url <url>]
+                                         Apply retro.json: create or edit the origin's Retro issue (needs-triage, retro), or
+                                         comment that there is no candidate. Never applies ready-for-agent.
   notify <issue> --outcome ready|escalated [--updated] [--url <url>] [--to <login>]
                                          The Merge Gate notice: a short comment on the issue that mentions <login> and
                                          links the PR. Run with the job's GITHUB_TOKEN, not FACTORY_TOKEN.
@@ -64,7 +77,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
     deps.log(USAGE);
     return command === undefined ? 1 : 0;
   }
-  if (!["claim", "work", "publish", "local", "triage", "apply", "unblock", "pr-feedback", "update-branch", "notify"].includes(command)) {
+  if (!["claim", "work", "publish", "local", "triage", "apply", "unblock", "pr-feedback", "update-branch", "notify", "retro-collect", "retro", "retro-publish"].includes(command)) {
     deps.log(`Unknown command: ${command}\n\n${USAGE}`);
     return 1;
   }
@@ -89,6 +102,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
       updated: { type: "boolean" },
       url: { type: "string" },
       to: { type: "string" },
+      trigger: { type: "string" },
     },
   });
   // Parsed on use: `pr-feedback` and `update-branch --scan` take no issue.
@@ -186,6 +200,30 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
       deps.log(JSON.stringify(result));
       return 0;
     }
+    case "retro-collect": {
+      const trigger = values.trigger;
+      if (trigger !== "closed" && trigger !== "dispatch") throw new Error(`Expected --trigger closed|dispatch, got: ${trigger ?? "nothing"}`);
+      const result = await retroCollect(ctx, {
+        issue: values.issue ? parseIssue(values.issue) : null,
+        pr: values.pr ? parseIssue(values.pr) : null,
+        trigger,
+        out: required(values.out, "--out"),
+        runLogs: deps.runLogs?.() ?? githubRunLogs(deps.env),
+      });
+      deps.log(JSON.stringify(result));
+      if (deps.env.GITHUB_OUTPUT) await appendFile(deps.env.GITHUB_OUTPUT, `collected=${result.collected}\n`);
+      return 0;
+    }
+    case "retro": {
+      const result = await retro(ctx, { in: required(values.in, "--in"), out: required(values.out, "--out") });
+      deps.log(JSON.stringify({ issue: result.issue, pr: result.pr, candidates: result.candidates.length, retries: result.retries }));
+      return 0;
+    }
+    case "retro-publish": {
+      const result = await retroPublish(ctx, { in: required(values.in, "--in"), runUrl: values["run-url"] || runUrlFromEnv(deps.env) });
+      deps.log(JSON.stringify(result));
+      return 0;
+    }
     case "unblock": {
       const result = await unblock(ctx, { closed: values.issue ? parseIssue(values.issue) : undefined });
       deps.log(JSON.stringify(result));
@@ -227,6 +265,13 @@ function parseIssue(value: string | undefined): number {
 function runUrlFromEnv(env: Record<string, string | undefined>): string | null {
   const { GITHUB_SERVER_URL: server, GITHUB_REPOSITORY: repo, GITHUB_RUN_ID: run } = env;
   return server && repo && run ? `${server}/${repo}/actions/runs/${run}` : null;
+}
+
+function githubRunLogs(env: Record<string, string | undefined>): RunLogs {
+  const repo = env.GITHUB_REPOSITORY;
+  const token = env.GITHUB_TOKEN;
+  if (!repo || !token) throw new Error("retro-collect needs GITHUB_REPOSITORY and GITHUB_TOKEN (actions: read) to find the runs.");
+  return new GitHubRunLogs({ repo, token, ...(env.GITHUB_API_URL ? { apiUrl: env.GITHUB_API_URL } : {}) });
 }
 
 function required(value: string | undefined, flag: string): string {

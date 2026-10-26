@@ -6,7 +6,7 @@ Checked against the official docs and `actions/runner` on 2026-10-20 (latest rel
 
 ## Never on this machine
 
-`claim`, `publish`, `apply`, `deploy`, `smoke`, `image` and the preview deploy always run on `ubuntu-latest`. They hold `FACTORY_TOKEN`, Cloudflare or Neon credentials, or push to GHCR. A job that ran `work` can leave things on a persistent machine, so any job with a secret must never land there. Workflow edits are protected paths, so a branch cannot ask for this runner on its own.
+`claim`, `publish`, `apply`, `deploy`, `smoke`, `image` and the preview deploy always run on `ubuntu-latest`. They hold `FACTORY_TOKEN`, Cloudflare or Neon credentials, or push to GHCR. A job that ran `work` can leave things on a persistent machine, so any job with a secret must never land there. A Factory pull request that edits a workflow is flagged for review, not refused (ADR 0012): check that it does not move a job with a secret onto this runner.
 
 Never use a self-hosted runner on a public repo (GitHub: "should almost never be used for public repositories"). The public template does not define `FACTORY_RUNNER` and its bootstrap creates no runner.
 

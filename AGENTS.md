@@ -28,7 +28,7 @@ A repository of Products plus the harness that builds them. A Product is an appl
 - Write code, comments, commits, docs and PRs in English.
 - Use Conventional Commits that reference the issue: `feat: add notes list #42`.
 - Never create a `CLAUDE.md`. `AGENTS.md` files are the agent instructions.
-- Do not edit `.github/workflows/`, `.agents/skills/`, `.claude/skills/`, `.claude/hooks/`, `skills-lock.json`, `.claude/settings.json` or `.mcp.json`. They change only by a human, and a diff there is refused.
+- Change `.github/workflows/`, `.agents/skills/`, `.claude/`, `skills-lock.json` or `.mcp.json` only when the task needs it: a workflow runs with the repository's secrets, and the Factory flags such a pull request for a careful human review (ADR 0012).
 - Never change a published migration (one that reached the base branch). Add a new one.
 - Always check the current official documentation, for the version pinned in this repo, before you use a library, CLI or service API. Use the `cloudflare-docs` MCP server or WebFetch, never memory.
 - Never run `pnpm bootstrap destroy`.

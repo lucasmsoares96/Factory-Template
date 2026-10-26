@@ -9,6 +9,8 @@ If you opened a `<skeleton-gap>` on a Product issue, the run is only `ready` whe
 {{SCOPE}}
 {{FINDINGS}}
 
+End the summary with a `### Rules this review wanted and could not find` section: one bullet for each thing you wanted to fail the change for that no rule in `CODING_STANDARDS.md` and no automated check covers, or `None.`. The automatic Retro reads this list.
+
 Use inline comments only for a finding that needs a human decision and that you did not fix. Everything you fixed goes in the summary only, never inline. Leave `inline` empty when nothing needs a human decision.
 
 End your final message with the review, as JSON inside a tag:
