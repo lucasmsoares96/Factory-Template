@@ -90,6 +90,10 @@ export class GitHubTracker implements Tracker {
     await this.api.send("POST", this.api.repoPath(`/issues/${number}/comments`), { body: marked(body) });
   }
 
+  async updateIssue(number: number, body: string): Promise<void> {
+    await this.api.send("PATCH", this.api.repoPath(`/issues/${number}`), { body: marked(body) });
+  }
+
   createIssue(input: NewIssue): Promise<{ number: number; url: string | null }> {
     return createGitHubIssue(this.options, { ...input, body: marked(input.body) });
   }

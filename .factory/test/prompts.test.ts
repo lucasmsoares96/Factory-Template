@@ -6,6 +6,7 @@ import {
   PROMPTS_DIR,
   pullRequestPrompt,
   renderTemplate,
+  retroPrompt,
   reviewPrompt,
   triagePrompt,
   updateBranchPrompt,
@@ -41,12 +42,17 @@ const prompts = {
     prints: [{ product: "example", path: "test-results/evidence/example/home.png" }],
   }),
   "update-branch": updateBranchPrompt({ issue, base: "main", conflicts: ["src/greet.ts"] }),
+  retro: retroPrompt({
+    sources: { issue: 7, pr: 101, title: "Greet the user", branch: "factory/issue-7", runs: [{ id: 900, url: "https://forge.test/runs/900", workflow: "factory-issue.yml", title: "#7 Greet the user", createdAt: "2026-10-24T10:00:00Z", dir: "runs/900", files: ["sessions/01-development.jsonl"] }] },
+    dir: "/tmp/retro-in",
+    base: "main",
+  }),
 };
 
 describe("prompt templates", () => {
   it("has one English template per agent Stage in .factory/prompts/", async () => {
     const files = (await readdir(PROMPTS_DIR)).filter((f) => f.endsWith(".md")).sort();
-    expect(files).toEqual(["development.md", "pr-feedback.md", "pull-request.md", "review.md", "rules.md", "triage.md", "update-branch.md"]);
+    expect(files).toEqual(["development.md", "pr-feedback.md", "pull-request.md", "retro.md", "review.md", "rules.md", "triage.md", "update-branch.md"]);
   });
 
   it.each(Object.entries(prompts))("%s fills every placeholder and repeats the hard rules", (_, prompt) => {
@@ -54,7 +60,7 @@ describe("prompt templates", () => {
     for (const rule of [
       "Write code, comments, commits and docs in English.",
       "Never create a `CLAUDE.md`.",
-      "Never edit `.github/workflows/`",
+      "only when the issue needs it: the pull request is flagged",
       "Never change a published migration",
       "Never run `pnpm bootstrap destroy`.",
       "Do not push, open pull requests, comment, or change labels",
@@ -72,6 +78,21 @@ describe("prompt templates", () => {
     expect(prompts["pull-request"]).toContain("`pr` skill");
     expect(prompts["pr-feedback"]).toMatch(/Address, Decline or Defer/);
     expect(prompts["update-branch"]).toContain("Preserve both intents, do not invent new behaviour.");
+    expect(prompts.retro).toContain("`.agents/skills/retro/SKILL.md`");
+  });
+
+  it("asks the Review for the rules it wanted and could not find, which the Retro reads", () => {
+    expect(prompts.review).toContain("### Rules this review wanted and could not find");
+    expect(prompts.retro).toContain("Rules this review wanted and could not find");
+  });
+
+  it("keeps the Retro read-only, traced to the record, and mechanical findings as checks", () => {
+    expect(prompts.retro).toContain("read-only session: change no file, make no commit, open nothing");
+    expect(prompts.retro).toContain("/tmp/retro-in/runs/<id>/");
+    expect(prompts.retro).toContain("`runs/900/`");
+    expect(prompts.retro).toMatch(/Drop any candidate you cannot trace/);
+    expect(prompts.retro).toMatch(/mechanical violation gets a deterministic check/);
+    expect(prompts.retro).toContain("<retro>");
   });
 
   it("tells the Review to comment inline only on unfixed findings that need a human decision", () => {

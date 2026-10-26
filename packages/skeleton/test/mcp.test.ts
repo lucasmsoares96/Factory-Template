@@ -23,8 +23,9 @@ import { startTestWorker, type TestWorker } from "./support/worker.ts";
 // Seam 3: an agent connects to the test composition's `/mcp` the way an MCP
 // client does (discovery, registration, consent, code exchange) and uses the
 // tools through the SDK's client. The composition's tools: getMe, getNote,
-// getCompanyNote, listConnections and the Companies' reads (read), createNote,
-// revokeConnection, updateMe and createCompany (write).
+// getCompanyNote, listConnections and the Companies' and Invitations' reads (read),
+// createNote, revokeConnection, updateMe, createCompany, the Invitations' writes and
+// inviteFromNotes (write).
 
 /** A client that publishes its metadata (CIMD) instead of registering. */
 const CIMD_CLIENT_ID = "https://agent.example.com/oauth/client.json";
@@ -114,6 +115,7 @@ const READ_TOOLS = [
   "getNote",
   "listCompanies",
   "listConnections",
+  "listInvitations",
   "listMembers",
   "manualPing",
 ];
@@ -173,16 +175,21 @@ test("a `write` Connection sees every tool and its writes reach the route as the
 
   expect(tokens.scope.split(" ").sort()).toEqual(["read", "write"]);
   expect(names((await client.listTools()).tools)).toEqual([
+    "cancelInvitation",
     "createCompany",
+    "createInvitation",
     "createNote",
     "getCompany",
     "getCompanyNote",
     "getLastCompany",
     "getMe",
     "getNote",
+    "inviteFromNotes",
     "listCompanies",
     "listConnections",
+    "listInvitations",
     "listMembers",
+    "resendInvitation",
     "revokeConnection",
     "updateMe",
     "manualPing",
@@ -234,6 +241,34 @@ test("an agent creates and lists Companies as the user, and a Company they are n
     await db.query(`SELECT last_used_at FROM skeleton.members WHERE company_id = '${company.id}'`),
   ).toEqual([{ last_used_at: null }]);
   await client.close();
+});
+
+test("an agent invites as the Owner, and an Employee's agent gets a tool error FORBIDDEN", async () => {
+  const ana = await signedInUser();
+  const bruno = await signedInUser("Bruno Lima");
+  const company = (await (await worker.post("/api/companies", { name: "Acme" }, { cookie: ana.cookie })).json()) as { id: string };
+  await db.query(`INSERT INTO skeleton.members (company_id, user_id, role) VALUES ('${company.id}', '${bruno.user.id}', 'employee')`);
+  const owner = await connectAgent(ana.cookie, { access: "write" });
+  const employee = await connectAgent(bruno.cookie, { access: "write" });
+  const email = `guest-${randomUUID()}@example.com`;
+
+  const invited = await owner.client.callTool({ name: "createInvitation", arguments: { companyId: company.id, body: { email, role: "employee" } } });
+  expect(invited.isError).toBeFalsy();
+  expect(invited.structuredContent).toMatchObject({ email, role: "employee" });
+  expect(sent.filter((message) => message.to.includes(email))).toHaveLength(1);
+  const listed = await owner.client.callTool({ name: "listInvitations", arguments: { companyId: company.id } });
+  expect(listed.structuredContent).toMatchObject({ items: [{ email }], nextCursor: null });
+
+  for (const [name, args] of [
+    ["listInvitations", { companyId: company.id }],
+    ["createInvitation", { companyId: company.id, body: { email: `other-${email}`, role: "employee" } }],
+  ] as const) {
+    const refused = await employee.client.callTool({ name, arguments: args });
+    expect(refused.isError, name).toBe(true);
+    expect(refused.content).toEqual([{ type: "text", text: "FORBIDDEN: Your role in this Company does not allow this." }]);
+  }
+  await owner.client.close();
+  await employee.client.close();
 });
 
 test("tools/list serves exactly the committed tool list (the snapshot `pnpm generate` keeps)", async () => {
