@@ -285,12 +285,20 @@ export const companiesApi = createRouter()
   })
   .openapi(deleteCompany, async (c) => {
     const { companyId } = c.var.member;
-    const [company] = await c.var.db.select({ name: companies.name }).from(companies).where(eq(companies.id, companyId));
-    // Deleted after `requireMember` found the Member.
-    if (!company) return c.json(apiError("NOT_FOUND"), 404);
-    if (c.req.valid("json").name !== company.name) return c.json(apiError("CONFIRMATION_MISMATCH"), 400);
-    await emitCompanyDeleting(c.var.features, { db: c.var.db, companyId });
-    // The Members go with it (`ON DELETE CASCADE`).
-    await c.var.db.delete(companies).where(eq(companies.id, companyId));
+    const { name } = c.req.valid("json");
+    // One transaction: a hook that throws leaves the Company and everything in it,
+    // and the row lock keeps a concurrent rename from slipping past the confirmation.
+    const outcome = await c.var.db.transaction(async (tx) => {
+      const [company] = await tx.select({ name: companies.name }).from(companies).where(eq(companies.id, companyId)).for("update");
+      // Deleted after `requireMember` found the Member.
+      if (!company) return "NOT_FOUND";
+      if (name !== company.name) return "CONFIRMATION_MISMATCH";
+      await emitCompanyDeleting(c.var.features, { db: tx, companyId });
+      // The Members go with it (`ON DELETE CASCADE`).
+      await tx.delete(companies).where(eq(companies.id, companyId));
+      return "DELETED";
+    });
+    if (outcome === "NOT_FOUND") return c.json(apiError("NOT_FOUND"), 404);
+    if (outcome === "CONFIRMATION_MISMATCH") return c.json(apiError("CONFIRMATION_MISMATCH"), 400);
     return c.body(null, 204);
   });
