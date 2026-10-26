@@ -1,5 +1,49 @@
 [
   {
+    "name": "cancelInvitation",
+    "title": "Cancel a pending Invitation",
+    "description": "The Owner cancels a pending Invitation: its link stops working and it leaves the pending list.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "companyId": {
+          "type": "string",
+          "description": "The Company's id.",
+          "example": "2f1c6a0e-8d1b-4a51-9f3e-6b0c1d2e3f40"
+        },
+        "invitationId": {
+          "type": "string",
+          "description": "The Invitation's id.",
+          "example": "6d0b9f3a-2c4e-4f1a-8b7d-1e2f3a4b5c6d"
+        }
+      },
+      "required": [
+        "companyId",
+        "invitationId"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "title": "Cancel a pending Invitation",
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "scope": "write",
+    "http": {
+      "method": "DELETE",
+      "path": "/api/companies/{companyId}/invitations/{invitationId}",
+      "pathParams": [
+        "companyId",
+        "invitationId"
+      ],
+      "queryParams": [],
+      "body": false,
+      "output": "none"
+    }
+  },
+  {
     "name": "createCompany",
     "title": "Create a Company",
     "description": "Creates a Company with this name (the spaces around it are removed; names may repeat) and makes the signed-in user its Owner. Answers the new Company.",
@@ -71,6 +115,128 @@
       "method": "POST",
       "path": "/api/companies",
       "pathParams": [],
+      "queryParams": [],
+      "body": true,
+      "output": "object"
+    }
+  },
+  {
+    "name": "createInvitation",
+    "title": "Invite someone to a Company",
+    "description": "The Owner invites an email address to the Company with a role (never `owner`). The Invitation lasts 7 days, and an email with its link goes to the address. Refused with 409 when the address is already a Member, or already has a pending Invitation (resend that one instead).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "companyId": {
+          "type": "string",
+          "description": "The Company's id.",
+          "example": "2f1c6a0e-8d1b-4a51-9f3e-6b0c1d2e3f40"
+        },
+        "body": {
+          "type": "object",
+          "properties": {
+            "email": {
+              "type": "string",
+              "format": "email",
+              "description": "The address to invite.",
+              "example": "bruno@example.com"
+            },
+            "role": {
+              "type": "string",
+              "description": "The role the person will have: any role of the Product but `owner`.",
+              "example": "employee"
+            }
+          },
+          "required": [
+            "email",
+            "role"
+          ]
+        }
+      },
+      "required": [
+        "companyId",
+        "body"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The Invitation's id.",
+          "example": "6d0b9f3a-2c4e-4f1a-8b7d-1e2f3a4b5c6d"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "The invited address, lowercase.",
+          "example": "bruno@example.com"
+        },
+        "role": {
+          "type": "string",
+          "description": "The role the person will have: `employee` or a role the Product adds.",
+          "example": "employee"
+        },
+        "invitedBy": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "userId": {
+              "type": "string",
+              "description": "The user id of whoever invited.",
+              "example": "8yW1kQfV0d3sLx9bTq2nZ"
+            },
+            "name": {
+              "type": "string",
+              "description": "Their name.",
+              "example": "Ana Souza"
+            }
+          },
+          "required": [
+            "userId",
+            "name"
+          ],
+          "description": "Who invited; `null` once their account is deleted (the Invitation stays)."
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the link stops working, 7 days after it was sent or last resent.",
+          "example": "2026-10-31T12:00:00.000Z"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the Invitation was created.",
+          "example": "2026-10-24T12:00:00.000Z"
+        }
+      },
+      "required": [
+        "id",
+        "email",
+        "role",
+        "invitedBy",
+        "expiresAt",
+        "createdAt"
+      ]
+    },
+    "annotations": {
+      "title": "Invite someone to a Company",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "scope": "write",
+    "http": {
+      "method": "POST",
+      "path": "/api/companies/{companyId}/invitations",
+      "pathParams": [
+        "companyId"
+      ],
       "queryParams": [],
       "body": true,
       "output": "object"
@@ -446,6 +612,75 @@
     }
   },
   {
+    "name": "inviteFromNotes",
+    "title": "Invite someone as an Employee, as any Member",
+    "description": "A Product's own Invitation rule: any Member invites, always with the role `employee`, through the Skeleton's `createInvitation`.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "companyId": {
+          "type": "string",
+          "description": "The Company's id.",
+          "example": "2f1c6a0e-8d1b-4a51-9f3e-6b0c1d2e3f40"
+        },
+        "body": {
+          "type": "object",
+          "properties": {
+            "email": {
+              "type": "string",
+              "format": "email"
+            }
+          },
+          "required": [
+            "email"
+          ]
+        }
+      },
+      "required": [
+        "companyId",
+        "body"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "email",
+        "role"
+      ]
+    },
+    "annotations": {
+      "title": "Invite someone as an Employee, as any Member",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "scope": "write",
+    "http": {
+      "method": "POST",
+      "path": "/api/companies/{companyId}/notes/invitations",
+      "pathParams": [
+        "companyId"
+      ],
+      "queryParams": [],
+      "body": true,
+      "output": "object"
+    }
+  },
+  {
     "name": "listCompanies",
     "title": "List the signed-in user's Companies",
     "description": "Answers the Companies the signed-in user is a Member of, with their role in each, in the order they joined: a page of `limit` (50 by default) and the `nextCursor` of the next page.",
@@ -628,6 +863,141 @@
       "method": "GET",
       "path": "/api/connections",
       "pathParams": [],
+      "queryParams": [
+        "limit",
+        "cursor"
+      ],
+      "body": false,
+      "output": "object"
+    }
+  },
+  {
+    "name": "listInvitations",
+    "title": "List a Company's pending Invitations",
+    "description": "The Owner sees the Company's pending Invitations (email, role, who invited and when it expires), oldest first, accepted and canceled ones left out: a page of `limit` (50 by default) and the `nextCursor` of the next page.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "companyId": {
+          "type": "string",
+          "description": "The Company's id.",
+          "example": "2f1c6a0e-8d1b-4a51-9f3e-6b0c1d2e3f40"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 50,
+          "description": "How many items to answer, 1 to 100.",
+          "example": 50
+        },
+        "cursor": {
+          "type": "string",
+          "description": "The `nextCursor` of the previous page; without it, the first page.",
+          "example": "WyIyMDI2LTEwLTI0VDEyOjAwOjAwLjAwMFoiLCJpZCJd"
+        }
+      },
+      "required": [
+        "companyId"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "The Invitation's id.",
+                "example": "6d0b9f3a-2c4e-4f1a-8b7d-1e2f3a4b5c6d"
+              },
+              "email": {
+                "type": "string",
+                "format": "email",
+                "description": "The invited address, lowercase.",
+                "example": "bruno@example.com"
+              },
+              "role": {
+                "type": "string",
+                "description": "The role the person will have: `employee` or a role the Product adds.",
+                "example": "employee"
+              },
+              "invitedBy": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "userId": {
+                    "type": "string",
+                    "description": "The user id of whoever invited.",
+                    "example": "8yW1kQfV0d3sLx9bTq2nZ"
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "Their name.",
+                    "example": "Ana Souza"
+                  }
+                },
+                "required": [
+                  "userId",
+                  "name"
+                ],
+                "description": "Who invited; `null` once their account is deleted (the Invitation stays)."
+              },
+              "expiresAt": {
+                "type": "string",
+                "format": "date-time",
+                "description": "When the link stops working, 7 days after it was sent or last resent.",
+                "example": "2026-10-31T12:00:00.000Z"
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time",
+                "description": "When the Invitation was created.",
+                "example": "2026-10-24T12:00:00.000Z"
+              }
+            },
+            "required": [
+              "id",
+              "email",
+              "role",
+              "invitedBy",
+              "expiresAt",
+              "createdAt"
+            ]
+          },
+          "description": "This page's items."
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Pass it as `cursor` for the next page; `null` on the last page."
+        }
+      },
+      "required": [
+        "items",
+        "nextCursor"
+      ]
+    },
+    "annotations": {
+      "title": "List a Company's pending Invitations",
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "scope": "read",
+    "http": {
+      "method": "GET",
+      "path": "/api/companies/{companyId}/invitations",
+      "pathParams": [
+        "companyId"
+      ],
       "queryParams": [
         "limit",
         "cursor"
@@ -821,6 +1191,114 @@
       ],
       "queryParams": [],
       "body": true,
+      "output": "object"
+    }
+  },
+  {
+    "name": "resendInvitation",
+    "title": "Resend a pending Invitation",
+    "description": "The Owner sends a pending Invitation again, with a new link (the previous one stops working) that lasts 7 more days. Works on an expired Invitation too.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "companyId": {
+          "type": "string",
+          "description": "The Company's id.",
+          "example": "2f1c6a0e-8d1b-4a51-9f3e-6b0c1d2e3f40"
+        },
+        "invitationId": {
+          "type": "string",
+          "description": "The Invitation's id.",
+          "example": "6d0b9f3a-2c4e-4f1a-8b7d-1e2f3a4b5c6d"
+        }
+      },
+      "required": [
+        "companyId",
+        "invitationId"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The Invitation's id.",
+          "example": "6d0b9f3a-2c4e-4f1a-8b7d-1e2f3a4b5c6d"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "The invited address, lowercase.",
+          "example": "bruno@example.com"
+        },
+        "role": {
+          "type": "string",
+          "description": "The role the person will have: `employee` or a role the Product adds.",
+          "example": "employee"
+        },
+        "invitedBy": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "userId": {
+              "type": "string",
+              "description": "The user id of whoever invited.",
+              "example": "8yW1kQfV0d3sLx9bTq2nZ"
+            },
+            "name": {
+              "type": "string",
+              "description": "Their name.",
+              "example": "Ana Souza"
+            }
+          },
+          "required": [
+            "userId",
+            "name"
+          ],
+          "description": "Who invited; `null` once their account is deleted (the Invitation stays)."
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the link stops working, 7 days after it was sent or last resent.",
+          "example": "2026-10-31T12:00:00.000Z"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the Invitation was created.",
+          "example": "2026-10-24T12:00:00.000Z"
+        }
+      },
+      "required": [
+        "id",
+        "email",
+        "role",
+        "invitedBy",
+        "expiresAt",
+        "createdAt"
+      ]
+    },
+    "annotations": {
+      "title": "Resend a pending Invitation",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "scope": "write",
+    "http": {
+      "method": "POST",
+      "path": "/api/companies/{companyId}/invitations/{invitationId}/resend",
+      "pathParams": [
+        "companyId",
+        "invitationId"
+      ],
+      "queryParams": [],
+      "body": false,
       "output": "object"
     }
   },

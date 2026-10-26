@@ -373,7 +373,7 @@ test("PATCH /api/companies/{companyId} answers 403 FORBIDDEN to an Employee or a
   for (const { cookie } of [bruno, carla]) {
     const response = await api(`/api/companies/${company.id}`, { cookie, method: "PATCH", body: { name: "Mine" } });
     expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({ code: "FORBIDDEN", message: "Your role does not allow this." });
+    expect(await response.json()).toEqual({ code: "FORBIDDEN", message: "Your role in this Company does not allow this." });
   }
   expect(await db.query(`SELECT name FROM skeleton.companies WHERE id = '${company.id}'`)).toEqual([{ name: "Acme" }]);
 });
@@ -438,7 +438,7 @@ test("DELETE /api/companies/{companyId} answers 403 FORBIDDEN to an Employee or 
   for (const { cookie } of [bruno, carla]) {
     const response = await api(`/api/companies/${company.id}`, { cookie, method: "DELETE", body: { name: "Acme" } });
     expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({ code: "FORBIDDEN", message: "Your role does not allow this." });
+    expect(await response.json()).toEqual({ code: "FORBIDDEN", message: "Your role in this Company does not allow this." });
   }
   const foreign = await api(`/api/companies/${company.id}`, { cookie: mallory.cookie, method: "DELETE", body: { name: "Acme" } });
   expect(foreign.status).toBe(404);

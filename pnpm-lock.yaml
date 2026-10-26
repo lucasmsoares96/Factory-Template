@@ -386,9 +386,15 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.2
+      '@types/pg':
+        specifier: 'catalog:'
+        version: 8.23.1
       neonctl:
         specifier: 'catalog:'
         version: 8.8.0(hono@4.13.13)(supports-color@10.2.2)
+      pg:
+        specifier: 'catalog:'
+        version: 8.23.1
       typescript:
         specifier: 'catalog:'
         version: 7.0.2

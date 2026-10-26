@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import type { CodeHost, EvidenceImage, PullRequest, PushResult, Review, ReviewThread } from "../../seams/code-host.ts";
+import type { CodeHost, EvidenceImage, PullRequest, PushResult, Review, ReviewThread, SubmittedReview } from "../../seams/code-host.ts";
 import { marked } from "../../marker.ts";
 import { BASE_ENV, pick } from "../../env.ts";
 import { GitHubApi, type GitHubApiOptions } from "./api.ts";
@@ -33,6 +33,7 @@ const prRow = z.object({
   head: z.object({ ref: z.string(), sha: z.string() }),
 });
 const refRow = z.object({ object: z.object({ sha: z.string() }) });
+const reviewRow = z.object({ body: z.string().nullable().optional(), user: z.object({ login: z.string() }).nullable() });
 const reviewCommentRow = z.object({
   id: z.number(),
   path: z.string().nullable().optional(),
@@ -169,6 +170,11 @@ export class GitHubCodeHost implements CodeHost {
         body: root.body ?? "",
         replies: rows.filter((r) => r.in_reply_to_id === root.id).map((r) => ({ author: r.user?.login ?? "ghost", body: r.body ?? "" })),
       }));
+  }
+
+  async reviews(pr: number): Promise<SubmittedReview[]> {
+    const rows = await this.api.list(this.api.repoPath(`/pulls/${pr}/reviews`), reviewRow);
+    return rows.map((r) => ({ author: r.user?.login ?? "ghost", body: r.body ?? "" }));
   }
 
   async replyToThread(pr: number, threadId: string, body: string): Promise<void> {
