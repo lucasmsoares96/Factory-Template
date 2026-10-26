@@ -11,7 +11,7 @@
 # never sees FACTORY_TOKEN; the jobs meet only through the `retro-in` and `retro-out` artifacts. Off until
 # `pnpm bootstrap factory` sets FACTORY_ENABLED, and with FACTORY_RETRO_ENABLED=false.
 name: Factory retro
-run-name: Retro of ${{ inputs.issue && format('#{0}', inputs.issue) || format('PR #{0}', github.event.pull_request.number || inputs.pr) }}
+run-name: "Retro of ${{ inputs.issue && format('#{0}', inputs.issue) || format('PR #{0}', github.event.pull_request.number || inputs.pr) }}"
 
 on:
   pull_request_target:
