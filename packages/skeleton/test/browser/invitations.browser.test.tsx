@@ -9,6 +9,7 @@ import { listInvitationsHandler } from "../../src/gen/msw/listInvitationsHandler
 import { listMembersHandler } from "../../src/gen/msw/listMembersHandler.ts";
 import { resendInvitationHandler } from "../../src/gen/msw/resendInvitationHandler.ts";
 import { format, messagesFor } from "../../src/i18n/index.ts";
+import { errorMessages } from "../../src/platform/error-codes.ts";
 import { renderSpa } from "../spa/render.tsx";
 import { expect, test } from "../spa/test.ts";
 
@@ -111,7 +112,7 @@ test("a refused Invitation is shown translated by its code", async ({ worker }) 
     createInvitationHandler(() =>
       createInvitationHandlerResponse409({
         code: "INVITATION_PENDING",
-        message: "This email already has a pending Invitation to the Company. Resend it instead.",
+        message: errorMessages.INVITATION_PENDING,
       }),
     ),
   );
@@ -121,7 +122,7 @@ test("a refused Invitation is shown translated by its code", async ({ worker }) 
   await screen.getByRole("button", { name: t.invitations.submit }).click();
 
   await expect.element(screen.getByRole("alert")).toHaveTextContent(t.errors.INVITATION_PENDING);
-  await expect.element(screen.getByRole("alert")).not.toHaveTextContent("Resend it instead.");
+  await expect.element(screen.getByRole("alert")).not.toHaveTextContent(errorMessages.INVITATION_PENDING);
 });
 
 test("the Owner resends an Invitation, and cancels another, which leaves the list", async ({ worker }) => {
