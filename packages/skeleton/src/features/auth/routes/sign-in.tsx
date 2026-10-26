@@ -18,6 +18,8 @@ type SignInSearch = {
   signedOut?: true;
   /** Set by the new-password screen once the password changed. */
   passwordReset?: true;
+  /** Set by the account page once the account was deleted. */
+  accountDeleted?: true;
 };
 
 export const Route = createFileRoute("/sign-in")({
@@ -25,6 +27,7 @@ export const Route = createFileRoute("/sign-in")({
     redirect: typeof search.redirect === "string" ? search.redirect : undefined,
     signedOut: search.signedOut === true ? true : undefined,
     passwordReset: search.passwordReset === true ? true : undefined,
+    accountDeleted: search.accountDeleted === true ? true : undefined,
   }),
   component: SignIn,
 });
@@ -55,9 +58,9 @@ function SignIn() {
 
   return (
     <AuthCard title={t.title} description={t.description}>
-      {(search.signedOut || search.passwordReset) && !error ? (
+      {(search.signedOut || search.passwordReset || search.accountDeleted) && !error ? (
         <p role="status" className="text-sm">
-          {search.passwordReset ? t.passwordReset : t.signedOut}
+          {search.accountDeleted ? t.accountDeleted : search.passwordReset ? t.passwordReset : t.signedOut}
         </p>
       ) : null}
       <form
