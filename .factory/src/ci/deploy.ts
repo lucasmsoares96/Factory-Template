@@ -7,7 +7,7 @@
 //   url           (deploy job) the deployed URL from wrangler's output file
 //   migrate       (deploy job) the artifact's Skeleton migrations, then its Product migrations, against the direct Neon URL (MIGRATE_DATABASE_URL, or the first line of --url-file)
 import { execFileSync } from "node:child_process";
-import { appendFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, cpSync, existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 import { productSecretName } from "../bootstrap/domain.ts";
@@ -55,7 +55,7 @@ const MIGRATION_FILE = /(\.(sql|json)|^\.gitkeep)$/;
  */
 export function artifactSkeletonMigrations(dir: string): string {
   const folder = join(dir, "migrations/skeleton");
-  const hasOne = existsSync(folder) && readdirSync(folder, { withFileTypes: true }).some((e) => e.isDirectory());
+  const hasOne = existsSync(folder) && readdirSync(folder, { withFileTypes: true }).some((e) => e.isDirectory() && existsSync(join(folder, e.name, "migration.sql")));
   if (!hasOne) throw new Error(`The artifact has no Skeleton migrations in ${folder}: it was built before the bundle carried them. Push to the branch (or rerun the build) to rebuild it.`);
   return folder;
 }
@@ -172,7 +172,6 @@ if (import.meta.main) {
     if (existsSync(join("apps", id, "drizzle"))) cpSync(join("apps", id, "drizzle"), join(out, "migrations/product"), { recursive: true });
     // The Skeleton's migrations of this checkout: the deploy applies these, not its own, so a PR's new one reaches its preview.
     cpSync("packages/skeleton/drizzle", join(out, "migrations/skeleton"), { recursive: true });
-    mkdirSync(join(out, "migrations"), { recursive: true });
     const problems = bundleProblems(out);
     if (problems.length > 0) throw new Error(`The bundle is not deployable:\n${problems.join("\n")}`);
     console.log(`bundle for ${id} at ${out}`);
