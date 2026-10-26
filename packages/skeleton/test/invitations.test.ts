@@ -543,3 +543,32 @@ test("accepting needs a signed-in user: without a session it answers 401", async
   expect(response.status).toBe(401);
   expect(await response.json()).toMatchObject({ code: "UNAUTHENTICATED" });
 });
+
+test("the invited address matches whatever its case: an Invitation to BRUNO@ is accepted by Bruno@", async () => {
+  const local = `guest-${randomUUID()}`;
+  const owner = await signedInUser("Ana Souza");
+  const company = await createCompany(owner.cookie);
+  expect((await invite(company.id, owner.cookie, { email: `${local.toUpperCase()}@EXAMPLE.COM`, role: "employee" })).status).toBe(201);
+  const token = tokenIn(emailsTo(`${local}@example.com`).at(-1)!);
+  const bruno = await signedInUser("Bruno Lima", `${local[0]!.toUpperCase()}${local.slice(1)}@Example.com`);
+
+  const response = await accept(token, bruno.cookie);
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ id: company.id, role: "employee" });
+});
+
+test("two accepts of the same link at once make one Member, and memberJoined runs once", async () => {
+  const address = newAddress();
+  const { company, token } = await invitedTo(address);
+  const bruno = await signedInUser("Bruno Lima", address);
+
+  const responses = await Promise.all([accept(token, bruno.cookie), accept(token, bruno.cookie)]);
+
+  for (const response of responses) {
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ id: company.id, role: "employee" });
+  }
+  expect(await db.query(`SELECT 1 FROM skeleton.members WHERE company_id = '${company.id}' AND user_id = '${bruno.user.id}'`)).toHaveLength(1);
+  expect(await db.query(`SELECT 1 FROM public.joined_members WHERE company_id = '${company.id}' AND user_id = '${bruno.user.id}'`)).toHaveLength(1);
+});
