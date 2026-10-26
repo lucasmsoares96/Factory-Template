@@ -22,7 +22,9 @@ export {
 export {
   CompanyParams,
   companyNotFoundResponse,
+  forbiddenResponse,
   requireMember,
+  requireOwner,
   skeletonRole,
   type Member,
   type SkeletonRole,
@@ -40,6 +42,7 @@ export {
 } from "./platform/pagination.ts";
 export {
   assertUniqueFeatures,
+  emitCompanyDeleting,
   emitMemberJoined,
   defineFeature,
   seedFeatures,

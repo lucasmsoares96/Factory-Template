@@ -1,9 +1,19 @@
 import { sql } from "drizzle-orm";
-import { createApp, defineFeature, defineProduct, type McpTool } from "../../src/index.ts";
+import { createApp, defineFeature, defineProduct, type Database, type McpTool } from "../../src/index.ts";
 import mcpTools from "./mcp-tools.gen.json" with { type: "json" };
+import { createDeletingCompanies } from "./events.ts";
 import { notes } from "./notes.ts";
 
 export { PasswordHasher, RateLimiter } from "../../src/durable-objects.ts";
+
+/** Records a feature's `companyDeleting` where the tests read it. */
+async function recordDeleting(feature: string, { db, companyId }: { db: Database; companyId: string }) {
+  await db.execute(sql.raw(createDeletingCompanies));
+  await db.execute(
+    sql`INSERT INTO public.deleting_companies (company_id, feature, members)
+        SELECT ${companyId}, ${feature}, count(*) FROM skeleton.members WHERE company_id = ${companyId}`,
+  );
+}
 
 export default createApp({
   product: defineProduct({
@@ -28,6 +38,7 @@ export default createApp({
           await db.execute(sql`CREATE TABLE IF NOT EXISTS public.joined_members (company_id text, user_id text)`);
           await db.execute(sql`INSERT INTO public.joined_members VALUES (${companyId}, ${userId})`);
         },
+        companyDeleting: (event) => recordDeleting("notes", event),
       },
       // A tool the OpenAPI document cannot describe: the `mcp?(server)` hook.
       mcp(server) {
@@ -37,6 +48,12 @@ export default createApp({
           () => ({ content: [{ type: "text", text: "pong" }] }),
         );
       },
+    }),
+    // A second feature, after `notes`: the tests see the events run in the Product's order.
+    defineFeature({
+      id: "archive",
+      api() {},
+      events: { companyDeleting: (event) => recordDeleting("archive", event) },
     }),
   ],
   mcpTools: mcpTools satisfies McpTool[],

@@ -9,6 +9,7 @@ import { useGetNav } from "../../../../gen/hooks/useGetNav.ts";
 import { listMembersQueryKey } from "../../../../gen/hooks/useListMembers.ts";
 import { useErrorMessage, useMessages } from "../../../../client/i18n.tsx";
 import { format } from "../../../../i18n/index.ts";
+import { CompanySettings } from "../../company-settings.tsx";
 import { useRoleLabel } from "../../role-label.ts";
 
 // The active Company comes from the URL, so two tabs can work in two Companies.
@@ -16,8 +17,9 @@ export const Route = createFileRoute("/_signed-in/c/$companyId/")({ component: C
 
 /**
  * The Company page: its name and the user's role, the features' `companyPage`
- * sections (`GET /api/nav`) and the Members. Opening it makes it the Company the
- * user lands on next time (the API records it on `GET /api/companies/{companyId}`).
+ * sections (`GET /api/nav`), the Members and, for the Owner, the settings
+ * (rename, delete). Opening it makes it the Company the user lands on next
+ * time (the API records it on `GET /api/companies/{companyId}`).
  */
 function CompanyPage() {
   const t = useMessages();
@@ -63,6 +65,8 @@ function CompanyPage() {
         ) : null}
       </Card>
       <Members companyId={companyId} />
+      {/* The Owner's actions; the API refuses them to any other role. A new key resets the forms in another Company. */}
+      {company.data.role === "owner" ? <CompanySettings key={companyId} company={company.data} /> : null}
     </div>
   );
 }
