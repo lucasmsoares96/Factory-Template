@@ -14,6 +14,7 @@ const METADATA: Record<StaticLabelKey, { color: string; description: string }> =
   agentExplore: { color: "c5def5", description: "Ask the Factory to triage: it explores and comments, no code" },
   harnessChange: { color: "b60205", description: "Touches the harness: review with care" },
   preview: { color: "bfdadc", description: "The pull request has a preview deployment" },
+  retro: { color: "fef2c0", description: "Proposals from the automatic Retro: pick what becomes work" },
 };
 
 /** Every label the common part creates. `product:<id>` is per Product (`bootstrap product`). */

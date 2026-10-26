@@ -119,11 +119,43 @@ describe("factory publish: Escalation", () => {
     });
 
     expect(output).toEqual({ issue: 7, outcome: "escalated", reason: "needs-human", pr: null, url: null });
-    expect(w.codeHost.writes).toEqual([]);
+    expect(w.codeHost.writes).toEqual(["dispatch retro"]);
     expect(w.tracker.labelsOf(7)).toEqual(["ready-for-human"]);
     const [comment] = factoryComments();
     expect(comment).toContain("Which locale should greet() use?");
     expect(comment).toMatch(/No pull request: the run made no commits/);
+  });
+
+  it("starts the automatic Retro of every Escalation, with the draft PR when there is one", async () => {
+    const asks: AgentStep = async (call) => ({ ...(await develop(call)), output: "<needs-human>Which copy?</needs-human>" });
+    const { w } = await pipeline({ agent: { development: [asks] } });
+
+    expect(w.codeHost.dispatches).toEqual([{ workflow: "retro", inputs: { issue: "7", pr: "101" } }]);
+  });
+
+  it("starts no Retro when FACTORY_RETRO_ENABLED is false", async () => {
+    const { w, output } = await pipeline({
+      agent: { development: [() => ({ output: "<needs-human>Which locale?</needs-human>" })] },
+      env: { FACTORY_RETRO_ENABLED: "false" },
+    });
+
+    expect(output).toMatchObject({ outcome: "escalated" });
+    expect(w.codeHost.dispatches).toEqual([]);
+  });
+
+  it("an Escalation still lands when the Retro cannot be started", async () => {
+    const repo = await checkout();
+    const w = world({ repo });
+    w.codeHost.dispatch = async () => {
+      throw new Error("dispatch refused");
+    };
+    await w.factory("claim", "7");
+
+    await w.factory("publish", "7", "--repo", repo, "--in", await tempDir("factory-empty-"), "--run-url", RUN_URL);
+
+    expect(lastJson(w.logs)).toMatchObject({ outcome: "escalated", reason: "infra" });
+    expect(w.tracker.labelsOf(7)).toEqual(["ready-for-human"]);
+    expect(w.logs.join("\n")).toContain("The automatic Retro of #7 did not start: dispatch refused");
   });
 
   it("escalates a needs-human Development that made commits with a draft PR", async () => {
@@ -142,7 +174,7 @@ describe("factory publish: Escalation", () => {
     expect(await w.factory("publish", "7", "--repo", repo, "--in", await tempDir("factory-empty-"), "--run-url", RUN_URL)).toBe(0);
 
     expect(lastJson(w.logs)).toEqual({ issue: 7, outcome: "escalated", reason: "infra", pr: null, url: null });
-    expect(w.codeHost.writes).toEqual([]);
+    expect(w.codeHost.writes).toEqual(["dispatch retro"]);
     expect(w.tracker.labelsOf(7)).toEqual(["ready-for-human"]);
     const comment = w.tracker.commentsOn(7).at(-1)!.body;
     expect(comment).toMatch(/infra/);
@@ -159,7 +191,7 @@ describe("factory publish: Escalation", () => {
     await w.factory("publish", "7", "--repo", repo, "--in", artifacts);
 
     expect(lastJson(w.logs)).toMatchObject({ outcome: "escalated", reason: "infra" });
-    expect(w.codeHost.writes).toEqual([]);
+    expect(w.codeHost.writes).toEqual(["dispatch retro"]);
     expect(w.tracker.commentsOn(7).at(-1)!.body).toMatch(/Invalid .*result\.json/);
   });
 });
@@ -252,7 +284,7 @@ describe("factory publish: protected and harness paths", () => {
     });
 
     expect(output).toEqual({ issue: 7, outcome: "escalated", reason: "protected-paths", pr: null, url: null });
-    expect(w.codeHost.writes).toEqual([]);
+    expect(w.codeHost.writes).toEqual(["dispatch retro"]);
     expect(w.tracker.labelsOf(7)).toEqual(["ready-for-human"]);
     const [comment] = factoryComments();
     expect(comment).toContain("`.github/workflows/deploy.yml`");
@@ -266,7 +298,7 @@ describe("factory publish: protected and harness paths", () => {
     const { w, output, factoryComments } = await pipeline({ agent: { development: [touchesAll], review: [review] }, verify: [{ ok: true }] });
 
     expect(output).toMatchObject({ outcome: "escalated", reason: "protected-paths", pr: null });
-    expect(w.codeHost.writes).toEqual([]);
+    expect(w.codeHost.writes).toEqual(["dispatch retro"]);
     for (const path of paths) expect(factoryComments()[0]).toContain(`\`${path}\``);
   });
 

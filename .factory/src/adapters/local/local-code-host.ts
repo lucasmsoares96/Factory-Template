@@ -2,7 +2,7 @@ import { cp, mkdir } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { marked } from "../../marker.ts";
 import type { FactoryConfig } from "../../config.ts";
-import type { CodeHost, EvidenceImage, PullRequest, PushResult, Review, ReviewThread } from "../../seams/code-host.ts";
+import type { CodeHost, EvidenceImage, PullRequest, PushResult, Review, ReviewThread, SubmittedReview } from "../../seams/code-host.ts";
 import { Git } from "../../git.ts";
 import type { MarkdownIssues } from "./markdown-issues.ts";
 
@@ -117,6 +117,11 @@ export class LocalCodeHost implements CodeHost {
   }
 
   async threads(_pr: number): Promise<ReviewThread[]> {
+    return [];
+  }
+
+  /** The local review lives in the ticket's `## Comments`; a local run has no separate reviews to read. */
+  async reviews(_pr: number): Promise<SubmittedReview[]> {
     return [];
   }
 
