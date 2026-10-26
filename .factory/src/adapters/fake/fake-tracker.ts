@@ -118,9 +118,13 @@ export class FakeTracker implements Tracker {
     this.get(number).comments.push({ id: `c${this.nextCommentId++}`, author: this.self, body: marked(body) });
   }
 
+  async updateIssue(number: number, body: string): Promise<void> {
+    this.get(number).body = marked(body);
+  }
+
   async createIssue(input: NewIssue): Promise<{ number: number; url: string | null }> {
     const number = Math.max(0, ...this.issues.keys()) + 1;
-    this.add({ number, title: input.title, body: input.body, labels: Object.fromEntries((input.labels ?? []).map((l) => [l, this.self])) });
+    this.add({ number, title: input.title, body: marked(input.body), labels: Object.fromEntries((input.labels ?? []).map((l) => [l, this.self])) });
     this.get(number).relatedTo = input.relatedTo ?? null;
     return { number, url: `https://forge.test/issues/${number}` };
   }

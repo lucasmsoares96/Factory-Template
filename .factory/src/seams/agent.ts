@@ -17,7 +17,7 @@ export interface Extraction {
   ask: string;
 }
 
-export type Stage = "development" | "review" | "pull-request" | "triage";
+export type Stage = "development" | "review" | "pull-request" | "triage" | "retro";
 
 export interface Usage {
   inputTokens: number;

@@ -263,7 +263,21 @@ async function escalate(
       `The Factory could not finish this round (\`${report.reason}\`). Issue #${issue.number} is now \`${config.labels.readyForHuman}\`: the comment there has the attempts. This pull request stays as it is.`,
     );
   }
+  await startRetro(ctx, issue.number, report.pr?.number ?? continuing);
   return { issue: issue.number, outcome: "escalated", reason: report.reason, pr: report.pr?.number ?? null, url: report.pr?.url ?? null };
+}
+
+/**
+ * Every Escalation gets an automatic Retro (`factory-retro.yml`), unless `FACTORY_RETRO_ENABLED=false`. It must never
+ * fail the Escalation: where it cannot be started (local mode, a refused dispatch), the run says so and goes on.
+ */
+async function startRetro(ctx: CommandContext, issue: number, pr: number | null): Promise<void> {
+  if (!ctx.config.retro.enabled) return;
+  try {
+    await ctx.codeHost.dispatch("retro", { issue: String(issue), pr: pr === null ? "" : String(pr) });
+  } catch (error) {
+    ctx.log(`The automatic Retro of #${issue} did not start: ${(error as Error).message}`);
+  }
 }
 
 /** The prints of the run, in the order `work` listed them, at their place in the downloaded artifacts. */

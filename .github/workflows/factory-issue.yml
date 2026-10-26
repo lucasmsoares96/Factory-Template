@@ -8,6 +8,8 @@
 # sees FACTORY_TOKEN. Off until `pnpm bootstrap factory` sets FACTORY_ENABLED; one run per issue at a time. A change to
 # this file takes effect once it is on the default branch (`issues` events run the default branch's workflow).
 name: Factory issue
+# `#N` in the run's title is how the automatic Retro finds the runs of an issue.
+run-name: "#${{ github.event.issue.number || inputs.issue }} ${{ github.event.issue.title || 'Factory issue' }}"
 
 on:
   issues:

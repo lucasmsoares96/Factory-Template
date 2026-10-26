@@ -46,7 +46,7 @@ The risk of merging a Factory pull request, stated as a door (one-way, hard to w
 _Avoid_: Merge risk, risk summary
 
 **Retro**:
-A human-led look back at an Escalation, or at a pull request where a human found something at the Merge Gate, that changes the Factory's environment (automated checks, coding standards, navigation) rather than the code.
+A look back at an Escalation, or at a pull request where a human found something at the Merge Gate, that proposes changes to the Factory's environment (automated checks, coding standards, navigation) rather than the code. The Factory runs one on its own after each of those (the automatic Retro), but it only proposes, in a `needs-triage` issue: a human decides what becomes work.
 _Avoid_: Postmortem, retrospective
 
 **Blocked Issue**:

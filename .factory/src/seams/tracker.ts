@@ -55,6 +55,8 @@ export interface Tracker {
   /** Removes `label` from the issue (a no-op when it is not there). A no-op in the Markdown tracker. */
   removeLabel(number: number, label: string): Promise<void>;
   comment(number: number, body: string): Promise<void>;
+  /** Replaces the body of the issue. Not available in the Markdown tracker. */
+  updateIssue(number: number, body: string): Promise<void>;
   /** Opens a new issue; returns its number and, when the forge has one, its URL. */
   createIssue(input: NewIssue): Promise<{ number: number; url: string | null }>;
   /** Whether `login` has `write` or higher on the repository. */

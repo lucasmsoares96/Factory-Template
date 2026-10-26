@@ -1,6 +1,12 @@
 # Where `/retro` finds the primary sources of a run
 
-`/retro` is run by a human, never by the Factory. Point it at a run and read these sources, not a summary of them.
+Point `/retro` at a run and read these sources, not a summary of them.
+
+## The automatic Retro
+
+The Factory runs the Retro on its own (`.github/workflows/factory-retro.yml`) in the two cases below: `publish` dispatches it after every Escalation, and it starts when a Factory pull request closes with a thread or review from a writer. It only proposes: its candidates land in one issue per origin, titled `Retro: #N …`, with `needs-triage` and `retro`. It never changes a file, opens a pull request or applies `ready-for-agent`; you pick what becomes work and close the rest. A second Retro of the same origin edits that issue. `FACTORY_RETRO_ENABLED=false` turns it off.
+
+`pnpm factory retro-collect` gathers the sources below into the `retro-in` artifact (a run belongs to the issue when its title names `#N`, or is the issue's or the PR's title); `pnpm factory retro` runs one read-only session that follows the `retro` skill; `pnpm factory retro-publish` writes the issue. You can still run `/retro` by hand, on any run, with the same sources.
 
 ## Which runs to retro
 
