@@ -37,6 +37,17 @@ export const en = {
       submitting: "Changing…",
       changed: "Your password was changed. Your other sessions ended.",
     },
+    delete: {
+      title: "Delete the account",
+      description:
+        "Your account goes for good: every session ends, every connected agent loses access and you leave every Company you work in. The Invitations you sent stay valid.",
+      start: "Delete my account",
+      password: "Your password",
+      passwordHint: "Type your password to confirm. This cannot be undone.",
+      submit: "Delete for good",
+      submitting: "Deleting…",
+      cancel: "Cancel",
+    },
     connections: {
       link: "Connections",
       title: "Connections",
@@ -136,6 +147,7 @@ export const en = {
       signedOut: "You signed out.",
       forgotPassword: "Forgot your password?",
       passwordReset: "Your password was changed. Sign in with the new one.",
+      accountDeleted: "Your account was deleted.",
     },
     signOut: "Sign out",
     signUp: {
@@ -242,6 +254,7 @@ export const en = {
     UNAUTHENTICATED: "Sign in to continue.",
     TOO_MANY_REQUESTS: "Too many attempts. Wait a few seconds and try again.",
     CONFIRMATION_MISMATCH: "The name you typed is not the Company's name.",
+    OWNER_OF_COMPANIES: "You are the Owner of these Companies. Transfer them or delete them before you delete your account.",
     INVALID_EMAIL: "Enter a valid email address.",
     PASSWORD_TOO_SHORT: "The password is too short.",
     PASSWORD_TOO_LONG: "The password is too long.",
