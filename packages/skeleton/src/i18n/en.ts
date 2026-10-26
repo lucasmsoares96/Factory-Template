@@ -82,6 +82,25 @@ export const en = {
       memberRole: "Role",
       moreMembers: "Show more Members",
     },
+    settings: {
+      title: "Company settings",
+      description: "Only the Owner sees these actions.",
+      rename: {
+        name: "New name",
+        nameHint: "Up to 100 characters. The Company's link stays the same.",
+        submit: "Rename",
+        submitting: "Renaming…",
+        saved: "The Company was renamed.",
+      },
+      delete: {
+        title: "Delete the Company",
+        description:
+          "This deletes the Company and everything in it, for good and right away. Every Member loses access to it, their agents included.",
+        confirm: "Type {name} to confirm",
+        submit: "Delete Company",
+        submitting: "Deleting…",
+      },
+    },
   },
   invitations: {
     title: "Invitations",
@@ -222,6 +241,7 @@ export const en = {
     DATABASE_UNAVAILABLE: "The service is temporarily unavailable. Please try again soon.",
     UNAUTHENTICATED: "Sign in to continue.",
     TOO_MANY_REQUESTS: "Too many attempts. Wait a few seconds and try again.",
+    CONFIRMATION_MISMATCH: "The name you typed is not the Company's name.",
     INVALID_EMAIL: "Enter a valid email address.",
     PASSWORD_TOO_SHORT: "The password is too short.",
     PASSWORD_TOO_LONG: "The password is too long.",

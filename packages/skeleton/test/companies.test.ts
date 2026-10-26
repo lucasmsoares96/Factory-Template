@@ -5,6 +5,7 @@ import { mockResend } from "../src/node/resend-mock.ts";
 import { createTestAuth } from "./support/auth.ts";
 import { createEmptyDatabase } from "./support/database.ts";
 import { startTestWorker, type TestWorker } from "./support/worker.ts";
+import { createDeletingCompanies, createUndeletableCompanies } from "./worker/events.ts";
 
 // Seam 1: the Worker over HTTP. Every test brings its own users and Companies.
 
@@ -18,6 +19,8 @@ beforeAll(async () => {
   await migrateDatabase({ databaseUrl: db.url });
   worker = await startTestWorker({ databaseUrl: db.url });
   testAuth = await createTestAuth({ databaseUrl: db.url, baseURL: worker.origin });
+  await db.query(createDeletingCompanies);
+  await db.query(createUndeletableCompanies);
 });
 afterAll(async () => {
   await testAuth?.close();
@@ -335,6 +338,162 @@ test("every Company route is described in the OpenAPI document under /api/compan
       ["getLastCompany", "/api/me/last-company", ["200", "401", "404"]],
       ["getCompany", "/api/companies/{companyId}", ["200", "401", "404"]],
       ["listMembers", "/api/companies/{companyId}/members", ["200", "400", "401", "404"]],
+      ["renameCompany", "/api/companies/{companyId}", ["200", "400", "401", "403", "404"]],
+      ["deleteCompany", "/api/companies/{companyId}", ["204", "400", "401", "403", "404"]],
     ]),
   );
+});
+
+test("PATCH /api/companies/{companyId} renames the Company for its Owner, and its id and URL stay the same", async () => {
+  const ana = await signedInUser();
+  const bruno = await signedInUser("Bruno Lima");
+  const company = await createCompany(ana.cookie, "Acme");
+  await join(company.id, bruno.user.id);
+
+  const response = await api(`/api/companies/${company.id}`, { cookie: ana.cookie, method: "PATCH", body: { name: "  Acme Corp  " } });
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ ...company, name: "Acme Corp" });
+  expect(await (await api(`/api/companies/${company.id}`, { cookie: bruno.cookie })).json()).toEqual({
+    ...company,
+    name: "Acme Corp",
+    role: "employee",
+  });
+});
+
+test("PATCH /api/companies/{companyId} answers 403 FORBIDDEN to an Employee or a Product's role, and the name stays", async () => {
+  await db.query(`INSERT INTO skeleton.member_roles (id) VALUES ('manager') ON CONFLICT DO NOTHING`);
+  const ana = await signedInUser();
+  const bruno = await signedInUser("Bruno Lima");
+  const carla = await signedInUser("Carla Dias");
+  const company = await createCompany(ana.cookie, "Acme");
+  await join(company.id, bruno.user.id);
+  await join(company.id, carla.user.id, "manager");
+
+  for (const { cookie } of [bruno, carla]) {
+    const response = await api(`/api/companies/${company.id}`, { cookie, method: "PATCH", body: { name: "Mine" } });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ code: "FORBIDDEN", message: "Your role in this Company does not allow this." });
+  }
+  expect(await db.query(`SELECT name FROM skeleton.companies WHERE id = '${company.id}'`)).toEqual([{ name: "Acme" }]);
+});
+
+test("PATCH /api/companies/{companyId} answers 400 VALIDATION_FAILED for an invalid name, and 404 to a non-Member", async () => {
+  const ana = await signedInUser();
+  const mallory = await signedInUser("Mallory");
+  const company = await createCompany(ana.cookie, "Acme");
+
+  for (const body of [{}, { name: "" }, { name: "   " }, { name: "a".repeat(101) }, { name: 42 }]) {
+    const response = await api(`/api/companies/${company.id}`, { cookie: ana.cookie, method: "PATCH", body });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ code: "VALIDATION_FAILED", message: "The request is invalid." });
+  }
+  const foreign = await api(`/api/companies/${company.id}`, { cookie: mallory.cookie, method: "PATCH", body: { name: "Mine" } });
+  expect(foreign.status).toBe(404);
+  expect(await db.query(`SELECT name FROM skeleton.companies WHERE id = '${company.id}'`)).toEqual([{ name: "Acme" }]);
+});
+
+test("PATCH and DELETE /api/companies/{companyId} answer 401 UNAUTHENTICATED without a session", async () => {
+  const ana = await signedInUser();
+  const company = await createCompany(ana.cookie, "Acme");
+
+  for (const [method, body] of [["PATCH", { name: "Mine" }], ["DELETE", { name: "Acme" }]] as const) {
+    const response = await api(`/api/companies/${company.id}`, { method, body });
+    expect(response.status, method).toBe(401);
+    expect(await response.json()).toEqual({ code: "UNAUTHENTICATED", message: "Sign in to continue." });
+  }
+  expect(await db.query(`SELECT name FROM skeleton.companies WHERE id = '${company.id}'`)).toEqual([{ name: "Acme" }]);
+});
+
+test("DELETE /api/companies/{companyId} answers 400 CONFIRMATION_MISMATCH for a name other than the current one, and deletes nothing", async () => {
+  const ana = await signedInUser();
+  const company = await createCompany(ana.cookie, "Acme");
+  await api(`/api/companies/${company.id}`, { cookie: ana.cookie, method: "PATCH", body: { name: "Acme Corp" } });
+
+  for (const name of ["Acme", "acme corp", "Globex"]) {
+    const response = await api(`/api/companies/${company.id}`, { cookie: ana.cookie, method: "DELETE", body: { name } });
+    expect(response.status, name).toBe(400);
+    expect(await response.json()).toEqual({
+      code: "CONFIRMATION_MISMATCH",
+      message: "The confirmation does not match the Company's name.",
+    });
+  }
+  const missing = await api(`/api/companies/${company.id}`, { cookie: ana.cookie, method: "DELETE", body: {} });
+  expect(missing.status).toBe(400);
+  expect(await missing.json()).toEqual({ code: "VALIDATION_FAILED", message: "The request is invalid." });
+  expect((await api(`/api/companies/${company.id}`, { cookie: ana.cookie })).status).toBe(200);
+  expect(await db.query(`SELECT 1 FROM public.deleting_companies WHERE company_id = '${company.id}'`)).toEqual([]);
+});
+
+test("DELETE /api/companies/{companyId} answers 403 FORBIDDEN to an Employee or a Product's role, and 404 to a non-Member", async () => {
+  await db.query(`INSERT INTO skeleton.member_roles (id) VALUES ('manager') ON CONFLICT DO NOTHING`);
+  const ana = await signedInUser();
+  const bruno = await signedInUser("Bruno Lima");
+  const carla = await signedInUser("Carla Dias");
+  const mallory = await signedInUser("Mallory");
+  const company = await createCompany(ana.cookie, "Acme");
+  await join(company.id, bruno.user.id);
+  await join(company.id, carla.user.id, "manager");
+
+  for (const { cookie } of [bruno, carla]) {
+    const response = await api(`/api/companies/${company.id}`, { cookie, method: "DELETE", body: { name: "Acme" } });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ code: "FORBIDDEN", message: "Your role in this Company does not allow this." });
+  }
+  const foreign = await api(`/api/companies/${company.id}`, { cookie: mallory.cookie, method: "DELETE", body: { name: "Acme" } });
+  expect(foreign.status).toBe(404);
+  expect(await db.query(`SELECT count(*)::int AS members FROM skeleton.members WHERE company_id = '${company.id}'`)).toEqual([
+    { members: 3 },
+  ]);
+});
+
+test("DELETE /api/companies/{companyId} runs every feature's companyDeleting in order, then deletes the Company and its Members", async () => {
+  const ana = await signedInUser();
+  const bruno = await signedInUser("Bruno Lima");
+  const company = await createCompany(ana.cookie, "Acme");
+  const other = await createCompany(ana.cookie, "Globex");
+  await join(company.id, bruno.user.id);
+
+  const response = await api(`/api/companies/${company.id}`, { cookie: ana.cookie, method: "DELETE", body: { name: "  Acme  " } });
+
+  expect(response.status).toBe(204);
+  // The test composition's features record each event, with the Members the Company still had then.
+  expect(
+    await db.query(`SELECT feature, members FROM public.deleting_companies WHERE company_id = '${company.id}' ORDER BY seq`),
+  ).toEqual([
+    { feature: "notes", members: 2 },
+    { feature: "archive", members: 2 },
+  ]);
+  expect(await db.query(`SELECT 1 FROM skeleton.companies WHERE id = '${company.id}'`)).toEqual([]);
+  expect(await db.query(`SELECT 1 FROM skeleton.members WHERE company_id = '${company.id}'`)).toEqual([]);
+  expect(await db.query(`SELECT name FROM skeleton.companies WHERE id = '${other.id}'`)).toEqual([{ name: "Globex" }]);
+  // The former Members find no trace of it.
+  for (const { cookie } of [ana, bruno]) {
+    for (const path of [`/api/companies/${company.id}`, `/api/companies/${company.id}/members`, `/api/companies/${company.id}/notes/welcome`]) {
+      const gone = await api(path, { cookie });
+      expect(gone.status, path).toBe(404);
+      expect(await gone.json()).toEqual({ code: "NOT_FOUND", message: "Not found." });
+    }
+  }
+  expect(((await (await api("/api/companies", { cookie: bruno.cookie })).json()) as Page<unknown>).items).toEqual([]);
+  expect(await (await api("/api/me/last-company", { cookie: ana.cookie })).json()).toEqual(other);
+});
+
+test("DELETE /api/companies/{companyId} deletes nothing when a feature's companyDeleting throws, the earlier features' work included", async () => {
+  const ana = await signedInUser();
+  const bruno = await signedInUser("Bruno Lima");
+  const company = await createCompany(ana.cookie, "Acme");
+  await join(company.id, bruno.user.id);
+  // The test composition's last feature, `archive`, throws for this Company, after `notes` recorded its event.
+  await db.query(`INSERT INTO public.undeletable_companies VALUES ('${company.id}')`);
+
+  const response = await api(`/api/companies/${company.id}`, { cookie: ana.cookie, method: "DELETE", body: { name: "Acme" } });
+
+  expect(response.status).toBe(500);
+  expect(await response.json()).toMatchObject({ code: "INTERNAL_ERROR" });
+  expect(await db.query(`SELECT 1 FROM public.deleting_companies WHERE company_id = '${company.id}'`)).toEqual([]);
+  expect(await db.query(`SELECT count(*)::int AS members FROM skeleton.members WHERE company_id = '${company.id}'`)).toEqual([
+    { members: 2 },
+  ]);
+  expect(await (await api(`/api/companies/${company.id}`, { cookie: bruno.cookie })).json()).toEqual({ ...company, role: "employee" });
 });

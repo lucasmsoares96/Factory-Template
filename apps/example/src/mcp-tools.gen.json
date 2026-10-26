@@ -844,6 +844,91 @@
     }
   },
   {
+    "name": "renameCompany",
+    "title": "Rename a Company",
+    "description": "Gives a Company a new name (the spaces around it are removed; names may repeat). Only its Owner may. The id, and so every link to the Company, stays the same. Answers the renamed Company.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "companyId": {
+          "type": "string",
+          "description": "The Company's id.",
+          "example": "2f1c6a0e-8d1b-4a51-9f3e-6b0c1d2e3f40"
+        },
+        "body": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100,
+              "description": "The Company's name: 1 to 100 characters once the spaces around it are removed.",
+              "example": "Acme"
+            }
+          },
+          "required": [
+            "name"
+          ]
+        }
+      },
+      "required": [
+        "companyId",
+        "body"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The Company's id: random, and it never changes.",
+          "example": "2f1c6a0e-8d1b-4a51-9f3e-6b0c1d2e3f40"
+        },
+        "name": {
+          "type": "string",
+          "description": "The Company's name; several Companies may share it.",
+          "example": "Acme"
+        },
+        "role": {
+          "type": "string",
+          "description": "The signed-in user's role in the Company.",
+          "example": "owner"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the Company was created.",
+          "example": "2026-10-24T12:00:00.000Z"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "role",
+        "createdAt"
+      ]
+    },
+    "annotations": {
+      "title": "Rename a Company",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "scope": "write",
+    "http": {
+      "method": "PATCH",
+      "path": "/api/companies/{companyId}",
+      "pathParams": [
+        "companyId"
+      ],
+      "queryParams": [],
+      "body": true,
+      "output": "object"
+    }
+  },
+  {
     "name": "resendInvitation",
     "title": "Resend a pending Invitation",
     "description": "The Owner sends a pending Invitation again, with a new link (the previous one stops working) that lasts 7 more days. Works on an expired Invitation too.",

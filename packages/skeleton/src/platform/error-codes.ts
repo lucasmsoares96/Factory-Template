@@ -14,6 +14,7 @@ export const errorMessages = {
   FORBIDDEN: "Your role in this Company does not allow this.",
   ALREADY_A_MEMBER: "This email already belongs to a Member of the Company.",
   INVITATION_PENDING: "This email already has a pending Invitation to the Company. Resend it instead.",
+  CONFIRMATION_MISMATCH: "The confirmation does not match the Company's name.",
 } as const;
 
 export type ErrorCode = keyof typeof errorMessages;
