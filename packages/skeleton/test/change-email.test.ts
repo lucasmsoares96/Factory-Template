@@ -186,3 +186,37 @@ test("opening the link a second time, once the email changed, changes nothing", 
   expect(await me(cookie)).toMatchObject({ email: newEmail, pendingEmail: null });
   expect((await signIn(newEmail)).status).toBe(200);
 });
+
+test("asking for the account's own email is refused with a stable code, and nothing is sent", async () => {
+  const { email, cookie } = await signedInUser();
+
+  const response = await changeEmail(email.toUpperCase(), cookie);
+
+  expect(response.status).toBe(400);
+  expect(await response.json()).toMatchObject({ code: "EMAIL_UNCHANGED" });
+  await settle();
+  expect(sent.filter((e) => e.to.includes(email))).toHaveLength(1);
+  expect(await me(cookie)).toMatchObject({ email, pendingEmail: null });
+});
+
+test("a second request replaces the first: only the link to the address now pending changes the email", async () => {
+  const { email, cookie } = await signedInUser();
+  const first = newAddress();
+  const second = newAddress();
+  await changeEmail(first, cookie);
+  const [firstMessage] = await emailsTo(first);
+  await changeEmail(second, cookie);
+  const [secondMessage] = await emailsTo(second);
+
+  const stale = await open(linkIn(firstMessage!.html, VERIFY_PATH));
+
+  expect(stale.status).toBe(302);
+  expect(new URL(stale.headers.get("location")!, worker.origin).searchParams.get("error")).toBe("INVALID_TOKEN");
+  expect(await me(cookie)).toMatchObject({ email, pendingEmail: second });
+  expect((await signIn(first)).status).toBe(401);
+
+  await open(linkIn(secondMessage!.html, VERIFY_PATH));
+
+  expect(await me(cookie)).toMatchObject({ email: second, pendingEmail: null });
+  expect((await signIn(second)).status).toBe(200);
+});

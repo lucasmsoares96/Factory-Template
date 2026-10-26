@@ -228,6 +228,7 @@ export const ptBR: Messages = {
     FORBIDDEN: "A sua role nesta Company não permite isso.",
     ALREADY_A_MEMBER: "Esta pessoa já é Member da Company.",
     INVITATION_PENDING: "Este email já tem um convite pendente. Reenvie o convite em vez de criar outro.",
+    EMAIL_UNCHANGED: "Este já é o seu email. Digite outro.",
     NOT_FOUND: "Não encontramos o que você pediu.",
     VALIDATION_FAILED: "Alguma informação não é válida.",
     INTERNAL_ERROR: "Algo deu errado do nosso lado. Tente de novo.",

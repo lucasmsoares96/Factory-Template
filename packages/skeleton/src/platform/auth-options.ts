@@ -12,6 +12,7 @@ import type { Messages } from "../i18n/index.ts";
 import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from "./password-rules.ts";
 import { AUTH_BASE_PATH } from "./auth-base-path.ts";
 import type { SendEmail } from "./email.ts";
+import { errorMessages } from "./error-codes.ts";
 
 export { AUTH_BASE_PATH };
 
@@ -46,6 +47,13 @@ export type AuthOptionsInput = {
 const EMAIL_TAKEN = { code: "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL", message: "User already exists. Use another email." };
 
 const emailTaken = () => new APIError("BAD_REQUEST", EMAIL_TAKEN);
+
+/** A change-of-email link that is no longer the pending one: refused with Better Auth's code for a bad link. */
+const LINK_REPLACED = { code: "INVALID_TOKEN", message: "Invalid token" };
+
+/** Better Auth refuses the account's own email with no code; the account page needs one to translate. */
+const emailUnchanged = () =>
+  new APIError("BAD_REQUEST", { code: "EMAIL_UNCHANGED", message: errorMessages.EMAIL_UNCHANGED });
 
 /** The id of the user who signs in with `email`, if any (emails are stored lower-cased). */
 async function ownerOf(db: NodePgDatabase, email: string): Promise<string | undefined> {
@@ -159,7 +167,8 @@ export function authOptions({
           // Better Auth answers 401 itself, before anyone learns who owns the address.
           if (!session) return;
           const owner = await ownerOf(db, ctx.body.newEmail);
-          if (owner && owner !== session.user.id) throw emailTaken();
+          if (owner === session.user.id) throw emailUnchanged();
+          if (owner) throw emailTaken();
         }
         // Someone took the new address after the link was sent: changing to it
         // would break the unique email, so the link is refused like a bad token.
@@ -167,21 +176,32 @@ export function authOptions({
           // Only a token Better Auth signed: a forged one must not tell who owns an address.
           const change = await verifiedChangeEmail(ctx.query.token, ctx.context.secret);
           if (!change) return;
-          const requester = await ownerOf(db, change.email);
-          const owner = await ownerOf(db, change.updateTo);
+          const updateTo = change.updateTo.toLowerCase();
+          const [requester] = await db
+            .select({ id: users.id, pendingEmail: users.pendingEmail })
+            .from(users)
+            .where(eq(users.email, change.email.toLowerCase()));
           // No requester: the link was already used, and Better Auth answers USER_NOT_FOUND.
-          if (!requester || !owner || owner === requester) return;
+          if (!requester) return;
+          const refuse = (error: { code: string; message: string }) => {
+            const callbackURL = ctx.query?.callbackURL;
+            if (typeof callbackURL === "string" && isOwnPath(callbackURL, ctx.context.baseURL)) {
+              const separator = callbackURL.includes("?") ? "&" : "?";
+              return ctx.redirect(`${callbackURL}${separator}error=${error.code}`);
+            }
+            return new APIError("BAD_REQUEST", error);
+          };
+          // A later request (the one the account page shows) or a cancelled one replaced
+          // this link: an address the user gave up on must not take the account over.
+          if (requester.pendingEmail !== updateTo) throw refuse(LINK_REPLACED);
+          const owner = await ownerOf(db, updateTo);
+          if (!owner || owner === requester.id) return;
           // The change can no longer happen: the account page stops showing it as pending.
           await db
             .update(users)
             .set({ pendingEmail: null })
-            .where(and(eq(users.id, requester), eq(users.pendingEmail, change.updateTo.toLowerCase())));
-          const callbackURL = ctx.query.callbackURL;
-          if (typeof callbackURL === "string" && isOwnPath(callbackURL, ctx.context.baseURL)) {
-            const separator = callbackURL.includes("?") ? "&" : "?";
-            throw ctx.redirect(`${callbackURL}${separator}error=${EMAIL_TAKEN.code}`);
-          }
-          throw emailTaken();
+            .where(and(eq(users.id, requester.id), eq(users.pendingEmail, updateTo)));
+          throw refuse(EMAIL_TAKEN);
         }
       }),
       after: createAuthMiddleware(async (ctx) => {

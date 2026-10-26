@@ -233,6 +233,7 @@ export const en = {
     FORBIDDEN: "Your role in this Company does not allow this.",
     ALREADY_A_MEMBER: "This person is already a Member of the Company.",
     INVITATION_PENDING: "This email already has a pending Invitation. Resend it instead.",
+    EMAIL_UNCHANGED: "This is already your email. Type a different one.",
     NOT_FOUND: "We could not find what you asked for.",
     VALIDATION_FAILED: "Some of the information is not valid.",
     INTERNAL_ERROR: "Something went wrong on our side. Please try again.",
