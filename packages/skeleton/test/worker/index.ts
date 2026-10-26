@@ -1,13 +1,13 @@
 import { sql } from "drizzle-orm";
-import { createApp, defineFeature, defineProduct, type Database, type McpTool } from "../../src/index.ts";
+import { createApp, defineFeature, defineProduct, type McpTool, type Transaction } from "../../src/index.ts";
 import mcpTools from "./mcp-tools.gen.json" with { type: "json" };
-import { createDeletingCompanies } from "./events.ts";
+import { createDeletingCompanies, createUndeletableCompanies } from "./events.ts";
 import { notes } from "./notes.ts";
 
 export { PasswordHasher, RateLimiter } from "../../src/durable-objects.ts";
 
 /** Records a feature's `companyDeleting` where the tests read it. */
-async function recordDeleting(feature: string, { db, companyId }: { db: Database; companyId: string }) {
+async function recordDeleting(feature: string, { db, companyId }: { db: Transaction; companyId: string }) {
   await db.execute(sql.raw(createDeletingCompanies));
   await db.execute(
     sql`INSERT INTO public.deleting_companies (company_id, feature, members)
@@ -49,11 +49,21 @@ export default createApp({
         );
       },
     }),
-    // A second feature, after `notes`: the tests see the events run in the Product's order.
+    // A second feature, after `notes`: the tests see the events run in the Product's order,
+    // and that its throwing rolls back the deletion, `notes`' work included.
     defineFeature({
       id: "archive",
       api() {},
-      events: { companyDeleting: (event) => recordDeleting("archive", event) },
+      events: {
+        async companyDeleting(event) {
+          await recordDeleting("archive", event);
+          await event.db.execute(sql.raw(createUndeletableCompanies));
+          const { rows } = await event.db.execute(
+            sql`SELECT 1 FROM public.undeletable_companies WHERE company_id = ${event.companyId}`,
+          );
+          if (rows.length > 0) throw new Error(`The archive refuses to delete ${event.companyId}.`);
+        },
+      },
     }),
   ],
   mcpTools: mcpTools satisfies McpTool[],

@@ -5,7 +5,7 @@ import { mockResend } from "../src/node/resend-mock.ts";
 import { createTestAuth } from "./support/auth.ts";
 import { createEmptyDatabase } from "./support/database.ts";
 import { startTestWorker, type TestWorker } from "./support/worker.ts";
-import { createDeletingCompanies } from "./worker/events.ts";
+import { createDeletingCompanies, createUndeletableCompanies } from "./worker/events.ts";
 
 // Seam 1: the Worker over HTTP. Every test brings its own users and Companies.
 
@@ -20,6 +20,7 @@ beforeAll(async () => {
   worker = await startTestWorker({ databaseUrl: db.url });
   testAuth = await createTestAuth({ databaseUrl: db.url, baseURL: worker.origin });
   await db.query(createDeletingCompanies);
+  await db.query(createUndeletableCompanies);
 });
 afterAll(async () => {
   await testAuth?.close();
@@ -476,4 +477,23 @@ test("DELETE /api/companies/{companyId} runs every feature's companyDeleting in 
   }
   expect(((await (await api("/api/companies", { cookie: bruno.cookie })).json()) as Page<unknown>).items).toEqual([]);
   expect(await (await api("/api/me/last-company", { cookie: ana.cookie })).json()).toEqual(other);
+});
+
+test("DELETE /api/companies/{companyId} deletes nothing when a feature's companyDeleting throws, the earlier features' work included", async () => {
+  const ana = await signedInUser();
+  const bruno = await signedInUser("Bruno Lima");
+  const company = await createCompany(ana.cookie, "Acme");
+  await join(company.id, bruno.user.id);
+  // The test composition's last feature, `archive`, throws for this Company, after `notes` recorded its event.
+  await db.query(`INSERT INTO public.undeletable_companies VALUES ('${company.id}')`);
+
+  const response = await api(`/api/companies/${company.id}`, { cookie: ana.cookie, method: "DELETE", body: { name: "Acme" } });
+
+  expect(response.status).toBe(500);
+  expect(await response.json()).toMatchObject({ code: "INTERNAL_ERROR" });
+  expect(await db.query(`SELECT 1 FROM public.deleting_companies WHERE company_id = '${company.id}'`)).toEqual([]);
+  expect(await db.query(`SELECT count(*)::int AS members FROM skeleton.members WHERE company_id = '${company.id}'`)).toEqual([
+    { members: 2 },
+  ]);
+  expect(await (await api(`/api/companies/${company.id}`, { cookie: bruno.cookie })).json()).toEqual({ ...company, role: "employee" });
 });

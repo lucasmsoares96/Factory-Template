@@ -5,3 +5,6 @@
  */
 export const createDeletingCompanies =
   "CREATE TABLE IF NOT EXISTS public.deleting_companies (seq serial PRIMARY KEY, company_id text, feature text, members int)";
+
+/** The Companies whose deletion the test composition's last feature refuses by throwing. */
+export const createUndeletableCompanies = "CREATE TABLE IF NOT EXISTS public.undeletable_companies (company_id text)";

@@ -1,6 +1,6 @@
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import type { McpServer } from "@modelcontextprotocol/server";
-import type { Database } from "./db.ts";
+import type { Database, Transaction } from "./db.ts";
 import type { SkeletonEnv } from "./env.ts";
 
 /** An entry in the signed-in navigation: `GET /api/nav` serves it and the signed-in shell renders it. */
@@ -23,8 +23,11 @@ export type FeatureCompanyPage = {
 export type FeatureEvents = {
   /** A user joined a company. */
   memberJoined?: (event: { db: Database; companyId: string; userId: string }) => Promise<void>;
-  /** A company is about to be deleted: delete or detach what belongs to it. */
-  companyDeleting?: (event: { db: Database; companyId: string }) => Promise<void>;
+  /**
+   * A company is about to be deleted: delete or detach what belongs to it. `db` is
+   * the deletion's transaction: when a hook throws, the whole deletion rolls back.
+   */
+  companyDeleting?: (event: { db: Transaction; companyId: string }) => Promise<void>;
 };
 
 /**
@@ -88,7 +91,8 @@ export async function emitMemberJoined(
 
 /**
  * Runs every feature's `companyDeleting`, in mount order: a Company is about to
- * be deleted, and still has its Members. A hook that throws stops the deletion.
+ * be deleted, and still has its Members. Pass the deletion's transaction: a hook
+ * that throws rolls the whole deletion back.
  */
 export async function emitCompanyDeleting(
   features: readonly Feature[],
