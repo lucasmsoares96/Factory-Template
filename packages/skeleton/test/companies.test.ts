@@ -392,6 +392,18 @@ test("PATCH /api/companies/{companyId} answers 400 VALIDATION_FAILED for an inva
   expect(await db.query(`SELECT name FROM skeleton.companies WHERE id = '${company.id}'`)).toEqual([{ name: "Acme" }]);
 });
 
+test("PATCH and DELETE /api/companies/{companyId} answer 401 UNAUTHENTICATED without a session", async () => {
+  const ana = await signedInUser();
+  const company = await createCompany(ana.cookie, "Acme");
+
+  for (const [method, body] of [["PATCH", { name: "Mine" }], ["DELETE", { name: "Acme" }]] as const) {
+    const response = await api(`/api/companies/${company.id}`, { method, body });
+    expect(response.status, method).toBe(401);
+    expect(await response.json()).toEqual({ code: "UNAUTHENTICATED", message: "Sign in to continue." });
+  }
+  expect(await db.query(`SELECT name FROM skeleton.companies WHERE id = '${company.id}'`)).toEqual([{ name: "Acme" }]);
+});
+
 test("DELETE /api/companies/{companyId} answers 400 CONFIRMATION_MISMATCH for a name other than the current one, and deletes nothing", async () => {
   const ana = await signedInUser();
   const company = await createCompany(ana.cookie, "Acme");
