@@ -85,3 +85,14 @@ export async function emitMemberJoined(
 ) {
   for (const feature of features) await feature.events?.memberJoined?.(event);
 }
+
+/**
+ * Runs every feature's `companyDeleting`, in mount order: a Company is about to
+ * be deleted, and still has its Members. A hook that throws stops the deletion.
+ */
+export async function emitCompanyDeleting(
+  features: readonly Feature[],
+  event: Parameters<NonNullable<FeatureEvents["companyDeleting"]>>[0],
+) {
+  for (const feature of features) await feature.events?.companyDeleting?.(event);
+}

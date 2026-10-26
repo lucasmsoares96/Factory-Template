@@ -11,6 +11,8 @@ export const errorMessages = {
   DATABASE_UNAVAILABLE: "The database is unavailable.",
   UNAUTHENTICATED: "Sign in to continue.",
   TOO_MANY_REQUESTS: "Too many requests. Try again later.",
+  FORBIDDEN: "Your role does not allow this.",
+  CONFIRMATION_MISMATCH: "The confirmation does not match the Company's name.",
 } as const;
 
 export type ErrorCode = keyof typeof errorMessages;
