@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
@@ -670,6 +670,25 @@ describe.each([[WORKFLOWS_DIR]])("Factory retro workflow in %s", (dir) => {
 });
 
 describe("workflow files", () => {
+  // A ` #` in an unquoted YAML value starts a comment: the parser silently cuts the line, and GitHub then refuses the
+  // workflow ("The expression is not closed"). Checked on the raw text, since the parsed value is already cut.
+  it("every `${{` in a workflow is closed on the same line", () => {
+    for (const name of readdirSync(join(repo, WORKFLOWS_DIR)).filter((f) => f.endsWith(".yml"))) {
+      const doc = parse(readFileSync(join(repo, WORKFLOWS_DIR, name), "utf8"));
+      const values: string[] = [];
+      const walk = (node: unknown) => {
+        if (typeof node === "string") values.push(node);
+        else if (node && typeof node === "object") for (const v of Object.values(node)) walk(v);
+      };
+      walk(doc);
+      for (const value of values) {
+        const opened = value.split("${{").length - 1;
+        const closed = value.split("}}").length - 1;
+        expect(closed, `${name}: ${value}`).toBeGreaterThanOrEqual(opened);
+      }
+    }
+  });
+
   it("the legacy Claude workflows are gone once the new ones are installed", () => {
     const installed = existsSync(join(repo, ".github/workflows/factory-pr.yml"));
     for (const name of ["claude.yml", "claude-code-review.yml"]) {
