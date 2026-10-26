@@ -186,7 +186,7 @@ describe("factory retro + retro-publish", () => {
     expect(call!.prompt).toContain(run.out);
     expect(call!.prompt).toContain("read-only");
     expect(call!.prompt).toContain("runs/900/");
-    expect(call!.prompt).toContain("Never edit `.github/workflows/`");
+    expect(call!.prompt).toContain("the pull request is flagged for a careful human review");
     const retroJson = JSON.parse(await readFile(join(run.retroOut, "retro.json"), "utf8"));
     expect(retroJson.candidates.map((c: { severity: string }) => c.severity)).toEqual(["high", "low"]);
 

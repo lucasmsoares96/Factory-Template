@@ -10,7 +10,7 @@ The code that turns a ready issue into a reviewed pull request with evidence. A 
 - `src/ci/`: logic of the workflows, thin YAML around it: `image.ts`, `matrix.ts`, `skills.ts` (PR) and `deploy.ts` (plan, bundle, allowlist check, config, migrate) plus `smoke.ts` (the `main` deploy, `.github/workflows/factory-deploy.yml`; `--preview` is the smoke of a PR preview), `previews.ts` (the PR previews: gate, bindings check, Neon branch, preview config, URL, result, comment, `base`, cleanup; `factory-pr.yml` and `factory-pr-cleanup.yml`) and `neon-api.ts` (the Neon branches API, `fake/neon-api.ts` is its fake) and `vars.ts` (copies the `FACTORY_*` repo variables into `$GITHUB_ENV`, only names `config.ts` defines).
 - `src/config.ts`: every setting and the label vocabulary. Any leaf is overridden by a `FACTORY_*` repo variable.
 - `src/skipped-tests.ts`: after Development, a line added to a test file (`*.spec|test.ts(x)`, `e2e/`) that uses `test.fixme|skip|only`, `it|describe.skip|only`, `xit(`, `xdescribe(` fails the attempt (feedback names file:line; out of attempts = Escalation `needs-human`). Strings and comments are cut away; accepted false positives: a marker in a multi-line template literal or block comment, and a conditional `test.skip(cond)` in a test body.
-- `src/guard.ts`: the deterministic guard before the lock. `src/paths.ts`: protected and harness paths. `src/result.ts`: the Zod schema of `result.json`.
+- `src/guard.ts`: the deterministic guard before the lock. `src/paths.ts`: sensitive and harness paths. `src/result.ts`: the Zod schema of `result.json`.
 - `src/report.ts`: PR, review, evidence and Escalation text. `src/prompts.ts` renders `prompts/*.md`.
 - `prompts/`: the Stage prompts (`development`, `review`, `triage`, `pr-feedback`, `update-branch`, `retro`) plus `rules.md`, included in every one.
 - `image/`: `Dockerfile` and `setup.sh` of the execution image. `src/local/`: the local container runner.
@@ -22,7 +22,7 @@ The code that turns a ready issue into a reviewed pull request with evidence. A 
 - Behaviour changes come with a test against the fake adapters (the CLI is the seam), not against internals.
 - The Factory never trusts the event payload: each run reads the current state of the forge, and `publish` checks again before writing.
 - `work` has no `FACTORY_TOKEN`. The Agent env is an allowlist (`PATH`, `HOME`, Claude auth, `DATABASE_URL`, `CI`); adding a variable needs a test that proves nothing else leaks.
-- Protected paths (`.github/workflows/`, `.agents/skills`, `.claude/skills`, `.claude/hooks`, `skills-lock.json`, `.claude/settings.json`, `.mcp.json`) end in an Escalation without a PR. `src/paths.ts` must match the `deny` rules of `.claude/settings.json`; a test checks it.
+- Sensitive paths (`.github/workflows/`, `.agents/skills`, `.claude/`, `skills-lock.json`, `.mcp.json`) and harness paths are flagged, never refused (ADR 0012): the PR gets `harness-change` and a warning that names them (`[!WARNING]` for sensitive, `[!CAUTION]` for harness). `.claude/settings.json` only denies `pnpm bootstrap destroy`.
 - Label names exist only in `src/config.ts` and the "Factory labels" table of `docs/agents/triage-labels.md`; a test keeps them equal. Change both.
 - Prompts are English templates with placeholders. They call skills by name and repeat the hard rules; they never copy a skill's text.
 - The image tag is a hash of the versions it installs; bump a version only after checking the official docs.

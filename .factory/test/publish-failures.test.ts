@@ -272,34 +272,24 @@ describe("factory publish: Run discarded", () => {
   });
 });
 
-describe("factory publish: protected and harness paths", () => {
-  it("escalates without a PR when the diff touches a protected path, with the patch in the comment", async () => {
-    const touchesWorkflow: AgentStep = async (call) => {
+describe("factory publish: sensitive and harness paths", () => {
+  it("opens the PR for a diff in a sensitive path, labelled harness-change, with a warning that names the files", async () => {
+    const paths = [".github/workflows/ci.yml", ".agents/skills/tdd/SKILL.md", ".claude/skills/tdd/SKILL.md", ".claude/settings.json", "skills-lock.json", ".mcp.json"];
+    const touchesAll: AgentStep = async (call) => {
       await develop(call);
-      await commitFile(call.cwd, ".github/workflows/deploy.yml", "on: push\n", "ci: deploy on push #7");
+      await commitFiles(call.cwd, Object.fromEntries(paths.map((p) => [p, "change\n"])), "ci: touch sensitive files #7");
     };
-    const { w, output, factoryComments } = await pipeline({
-      agent: { development: [touchesWorkflow], review: [review] },
-      verify: [{ ok: true }],
-    });
+    const { w, output } = await pipeline({ agent: { development: [touchesAll], review: [review] }, verify: [{ ok: true }] });
 
-    expect(output).toEqual({ issue: 7, outcome: "escalated", reason: "protected-paths", pr: null, url: null });
-    expect(w.codeHost.writes).toEqual(["dispatch retro"]);
-    expect(w.tracker.labelsOf(7)).toEqual(["ready-for-human"]);
-    const [comment] = factoryComments();
-    expect(comment).toContain("`.github/workflows/deploy.yml`");
-    expect(comment).toContain("diff --git a/.github/workflows/deploy.yml b/.github/workflows/deploy.yml");
-    expect(comment).toContain("+on: push");
-  });
-
-  it("treats every protected path as protected", async () => {
-    const paths = [".github/workflows/ci.yml", ".agents/skills/tdd/SKILL.md", ".claude/skills/tdd/SKILL.md", "skills-lock.json", ".claude/settings.json", ".mcp.json"];
-    const touchesAll: AgentStep = ({ cwd }) => commitFiles(cwd, Object.fromEntries(paths.map((p) => [p, "change\n"])), "chore: touch #7");
-    const { w, output, factoryComments } = await pipeline({ agent: { development: [touchesAll], review: [review] }, verify: [{ ok: true }] });
-
-    expect(output).toMatchObject({ outcome: "escalated", reason: "protected-paths", pr: null });
-    expect(w.codeHost.writes).toEqual(["dispatch retro"]);
-    for (const path of paths) expect(factoryComments()[0]).toContain(`\`${path}\``);
+    expect(output).toMatchObject({ outcome: "ready", pr: 101 });
+    expect(w.tracker.labelsOf(7)).toEqual(["in-progress"]);
+    const pr = w.codeHost.pr(101);
+    expect(pr.labels).toEqual(["harness-change"]);
+    const [warning] = pr.body.split("\n\n");
+    expect(warning).toMatch(/^> \[!WARNING\]/);
+    expect(warning).toContain("secrets");
+    for (const path of paths) expect(warning).toContain(`\`${path}\``);
+    expect(pr.body).not.toMatch(/\[!CAUTION\]/);
   });
 
   it("labels a PR that changes harness paths as harness-change, with a warning on top", async () => {

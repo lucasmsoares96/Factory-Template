@@ -133,13 +133,6 @@ describe("pull request body assembled by publish", () => {
     expect(comments()[0]).toContain("Tokens: 17,000 in / 1,800 out.");
   });
 
-  it("discards the text when no pull request is opened (protected path)", async () => {
-    const { w, comments } = await pipeline(ready(writes(), ".github/workflows/deploy.yml"));
-
-    expect(w.codeHost.prs).toHaveLength(0);
-    expect(comments().join("\n")).not.toContain("## Summary");
-  });
-
   it("rewrites the body of the open pull request a run continues, and keeps it when the Stage failed", async () => {
     const prs = [{ number: 55, branch: "factory/issue-7", draft: false, headSha: OLD_SHA, body: "Old body\n\nCloses #7" }];
     const branches = { "factory/issue-7": OLD_SHA };
