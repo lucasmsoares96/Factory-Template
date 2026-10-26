@@ -118,7 +118,7 @@ function SignIn() {
         {errorCode(error) === "EMAIL_NOT_VERIFIED" ? (
           <Link
             to="/check-email"
-            search={{ email: form.getFieldValue("email") }}
+            search={{ email: form.getFieldValue("email"), redirect: search.redirect }}
             className={buttonVariants({ variant: "outline" })}
           >
             {t.verifyEmail}
@@ -134,7 +134,7 @@ function SignIn() {
       </form>
       <p className="text-muted-foreground text-sm">
         {t.noAccount}{" "}
-        <Link to="/sign-up" className={buttonVariants({ variant: "link", size: "sm" })}>
+        <Link to="/sign-up" search={{ redirect: search.redirect }} className={buttonVariants({ variant: "link", size: "sm" })}>
           {t.signUp}
         </Link>
       </p>

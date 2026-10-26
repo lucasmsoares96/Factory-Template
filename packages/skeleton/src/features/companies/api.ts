@@ -12,7 +12,7 @@ const role = z.string().openapi({
   example: "owner",
 });
 
-const Company = z
+export const Company = z
   .object({
     id: z.string().openapi({ description: "The Company's id: random, and it never changes.", example: "2f1c6a0e-8d1b-4a51-9f3e-6b0c1d2e3f40" }),
     name: z.string().openapi({ description: "The Company's name; several Companies may share it.", example: "Acme" }),
@@ -130,7 +130,7 @@ const listMembers = createRoute({
 /** What a Company row is answered as. */
 const companyColumns = { id: companies.id, name: companies.name, createdAt: companies.createdAt, role: members.role };
 
-function toCompany(row: { id: string; name: string; createdAt: Date; role: string }) {
+export function toCompany(row: { id: string; name: string; createdAt: Date; role: string }) {
   return { id: row.id, name: row.name, role: row.role, createdAt: row.createdAt.toISOString() };
 }
 
