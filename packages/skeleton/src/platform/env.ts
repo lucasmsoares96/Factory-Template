@@ -1,6 +1,8 @@
 import type { OAuthHelpers } from "@cloudflare/workers-oauth-provider";
+import type { Messages } from "../i18n/index.ts";
 import type { Auth } from "./auth.ts";
 import type { Database } from "./db.ts";
+import type { SendEmail } from "./email.ts";
 import type { Feature } from "./feature.ts";
 import type { Identity } from "./identity.ts";
 import type { Member } from "./member.ts";
@@ -45,6 +47,10 @@ export type SkeletonEnv = {
     db: Database;
     /** Runs `task` after the response; the request's database client outlives it. */
     defer: (task: Promise<unknown>) => void;
+    /** The build locale's texts, with the Product's overrides: what emails say. */
+    t: Messages;
+    /** The email adapter: sends from the Product's `from`, through Resend or the outbox. */
+    sendEmail: SendEmail;
     /** The request's Better Auth instance, built on first use. */
     auth: () => Auth;
     /** Who is calling: set by `requireIdentity` on the routes that need a user. */
