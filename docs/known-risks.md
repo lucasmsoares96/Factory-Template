@@ -10,6 +10,10 @@ Things the base knowingly lives with. Each says what it is, how likely it bites,
 - **Neon Free caps previews at about 9 at once** (10 branches per project). Above it the preview is skipped.
 - **Free-plan quotas are per account**: see "Free-plan ceilings" in `docs/measured-facts.md`.
 
+## Skeleton
+
+- **The Owner check of an account deletion is not atomic with the deletion.** `beforeDelete` (`src/platform/auth-options.ts`) reads the user's Owner rows, then Better Auth deletes the user in a separate statement. A Company the same user creates from another session in that window loses its only Owner when the Members cascade. It takes two concurrent requests by the same user, so it is unlikely; if it matters (an ownership transfer, say), lock the user's Member rows or move the check into a database constraint.
+
 ## The Factory
 
 - **The skipped-test check has false positives** (`src/skipped-tests.ts`). It scans added lines of test files for `test.fixme|skip|only`, `it|describe.skip|only`, `xit(`, `xdescribe(`. It cuts strings and comments cheaply, so it still flags a marker inside a multi-line template literal or in the middle of a block comment, and a conditional `test.skip(cond)` inside a test body. It cannot see a test that passes without asserting anything.

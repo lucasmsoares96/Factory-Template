@@ -166,11 +166,14 @@ test("a wrong password answers 400 INVALID_PASSWORD and changes nothing, Owner o
 test("without the password, the account is not deleted, even from a fresh session", async () => {
   const bruno = await signedInUser("Bruno Lima");
 
-  const response = await deleteAccount(bruno.cookie, {});
+  // Nor with Better Auth's emailed deletion token, alone or beside it.
+  for (const body of [{}, { password: "" }, { token: "anything" }, { password: PASSWORD, token: "anything" }]) {
+    const response = await deleteAccount(bruno.cookie, body);
 
-  expect(response.status).toBe(400);
-  expect(await response.json()).toMatchObject({ code: "INVALID_PASSWORD" });
-  expect((await me(bruno.cookie)).status).toBe(200);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: "INVALID_PASSWORD" });
+    expect((await me(bruno.cookie)).status).toBe(200);
+  }
 });
 
 test("deleting the account needs a session", async () => {
@@ -182,13 +185,8 @@ test("deleting the account needs a session", async () => {
 test("the Invitations the user sent stay pending after the account is deleted", async () => {
   const ana = await signedInUser("Ana Souza");
   const bruno = await signedInUser("Bruno Lima");
-  const acme = await createCompany(ana.cookie, "Acme");
-  await join(acme.id, bruno.id);
-  // Bruno invites while Owner; then the Company goes back to Ana.
-  const swap = (owner: string) =>
-    db.query(`UPDATE skeleton.members SET role = CASE WHEN user_id = '${owner}' THEN 'owner' ELSE 'employee' END WHERE company_id = '${acme.id}'`);
-  await db.query(`UPDATE skeleton.members SET role = 'employee' WHERE company_id = '${acme.id}'`);
-  await swap(bruno.id);
+  // Bruno invites as the Owner of Acme; then Acme passes to Ana, so he can leave.
+  const acme = await createCompany(bruno.cookie, "Acme");
   const address = `guest-${randomUUID()}@example.com`;
   const invited = await api(`/api/companies/${acme.id}/invitations`, {
     cookie: bruno.cookie,
@@ -197,14 +195,20 @@ test("the Invitations the user sent stay pending after the account is deleted", 
   });
   expect(invited.status).toBe(201);
   const invitation = (await invited.json()) as { id: string };
-  await db.query(`UPDATE skeleton.members SET role = 'employee' WHERE company_id = '${acme.id}'`);
-  await swap(ana.id);
+  await db.query(`UPDATE skeleton.members SET role = 'employee' WHERE company_id = '${acme.id}' AND user_id = '${bruno.id}'`);
+  await join(acme.id, ana.id, "owner");
 
   expect((await deleteAccount(bruno.cookie, { password: PASSWORD })).status).toBe(200);
 
   const pending = await api(`/api/companies/${acme.id}/invitations`, { cookie: ana.cookie });
   const { items } = (await pending.json()) as { items: { id: string; email: string; invitedBy: unknown }[] };
   expect(items).toEqual([expect.objectContaining({ id: invitation.id, email: address, invitedBy: null })]);
+  // Still acceptable (accepting an Invitation comes later): neither accepted,
+  // canceled nor expired, and Ana can resend it.
+  const [row] = await db.query<{ open: boolean }>(
+    `SELECT accepted_at IS NULL AND canceled_at IS NULL AND expires_at > now() AS open FROM skeleton.invitations WHERE id = '${invitation.id}'`,
+  );
+  expect(row?.open).toBe(true);
   const resent = await api(`/api/companies/${acme.id}/invitations/${invitation.id}/resend`, { cookie: ana.cookie, method: "POST" });
   expect(resent.status).toBe(200);
 });
