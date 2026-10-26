@@ -139,7 +139,15 @@ describe("deploy artifact", () => {
     }
     return dir;
   }
-  const good = { "worker/example/wrangler.json": "{}", "worker/example/index.js": "x", "worker/client/a.js": "x", "migrations/product/20260101_init/migration.sql": "select 1", "migrations/product/meta/_journal.json": "{}" };
+  const good = {
+    "worker/example/wrangler.json": "{}",
+    "worker/example/index.js": "x",
+    "worker/client/a.js": "x",
+    "migrations/product/20260101_init/migration.sql": "select 1",
+    "migrations/product/meta/_journal.json": "{}",
+    "migrations/skeleton/20260101_init/migration.sql": "select 1",
+    "migrations/skeleton/20260101_init/snapshot.json": "{}",
+  };
 
   it("accepts the Worker, its assets and migrations", async () => {
     expect(bundleProblems(await artifact(good))).toEqual([]);
@@ -151,6 +159,17 @@ describe("deploy artifact", () => {
     const problems = bundleProblems(dir);
     expect(problems).toEqual(expect.arrayContaining(["evil.sh: outside worker, migrations", "migrations/product/run.sh: not a migration file", "worker/example/link: not a regular file or folder"]));
     expect(bundleProblems(await artifact({ "worker/index.js": "x" }))).toEqual(["worker/<name>/wrangler.json must exist exactly once"]);
+  });
+
+  it("refuses a non-migration file, a symlink or a stray folder among the migrations", async () => {
+    const dir = await artifact({ ...good, "migrations/skeleton/20260101_init/run.sh": "x", "migrations/other/20260101_init/migration.sql": "select 1", "migrations/loose.sql": "select 1" });
+    await symlink("/etc/passwd", join(dir, "migrations/skeleton/link.sql"));
+    expect(bundleProblems(dir).sort()).toEqual([
+      "migrations/loose.sql: outside migrations/product, migrations/skeleton",
+      "migrations/other: outside migrations/product, migrations/skeleton",
+      "migrations/skeleton/20260101_init/run.sh: not a migration file",
+      "migrations/skeleton/link.sql: not a regular file or folder",
+    ]);
   });
 });
 

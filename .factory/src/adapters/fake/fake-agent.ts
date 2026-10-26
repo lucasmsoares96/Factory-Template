@@ -41,6 +41,7 @@ export class FakeAgent implements Agent {
       review: [...(script.review ?? [])],
       "pull-request": [...(script["pull-request"] ?? [])],
       triage: [...(script.triage ?? [])],
+      retro: [...(script.retro ?? [])],
     };
   }
 

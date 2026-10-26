@@ -18,7 +18,8 @@ Things the base knowingly lives with. Each says what it is, how likely it bites,
 - **All screenshots of a pr-feedback round enter the PR body**, including screens the change does not touch. Correct by the criterion, noisy to read.
 - **A comment by a human that contains `<!-- factory -->` is ignored** by the PR-feedback flow (ADR 0002).
 - **A Product that never published is invisible to a push deploy** until a merge affects it (see `docs/measured-facts.md`).
-- **The Factory's workflow changes cannot be tested from their own PR** (`pull_request_target`, ADR 0006), and the five `factory-*.yml` files are protected paths, so a person edits them.
+- **The Factory's workflow changes cannot be tested from their own PR** (`pull_request_target`, ADR 0006).
+- **A workflow the Factory writes can run with secrets before review** (ADR 0012): an `on: push` workflow pushed to a `factory/issue-N` branch runs on that push. Sensitive paths are only flagged on the PR.
 - **Never demonstrated live**: a Factory PR in conflict with `main` (`update-branch` is covered by tests), the cap of 9 previews, `bootstrap destroy` against real accounts, the self-hosted runner on a real VM, a session resumed to extract output with real Claude (Claude returned the block the first time; the adapter test uses a fake `claude`).
 
 ## Tokens

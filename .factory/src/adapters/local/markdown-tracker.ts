@@ -76,6 +76,10 @@ export class MarkdownTracker implements Tracker {
     await this.files.appendComment(number, this.self, marked(body));
   }
 
+  async updateIssue(number: number, _body: string): Promise<void> {
+    throw new Error(`Editing the body of ticket ${number} is not available in local mode.`);
+  }
+
   async createIssue(input: NewIssue): Promise<{ number: number; url: string | null }> {
     return { number: (await this.files.create(input)).number, url: null };
   }

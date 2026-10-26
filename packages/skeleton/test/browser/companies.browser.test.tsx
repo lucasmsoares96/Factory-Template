@@ -6,6 +6,7 @@ import { getLastCompanyHandler, getLastCompanyHandlerResponse404 } from "../../s
 import { getMeHandler } from "../../src/gen/msw/getMeHandler.ts";
 import { getNavHandler } from "../../src/gen/msw/getNavHandler.ts";
 import { listCompaniesHandler } from "../../src/gen/msw/listCompaniesHandler.ts";
+import { listInvitationsHandler } from "../../src/gen/msw/listInvitationsHandler.ts";
 import { listMembersHandler } from "../../src/gen/msw/listMembersHandler.ts";
 import { renameCompanyHandler } from "../../src/gen/msw/renameCompanyHandler.ts";
 import { format, messagesFor } from "../../src/i18n/index.ts";
@@ -58,6 +59,8 @@ function companiesApi(companies: (typeof acme)[]) {
           : getCompanyHandlerResponse404({ code: "NOT_FOUND", message: "Not found." });
       }),
       listMembersHandler(members),
+      // The Owner's page also shows the pending Invitations (none here).
+      listInvitationsHandler({ items: [], nextCursor: null }),
       createCompanyHandler(async ({ request }) => {
         const body = await request.json();
         created.push(body);
@@ -212,7 +215,7 @@ test("a refused new name is shown translated by its code", async ({ worker }) =>
   worker.use(...companiesApi([{ ...acme }]).handlers);
   worker.use(
     getNavHandler(nav(t)),
-    renameCompanyHandler(() => HttpResponse.json({ code: "FORBIDDEN", message: "Your role does not allow this." }, { status: 403 })),
+    renameCompanyHandler(() => HttpResponse.json({ code: "FORBIDDEN", message: "Your role in this Company does not allow this." }, { status: 403 })),
   );
   const { screen } = await renderSpa({ path: `/c/${acme.id}`, locale: "pt-BR" });
 

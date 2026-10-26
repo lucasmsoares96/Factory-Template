@@ -11,7 +11,9 @@ export const errorMessages = {
   DATABASE_UNAVAILABLE: "The database is unavailable.",
   UNAUTHENTICATED: "Sign in to continue.",
   TOO_MANY_REQUESTS: "Too many requests. Try again later.",
-  FORBIDDEN: "Your role does not allow this.",
+  FORBIDDEN: "Your role in this Company does not allow this.",
+  ALREADY_A_MEMBER: "This email already belongs to a Member of the Company.",
+  INVITATION_PENDING: "This email already has a pending Invitation to the Company. Resend it instead.",
   CONFIRMATION_MISMATCH: "The confirmation does not match the Company's name.",
 } as const;
 
