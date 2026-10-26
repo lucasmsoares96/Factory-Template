@@ -1,11 +1,11 @@
 // The logic behind `factory-deploy.yml`, one subcommand per step so the YAML stays thin:
 //   plan          affected Products that are in DEPLOY_PRODUCTS  -> `matrix`, `empty`; those also in PREVIEW_PRODUCTS -> `previews`, `previews_empty`
-//   bundle        (build job, no secrets) the build output (Worker and assets) and the Product's migrations -> a folder
+//   bundle        (build job, no secrets) the build output (Worker and assets), the Skeleton's and the Product's migrations -> a folder
 //   verify-bundle (deploy job) the extracted artifact holds only what the allowlist names
 //   config        (deploy job) the Worker config with the Product's id, next to the built one
 //   secrets-file  (deploy job) the Worker's secrets from the environment, to a file wrangler reads
 //   url           (deploy job) the deployed URL from wrangler's output file
-//   migrate       (deploy job) the Skeleton's migrations, then the Product's, against the direct Neon URL (MIGRATE_DATABASE_URL, or the first line of --url-file)
+//   migrate       (deploy job) the artifact's Skeleton migrations, then its Product migrations, against the direct Neon URL (MIGRATE_DATABASE_URL, or the first line of --url-file)
 import { execFileSync } from "node:child_process";
 import { appendFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
@@ -45,7 +45,20 @@ export function planDeploy(input: { affected: AffectedPackage[]; packages: Affec
 
 /** Names allowed in the artifact. Everything else, and every symlink, makes the deploy refuse it. */
 const BUNDLE_ROOTS = ["worker", "migrations"];
+/** The migration sets under `migrations/`: the PR's own copy of each, never the deploying checkout's. */
+const MIGRATION_SETS = ["product", "skeleton"];
 const MIGRATION_FILE = /(\.(sql|json)|^\.gitkeep)$/;
+
+/**
+ * `<dir>/migrations/skeleton`, the Skeleton migrations the artifact was built with. An artifact built before the bundle
+ * carried them has none: falling back to the deploying checkout's would apply `main`'s migrations to the PR's Worker.
+ */
+export function artifactSkeletonMigrations(dir: string): string {
+  const folder = join(dir, "migrations/skeleton");
+  const hasOne = existsSync(folder) && readdirSync(folder, { withFileTypes: true }).some((e) => e.isDirectory());
+  if (!hasOne) throw new Error(`The artifact has no Skeleton migrations in ${folder}: it was built before the bundle carried them. Push to the branch (or rerun the build) to rebuild it.`);
+  return folder;
+}
 
 /** `worker/<name>/wrangler.json`: the build's output folder sits next to `worker/client` (the assets, `../client` in the config). */
 export function builtConfigs(dir: string): string[] {
@@ -65,6 +78,9 @@ export function bundleProblems(dir: string): string[] {
       const rel = relative(dir, path).split(sep).join("/");
       if (entry.isSymbolicLink() || (!entry.isDirectory() && !entry.isFile())) problems.push(`${rel}: not a regular file or folder`);
       else if (!BUNDLE_ROOTS.includes(rel.split("/")[0]!)) problems.push(`${rel}: outside ${BUNDLE_ROOTS.join(", ")}`);
+      else if (rel.split("/").length === 2 && rel.startsWith("migrations/") && !(entry.isDirectory() && MIGRATION_SETS.includes(entry.name))) {
+        problems.push(`${rel}: outside ${MIGRATION_SETS.map((set) => `migrations/${set}`).join(", ")}`);
+      }
       else if (rel.startsWith("migrations/") && entry.isFile() && !MIGRATION_FILE.test(entry.name)) problems.push(`${rel}: not a migration file`);
       else if (entry.isDirectory()) walk(path);
     }
@@ -154,6 +170,8 @@ if (import.meta.main) {
     const built = builtDir(id);
     cpSync(dirname(built), join(out, "worker"), { recursive: true, dereference: false });
     if (existsSync(join("apps", id, "drizzle"))) cpSync(join("apps", id, "drizzle"), join(out, "migrations/product"), { recursive: true });
+    // The Skeleton's migrations of this checkout: the deploy applies these, not its own, so a PR's new one reaches its preview.
+    cpSync("packages/skeleton/drizzle", join(out, "migrations/skeleton"), { recursive: true });
     mkdirSync(join(out, "migrations"), { recursive: true });
     const problems = bundleProblems(out);
     if (problems.length > 0) throw new Error(`The bundle is not deployable:\n${problems.join("\n")}`);
@@ -180,8 +198,9 @@ if (import.meta.main) {
     const { migrateDatabase } = await import("../../../packages/skeleton/src/node/migrate.ts");
     const databaseUrl = values["url-file"] ? readFileSync(resolve(values["url-file"]), "utf8").trim() : process.env.MIGRATE_DATABASE_URL;
     if (!databaseUrl) throw new Error("MIGRATE_DATABASE_URL is not set.");
-    const folder = resolve(need(values.dir, "dir"), "migrations/product");
-    await migrateDatabase({ databaseUrl, productMigrationsFolder: folder });
+    const dir = resolve(need(values.dir, "dir"));
+    const skeletonMigrationsFolder = artifactSkeletonMigrations(dir);
+    await migrateDatabase({ databaseUrl, skeletonMigrationsFolder, productMigrationsFolder: join(dir, "migrations/product") });
     console.log("migrations applied");
   } else {
     throw new Error("Usage: deploy.ts <plan|bundle|verify-bundle|config|secrets-file|url|migrate>");

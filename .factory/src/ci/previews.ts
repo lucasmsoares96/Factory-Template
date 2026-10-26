@@ -11,7 +11,7 @@
 //   smoke-result  the smoke's verdict as `smoke.json`
 //   cleanup-plan  (PR closed) every Product in PREVIEW_PRODUCTS
 //   comment   the one PR comment listing every Product's preview (edited, never duplicated)
-//   base      (deploy of `main`) `base` exists, recreated when missing, and is migrated
+//   base      (deploy of `main`) `base` exists, recreated when missing, and is migrated with the artifact's migrations
 //   cleanup   (PR closed) the Neon branch of the PR is deleted
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -21,7 +21,7 @@ import { parseArgs } from "node:util";
 import { z } from "zod";
 import { loadConfig } from "../config.ts";
 import { productSecretName } from "../bootstrap/domain.ts";
-import { builtConfigs, deployConfig, parseList, type DeployEntry } from "./deploy.ts";
+import { artifactSkeletonMigrations, builtConfigs, deployConfig, parseList, type DeployEntry } from "./deploy.ts";
 import type { MatrixEntry } from "./matrix.ts";
 import { BASE_BRANCH, NeonApi, previewBranchName, type PreviewBranches } from "./neon-api.ts";
 
@@ -402,10 +402,12 @@ if (import.meta.main) {
   } else if (command === "base") {
     // The deploy of `main`: the preview project's `base` exists and carries the current schema, so previews start from it.
     const { migrateDatabase } = await import("../../../packages/skeleton/src/node/migrate.ts");
+    const dir = resolve(need(values.dir, "dir"));
+    const skeletonMigrationsFolder = artifactSkeletonMigrations(dir);
     const db = neon();
     const { branch, recreated } = await db.ensureBase();
-    const folder = resolve(need(values.dir, "dir"), "migrations/product");
-    await migrateDatabase({ databaseUrl: await db.connectionUri(branch.id, { pooled: false }), productMigrationsFolder: folder });
+    const databaseUrl = await db.connectionUri(branch.id, { pooled: false });
+    await migrateDatabase({ databaseUrl, skeletonMigrationsFolder, productMigrationsFolder: join(dir, "migrations/product") });
     console.log(`${BASE_BRANCH} ${recreated ? "recreated and " : ""}migrated`);
   } else if (command === "cleanup") {
     console.log((await removeDatabase({ db: neon(), pr: prNumber() })) ? `deleted ${previewBranchName(prNumber())}` : `no Neon branch for pr-${prNumber()}`);
