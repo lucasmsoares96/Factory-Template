@@ -5,6 +5,8 @@
 #                                   and the normal loop if it fails. The PR body is left alone.
 # The agent never sees FACTORY_TOKEN. Off until `pnpm bootstrap factory` sets FACTORY_ENABLED.
 name: Factory update branches
+# `#N` in the run's title is how the automatic Retro finds the runs of an issue.
+run-name: ${{ inputs.issue && format('#{0} update branch', inputs.issue) || 'Factory update branches' }}
 
 on:
   push:

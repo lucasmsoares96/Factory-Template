@@ -1,12 +1,13 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import { apiError, createRouter, errorResponse } from "../../src/platform/errors.ts";
 import { requireIdentity, unauthenticatedResponse } from "../../src/platform/identity.ts";
-import { CompanyParams, companyNotFoundResponse, requireMember, skeletonRole } from "../../src/index.ts";
+import { CompanyParams, companyNotFoundResponse, createInvitation, requireMember, skeletonRole } from "../../src/index.ts";
 
 // Test-only routes of the Skeleton's test composition: a read with a path and a
 // query parameter that can answer 404, and a write with a JSON body. They give
 // the MCP tests a `read` and a `write` tool; no table behind them. A Company
-// route shows how a Product guards its own routes with the Skeleton's `requireMember`.
+// route shows how a Product guards its own routes with the Skeleton's `requireMember`,
+// and another how it builds Invitations of its own with the Skeleton's `createInvitation`.
 
 const Note = z
   .object({
@@ -78,6 +79,27 @@ const getCompanyNote = createRoute({
   },
 });
 
+const inviteFromNotes = createRoute({
+  method: "post",
+  path: "/companies/{companyId}/notes/invitations",
+  operationId: "inviteFromNotes",
+  summary: "Invite someone as an Employee, as any Member",
+  description:
+    "A Product's own Invitation rule: any Member invites, always with the role `employee`, through the Skeleton's `createInvitation`.",
+  middleware: [requireIdentity, requireMember] as const,
+  request: {
+    params: CompanyParams,
+    body: { required: true, content: { "application/json": { schema: z.object({ email: z.email() }) } } },
+  },
+  responses: {
+    201: { description: "The pending Invitation.", content: { "application/json": { schema: z.object({ id: z.string(), email: z.string(), role: z.string() }) } } },
+    400: errorResponse("The email is not valid.", "VALIDATION_FAILED"),
+    401: unauthenticatedResponse,
+    404: companyNotFoundResponse,
+    409: errorResponse("Already a Member, or already invited.", "ALREADY_A_MEMBER", "INVITATION_PENDING"),
+  },
+});
+
 export const notes = createRouter()
   .openapi(getNote, (c) => {
     if (c.req.valid("param").id !== "welcome") return c.json(apiError("NOT_FOUND"), 404);
@@ -87,4 +109,10 @@ export const notes = createRouter()
   .openapi(createNote, (c) =>
     c.json({ id: crypto.randomUUID(), text: c.req.valid("json").text, authorId: c.var.identity.user.id }, 201),
   )
-  .openapi(getCompanyNote, (c) => c.json({ ...c.var.member, skeletonRole: skeletonRole(c.var.member.role) }, 200));
+  .openapi(getCompanyNote, (c) => c.json({ ...c.var.member, skeletonRole: skeletonRole(c.var.member.role) }, 200))
+  .openapi(inviteFromNotes, async (c) => {
+    const result = await createInvitation(c, { email: c.req.valid("json").email, role: "employee" });
+    if ("invitation" in result) return c.json(result.invitation, 201);
+    if (result.refused === "VALIDATION_FAILED") return c.json(apiError(result.refused), 400);
+    return c.json(apiError(result.refused), 409);
+  });

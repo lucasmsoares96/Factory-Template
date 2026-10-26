@@ -95,10 +95,9 @@ function duration(ms: number): string {
   return minutes > 0 ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
 }
 
-export type EscalationReason = NonNullable<FactoryResult["reason"]> | "protected-paths";
+export type EscalationReason = NonNullable<FactoryResult["reason"]>;
 
 export const ESCALATION_MARKER = "<!-- factory:escalation -->";
-const PATCH_LIMIT = 50_000;
 
 export interface EscalationReport {
   reason: EscalationReason;
@@ -106,8 +105,6 @@ export interface EscalationReport {
   result: FactoryResult | null;
   /** Why the result could not be read, for infra. */
   detail?: string;
-  protectedPaths?: string[];
-  patch?: string;
   pr: { number: number; url: string } | null;
   runUrl: string | null;
   /** Skeleton tickets opened for this run. */
@@ -134,13 +131,6 @@ export function escalationComment(report: EscalationReport, config: FactoryConfi
   if (result?.question) lines.push("", `**Question:** ${result.question}`);
   if (report.followUps?.length) lines.push("", followUpComment(report.followUps));
   if (report.detail) lines.push("", fence(report.detail, "text"));
-  if (report.protectedPaths?.length) {
-    lines.push("", `**Protected paths:** ${report.protectedPaths.map((p) => `\`${p}\``).join(", ")}`);
-    if (report.patch !== undefined) {
-      const patch = report.patch.length > PATCH_LIMIT ? `${report.patch.slice(0, PATCH_LIMIT)}\n… (patch truncated)` : report.patch;
-      lines.push("", "<details><summary>Patch</summary>", "", fence(patch, "diff"), "", "</details>");
-    }
-  }
   if (result && result.attempts.length > 0) {
     lines.push("", "**Attempts**", ...result.attempts.map((a) => `- ${attemptLine(a)}`));
     if (result.pullRequestStage) lines.push(`- Pull Request Stage (not an attempt): ${pullRequestOutcome(result.pullRequestStage)}`);
@@ -152,7 +142,6 @@ export function escalationComment(report: EscalationReport, config: FactoryConfi
   }
   lines.push("");
   if (report.pr) lines.push(`**Pull request:** #${report.pr.number} (draft)`);
-  else if (report.reason === "protected-paths") lines.push("**Pull request:** none, because the diff touches protected paths.");
   else lines.push("**Pull request:** No pull request: the run made no commits.");
   if (report.runUrl) lines.push(`**Workflow run:** ${report.runUrl}`);
   lines.push(
@@ -173,8 +162,6 @@ function headline(report: EscalationReport, config: FactoryConfig): string {
       return "Development needs a human decision.";
     case "infra":
       return "The work job left no valid result (infrastructure failure).";
-    case "protected-paths":
-      return "The diff touches protected paths, so the Factory opened no pull request.";
   }
 }
 

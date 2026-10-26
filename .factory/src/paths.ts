@@ -1,24 +1,21 @@
 /**
- * Paths the Factory must not change on its own. Ticket 11 mirrors the
- * protected list in the `deny` rules of `.claude/settings.json`.
+ * Paths the Factory may change, but that a person must review with special care: a workflow runs with the repo's
+ * secrets, and skills, `.claude/` and `.mcp.json` steer every agent. A diff here never stops a run (ADR 0012): the
+ * pull request gets the `harness-change` label and a warning that names these files.
  */
-
-/** A diff here leads to Escalation without a pull request, with the patch in the comment. */
-export const PROTECTED_PATHS = [
+export const SENSITIVE_PATHS = [
   ".github/workflows/",
   ".agents/skills",
-  ".claude/skills",
-  ".claude/hooks",
+  ".claude/",
   "skills-lock.json",
-  ".claude/settings.json",
   ".mcp.json",
 ];
 
-/** A diff here gets the `harness-change` label and a warning on top of the pull request. */
+/** A diff here gets the `harness-change` label and a caution on top of the pull request. */
 export const HARNESS_PATHS = ["AGENTS.md", "docs/agents/", "GLOSSARY.md", "CODING_STANDARDS.md", "docs/adr/", ".factory/"];
 
-export function isProtectedPath(path: string): boolean {
-  return PROTECTED_PATHS.some((p) => matches(path, p));
+export function isSensitivePath(path: string): boolean {
+  return SENSITIVE_PATHS.some((p) => matches(path, p));
 }
 
 /** `AGENTS.md` counts at every level of the repo; the rest from the root. */

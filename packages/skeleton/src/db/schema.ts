@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, index, pgSchema, primaryKey, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { boolean, check, index, pgSchema, primaryKey, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
 /** Every Skeleton table lives in this Postgres schema, apart from the Product's tables in `public`. */
 export const skeletonSchema = pgSchema("skeleton");
@@ -149,5 +149,42 @@ export const members = skeletonSchema.table(
     primaryKey({ columns: [table.companyId, table.userId] }),
     index("members_user_id_idx").on(table.userId, table.createdAt),
     uniqueIndex("members_one_owner_idx").on(table.companyId).where(sql`${table.role} = 'owner'`),
+  ],
+);
+
+/**
+ * An offer, sent by email, for one address to join a Company with a role
+ * (never `owner`). The email is kept lowercase. Only the SHA-256 hash of the
+ * link's token is stored. It belongs to the Company: deleting the account of
+ * whoever invited keeps it (`invitedBy` becomes null). Pending means neither
+ * accepted nor canceled; the database keeps one pending Invitation per email
+ * and Company. `createdAt` keeps milliseconds only, for the list's cursor.
+ */
+export const invitations = skeletonSchema.table(
+  "invitations",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    companyId: text("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    role: text("role")
+      .notNull()
+      .references(() => memberRoles.id),
+    invitedBy: text("invited_by").references(() => users.id, { onDelete: "set null" }),
+    tokenHash: text("token_hash").notNull().unique(),
+    expiresAt: timestamp("expires_at", { withTimezone: true, precision: 3 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, precision: 3 }).notNull().defaultNow(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true, precision: 3 }),
+    canceledAt: timestamp("canceled_at", { withTimezone: true, precision: 3 }),
+  },
+  (table) => [
+    index("invitations_company_id_idx").on(table.companyId, table.createdAt),
+    uniqueIndex("invitations_one_pending_idx")
+      .on(table.companyId, table.email)
+      .where(sql`${table.acceptedAt} is null and ${table.canceledAt} is null`),
+    check("invitations_not_owner", sql`${table.role} <> 'owner'`),
   ],
 );

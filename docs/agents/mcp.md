@@ -22,4 +22,4 @@ claude mcp add --scope local --transport http cloudflare-api https://mcp.cloudfl
 claude mcp add --scope local --transport http neon "https://mcp.neon.tech/mcp?readonly=true"
 ```
 
-The Factory never gets these servers. Change a committed server in `.mcp.json` only by hand: the file is a protected path.
+The Factory never gets these servers. A pull request that changes `.mcp.json` is flagged as a sensitive change (ADR 0012).
