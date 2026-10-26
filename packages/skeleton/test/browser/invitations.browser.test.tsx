@@ -15,7 +15,7 @@ import { expect, test } from "../spa/test.ts";
 
 // Seam 2: the Invitations section of the Company page over the generated MSW handlers.
 
-const ana = { id: "user-1", name: "Ana Souza", email: "ana@example.com" };
+const ana = { id: "user-1", name: "Ana Souza", email: "ana@example.com", pendingEmail: null };
 const acme = { id: "company-acme", name: "Acme", role: "owner", createdAt: "2026-10-24T12:00:00.000Z" };
 const expiresAt = "2026-10-31T12:00:00.000Z";
 const invitation = (email: string, invitedBy: { userId: string; name: string } | null = { userId: ana.id, name: ana.name }) => ({

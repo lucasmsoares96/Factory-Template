@@ -1,9 +1,9 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "3b039b20-8995-47f1-9c00-5f247e0674c9",
+  "id": "aa46278b-997e-4fa2-8d3f-52b989f96641",
   "prevIds": [
-    "6aef506c-0354-4802-8c25-cafe60820455"
+    "0d69be9b-e785-4a23-83dc-0d1bfabdbf56"
   ],
   "ddl": [
     {
@@ -18,13 +18,31 @@
     },
     {
       "isRlsEnabled": false,
+      "name": "companies",
+      "entityType": "tables",
+      "schema": "skeleton"
+    },
+    {
+      "isRlsEnabled": false,
       "name": "email_outbox",
       "entityType": "tables",
       "schema": "skeleton"
     },
     {
       "isRlsEnabled": false,
+      "name": "invitations",
+      "entityType": "tables",
+      "schema": "skeleton"
+    },
+    {
+      "isRlsEnabled": false,
       "name": "member_roles",
+      "entityType": "tables",
+      "schema": "skeleton"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "members",
       "entityType": "tables",
       "schema": "skeleton"
     },
@@ -216,6 +234,58 @@
       "table": "accounts"
     },
     {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "skeleton",
+      "table": "companies"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "name",
+      "entityType": "columns",
+      "schema": "skeleton",
+      "table": "companies"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "skeleton",
+      "table": "companies"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "skeleton",
+      "table": "companies"
+    },
+    {
       "type": "uuid",
       "typeSchema": null,
       "notNull": true,
@@ -317,7 +387,202 @@
       "name": "id",
       "entityType": "columns",
       "schema": "skeleton",
+      "table": "invitations"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "company_id",
+      "entityType": "columns",
+      "schema": "skeleton",
+      "table": "invitations"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "email",
+      "entityType": "columns",
+      "schema": "skeleton",
+      "table": "invitations"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "role",
+      "entityType": "columns",
+      "schema": "skeleton",
+      "table": "invitations"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "invited_by",
+      "entityType": "columns",
+      "schema": "skeleton",
+      "table": "invitations"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "token_hash",
+      "entityType": "columns",
+      "schema": "skeleton",
+      "table": "invitations"
+    },
+    {
+      "type": "timestamp(3) with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "expires_at",
+      "entityType": "columns",
+      "schema": "skeleton",
+      "table": "invitations"
+    },
+    {
+      "type": "timestamp(3) with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "skeleton",
+      "table": "invitations"
+    },
+    {
+      "type": "timestamp(3) with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "accepted_at",
+      "entityType": "columns",
+      "schema": "skeleton",
+      "table": "invitations"
+    },
+    {
+      "type": "timestamp(3) with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "canceled_at",
+      "entityType": "columns",
+      "schema": "skeleton",
+      "table": "invitations"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "skeleton",
       "table": "member_roles"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "company_id",
+      "entityType": "columns",
+      "schema": "skeleton",
+      "table": "members"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "schema": "skeleton",
+      "table": "members"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "role",
+      "entityType": "columns",
+      "schema": "skeleton",
+      "table": "members"
+    },
+    {
+      "type": "timestamp(3) with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "skeleton",
+      "table": "members"
+    },
+    {
+      "type": "timestamp(3) with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "last_used_at",
+      "entityType": "columns",
+      "schema": "skeleton",
+      "table": "members"
     },
     {
       "type": "text",
@@ -658,6 +923,111 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "company_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "invitations_company_id_idx",
+      "entityType": "indexes",
+      "schema": "skeleton",
+      "table": "invitations"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "company_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "email",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": "\"accepted_at\" is null and \"canceled_at\" is null",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "invitations_one_pending_idx",
+      "entityType": "indexes",
+      "schema": "skeleton",
+      "table": "invitations"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "user_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "members_user_id_idx",
+      "entityType": "indexes",
+      "schema": "skeleton",
+      "table": "members"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "company_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": "\"role\" = 'owner'",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "members_one_owner_idx",
+      "entityType": "indexes",
+      "schema": "skeleton",
+      "table": "members"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "user_id",
           "isExpression": false,
           "asc": true,
@@ -716,6 +1086,108 @@
     {
       "nameExplicit": false,
       "columns": [
+        "company_id"
+      ],
+      "schemaTo": "skeleton",
+      "tableTo": "companies",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "invitations_company_id_companies_id_fkey",
+      "entityType": "fks",
+      "schema": "skeleton",
+      "table": "invitations"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "role"
+      ],
+      "schemaTo": "skeleton",
+      "tableTo": "member_roles",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "NO ACTION",
+      "name": "invitations_role_member_roles_id_fkey",
+      "entityType": "fks",
+      "schema": "skeleton",
+      "table": "invitations"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "invited_by"
+      ],
+      "schemaTo": "skeleton",
+      "tableTo": "users",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "name": "invitations_invited_by_users_id_fkey",
+      "entityType": "fks",
+      "schema": "skeleton",
+      "table": "invitations"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "company_id"
+      ],
+      "schemaTo": "skeleton",
+      "tableTo": "companies",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "members_company_id_companies_id_fkey",
+      "entityType": "fks",
+      "schema": "skeleton",
+      "table": "members"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "user_id"
+      ],
+      "schemaTo": "skeleton",
+      "tableTo": "users",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "members_user_id_users_id_fkey",
+      "entityType": "fks",
+      "schema": "skeleton",
+      "table": "members"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "role"
+      ],
+      "schemaTo": "skeleton",
+      "tableTo": "member_roles",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "NO ACTION",
+      "name": "members_role_member_roles_id_fkey",
+      "entityType": "fks",
+      "schema": "skeleton",
+      "table": "members"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "user_id"
       ],
       "schemaTo": "skeleton",
@@ -732,6 +1204,17 @@
     },
     {
       "columns": [
+        "company_id",
+        "user_id"
+      ],
+      "nameExplicit": false,
+      "name": "members_pkey",
+      "entityType": "pks",
+      "schema": "skeleton",
+      "table": "members"
+    },
+    {
+      "columns": [
         "id"
       ],
       "nameExplicit": false,
@@ -745,9 +1228,29 @@
         "id"
       ],
       "nameExplicit": false,
+      "name": "companies_pkey",
+      "schema": "skeleton",
+      "table": "companies",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
       "name": "email_outbox_pkey",
       "schema": "skeleton",
       "table": "email_outbox",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "invitations_pkey",
+      "schema": "skeleton",
+      "table": "invitations",
       "entityType": "pks"
     },
     {
@@ -793,6 +1296,17 @@
     {
       "nameExplicit": false,
       "columns": [
+        "token_hash"
+      ],
+      "nullsNotDistinct": false,
+      "name": "invitations_token_hash_key",
+      "schema": "skeleton",
+      "table": "invitations",
+      "entityType": "uniques"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "token"
       ],
       "nullsNotDistinct": false,
@@ -811,6 +1325,13 @@
       "schema": "skeleton",
       "table": "users",
       "entityType": "uniques"
+    },
+    {
+      "value": "\"role\" <> 'owner'",
+      "name": "invitations_not_owner",
+      "entityType": "checks",
+      "schema": "skeleton",
+      "table": "invitations"
     }
   ],
   "renames": []
