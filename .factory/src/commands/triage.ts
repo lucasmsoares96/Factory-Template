@@ -97,10 +97,12 @@ const PRODUCT_ID = /^[a-z][a-z0-9-]*$/;
  * The write half (job `apply`, forge token). Trusts nothing in `triage.json`
  * but its shape: for each verdict it reads the forge again (still in Triage,
  * label trusted as in `triage`), posts the one marked comment, then swaps
- * `agent:explore` for the label of the verdict (the swap is the lock). Order
- * matters: the comment first, because `ready-for-agent` starts a run whose
- * guard looks for it. `easy-call` → `ready-for-agent`, `needs-a-human` →
- * `ready-for-human`, `blocked` → `needs-info`; a duplicate is never queued.
+ * `agent:explore` for the label of the verdict (the swap is the lock) and,
+ * only once the swap held, removes `needs-triage`, a state label the verdict
+ * replaces. Order matters: the comment first, because `ready-for-agent`
+ * starts a run whose guard looks for it. `easy-call` → `ready-for-agent`,
+ * `needs-a-human` → `ready-for-human`, `blocked` → `needs-info`; a duplicate
+ * is never queued.
  * It adds `product:<id>` when the verdict names a Product that exists under
  * `apps/` and the issue has no `product:` label yet.
  */
@@ -139,6 +141,7 @@ export async function apply(ctx: CommandContext, options: { in: string; repo: st
       run.skipped.push({ issue: number, reason: "lost the label while applying" });
       continue;
     }
+    if (issue.labels.includes(labels.needsTriage)) await tracker.removeLabel(number, labels.needsTriage);
     run.applied.push({ issue: number, tag, label: target, product });
   }
   return run;
