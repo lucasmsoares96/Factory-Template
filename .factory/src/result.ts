@@ -59,12 +59,22 @@ export const evidenceSchema = z.object({
   name: z.string().regex(/^[\w][\w.-]*\.(png|jpe?g|webp)$/),
 });
 
-/** A ticket for a Skeleton change a Product issue needs; `publish` opens it through the Tracker. */
+/** The diff of `packages/skeleton/` that `work` reverted, written next to `result.json`. */
+export const SKELETON_PATCH_FILE = "skeleton.patch";
+
+/**
+ * A ticket for a Skeleton change a Product issue needs; `publish` opens it through the Tracker. With a `patch` it also
+ * opens the pull request that makes the change, from the base branch.
+ */
 export const followUpSchema = z.object({
   title: z.string().min(1),
   body: z.string().min(1),
   /** Skeleton files the run changed and the Review reverted. */
   files: z.array(z.string()),
+  /** The `<skeleton-gap>` texts of the run. `.default([])`: old results stay valid. */
+  gaps: z.array(z.string()).default([]),
+  /** The file in the artifacts holding the reverted change; null when the run changed no Skeleton file. */
+  patch: z.literal(SKELETON_PATCH_FILE).nullable().default(null),
 });
 
 export const resultSchema = z.object({
@@ -75,7 +85,11 @@ export const resultSchema = z.object({
   base: sha,
   /** Head of the branch in the bundle; null when the run made no commits. */
   head: sha.nullable(),
-  outcome: z.enum(["ready", "escalated"]),
+  /**
+   * `waiting`: a Product issue that cannot meet its criteria without its Skeleton follow-up; `publish` blocks the issue
+   * on it and puts it back in the queue (no Escalation, no Product pull request).
+   */
+  outcome: z.enum(["ready", "escalated", "waiting"]),
   reason: z.enum(["e2e-failures", "time", "needs-human", "infra"]).nullable(),
   question: z.string().nullable(),
   attempts: z.array(z.object({ number: z.number().int().positive(), stages: z.array(stageRecordSchema) })),
