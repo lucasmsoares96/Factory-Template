@@ -12,6 +12,7 @@ import { listInvitationsHandler } from "../../src/gen/msw/listInvitationsHandler
 import { listMembersHandler } from "../../src/gen/msw/listMembersHandler.ts";
 import { removeMemberHandler } from "../../src/gen/msw/removeMemberHandler.ts";
 import { renameCompanyHandler } from "../../src/gen/msw/renameCompanyHandler.ts";
+import { transferOwnershipHandler, transferOwnershipHandlerResponse400 } from "../../src/gen/msw/transferOwnershipHandler.ts";
 import { format, messagesFor } from "../../src/i18n/index.ts";
 import { renderSpa } from "../spa/render.tsx";
 import { expect, test } from "../spa/test.ts";
@@ -39,17 +40,19 @@ const memberList = () => ({
 
 /**
  * The Companies API over a list the test controls: the switcher, the page, the
- * creation, the renaming, the deletion and the Members' actions read and change it. The Company used
- * last is the first of the list.
+ * creation, the renaming, the deletion, the transfer and the Members' actions read
+ * and change it. The Company used last is the first of the list.
  */
 function companiesApi(companies: (typeof acme)[]) {
   const created: unknown[] = [];
   const deleted: { companyId: unknown; body: unknown }[] = [];
+  const transferred: { companyId: unknown; body: unknown }[] = [];
   const memberCalls: unknown[] = [];
   const members = memberList();
   return {
     created,
     deleted,
+    transferred,
     memberCalls,
     handlers: [
       getLastCompanyHandler(() =>
@@ -100,6 +103,17 @@ function companiesApi(companies: (typeof acme)[]) {
         deleted.push({ companyId: params.companyId, body: await request.json() });
         companies.splice(companies.findIndex(({ id }) => id === params.companyId), 1);
         return new HttpResponse(null, { status: 204 });
+      }),
+      transferOwnershipHandler(async ({ request, params }) => {
+        const body = await request.json();
+        transferred.push({ companyId: params.companyId, body });
+        for (const member of members.items) {
+          if (member.role === "owner") member.role = "employee";
+          if (member.userId === body.userId) member.role = "owner";
+        }
+        const company = companies.find(({ id }) => id === params.companyId)!;
+        company.role = "employee";
+        return HttpResponse.json(company);
       }),
     ],
   };
@@ -294,6 +308,33 @@ test("a confirmation the API refuses is shown translated, and the Company stays 
   expect(router.state.location.pathname).toBe(`/c/${acme.id}`);
 });
 
+test("transferring asks for the Member and the Company's name, then shows the new roles", async ({ worker }) => {
+  const api = companiesApi([{ ...acme }]);
+  worker.use(...api.handlers);
+  const { screen, router, t } = await renderSpa({ path: `/c/${acme.id}` });
+
+  const recipient = screen.getByRole("combobox", { name: t.companies.settings.transfer.recipient });
+  // The Owner is not among the Members they can transfer to.
+  const option = ({ name, email }: { name: string; email: string }) =>
+    recipient.getByRole("option", { name: format(t.companies.settings.transfer.member, { name, email }) });
+  await expect.element(option(memberList().items[1]!)).toBeInTheDocument();
+  await expect.element(option(memberList().items[2]!)).toBeInTheDocument();
+  await expect.element(option(ana)).not.toBeInTheDocument();
+  const submit = screen.getByRole("button", { name: t.companies.settings.transfer.submit });
+  await expect.element(submit).toBeDisabled();
+  await recipient.selectOptions("user-2");
+  await screen.getByLabelText(format(t.companies.settings.transfer.confirm, { name: acme.name })).fill("Acme");
+  await submit.click();
+
+  await expect.element(screen.getByTestId("company-role")).toHaveTextContent(format(t.companies.page.role, { role: t.companies.roles.employee }));
+  const table = screen.getByRole("table", { name: t.companies.page.members });
+  await expect.element(table.getByRole("row").filter({ hasText: "Bruno Lima" }).getByRole("cell").nth(2)).toHaveTextContent(t.companies.roles.owner);
+  await expect.element(table.getByRole("row").filter({ hasText: ana.name }).getByRole("cell").nth(2)).toHaveTextContent(t.companies.roles.employee);
+  await expect.element(screen.getByRole("heading", { name: t.companies.settings.title })).not.toBeInTheDocument();
+  expect(api.transferred).toEqual([{ companyId: acme.id, body: { userId: "user-2", name: "Acme" } }]);
+  expect(router.state.location.pathname).toBe(`/c/${acme.id}`);
+});
+
 test("the Owner sees a role choice and Remove for every other Member, and Leave", async ({ worker }) => {
   const api = companiesApi([{ ...acme }]);
   worker.use(...api.handlers);
@@ -365,4 +406,23 @@ test("the Owner who tries to leave is told to transfer the ownership first, in t
 
   await expect.element(screen.getByRole("alert")).toHaveTextContent(t.errors.OWNER_MUST_TRANSFER);
   expect(router.state.location.pathname).toBe(`/c/${acme.id}`);
+});
+
+test("a transfer the API refuses is shown translated, and the user stays Owner", async ({ worker }) => {
+  const t = messagesFor("pt-BR");
+  worker.use(...companiesApi([{ ...acme }]).handlers);
+  worker.use(
+    getNavHandler(nav(t)),
+    transferOwnershipHandler(() =>
+      transferOwnershipHandlerResponse400({ code: "CONFIRMATION_MISMATCH", message: "The confirmation does not match the Company's name." }),
+    ),
+  );
+  const { screen } = await renderSpa({ path: `/c/${acme.id}`, locale: "pt-BR" });
+
+  await screen.getByRole("combobox", { name: t.companies.settings.transfer.recipient }).selectOptions("user-2");
+  await screen.getByLabelText(format(t.companies.settings.transfer.confirm, { name: acme.name })).fill("Acme");
+  await screen.getByRole("button", { name: t.companies.settings.transfer.submit }).click();
+
+  await expect.element(screen.getByRole("alert")).toHaveTextContent(t.errors.CONFIRMATION_MISMATCH);
+  await expect.element(screen.getByTestId("company-role")).toHaveTextContent(format(t.companies.page.role, { role: t.companies.roles.owner }));
 });
