@@ -9,8 +9,9 @@ import { notify } from "./commands/notify.ts";
 import { publish, publishPrUpdate } from "./commands/publish.ts";
 import { retro, retroCollect, retroPublish, type RunLogs } from "./commands/retro.ts";
 import { GitHubRunLogs } from "./adapters/github/run-logs.ts";
-import { apply, triage } from "./commands/triage.ts";
+import { apply, triage, triageBatch } from "./commands/triage.ts";
 import { unblock } from "./commands/unblock.ts";
+import { startWorking, stopWorking } from "./commands/working.ts";
 import { resolveBase, work, type WorkFlow } from "./commands/work.ts";
 import { Git } from "./git.ts";
 import { loadConfig, type FactoryConfig } from "./config.ts";
@@ -40,7 +41,9 @@ Commands:
                                          --flow: continue the branch of PR <n> (merge the base branch first).
   work --flow update-branch --pr <n> --out <dir> [--repo <dir>]
                                          The same update keyed by PR <n> alone (no issue): its own branch.
-  pr-feedback --pr <n> --actor <login>   Guard a comment on a Factory PR (writer, factory/issue-N, open threads) and print the claim; the pr-feedback workflow then runs work and publish.
+  pr-feedback --pr <n> --actor <login> [--event <name> --comment-id <id>]
+                                         Guard a comment on a Factory PR (writer, factory/issue-N, open threads) and print the claim; the pr-feedback workflow then runs work and publish.
+                                         --event (issue_comment, pull_request_review_comment, pull_request_review) and --comment-id: the comment that gets 👀 when the claim accepts.
   update-branch <issue>                  Guard an update of the Factory branch of an issue (in-progress, open PR).
   update-branch --pr <n>                 Guard an update keyed by PR <n> alone (open, into the base branch, not a fork).
   update-branch --scan [--repo <dir>]    After a push to the base branch: dispatch update-branch for each open PR that is
@@ -71,6 +74,10 @@ Commands:
   notify <issue> --outcome ready|escalated [--updated] [--url <url>] [--to <login>]
                                          The Merge Gate notice: a short comment on the issue that mentions <login> and
                                          links the PR. Run with the job's GITHUB_TOKEN, not FACTORY_TOKEN.
+  working on|off [<issue>...] [--pr <n>] [--triage]
+                                         factory:working, run with the job token: on at the start of a run, off at its end
+                                         (kept where another Factory run is queued or going). An issue brings its open
+                                         Factory PR along. --triage (on): the issues the Triage will read.
   help                                   Show this message.
 
 Settings come from .factory/src/config.ts and FACTORY_* variables.`;
@@ -82,7 +89,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
     deps.log(USAGE);
     return command === undefined ? 1 : 0;
   }
-  if (!["claim", "work", "publish", "local", "triage", "apply", "unblock", "pr-feedback", "update-branch", "notify", "retro-collect", "retro", "retro-publish"].includes(command)) {
+  if (!["claim", "work", "publish", "local", "triage", "apply", "unblock", "pr-feedback", "update-branch", "notify", "retro-collect", "retro", "retro-publish", "working"].includes(command)) {
     deps.log(`Unknown command: ${command}\n\n${USAGE}`);
     return 1;
   }
@@ -108,6 +115,8 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
       url: { type: "string" },
       to: { type: "string" },
       trigger: { type: "string" },
+      triage: { type: "boolean" },
+      "comment-id": { type: "string" },
     },
   });
   // Parsed on use: `pr-feedback` and `update-branch --scan` take no issue.
@@ -146,7 +155,8 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
 
   switch (command) {
     case "pr-feedback": {
-      const claim = await claimPrFeedback(ctx, { pr: parseIssue(values.pr), actor: values.actor ?? "" });
+      const comment = feedbackComment(values.event, values["comment-id"]);
+      const claim = await claimPrFeedback(ctx, { pr: parseIssue(values.pr), actor: values.actor ?? "", ...(comment ? { comment } : {}) });
       deps.log(JSON.stringify(claim));
       await writeOutputs(claim);
       return 0;
@@ -183,7 +193,8 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
       // The workflow reads these to decide whether `work` and `publish` run, and where the lease starts.
       if (deps.env.GITHUB_OUTPUT) {
         const lines = [`claimed=${result.claimed}`, `requester=${requester ?? ""}`];
-        if (result.claimed) lines.push(`start_sha=${result.startSha ?? ""}`, `branch=${result.branch}`);
+        // The open PR the claim marked factory:working: `publish` may close it (a retry), the end of the run still clears it.
+        if (result.claimed) lines.push(`start_sha=${result.startSha ?? ""}`, `branch=${result.branch}`, `pr=${(await ctx.codeHost.openPrFor(result.branch))?.number ?? ""}`);
         else lines.push(`reason=${result.reason}`);
         await appendFile(deps.env.GITHUB_OUTPUT, `${lines.join("\n")}\n`);
       }
@@ -217,7 +228,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
         runLogs: deps.runLogs?.() ?? githubRunLogs(deps.env),
       });
       deps.log(JSON.stringify(result));
-      if (deps.env.GITHUB_OUTPUT) await appendFile(deps.env.GITHUB_OUTPUT, `collected=${result.collected}\n`);
+      if (deps.env.GITHUB_OUTPUT) await appendFile(deps.env.GITHUB_OUTPUT, `collected=${result.collected}\nissue=${result.issue ?? ""}\n`);
       return 0;
     }
     case "retro": {
@@ -228,6 +239,23 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
     case "retro-publish": {
       const result = await retroPublish(ctx, { in: required(values.in, "--in"), runUrl: values["run-url"] || runUrlFromEnv(deps.env) });
       deps.log(JSON.stringify(result));
+      return 0;
+    }
+    case "working": {
+      const [mode, ...numbers] = positionals;
+      if (mode !== "on" && mode !== "off") throw new Error(`Expected working on|off, got: ${mode ?? "nothing"}`);
+      const targets = { issues: numbers.map(parseIssue), prs: values.pr ? [parseIssue(values.pr)] : [] };
+      if (mode === "on") {
+        if (values.triage) targets.issues.push(...(await triageBatch(ctx)).batch);
+        const result = await startWorking(ctx, targets);
+        deps.log(JSON.stringify({ working: "on", ...result }));
+        // The end of the run takes the label off the same issues.
+        if (deps.env.GITHUB_OUTPUT) await appendFile(deps.env.GITHUB_OUTPUT, `issues=${result.issues.join(" ")}\n`);
+        return 0;
+      }
+      const runId = Number(deps.env.GITHUB_RUN_ID);
+      const result = await stopWorking(ctx, targets, Number.isInteger(runId) && runId > 0 ? runId : null);
+      deps.log(JSON.stringify({ working: "off", ...result }));
       return 0;
     }
     case "unblock": {
@@ -270,6 +298,13 @@ function flowOf(values: { flow?: string; pr?: string }): WorkFlow | undefined {
   if (values.flow === undefined) return undefined;
   if (values.flow !== "pr-feedback" && values.flow !== "update-branch") throw new Error(`Unknown --flow: ${values.flow}. Known: pr-feedback, update-branch.`);
   return { kind: values.flow, pr: parseIssue(values.pr) };
+}
+
+/** The comment or review whose event started a feedback round: the event's name and the id it carries. */
+function feedbackComment(event: string | undefined, id: string | undefined): { kind: "comment" | "review-comment" | "review"; id: number } | undefined {
+  const kind = ({ issue_comment: "comment", pull_request_review_comment: "review-comment", pull_request_review: "review" } as const)[event ?? ""];
+  const number = Number(id);
+  return kind && Number.isInteger(number) && number > 0 ? { kind, id: number } : undefined;
 }
 
 function parseIssue(value: string | undefined): number {

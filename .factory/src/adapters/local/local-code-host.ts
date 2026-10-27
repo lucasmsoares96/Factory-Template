@@ -2,7 +2,7 @@ import { cp, mkdir } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { marked } from "../../marker.ts";
 import type { FactoryConfig } from "../../config.ts";
-import type { CodeHost, ConversationEntry, EvidenceImage, FailedCheck, PullRequest, PushResult, Review, ReviewThread, SubmittedReview } from "../../seams/code-host.ts";
+import type { ActiveRun, CodeHost, ConversationEntry, EvidenceImage, FailedCheck, PullRequest, PushResult, ReactionTarget, Review, ReviewThread, SubmittedReview } from "../../seams/code-host.ts";
 import { Git } from "../../git.ts";
 import type { MarkdownIssues } from "./markdown-issues.ts";
 
@@ -115,6 +115,10 @@ export class LocalCodeHost implements CodeHost {
     await this.update(pr, (p) => void (p.labels.includes(label) || p.labels.push(label)));
   }
 
+  async unlabelPr(pr: number, label: string): Promise<void> {
+    if (await this.read(pr)) await this.update(pr, (p) => void (p.labels = p.labels.filter((l) => l !== label)));
+  }
+
   async submitReview(pr: number, review: Review): Promise<void> {
     const inline = review.comments.map((c) => `- \`${c.path}:${c.line}\` ${c.body}`);
     const body = ["**Factory review**", "", review.body, ...(inline.length ? ["", "**Inline**", ...inline] : [])];
@@ -142,6 +146,14 @@ export class LocalCodeHost implements CodeHost {
 
   async replyToThread(): Promise<void> {
     throw new Error("Review threads are not available in local mode.");
+  }
+
+  /** A ticket has no reactions. */
+  async react(_target: ReactionTarget, _reaction: "eyes"): Promise<void> {}
+
+  /** A local run is the one command running: nothing else is queued. */
+  async activeRuns(): Promise<ActiveRun[]> {
+    return [];
   }
 
   /** Copies the prints to `.scratch/<feature>/evidence/NN/` and points the body at them, relative to the ticket. */
@@ -209,6 +221,7 @@ export class LocalCodeHost implements CodeHost {
       draft: pr.draft,
       base: pr.base,
       fork: false,
+      labels: [...pr.labels],
     };
   }
 }

@@ -2,10 +2,13 @@
 #   scan    (push)  per open PR into the default branch: behind = its head does not contain the default branch's head.
 #                   Dispatches this workflow for each one behind, Factory and people's PRs alike (`issue` for a Factory PR
 #                   in progress, `pr` for any other); a fork's PR gets one comment asking its author to update it.
+#                   Then takes factory:working off every issue and PR with no Factory run queued or going (a cancelled run
+#                   never reached its own end).
 #   claim / image / work / publish  (workflow_dispatch, one issue or one PR)  merge the base branch: clean with no agent, a
 #                                   conflict resolved by the agent ("preserve both intents, do not invent new behaviour");
 #                                   then E2E, and the normal loop if it fails. The PR body is left alone. A run keyed by the
-#                                   PR changes no label, opens no PR and comments only on the PR.
+#                                   PR changes no label but factory:working, opens no PR and comments only on the PR.
+#                                   `claim` puts factory:working on the PR (and the issue); publish's last step takes it off.
 # `publish` pushes with FACTORY_TOKEN, so the PR's CI runs again. The agent never sees FACTORY_TOKEN, and no job runs a
 # fork's code. Off until `pnpm bootstrap factory` sets FACTORY_ENABLED.
 name: Factory update branches
@@ -41,11 +44,11 @@ jobs:
     concurrency:
       group: factory-update-scan
       cancel-in-progress: true
-    # `actions: write` is how the job dispatches `update-branch`, `pull-requests: write` the one comment on a fork's PR;
-    # everything else is read-only.
+    # `actions: write` is how the job dispatches `update-branch` (and lists the runs going), `pull-requests: write` the one
+    # comment on a fork's PR; `issues` and `pull-requests: write` take an orphan factory:working off. Nothing else is written.
     permissions:
       contents: read
-      issues: read
+      issues: write
       pull-requests: write
       actions: write
     defaults:
@@ -78,10 +81,11 @@ jobs:
     if: ${{ vars.FACTORY_ENABLED == 'true' && github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # The one write: factory:working on the PR and its issue.
     permissions:
       contents: read
-      issues: read
-      pull-requests: read
+      issues: write
+      pull-requests: write
     defaults:
       run:
         shell: bash
@@ -219,8 +223,12 @@ jobs:
     env:
       ISSUE: ${{ needs.claim.outputs.issue }}
       PR: ${{ needs.claim.outputs.pr }}
+    # The job token writes only factory:working (last step) and reads the runs it is kept for; FACTORY_TOKEN does the rest.
     permissions:
       contents: read
+      issues: write
+      pull-requests: write
+      actions: read
     defaults:
       run:
         shell: bash
@@ -251,3 +259,9 @@ jobs:
           mkdir -p "$RUNNER_TEMP/out"
           gh --version | head -1
           pnpm factory publish ${ISSUE:+"$ISSUE"} --in "$RUNNER_TEMP/out" --pr "$PR" --start-sha "$START_SHA"
+      # The end of the run, whatever happened: never with FACTORY_TOKEN, whose label events would start workflows.
+      - name: working off
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: pnpm factory working off ${ISSUE:+"$ISSUE"} --pr "$PR"

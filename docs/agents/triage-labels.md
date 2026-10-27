@@ -21,6 +21,7 @@ The Factory adds these to the five above. Their names live in `.factory/src/conf
 | Label | Set by | Meaning |
 | --- | --- | --- |
 | `in-progress` | the Factory (`claim`) | The Factory holds the lock on this issue. Replaced by `ready-for-human` on an Escalation. |
+| `factory:working` | the Factory (each run, with the job token) | A Factory run is working on this issue or pull request right now: the issue flow, a feedback round, a branch update, the Triage or the Retro. It comes off at the end of every run, whatever the outcome; a run that was cancelled leaves it behind until the next push to the base branch, whose `update-branch --scan` removes it from everything with no Factory run queued or going. Unlike `in-progress`, which is the lock and stays until the merge, it says nothing about who holds the issue. |
 | `agent:explore` | a human | Ask the Factory to triage this issue: it explores and comments, and changes no code. |
 | `harness-change` | the Factory (`publish`) | The pull request touches `AGENTS.md`, `docs/agents/`, `GLOSSARY.md`, `CODING_STANDARDS.md`, `docs/adr/` or `.factory/`. Review it with care. |
 | `preview` | a human with `write`+ access (CI removes it on each push) | Asks CI to deploy a preview of a pull request whose author has no `write` access. It must be re-applied after each push. |
