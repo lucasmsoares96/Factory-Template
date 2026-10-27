@@ -5,7 +5,7 @@ import { bundleProblems, deployConfig, deployedUrl, planDeploy, workerSecrets } 
 import { smoke, smokeWithRetry } from "../src/ci/smoke.ts";
 import { imageOutputs } from "../src/ci/image.ts";
 import { buildMatrix, HARNESS_PACKAGE } from "../src/ci/matrix.ts";
-import { skillLinkProblems } from "../src/ci/skills.ts";
+import { isSkillPath, patchPaths, skillLinkProblems, skillsVerdict } from "../src/ci/skills.ts";
 import { IMAGE_DIR } from "../src/local/image.ts";
 import { tempDir } from "./helpers.ts";
 
@@ -261,5 +261,37 @@ describe("smoke", () => {
     const result = await smokeWithRetry("https://x", { account, attempts: 3, waitMs: 1, fetchFn: flaky, sleep: async () => {} });
     expect(result).toEqual({ ok: false, problems: ["connect refused"] });
     expect(calls).toBe(3);
+  });
+});
+
+describe("skills follow upstream (ADR 0013)", () => {
+  it("passes when the restore changes nothing", () => {
+    expect(skillsVerdict({ restored: [], prChanged: ["src/a.ts"] })).toEqual({ ok: true, notice: null });
+  });
+
+  it("an upstream change the PR did not make is a notice, never a failure", () => {
+    const verdict = skillsVerdict({ restored: [".agents/skills/tdd/SKILL.md", "skills-lock.json"], prChanged: ["apps/example/src/x.ts"] });
+    expect(verdict).toMatchObject({ ok: true });
+    expect(verdict.ok && verdict.notice).toMatch(/factory-skills-update\.yml/);
+  });
+
+  it("a PR that edits a skill or the lock must commit exactly what the restore gives", () => {
+    expect(skillsVerdict({ restored: [".agents/skills/tdd/SKILL.md"], prChanged: [".agents/skills/tdd/SKILL.md"] })).toMatchObject({ ok: false });
+    expect(skillsVerdict({ restored: [".agents/skills/tdd/SKILL.md"], prChanged: ["skills-lock.json"] })).toMatchObject({ ok: false });
+    expect(skillsVerdict({ restored: [], prChanged: [".agents/skills/tdd/SKILL.md"] })).toEqual({ ok: true, notice: null });
+  });
+
+  it("a restore that writes outside the skills fails", () => {
+    expect(skillsVerdict({ restored: ["package.json"], prChanged: [] })).toMatchObject({ ok: false });
+  });
+
+  it("only `.agents/skills/` and the lock are skill paths", () => {
+    expect([".agents/skills/a/SKILL.md", "skills-lock.json"].every(isSkillPath)).toBe(true);
+    expect([".agents/skillsX", ".claude/skills/a", ".github/workflows/x.yml", "skills-lock.json.bak"].some(isSkillPath)).toBe(false);
+  });
+
+  it("reads every path a patch touches, so the publish job can refuse one outside the skills", () => {
+    const patch = ["diff --git a/.agents/skills/a/SKILL.md b/.agents/skills/a/SKILL.md", "--- a/x", "+++ b/x", "diff --git a/.github/workflows/x.yml b/.github/workflows/x.yml"].join("\n");
+    expect(patchPaths(patch).sort()).toEqual([".agents/skills/a/SKILL.md", ".github/workflows/x.yml"]);
   });
 });

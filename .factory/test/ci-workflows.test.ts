@@ -32,7 +32,7 @@ interface Workflow {
 
 /** Reads and parses every workflow in `dir`, relative to the repository root. */
 function load(dir: string): Record<string, Workflow> {
-  const names = ["factory-image.yml", "factory-pr.yml", "factory-deploy.yml", "factory-pr-cleanup.yml", "factory-issue.yml", "factory-unblock.yml", "factory-triage.yml", "factory-pr-feedback.yml", "factory-update-branches.yml", "factory-retro.yml"];
+  const names = ["factory-image.yml", "factory-pr.yml", "factory-deploy.yml", "factory-pr-cleanup.yml", "factory-issue.yml", "factory-unblock.yml", "factory-triage.yml", "factory-pr-feedback.yml", "factory-update-branches.yml", "factory-retro.yml", "factory-skills-update.yml"];
   return Object.fromEntries(names.map((name) => [name, parse(readFileSync(join(repo, dir, name), "utf8")) as Workflow]));
 }
 
@@ -116,12 +116,15 @@ describe.each([[WORKFLOWS_DIR]])("CI workflows in %s", (dir) => {
     expect(pr.jobs.image!.uses).toBe("./.github/workflows/factory-image.yml");
   });
 
-  it("`skills-check` restores the pinned CLI from the lock, diffs and checks the symlinks", () => {
+  it("`skills-check` restores with the pinned CLI, judges only what the PR changed and checks the symlinks", () => {
     const job = pr.jobs["skills-check"]!;
     const script = runs(job).join("\n");
     expect(script).toMatch(/skills@\d+\.\d+\.\d+ experimental_install/);
-    expect(script).toContain("git diff --exit-code");
-    expect(script).toContain(".factory/src/ci/skills.ts");
+    expect(script).toContain('node .factory/src/ci/skills.ts check --base "$BASE_SHA"');
+    expect(script).toContain("node .factory/src/ci/skills.ts links");
+    expect(script).not.toContain("git diff --exit-code");
+    expect(steps(job).find((s) => s.name === "skills")?.env).toEqual({ BASE_SHA: "${{ github.event.pull_request.base.sha }}" });
+    expect(steps(job).find((s) => s.uses?.startsWith("actions/checkout@"))?.with).toMatchObject({ "fetch-depth": 0, "persist-credentials": false });
   });
 
   it("`ci-probe` runs the probe in the image without deploying", () => {
@@ -666,6 +669,43 @@ describe.each([[WORKFLOWS_DIR]])("Factory retro workflow in %s", (dir) => {
     const runName = (file: string) => (workflows[file] as unknown as { "run-name"?: string })["run-name"] ?? "";
     expect(runName("factory-issue.yml")).toContain("#${{ github.event.issue.number || inputs.issue }}");
     expect(runName("factory-update-branches.yml")).toContain("format('#{0} update branch', inputs.issue)");
+  });
+});
+
+describe.each([[WORKFLOWS_DIR]])("skills update workflow in %s", (dir) => {
+  const { workflows } = checkWorkflows(dir);
+  const update = workflows["factory-skills-update.yml"]!;
+  const { fetch, publish } = update.jobs;
+  const secretsOf = (job: Job) => [...new Set(textOf(job).match(/secrets\.\w+|secrets\[[^\]]*\]/g) ?? [])].sort();
+
+  it("runs on pushes to the default branch, daily and by hand, off until FACTORY_ENABLED", () => {
+    expect(Object.keys(update.on).sort()).toEqual(["push", "schedule", "workflow_dispatch"]);
+    expect(update.on.push).toEqual({ branches: ["main"] });
+    expect(update.permissions).toEqual({});
+    expect(fetch!.if).toContain("vars.FACTORY_ENABLED == 'true'");
+    expect(publish!.needs).toBe("fetch");
+    expect(publish!.if).toBe("${{ needs.fetch.outputs.changed == 'true' }}");
+  });
+
+  it("the third-party CLI runs only in `fetch`, which holds no secret and cannot write", () => {
+    expect(secretsOf(fetch!)).toEqual([]);
+    expect(fetch!.permissions).toEqual({ contents: "read" });
+    expect(runs(fetch!).join("\n")).toMatch(/skills@\d+\.\d+\.\d+ experimental_install/);
+    expect(runs(publish!).join("\n")).not.toContain("npx");
+    expect(runs(publish!).join("\n")).not.toContain("pnpm install");
+  });
+
+  it("`publish` holds only FACTORY_TOKEN, on a fresh VM with the default branch's harness", () => {
+    expect(secretsOf(publish!)).toEqual(["secrets.FACTORY_TOKEN"]);
+    expect(publish!.permissions).toEqual({ contents: "read" });
+    expect(publish!.container).toBeUndefined();
+    expect(runsOn(publish!)).toBe('"ubuntu-latest"');
+    for (const job of [fetch!, publish!]) {
+      const checkout = steps(job).find((s) => s.uses?.startsWith("actions/checkout@"));
+      expect(checkout?.with).toMatchObject({ ref: "${{ github.event.repository.default_branch }}", "persist-credentials": false });
+      for (const script of runs(job)) expect(script).not.toContain("${{");
+    }
+    expect(runs(publish!).join("\n")).toContain('node .factory/src/ci/skills.ts publish --in "$RUNNER_TEMP/skills"');
   });
 });
 
