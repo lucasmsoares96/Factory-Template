@@ -157,6 +157,29 @@ describe("GitHubCodeHost", () => {
     expect(s.calls.at(-1)!.body).toEqual({ body: marked("done") });
   });
 
+  it("reads the Conversation as comments and submitted review bodies in time order, without empty or pending ones", async () => {
+    const s = new FakeGitHubServer();
+    s.on("GET", `${R}/issues/4/comments`, () => ({
+      json: [
+        { id: 1, body: "first", user: { login: "alice" }, created_at: "2026-10-26T10:00:00Z" },
+        { id: 2, body: "third", user: { login: "bob" }, created_at: "2026-10-26T12:00:00Z" },
+      ],
+    }));
+    s.on("GET", `${R}/pulls/4/reviews`, () => ({
+      json: [
+        { id: 7, body: "second", user: { login: "alice" }, submitted_at: "2026-10-26T11:00:00Z" },
+        { id: 8, body: "", user: { login: "alice" }, submitted_at: "2026-10-26T11:30:00Z" },
+        { id: 9, body: "draft", user: { login: "alice" } },
+      ],
+    }));
+
+    expect(await host(s).conversation(4)).toEqual([
+      { id: "comment-1", kind: "comment", author: "alice", body: "first" },
+      { id: "review-7", kind: "review", author: "alice", body: "second" },
+      { id: "comment-2", kind: "comment", author: "bob", body: "third" },
+    ]);
+  });
+
   describe("body with the evidence images", () => {
     const img = { product: "example", name: "home.png", path: "/tmp/out/evidence/example/home.png" };
     const body = `## Evidence\n\n![home](${img.path})`;

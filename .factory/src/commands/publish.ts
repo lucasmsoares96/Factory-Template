@@ -241,13 +241,23 @@ async function openFollowUps(ctx: CommandContext, issue: Issue, result: FactoryR
 
 const DECISION_LABEL = { address: "Address", decline: "Decline", defer: "Defer", answer: "Answer" } as const;
 
-/** The agent's answers, posted in their threads. A thread that is gone, or that is not open any more, gets nothing. */
+/**
+ * The agent's answers, posted in their threads. A thread that is gone, or that is not open any more, gets nothing.
+ * The Conversation requests get one comment for the whole round, each request quoted above its answer.
+ */
 async function postReplies(ctx: CommandContext, pr: number, threadReplies: FactoryResult["threadReplies"]): Promise<void> {
   if (threadReplies.length === 0) return;
   const known = new Set((await ctx.codeHost.threads(pr)).map((t) => t.id));
   for (const reply of threadReplies) {
     if (known.has(reply.threadId)) await ctx.codeHost.replyToThread(pr, reply.threadId, `${DECISION_LABEL[reply.decision]}: ${reply.body}`);
   }
+  const answers = (await ctx.codeHost.conversation(pr)).flatMap((request) => {
+    const reply = threadReplies.find((r) => r.threadId === request.id);
+    if (!reply) return [];
+    const quote = request.body.trim().split("\n").map((line) => `> ${line}`.trimEnd());
+    return [[`**${request.author}** ${request.kind === "review" ? "reviewed" : "wrote"}:`, ...quote, "", `${DECISION_LABEL[reply.decision]}: ${reply.body}`].join("\n")];
+  });
+  if (answers.length > 0) await ctx.codeHost.commentPr(pr, answers.join("\n\n---\n\n"));
 }
 
 /** Escalation: the report on the issue, then in-progress → ready-for-human. */

@@ -82,7 +82,7 @@ export interface FeedbackRound {
 /** One review thread, fenced as untrusted content. */
 function threadBlock(t: ReviewThread): string {
   return [
-    `<thread id="${t.id}"${t.path ? ` path="${t.path}"` : ""}>`,
+    `<thread id="${t.id}"${t.conversation ? ` in="conversation"` : t.path ? ` path="${t.path}"` : ""}>`,
     `<comment author="${t.author}">\n${t.body}\n</comment>`,
     ...t.replies.map((r) => `<comment author="${r.author}">\n${r.body}\n</comment>`),
     "</thread>",
