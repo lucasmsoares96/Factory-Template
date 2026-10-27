@@ -218,8 +218,17 @@ export class FakeGitHub implements GitHubClient {
       include: spec.include,
       rules: spec.rules,
       requiredChecks: spec.requiredChecks,
+      strict: spec.strict,
     });
     return "created";
+  }
+  async requireUpToDate(id: number): Promise<"updated" | "refused"> {
+    if (this.refuseRulesets) return "refused";
+    const ruleset = this.rulesets.find((r) => r.id === id);
+    if (!ruleset) throw new Error(`FakeGitHub: no ruleset ${id}`);
+    this.writes++;
+    ruleset.strict = true;
+    return "updated";
   }
 }
 
