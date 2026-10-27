@@ -7,6 +7,14 @@ export const authClient = createAuthClient({ basePath: AUTH_BASE_PATH });
 /** Where the verification link lands once Better Auth has checked it. */
 export const EMAIL_VERIFIED_PATH = "/email-verified";
 
+/**
+ * The verification link's landing, carrying where to go once signed in
+ * (`redirect`), so a visitor who signs up from an Invitation link gets back to it.
+ */
+export function emailVerifiedURL(redirect: string | undefined): string {
+  return redirect ? `${EMAIL_VERIFIED_PATH}?${new URLSearchParams({ redirect: safeRedirect(redirect) })}` : EMAIL_VERIFIED_PATH;
+}
+
 /** Where the password-reset link lands once Better Auth has checked its token (`?token=` or `?error=`). */
 export const RESET_PASSWORD_PATH = "/reset-password";
 
