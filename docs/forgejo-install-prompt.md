@@ -12,25 +12,25 @@ Read first: `TEMPLATE/AGENTS.md`, `TEMPLATE/GLOSSARY.md`, `TEMPLATE/.factory/AGE
 
 ## 0. Check the instance
 
-- Stop and ask the owner if the instance is older than v16.0.3 (the security release of 2026-08-20): before it, local reusable workflows under `pull_request_target` were read from the pull request's head. Prefer v16.0.x or the v15 LTS; v17.0.0 shipped with an upstream warning against upgrading.
+- Stop and ask the owner if the instance lacks the security release of 2026-08-20 (v16.0.3 on the v16 line; on the v15 LTS, check its release notes for the same fix): before it, local reusable workflows under `pull_request_target` were read from the pull request's head. Prefer v16.0.3 or later on v16.0.x, or a v15 LTS release with that fix; v17.0.0 shipped with an upstream warning against upgrading.
 - Note whether the instance is v15 or later: only then can a token be restricted to this one repository.
-- Never use Codeberg: its terms forbid mostly AI-generated projects and its hosted runners stop at 10 minutes.
+- Install on a self-hosted Forgejo instance, never on Codeberg: its terms forbid mostly AI-generated projects and its hosted runners stop at 10 minutes.
 
 ## 1. Copy only the harness
 
 Copy from `TEMPLATE`:
 
 - `.factory/` (CLI, commands, adapters, prompts, tests, `image/Dockerfile` and `image/setup.sh`).
-- The workflows, moved from `.github/workflows/` to `.forgejo/workflows/`: `factory-image.yml`, `factory-issue.yml`, `factory-triage.yml`, `factory-unblock.yml`, `factory-pr-feedback.yml`, `factory-update-branches.yml`, `factory-retro.yml`, `factory-skills-update.yml`, and from `factory-pr.yml` the jobs `image`, `build` (with the `Verify` command of step 4, not the per-Product matrix of `plan`), `skills-check` and `verify` (the aggregate check: it fails when any job it `needs` failed; drop `plan` and `ci-probe` from its `needs`).
+- The workflows, moved from `.github/workflows/` to `.forgejo/workflows/`: `factory-image.yml`, `factory-issue.yml`, `factory-triage.yml`, `factory-unblock.yml`, `factory-pr-feedback.yml`, `factory-update-branches.yml`, `factory-retro.yml`, `factory-skills-update.yml`, and from `factory-pr.yml` the jobs `image`, `build` (with the `Verify` command of step 4, not the per-Product matrix of `plan`; drop `plan` from its `needs` and its `if:`), `skills-check` and `verify` (the aggregate check: it fails when any job it `needs` failed; drop `plan` and `ci-probe` from its `needs`).
 - `AGENTS.md` (rewrite the Map, Commands and "Building a product" sections for this repository; keep the Rules), `GLOSSARY.md`, `CODING_STANDARDS.md`, `docs/agents/`, `docs/adr/`.
 - `.agents/skills/` with `skills-lock.json`, and the `.claude/skills/<name>` symlinks to them. Leave out the `skeleton-*` skills and `workers-best-practices` unless this stack uses them.
 - `.claude/settings.json` as it is (it only denies `pnpm bootstrap destroy`).
 
-Leave out: `packages/skeleton/`, `apps/`, `pnpm new-product`, `.factory/src/bootstrap/` (the Products' bootstrap: Cloudflare, Neon, Resend, environments), `factory-deploy.yml`, `factory-pr-cleanup.yml` and the preview jobs of `factory-pr.yml`. Remove from `.factory/` whatever only served them, and the tests with it. If this repository is not a Node workspace, keep `.factory/` as its own package with its own `package.json` and lockfile.
+Leave out: `packages/skeleton/`, `apps/`, `pnpm new-product`, `.factory/src/bootstrap/` (the Products' bootstrap: Cloudflare, Neon, Resend, environments), `factory-deploy.yml`, `factory-pr-cleanup.yml` and the preview jobs of `factory-pr.yml`. Remove from `.factory/` whatever only served them, and the tests with it: done when nothing left imports `bootstrap/`, the preview or deploy code of `ci/`, or a Product path, and the harness tests pass. If this repository is not a Node workspace, keep `.factory/` as its own package with its own `package.json` and lockfile.
 
 ## 2. Workflows on Forgejo Actions
 
-- Forgejo reads `.forgejo/workflows/` when it exists and GitHub ignores it. Keep the events Forgejo has: `push`, `issues`, `issue_comment`, `pull_request`, `pull_request_target`, `schedule`, `workflow_call`, `workflow_dispatch`. There is no `workflow_run`, no `concurrency.queue: max`, no `gh`, no `claude-code-action`: replace `gh` calls with the CLI's own commands or `curl` against the REST API.
+- Forgejo reads `.forgejo/workflows/` when it exists and GitHub ignores it. Keep the events Forgejo has: `push`, `issues`, `issue_comment`, `pull_request`, `pull_request_review`, `pull_request_review_comment`, `pull_request_target`, `schedule`, `workflow_call`, `workflow_dispatch`. There is no `workflow_run`, no `concurrency.queue: max`, no `gh`, no `claude-code-action`: replace `gh` calls with the CLI's own commands or `curl` against the REST API.
 - Every `runs-on:` names a label of this repository's own runner (step 5), never a hosted one.
 - Keep `#N` in each `run-name` (`"#N <title>"`, `"#N update branch"`, `"PR #N update branch"`, `"Retro of #N"`, `"Retro of PR #N"`): the Retro finds an issue's runs by that title. Port `GitHubRunLogs` (`.factory/src/adapters/github/run-logs.ts`) to the Forgejo Actions API and artifacts.
 - Quote every YAML value that contains ` #` (`run-name: "#${{ inputs.issue }} ..."`, or any `name:` or `if:` with ` #` in it). Unquoted, the rest of the line is a comment and the workflow does not load, with no run to show it. Load every workflow once after you change it.
@@ -46,7 +46,7 @@ Write `.factory/src/adapters/forgejo/` with a `Tracker` and a `CodeHost` (interf
 
 - **Done** is `closed`: Forgejo has no `state_reason`, so a `Blocker` is done when its issue is closed.
 - **Draft** is a title that starts with `WIP:`. `markReady` removes the prefix; opening a draft adds it.
-- **Prints** (evidence screenshots): upload them as assets through the REST attachment endpoints of the issue or comment, then swap the body's references for the asset URLs. The `fj` CLI cannot upload attachments.
+- **Evidence** (the screenshots of `@evidence` tests, the prints): upload them as assets through the REST attachment endpoints of the issue or comment, then swap the body's references for the asset URLs. The `fj` CLI cannot upload attachments.
 - **Blockers and sub-issues**: use the issue dependencies endpoints for blockers; for the parent spec, use what this version offers and say in the pull request what you chose.
 - **`labelOrigin`**: read it from the issue timeline (label events with their actor), so the Factory's own `ready-for-agent` → `agent:explore` swap is recognized as a swap (same actor, removal just before).
 - **`conversation`**: the pull request's issue comments plus the bodies of submitted reviews, oldest first, ids `comment-<id>` and `review-<id>`.
@@ -57,7 +57,7 @@ Test them like the GitHub adapters: the commands' behaviour is already covered t
 
 ## 4. `Verify`
 
-The `Verify` seam runs one command in the working copy (`pnpm factory:verify` in the template). Build that command from what this repository already has: its typecheck, lint, tests, end-to-end tests and screenshots, in that order, failing on the first error. Run the same command in the `build` job of the pull request workflow, so the status check `verify` (step 6, the aggregate job) covers what the Factory ran. Where something is missing (no typecheck, no tests, no E2E, so no prints), keep a minimal implementation, and write in the installed `AGENTS.md` and in the pull request where it is minimal and what would complete it.
+The `Verify` seam runs one command in the working copy (`pnpm factory:verify` in the template). Build that command from what this repository already has: its typecheck, lint, tests, end-to-end tests and Evidence, in that order, failing on the first error. Run the same command in the `build` job of the pull request workflow, so the status check `verify` (step 6, the aggregate job) covers what the Factory ran. Where something is missing (no typecheck, no tests, no E2E, so no Evidence), keep a minimal implementation, and write in the installed `AGENTS.md` and in the pull request where it is minimal and what would complete it.
 
 ## 5. Runner and image
 
@@ -90,5 +90,5 @@ Check each of these on Forgejo and adapt the workflow or adapter until it holds:
 1. Run the harness tests and the new `Verify` command locally; both pass.
 2. Open the installation pull request. It changes `.forgejo/workflows/`, so it must carry the `harness-change` label and warning; ask the owner to review and merge it.
 3. After the merge, open a small test issue in this repository: a parent spec with `## Testing Decisions` and a child with `## Acceptance criteria` for a tiny, real change in this stack. Apply `ready-for-agent` to the child as the owner.
-4. Follow it end to end: `claim`, `work`, `publish`, the pull request opened from `factory/issue-N`, the `verify` check green, the evidence prints shown in the body, the review, and the Merge Gate notice. The run is done when the pull request is ready (no `WIP:`) and waiting at the Merge Gate. Fix what breaks, in the same way, until it is.
+4. Follow it end to end: `claim`, `work`, `publish`, the pull request opened from `factory/issue-N`, the `verify` check green, the Evidence shown in the body, the Review Stage, and the Merge Gate notice. The run is done when the pull request is ready (no `WIP:`) and waiting at the Merge Gate. Fix what breaks, in the same way, until it is.
 5. Report to the owner: what was installed, where `Verify` is minimal, whether the skills auto-merge is on or manual, the runner checklist, and the open risks (`write:repository` reaches `.forgejo/workflows/`, `pull_request_target` from any base branch).
