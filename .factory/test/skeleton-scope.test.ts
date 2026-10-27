@@ -250,7 +250,6 @@ describe("Skeleton scope of a Product issue", () => {
     expect(lastJson(w.logs)).toMatchObject({ issue: 7, outcome: "escalated", reason: "infra" });
   });
 
-
   it("leaves an issue whose own scope is the Skeleton untouched", async () => {
     const skeletonDev: AgentStep = async ({ cwd }) => {
       await commitFile(cwd, LAYOUT, "export const Layout = 'footer';\n", "feat: skeleton footer slot #7");
