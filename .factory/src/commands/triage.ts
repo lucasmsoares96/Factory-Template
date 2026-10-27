@@ -12,6 +12,7 @@ import {
   type TriageTag,
   type Verdict,
 } from "../triage-output.ts";
+import { trustedExplore } from "../guard.ts";
 import type { Issue } from "../seams/tracker.ts";
 import type { CommandContext } from "./context.ts";
 
@@ -19,7 +20,7 @@ const MINUTE = 60_000;
 
 export interface TriageRun {
   triaged: number[];
-  /** Left out: the label was put by someone without write access, or the issue is gone from Triage. */
+  /** Left out: the label is not trusted (`trustedExplore`), or the issue is gone from Triage. */
   skipped: number[];
   fallback: number[];
   retries: number;
@@ -29,8 +30,9 @@ export interface TriageRun {
  * The read-only half (job `work`, no forge token): reads the issues in
  * Triage (all of them, or the numbers given), runs ONE Triage session over
  * the batch and writes `triage.json` into `out`. Changes nothing on the
- * forge. Issues whose `agent:explore` label was not put by someone with
- * `write`+ are not read: their text never reaches the Agent.
+ * forge. Issues whose `agent:explore` is not trusted (put by someone with
+ * `write`+, or the Factory's swap of a writer's `ready-for-agent`: `trustedExplore`)
+ * are not read: their text never reaches the Agent.
  */
 export async function triage(ctx: CommandContext, options: { issues: number[]; out: string }): Promise<TriageRun> {
   const { tracker, agent, config } = ctx;
@@ -39,8 +41,8 @@ export async function triage(ctx: CommandContext, options: { issues: number[]; o
   const batch: Issue[] = [];
   const skipped: number[] = [];
   for (const number of wanted) {
-    const actor = await tracker.labelActor(number, explore);
-    if (actor === null || !(await tracker.canWrite(actor))) {
+    const origin = await tracker.labelOrigin(number, explore);
+    if (origin === null || !(await trustedExplore(tracker, config, origin))) {
       skipped.push(number);
       continue;
     }
@@ -84,7 +86,7 @@ const PRODUCT_ID = /^[a-z][a-z0-9-]*$/;
 /**
  * The write half (job `apply`, forge token). Trusts nothing in `triage.json`
  * but its shape: for each verdict it reads the forge again (still in Triage,
- * label put by `write`+), posts the one marked comment, then swaps
+ * label trusted as in `triage`), posts the one marked comment, then swaps
  * `agent:explore` for the label of the verdict (the swap is the lock). Order
  * matters: the comment first, because `ready-for-agent` starts a run whose
  * guard looks for it. `easy-call` → `ready-for-agent`, `needs-a-human` →
@@ -103,12 +105,12 @@ export async function apply(ctx: CommandContext, options: { in: string; repo: st
   for (const verdict of result.issues) {
     const number = verdict.number;
     const issue = await tracker.issue(number);
-    const actor = await tracker.labelActor(number, labels.agentExplore);
-    if (issue.state !== "open" || !issue.labels.includes(labels.agentExplore) || actor === null) {
+    const origin = await tracker.labelOrigin(number, labels.agentExplore);
+    if (issue.state !== "open" || !issue.labels.includes(labels.agentExplore) || origin === null) {
       run.skipped.push({ issue: number, reason: "no longer in Triage" });
       continue;
     }
-    if (!(await tracker.canWrite(actor))) {
+    if (!(await trustedExplore(tracker, config, origin))) {
       run.skipped.push({ issue: number, reason: "label not put by someone with write access" });
       continue;
     }

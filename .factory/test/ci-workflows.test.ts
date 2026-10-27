@@ -441,7 +441,8 @@ describe.each([[WORKFLOWS_DIR]])("Factory issue workflow in %s", (dir) => {
   it("`claim` writes with the job token and nothing else, on a fresh VM, never on FACTORY_RUNNER", () => {
     expect(claim!["runs-on"]).toBe("ubuntu-latest");
     expect(claim!.container).toBeUndefined();
-    expect(claim!.permissions).toEqual({ contents: "read", issues: "write", "pull-requests": "read" });
+    // `actions: write` dispatches factory-triage.yml after a missing-seams refusal: the job token's label swap starts none.
+    expect(claim!.permissions).toEqual({ contents: "read", issues: "write", "pull-requests": "read", actions: "write" });
     expect(secretsOf(claim!)).toEqual([]);
     expect(textOf(claim!)).not.toContain("FACTORY_TOKEN");
     expect(runs(claim!).join("\n")).toContain("pnpm factory claim");
@@ -469,6 +470,11 @@ describe.each([[WORKFLOWS_DIR]])("Factory issue workflow in %s", (dir) => {
     expect(download?.["continue-on-error"]).toBe(true);
     expect(runs(work!).join("\n")).toMatch(/pnpm factory work "\$ISSUE" --out/);
     expect(runs(publish!).join("\n")).toMatch(/--in /);
+  });
+
+  it("only `claim` may dispatch a workflow", () => {
+    const dispatchers = Object.entries(issue.jobs).filter(([, job]) => (job.permissions as Record<string, string> | undefined)?.actions === "write");
+    expect(dispatchers.map(([id]) => id)).toEqual(["claim"]);
   });
 
   it("the issue number and the actor never reach a script by interpolation", () => {

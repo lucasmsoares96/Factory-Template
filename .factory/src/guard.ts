@@ -1,7 +1,7 @@
 import { issueBranch, type FactoryConfig } from "./config.ts";
 import type { CodeHost } from "./seams/code-host.ts";
 import { isMarked } from "./marker.ts";
-import type { Issue, Tracker } from "./seams/tracker.ts";
+import type { Issue, LabelOrigin, Tracker } from "./seams/tracker.ts";
 
 export type Refusal =
   | "not-open"
@@ -48,6 +48,19 @@ export async function guard(
   const waitingOn = (await tracker.blockers(number)).filter((b) => !b.done).map((b) => b.number);
   if (waitingOn.length > 0) return { ok: false, reason: "blocked", issue, waitingOn };
   return { ok: true, issue };
+}
+
+/**
+ * Whether the issue's `agent:explore` may send its text to the Triage Agent: its actor has `write`+, or it is the
+ * Factory's own swap (`claim` on `missing-seams`, made with the job token, whose actor cannot write) of a
+ * `ready-for-agent` applied by someone with `write`+. The swap is recognized from the events: the same actor removed
+ * `ready-for-agent` and added `agent:explore`. This rests on only the Factory's workflows holding `issues: write` with
+ * the job token. A stranger's `ready-for-agent` is refused by the guard before any swap.
+ */
+export async function trustedExplore(tracker: Tracker, config: FactoryConfig, origin: LabelOrigin): Promise<boolean> {
+  if (await tracker.canWrite(origin.actor)) return true;
+  const { replaced } = origin;
+  return replaced !== null && replaced.label === config.labels.readyForAgent && replaced.actor !== null && (await tracker.canWrite(replaced.actor));
 }
 
 /** Seams come from the parent's Testing Decisions or from the Factory's Triage comment. */
