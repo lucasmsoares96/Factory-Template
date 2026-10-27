@@ -83,8 +83,6 @@ export async function retroCollect(ctx: CommandContext, options: CollectOptions)
     if (!human) return { collected: false, issue: number, pr: prNumber, reason: "no thread or review from a writer: a clean pull request has nothing to teach" };
   }
 
-  // The Retro goes on: its origin issue shows it until the run ends (`working off`).
-  await startWorking(ctx, { issues: [number], prs: [], issuePrs: false });
   const issue = await tracker.issue(number);
   const comments = await filter(issue.comments, (c) => writes(c.author));
   await mkdir(options.out, { recursive: true });
@@ -103,6 +101,8 @@ export async function retroCollect(ctx: CommandContext, options: CollectOptions)
 
   const sources: RetroSources = { issue: number, pr: prNumber, title: issue.title, branch, runs };
   await writeFile(join(options.out, SOURCES_FILE), `${JSON.stringify(sources, null, 2)}\n`);
+  // The Retro goes on: its origin issue shows it until the run ends (`working off` in `done`, which runs once collected).
+  await startWorking(ctx, { issues: [number], prs: [], issuePrs: false });
   return { collected: true, issue: number, pr: prNumber, runs: runs.length };
 }
 

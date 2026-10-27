@@ -312,15 +312,16 @@ describe("GitHubCodeHost", () => {
     });
   });
 
-  it("lists the Factory runs queued or going, every page, reading the issue or the PR from the run title", async () => {
+  it("lists the Factory runs queued or going, every page, reading the issue or the PR from the start of the run title", async () => {
     const s = new FakeGitHubServer();
     const run = (id: number, file: string, title: string) => ({ id, path: `.github/workflows/${file}`, display_title: title, status: "x" });
     const runs: Record<string, unknown[]> = {
-      queued: [run(1, "factory-issue.yml", "#7 Greet the user"), run(2, "ci.yml", "#8 something else")],
+      queued: [run(1, "factory-issue.yml", "#7 Follow-up to PR #80"), run(2, "ci.yml", "#8 something else")],
       in_progress: [
         ...Array.from({ length: 100 }, (_, i) => run(1000 + i, "factory-update-branches.yml", "Factory update branches")),
         run(3, "factory-pr-feedback.yml", "PR #12 feedback"),
         run(4, "factory-retro.yml", "Retro of PR #13"),
+        run(7, "factory-retro.yml", "Retro of #15"),
         run(5, "factory-triage.yml", "Factory triage"),
       ],
       waiting: [run(6, "factory-update-branches.yml", "PR #14 update branch")],
@@ -337,10 +338,11 @@ describe("GitHubCodeHost", () => {
       { id: 1, workflow: "factory-issue.yml", issue: 7, pr: null },
       { id: 3, workflow: "factory-pr-feedback.yml", issue: null, pr: 12 },
       { id: 4, workflow: "factory-retro.yml", issue: null, pr: 13 },
+      { id: 7, workflow: "factory-retro.yml", issue: 15, pr: null },
       { id: 5, workflow: "factory-triage.yml", issue: null, pr: null },
       { id: 6, workflow: "factory-update-branches.yml", issue: null, pr: 14 },
     ]);
-    expect(active).toHaveLength(105);
+    expect(active).toHaveLength(106);
     const statuses = new Set(s.calls.map((c) => new URLSearchParams(c.path.split("?")[1]).get("status")));
     expect([...statuses].sort()).toEqual(["in_progress", "pending", "queued", "requested", "waiting"]);
   });

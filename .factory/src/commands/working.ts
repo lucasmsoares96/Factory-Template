@@ -1,5 +1,5 @@
 import { issueBranch } from "../config.ts";
-import type { ActiveRun } from "../seams/code-host.ts";
+import type { ActiveRun, PullRequest } from "../seams/code-host.ts";
 import type { CommandContext } from "./context.ts";
 import { issueOfBranch } from "./pr-threads.ts";
 
@@ -8,6 +8,8 @@ import { issueOfBranch } from "./pr-threads.ts";
  * lock (that is `in-progress`), so every write here is best effort: a refused write is logged and the run goes on.
  * Each run puts it on with the job token (a job-token label event starts no workflow) and takes it off at its end.
  */
+
+type PrRef = Pick<PullRequest, "number" | "branch">;
 
 /** What a run works on. An issue brings the open pull request of its Factory branch along, unless `issuePrs` is false. */
 export interface WorkingTargets {
@@ -59,10 +61,10 @@ export async function releaseOrphans(ctx: CommandContext): Promise<{ released: W
   return await release(ctx, runs, issues, prs);
 }
 
-async function release(ctx: CommandContext, runs: ActiveRun[], issues: number[], prs: { number: number; branch: string }[]) {
+async function release(ctx: CommandContext, runs: ActiveRun[], issues: number[], prs: PrRef[]) {
   const { config, tracker, codeHost } = ctx;
   const label = config.labels.working;
-  const result = { released: { issues: [] as number[], prs: [] as number[] }, kept: { issues: [] as number[], prs: [] as number[] } };
+  const result: { released: WorkingChange; kept: WorkingChange } = { released: { issues: [], prs: [] }, kept: { issues: [], prs: [] } };
   const runIssues = new Set(runs.flatMap((r) => (r.issue === null ? [] : [r.issue])));
   // A run keyed by a pull request works on the issue of its Factory branch too.
   for (const r of runs) {
@@ -98,9 +100,9 @@ async function release(ctx: CommandContext, runs: ActiveRun[], issues: number[],
 }
 
 /** The targets with each issue's open Factory pull request added, no number twice. */
-async function expand(ctx: CommandContext, targets: WorkingTargets): Promise<{ issues: number[]; prs: { number: number; branch: string }[] }> {
+async function expand(ctx: CommandContext, targets: WorkingTargets): Promise<{ issues: number[]; prs: PrRef[] }> {
   const issues = [...new Set(targets.issues)];
-  const prs = new Map<number, { number: number; branch: string }>();
+  const prs = new Map<number, PrRef>();
   for (const n of targets.prs) {
     const pr = await ctx.codeHost.pullRequest(n).catch(() => null);
     prs.set(n, { number: n, branch: pr?.branch ?? "" });

@@ -3,7 +3,7 @@ import type { CommandContext } from "./context.ts";
 import { isMarked } from "../marker.ts";
 import type { ReactionTarget } from "../seams/code-host.ts";
 import { ACTIONS_BOT, issueOfBranch, openThreads } from "./pr-threads.ts";
-import { releaseOrphans, startWorking } from "./working.ts";
+import { releaseOrphans, startWorking, type WorkingChange } from "./working.ts";
 
 /** `issue` is null for an update keyed by the pull request alone (one that is not a Factory PR in progress). */
 export type PrClaim =
@@ -81,7 +81,7 @@ export async function scanBranches(
   ctx: CommandContext,
   git: { isAncestor(ancestor: string, commit: string): Promise<boolean> },
   base: string,
-): Promise<{ dispatched: number[]; upToDate: number[]; forks: number[]; released: { issues: number[]; prs: number[] } }> {
+): Promise<{ dispatched: number[]; upToDate: number[]; forks: number[]; released: WorkingChange }> {
   const { codeHost, config } = ctx;
   const dispatched: number[] = [];
   const upToDate: number[] = [];
@@ -119,7 +119,7 @@ export async function scanBranches(
     await codeHost.dispatch("factory-update-branches.yml", issue === null ? { pr: String(pr.number) } : { issue: String(issue) });
     dispatched.push(pr.number);
   }
-  let released = { issues: [] as number[], prs: [] as number[] };
+  let released: WorkingChange = { issues: [], prs: [] };
   try {
     released = (await releaseOrphans(ctx)).released;
   } catch (error) {
