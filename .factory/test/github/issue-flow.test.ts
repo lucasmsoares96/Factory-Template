@@ -91,8 +91,8 @@ describe("factory claim over the GitHub adapters", () => {
     const { code } = await run(w, ["claim", "7", "--event", "labeled"], { GITHUB_OUTPUT: out });
 
     expect(code).toBe(0);
-    expect([...w.store.get(7)!.labels]).toEqual(["in-progress"]);
-    expect(await readFile(out, "utf8")).toBe("claimed=true\nrequester=alice\nstart_sha=\nbranch=factory/issue-7\n");
+    expect([...w.store.get(7)!.labels]).toEqual(["in-progress", "factory:working"]);
+    expect(await readFile(out, "utf8")).toBe("claimed=true\nrequester=alice\nstart_sha=\nbranch=factory/issue-7\npr=\n");
   });
 
   it("a second claim of the same issue loses the lock: the label is already gone", async () => {

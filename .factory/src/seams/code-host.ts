@@ -16,6 +16,7 @@ export interface PullRequest {
   base: string;
   /** Its head lives in another repository: the Factory cannot push there, and never runs its code. */
   fork: boolean;
+  labels: string[];
 }
 
 export interface InlineComment {
@@ -71,6 +72,26 @@ export interface FailedCheck {
   log: string;
 }
 
+/** A comment or review someone wrote on a pull request, by the id its forge event carries. */
+export interface ReactionTarget {
+  pr: number;
+  /** `comment`: in the Conversation tab; `review-comment`: inline, in a thread; `review`: a submitted review. */
+  kind: "comment" | "review-comment" | "review";
+  id: number;
+}
+
+/**
+ * A Factory workflow run that is queued or going. Its title names what it works on: `#N` an issue, `PR #N` a pull
+ * request; neither (the Triage, the scan) leaves both null.
+ */
+export interface ActiveRun {
+  id: number;
+  /** The workflow file, e.g. `factory-issue.yml`. */
+  workflow: string;
+  issue: number | null;
+  pr: number | null;
+}
+
 export type PushResult = { ok: true } | { ok: false; reason: "branch-moved" };
 
 export interface CodeHost {
@@ -101,6 +122,8 @@ export interface CodeHost {
   closePr(pr: number, comment?: string): Promise<void>;
   /** Adds `label` to the pull request. */
   labelPr(pr: number, label: string): Promise<void>;
+  /** Removes `label` from the pull request (a no-op when it is not there). */
+  unlabelPr(pr: number, label: string): Promise<void>;
   submitReview(pr: number, review: Review): Promise<void>;
   threads(pr: number): Promise<ReviewThread[]>;
   /** The reviews submitted on the pull request, oldest first. */
@@ -113,6 +136,10 @@ export interface CodeHost {
   /** The Conversation tab, oldest first: its comments and the bodies of submitted reviews (empty bodies left out). */
   conversation(pr: number): Promise<ConversationEntry[]>;
   replyToThread(pr: number, threadId: string, body: string): Promise<void>;
+  /** Adds a reaction to a comment or review, to say the Factory has seen it. */
+  react(target: ReactionTarget, reaction: "eyes"): Promise<void>;
+  /** The Factory's workflow runs that are queued or going (this one included). */
+  activeRuns(): Promise<ActiveRun[]>;
   /** Starts a Factory workflow run (e.g. `issue` for an unblocked issue). */
   dispatch(workflow: string, inputs: Record<string, string>): Promise<void>;
 }

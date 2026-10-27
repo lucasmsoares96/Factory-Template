@@ -14,6 +14,7 @@ import { claim, type ClaimResult } from "./claim.ts";
 import { apply, hasTriageResult, type ApplyRun } from "./triage.ts";
 import type { CommandContext } from "./context.ts";
 import { publish, type PublishResult } from "./publish.ts";
+import { stopWorking } from "./working.ts";
 
 export { CLAUDE_AUTH };
 
@@ -68,36 +69,41 @@ export async function local(base: BaseContext, number: number, options: LocalOpt
     const exploring = (await tracker.issue(number)).labels.includes(config.labels.agentExplore);
     const claimed = exploring ? null : await claim(ctx, number, { event: null });
     if (claimed && !claimed.claimed) return claimed;
+    // The PR the claim marked factory:working, which publish may close: the end of the run clears it too.
+    const marked = claimed ? await ctx.codeHost.openPrFor(claimed.branch) : null;
+    try {
+      const inDir = join(tmp, "in");
+      const outDir = join(tmp, "out");
+      await mkdir(inDir, { recursive: true });
+      await mkdir(outDir, { recursive: true });
+      await git(repo, "bundle", "create", "--quiet", join(inDir, IN_BUNDLE), baseRef);
+      await copyTracker(issuesDir, join(inDir, IN_TRACKER));
 
-    const inDir = join(tmp, "in");
-    const outDir = join(tmp, "out");
-    await mkdir(inDir, { recursive: true });
-    await mkdir(outDir, { recursive: true });
-    await git(repo, "bundle", "create", "--quiet", join(inDir, IN_BUNDLE), baseRef);
-    await copyTracker(issuesDir, join(inDir, IN_TRACKER));
+      const { exitCode } = await options.container.run({
+        repo,
+        issue: number,
+        command: exploring ? "triage" : "work",
+        inDir,
+        outDir,
+        base: config.baseBranch,
+        env: containerEnv(options.env),
+      });
+      if (!claimed) {
+        if (exitCode !== 0) log(`factory: the triage container exited with ${exitCode}`);
+        if (!(await hasTriageResult(outDir))) throw new Error("The triage container left no triage.json.");
+        return { triage: await apply(ctx, { in: outDir, repo }), workExitCode: exitCode };
+      }
+      if (exitCode !== 0) log(`factory: the work container exited with ${exitCode}`);
 
-    const { exitCode } = await options.container.run({
-      repo,
-      issue: number,
-      command: exploring ? "triage" : "work",
-      inDir,
-      outDir,
-      base: config.baseBranch,
-      env: containerEnv(options.env),
-    });
-    if (!claimed) {
-      if (exitCode !== 0) log(`factory: the triage container exited with ${exitCode}`);
-      if (!(await hasTriageResult(outDir))) throw new Error("The triage container left no triage.json.");
-      return { triage: await apply(ctx, { in: outDir, repo }), workExitCode: exitCode };
+      const file = await tracker.files.file(number);
+      const evidence = evidenceDir(issuesDir, file.id);
+      await keepSessions(join(outDir, "sessions"), join(evidence, "sessions"));
+
+      const published = await publish(ctx, number, { repo: publishRepo, in: outDir, startSha: claimed.startSha, runUrl: null, pr: null });
+      return { ...published, branch: issueBranch(config, number), evidence, workExitCode: exitCode };
+    } finally {
+      if (claimed) await stopWorking(ctx, { issues: [number], prs: marked ? [marked.number] : [] }, null);
     }
-    if (exitCode !== 0) log(`factory: the work container exited with ${exitCode}`);
-
-    const file = await tracker.files.file(number);
-    const evidence = evidenceDir(issuesDir, file.id);
-    await keepSessions(join(outDir, "sessions"), join(evidence, "sessions"));
-
-    const published = await publish(ctx, number, { repo: publishRepo, in: outDir, startSha: claimed.startSha, runUrl: null, pr: null });
-    return { ...published, branch: issueBranch(config, number), evidence, workExitCode: exitCode };
   } finally {
     await rm(tmp, { recursive: true, force: true });
   }

@@ -3,12 +3,12 @@ import { FACTORY_MARKER } from "../src/marker.ts";
 import { HUMAN, OWNER, SPEC_BODY, lastJson, readyIssue, world } from "./helpers.ts";
 
 describe("factory claim", () => {
-  it("takes the lock: ready-for-agent becomes in-progress", async () => {
+  it("takes the lock: ready-for-agent becomes in-progress, and the run is marked factory:working", async () => {
     const w = world();
 
     expect(await w.factory("claim", "7")).toBe(0);
 
-    expect(w.tracker.labelsOf(7)).toEqual(["in-progress"]);
+    expect(w.tracker.labelsOf(7)).toEqual(["in-progress", "factory:working"]);
     expect(lastJson(w.logs)).toEqual({
       claimed: true,
       issue: 7,
@@ -81,7 +81,28 @@ describe("factory claim", () => {
 
     await w.factory("claim", "7");
 
-    expect(w.tracker.labelsOf(7)).toEqual(["doing"]);
+    expect(w.tracker.labelsOf(7)).toEqual(["doing", "factory:working"]);
+  });
+
+  it("marks the open pull request of the issue's branch too, a retry's draft", async () => {
+    const w = world({ prs: [{ number: 55, branch: "factory/issue-7", draft: true }, { number: 56, branch: "factory/issue-8" }] });
+
+    await w.factory("claim", "7");
+
+    expect(w.codeHost.pr(55).labels).toEqual(["factory:working"]);
+    expect(w.codeHost.pr(56).labels).toEqual([]);
+  });
+
+  it("a label that cannot be written is logged and does not stop the run", async () => {
+    const w = world();
+    w.tracker.addLabel = async () => {
+      throw new Error("Resource not accessible by integration");
+    };
+
+    await w.factory("claim", "7");
+
+    expect(lastJson(w.logs)).toMatchObject({ claimed: true });
+    expect(w.logs.join("\n")).toContain("Resource not accessible by integration");
   });
 
   const refusals: [string, Parameters<typeof readyIssue>[0], string][] = [

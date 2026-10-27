@@ -8,6 +8,7 @@ import type { ReviewThread, SubmittedReview } from "../seams/code-host.ts";
 import type { Issue, IssueComment } from "../seams/tracker.ts";
 import type { CommandContext } from "./context.ts";
 import { issueOfBranch } from "./pr-threads.ts";
+import { startWorking } from "./working.ts";
 
 const MINUTE = 60_000;
 
@@ -62,6 +63,7 @@ export interface CollectOptions {
  * of the run into `out` (new and empty): the issue with its parent and the writers' comments, the PR's writer-only
  * threads and reviews, and the `work-out` artifact of every run. Everything it writes is data for the Retro, never
  * something to run. A closed PR goes on only when a writer other than the Factory left a thread or a review on it.
+ * Its one write: `factory:working` on the origin issue when the Retro goes on.
  */
 export async function retroCollect(ctx: CommandContext, options: CollectOptions): Promise<CollectResult> {
   const { tracker, codeHost, config } = ctx;
@@ -81,6 +83,8 @@ export async function retroCollect(ctx: CommandContext, options: CollectOptions)
     if (!human) return { collected: false, issue: number, pr: prNumber, reason: "no thread or review from a writer: a clean pull request has nothing to teach" };
   }
 
+  // The Retro goes on: its origin issue shows it until the run ends (`working off`).
+  await startWorking(ctx, { issues: [number], prs: [], issuePrs: false });
   const issue = await tracker.issue(number);
   const comments = await filter(issue.comments, (c) => writes(c.author));
   await mkdir(options.out, { recursive: true });

@@ -36,18 +36,10 @@ export interface TriageRun {
  */
 export async function triage(ctx: CommandContext, options: { issues: number[]; out: string }): Promise<TriageRun> {
   const { tracker, agent, config } = ctx;
-  const explore = config.labels.agentExplore;
-  const wanted = options.issues.length > 0 ? options.issues : (await tracker.labeled(explore)).sort((a, b) => a - b);
+  const chosen = await triageBatch(ctx, options.issues);
+  const skipped = chosen.skipped;
   const batch: Issue[] = [];
-  const skipped: number[] = [];
-  for (const number of wanted) {
-    const origin = await tracker.labelOrigin(number, explore);
-    if (origin === null || !(await trustedExplore(tracker, config, origin))) {
-      skipped.push(number);
-      continue;
-    }
-    batch.push(await tracker.issue(number));
-  }
+  for (const number of chosen.batch) batch.push(await tracker.issue(number));
 
   const result: TriageResult = { issues: [], usage: { inputTokens: 0, outputTokens: 0 }, retries: 0 };
   const fallback: number[] = [];
@@ -74,6 +66,24 @@ export async function triage(ctx: CommandContext, options: { issues: number[]; o
   await mkdir(options.out, { recursive: true });
   await writeFile(join(options.out, TRIAGE_FILE), `${JSON.stringify(result, null, 2)}\n`);
   return { triaged: result.issues.map((v) => v.number), skipped, fallback, retries: result.retries };
+}
+
+/**
+ * The issues a Triage run reads: those given, or every one labelled `agent:explore`, minus those whose label is not
+ * trusted (`trustedExplore`).
+ */
+export async function triageBatch(ctx: CommandContext, issues: number[] = []): Promise<{ batch: number[]; skipped: number[] }> {
+  const { tracker, config } = ctx;
+  const explore = config.labels.agentExplore;
+  const wanted = issues.length > 0 ? issues : (await tracker.labeled(explore)).sort((a, b) => a - b);
+  const batch: number[] = [];
+  const skipped: number[] = [];
+  for (const number of wanted) {
+    const origin = await tracker.labelOrigin(number, explore);
+    if (origin === null || !(await trustedExplore(tracker, config, origin))) skipped.push(number);
+    else batch.push(number);
+  }
+  return { batch, skipped };
 }
 
 export interface ApplyRun {

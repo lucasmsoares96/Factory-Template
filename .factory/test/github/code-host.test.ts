@@ -85,7 +85,7 @@ describe("GitHubCodeHost", () => {
     s.on("POST", `${R}/pulls`, ({ body }) => ({ status: 201, json: pr(4, { echo: body }) }));
     const h = host(s);
 
-    expect(await h.openPrFor("factory/issue-7")).toEqual({ number: 3, url: "https://github.com/o/r/pull/3", branch: "factory/issue-7", headSha: "a".repeat(40), state: "open", draft: true, base: "main", fork: false });
+    expect(await h.openPrFor("factory/issue-7")).toEqual({ number: 3, url: "https://github.com/o/r/pull/3", branch: "factory/issue-7", headSha: "a".repeat(40), state: "open", draft: true, base: "main", fork: false, labels: [] });
     expect(await h.openPrFor("factory/issue-9")).toBeNull();
     await h.openDraftPr({ branch: "factory/issue-7", base: "main", title: "Fix #7: x", body: "B" });
     expect(s.calls.at(-1)!.body).toEqual({ head: "factory/issue-7", base: "main", title: "Fix #7: x", body: marked("B"), draft: true });
@@ -263,6 +263,86 @@ describe("GitHubCodeHost", () => {
       expect(written).not.toContain("/tmp/out");
       expect(written).toMatch(/## Evidence[\s\S]*home\.png[\s\S]*could not be attached[\s\S]*unknown flag/);
     });
+  });
+
+  it("reads a pull request's labels and removes one, a label already gone being no error", async () => {
+    const s = new FakeGitHubServer();
+    s.on("GET", `${R}/pulls/4`, () => ({ json: pr(4, { labels: [{ name: "factory:working" }, { name: "preview" }] }) }));
+    s.on("DELETE", `${R}/issues/4/labels/factory%3Aworking`, () => ({ json: [] }));
+    const h = host(s);
+
+    expect((await h.pullRequest(4))!.labels).toEqual(["factory:working", "preview"]);
+    await h.unlabelPr(4, "factory:working");
+    await h.unlabelPr(5, "factory:working");
+
+    expect(s.writes()).toEqual([`DELETE ${R}/issues/4/labels/factory%3Aworking`, `DELETE ${R}/issues/5/labels/factory%3Aworking`]);
+  });
+
+  describe("react", () => {
+    it("puts 👀 on a Conversation comment and on a review comment over REST", async () => {
+      const s = new FakeGitHubServer();
+      s.on("POST", `${R}/issues/comments/11/reactions`, () => ({ status: 201, json: {} }));
+      s.on("POST", `${R}/pulls/comments/22/reactions`, () => ({ status: 201, json: {} }));
+      const h = host(s);
+
+      await h.react({ pr: 4, kind: "comment", id: 11 }, "eyes");
+      await h.react({ pr: 4, kind: "review-comment", id: 22 }, "eyes");
+
+      expect(s.writes()).toEqual([`POST ${R}/issues/comments/11/reactions`, `POST ${R}/pulls/comments/22/reactions`]);
+      expect(s.calls.map((c) => c.body)).toEqual([{ content: "eyes" }, { content: "eyes" }]);
+    });
+
+    it("puts 👀 on a review through GraphQL, which REST has no endpoint for", async () => {
+      const s = new FakeGitHubServer();
+      s.on("GET", `${R}/pulls/4/reviews/33`, () => ({ json: { id: 33, node_id: "PRR_33", body: "", user: { login: "alice" }, submitted_at: "2026-10-27T10:00:00Z" } }));
+      s.on("POST", "/graphql", () => ({ json: { data: { addReaction: { reaction: { content: "EYES" } } } } }));
+
+      await host(s).react({ pr: 4, kind: "review", id: 33 }, "eyes");
+
+      expect(s.calls.at(-1)!.body).toMatchObject({ variables: { subject: "PRR_33", content: "EYES" } });
+      expect(String((s.calls.at(-1)!.body as { query: string }).query)).toContain("addReaction");
+    });
+
+    it("a GraphQL error fails the reaction on a review", async () => {
+      const s = new FakeGitHubServer();
+      s.on("GET", `${R}/pulls/4/reviews/33`, () => ({ json: { id: 33, node_id: "PRR_33", body: "", user: null } }));
+      s.on("POST", "/graphql", () => ({ json: { errors: [{ message: "Resource not accessible by integration" }] } }));
+
+      await expect(host(s).react({ pr: 4, kind: "review", id: 33 }, "eyes")).rejects.toThrow("Resource not accessible");
+    });
+  });
+
+  it("lists the Factory runs queued or going, every page, reading the issue or the PR from the run title", async () => {
+    const s = new FakeGitHubServer();
+    const run = (id: number, file: string, title: string) => ({ id, path: `.github/workflows/${file}`, display_title: title, status: "x" });
+    const runs: Record<string, unknown[]> = {
+      queued: [run(1, "factory-issue.yml", "#7 Greet the user"), run(2, "ci.yml", "#8 something else")],
+      in_progress: [
+        ...Array.from({ length: 100 }, (_, i) => run(1000 + i, "factory-update-branches.yml", "Factory update branches")),
+        run(3, "factory-pr-feedback.yml", "PR #12 feedback"),
+        run(4, "factory-retro.yml", "Retro of PR #13"),
+        run(5, "factory-triage.yml", "Factory triage"),
+      ],
+      waiting: [run(6, "factory-update-branches.yml", "PR #14 update branch")],
+    };
+    s.on("GET", `${R}/actions/runs`, ({ query }) => {
+      const all = runs[query.get("status")!] ?? [];
+      const page = Number(query.get("page"));
+      return { json: { total_count: all.length, workflow_runs: all.slice((page - 1) * 100, page * 100) } };
+    });
+
+    const active = await host(s).activeRuns();
+
+    expect(active.filter((r) => r.id < 1000)).toEqual([
+      { id: 1, workflow: "factory-issue.yml", issue: 7, pr: null },
+      { id: 3, workflow: "factory-pr-feedback.yml", issue: null, pr: 12 },
+      { id: 4, workflow: "factory-retro.yml", issue: null, pr: 13 },
+      { id: 5, workflow: "factory-triage.yml", issue: null, pr: null },
+      { id: 6, workflow: "factory-update-branches.yml", issue: null, pr: 14 },
+    ]);
+    expect(active).toHaveLength(105);
+    const statuses = new Set(s.calls.map((c) => new URLSearchParams(c.path.split("?")[1]).get("status")));
+    expect([...statuses].sort()).toEqual(["in_progress", "pending", "queued", "requested", "waiting"]);
   });
 
   it("dispatches a Factory workflow on the base branch", async () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { FACTORY_MARKER, marked } from "../src/marker.ts";
 import { git, HUMAN, lastJson, OWNER, unmarked } from "./helpers.ts";
-import { BRANCH, PR, commits, feedbackRound, prWorld, replies, reviewOk, said, thread, type PrWorld } from "./pr-flow-helpers.ts";
+import { BRANCH, PR, commits, feedbackRound, finishRound, prWorld, replies, reviewOk, said, thread, type PrWorld } from "./pr-flow-helpers.ts";
 
 const claimReason = async (options: Parameters<typeof prWorld>[0], actor: string) => {
   const p = await prWorld(options);
@@ -439,5 +439,76 @@ describe("factory pr-feedback: the failed checks of the PR's head", () => {
       expect(block).not.toContain(`job${job} line 100\n`);
       expect(block).toContain(`job${job} line 300`);
     }
+  });
+});
+
+describe("factory pr-feedback: factory:working and 👀", () => {
+  const answered = { agent: { development: [commits(replies({ threadId: "t1", decision: "address", body: "Done." }))], review: [reviewOk] }, verify: [{ ok: true }] };
+  const claimOn = (p: PrWorld, event: string, id: string) => p.w.factory("pr-feedback", "--pr", String(PR), "--actor", HUMAN, "--event", event, "--comment-id", id);
+
+  it("an accepted round marks the PR and the issue, and the end of the run clears both", async () => {
+    const p = await prWorld({ main: "none", threads: [thread("t1", "rename this")], ...answered });
+
+    expect(await claimOn(p, "pull_request_review_comment", "77")).toBe(0);
+    const claim = lastJson(p.w.logs) as { startSha: string };
+    expect(p.w.tracker.labelsOf(7)).toEqual(["in-progress", "factory:working"]);
+    expect(p.w.codeHost.pr(PR).labels).toEqual(["factory:working"]);
+
+    await finishRound(p, ["--flow", "pr-feedback"], claim.startSha);
+    expect(p.w.tracker.labelsOf(7)).toEqual(["in-progress"]);
+    expect(p.w.codeHost.pr(PR).labels).toEqual([]);
+  });
+
+  it.each([
+    ["issue_comment", "comment"],
+    ["pull_request_review_comment", "review-comment"],
+    ["pull_request_review", "review"],
+  ])("puts 👀 on the %s that started an accepted round", async (event, kind) => {
+    const p = await prWorld({ main: "none", threads: [thread("t1", "rename this")] });
+
+    await claimOn(p, event, "77");
+
+    expect(p.w.codeHost.reactions).toEqual([{ pr: PR, kind, id: 77, reaction: "eyes" }]);
+  });
+
+  it("a refused round gets no label and no reaction", async () => {
+    const p = await prWorld({ main: "none", threads: [thread("t1", "x", { replies: [{ author: OWNER, body: marked("done") }] })] });
+
+    await claimOn(p, "issue_comment", "77");
+
+    expect(lastJson(p.w.logs)).toEqual({ claimed: false, reason: "no-open-threads" });
+    expect(p.w.codeHost.reactions).toEqual([]);
+    expect(p.w.tracker.labelsOf(7)).toEqual(["in-progress"]);
+    expect(p.w.codeHost.pr(PR).labels).toEqual([]);
+  });
+
+  it("a reaction that fails is logged and the round goes on", async () => {
+    const p = await prWorld({ main: "none", threads: [thread("t1", "rename this")] });
+    p.w.codeHost.react = async () => {
+      throw new Error("Resource not accessible by integration");
+    };
+
+    await claimOn(p, "issue_comment", "77");
+
+    expect(lastJson(p.w.logs)).toMatchObject({ claimed: true });
+    expect(p.w.logs.join("\n")).toContain("Resource not accessible by integration");
+  });
+
+  it("the end of a run keeps the label where another Factory run is queued, and ignores its own run", async () => {
+    const p = await prWorld({ main: "none", threads: [thread("t1", "rename this")], ...answered });
+    await claimOn(p, "issue_comment", "77");
+    // This run (#900) and a newer comment's run (#901), queued on the same PR.
+    p.w.env.GITHUB_RUN_ID = "900";
+    p.w.codeHost.runs.push({ id: 900, workflow: "factory-pr-feedback.yml", issue: null, pr: PR });
+    p.w.codeHost.runs.push({ id: 901, workflow: "factory-pr-feedback.yml", issue: null, pr: PR });
+
+    expect(await p.w.factory("working", "off", "7", "--pr", String(PR))).toBe(0);
+    expect(p.w.tracker.labelsOf(7)).toContain("factory:working");
+    expect(p.w.codeHost.pr(PR).labels).toEqual(["factory:working"]);
+
+    p.w.codeHost.runs.pop();
+    expect(await p.w.factory("working", "off", "7", "--pr", String(PR))).toBe(0);
+    expect(p.w.tracker.labelsOf(7)).toEqual(["in-progress"]);
+    expect(p.w.codeHost.pr(PR).labels).toEqual([]);
   });
 });

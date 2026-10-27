@@ -1,8 +1,10 @@
 # The Triage of issues labelled `agent:explore` (by someone with write access, or by the Factory's own swap of a writer's
 # `ready-for-agent`, which dispatches this workflow), in a batch.
+#   start  (job token, issues: write)  factory:working on each issue of the batch; hands the list to `done`
 #   image  the published Factory image of the default branch
 #   work   (the image, read-only, Claude's auth only)  one Triage session over every issue in Triage -> triage.json
 #   apply  (fresh VM, FACTORY_TOKEN, the harness of the default branch)  comment + label per verdict
+#   done   (job token, if: always())  takes factory:working off the batch, whatever happened
 # The agent never sees FACTORY_TOKEN; the jobs meet only through the `triage-out` artifact. One run at a time, and a
 # label event that arrives while one runs replaces the pending run (no cancel of the running one): the next run reads
 # every issue still in Triage, so nothing is lost. Off until `pnpm bootstrap factory` sets FACTORY_ENABLED. A change to
@@ -24,9 +26,41 @@ env:
   FACTORY_ADAPTERS: github
 
 jobs:
-  image:
-    # Skipped until FACTORY_ENABLED is true (then `work` and `apply` skip too). A label event for any other label ends here.
+  start:
+    # Skipped until FACTORY_ENABLED is true (then every other job skips too). A label event for any other label ends here.
     if: ${{ vars.FACTORY_ENABLED == 'true' && (github.event_name == 'workflow_dispatch' || github.event.label.name == (vars.FACTORY_LABELS_AGENT_EXPLORE || 'agent:explore')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The one write: factory:working on the issues of the batch, with the job token (its label event starts no workflow).
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    outputs:
+      issues: ${{ steps.start.outputs.issues }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: corepack enable pnpm && pnpm install --frozen-lockfile --ignore-scripts --filter @factory/harness
+      - env:
+          VARS_JSON: ${{ toJSON(vars) }}
+        run: node .factory/src/ci/vars.ts
+      - id: start
+        name: working on
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: pnpm factory working on --triage
+
+  image:
+    needs: start
     uses: ./.github/workflows/factory-image.yml
     permissions:
       contents: read
@@ -113,3 +147,37 @@ jobs:
         env:
           FACTORY_TOKEN: ${{ secrets.FACTORY_TOKEN }}
         run: pnpm factory apply --in "$RUNNER_TEMP/out"
+
+  # The end of the run, whatever happened (a failed `work` skips `apply`): never with FACTORY_TOKEN.
+  done:
+    needs: [start, apply]
+    if: ${{ always() && needs.start.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+      actions: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: corepack enable pnpm && pnpm install --frozen-lockfile --ignore-scripts --filter @factory/harness
+      - env:
+          VARS_JSON: ${{ toJSON(vars) }}
+        run: node .factory/src/ci/vars.ts
+      - name: working off
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ISSUES: ${{ needs.start.outputs.issues }}
+        # ISSUES is the list of numbers `start` wrote: split on purpose.
+        run: pnpm factory working off $ISSUES

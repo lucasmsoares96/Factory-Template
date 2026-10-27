@@ -71,7 +71,7 @@ export async function prWorld(input: { main: MainChange; threads?: ReviewThread[
 
 export type PrWorld = Awaited<ReturnType<typeof prWorld>>;
 
-/** claim → work → publish of a pr-feedback round through the CLI; returns the claim and the exit code of each job. */
+/** claim → work → publish → working off of a pr-feedback round through the CLI; returns the claim and the exit code of each job. */
 export async function feedbackRound(p: PrWorld, options: { actor?: string; beforePublish?: () => void } = {}) {
   const { w } = p;
   expect(await w.factory("pr-feedback", "--pr", String(PR), "--actor", options.actor ?? HUMAN)).toBe(0);
@@ -81,12 +81,14 @@ export async function feedbackRound(p: PrWorld, options: { actor?: string; befor
   return { claim, ran: true };
 }
 
-/** work → publish for a claimed PR flow. */
+/** work → publish → working off for a claimed PR flow. */
 export async function finishRound(p: PrWorld, flow: string[], startSha: string, beforePublish?: () => void) {
   const { w } = p;
   expect(await w.factory("work", "7", ...flow, "--pr", String(PR), "--out", p.out, "--repo", p.workRepo)).toBe(0);
   beforePublish?.();
   expect(await w.factory("publish", "7", "--pr", String(PR), "--in", p.out, "--repo", p.publishRepo, "--start-sha", startSha)).toBe(0);
+  // The last step of the run, as in the workflow.
+  expect(await w.factory("working", "off", "7", "--pr", String(PR))).toBe(0);
 }
 
 export type { World };

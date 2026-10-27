@@ -41,6 +41,14 @@ The point where a human reviews and merges the factory's pull request; the facto
 What the factory does when it cannot finish an issue: it explains why on the issue, swaps `in-progress` for `ready-for-human`, and opens a draft pull request with its progress when there are commits. The reason is one of `e2e-failures` (five attempts failed), `time` (the global limit ran out), `needs-human` (a question for a person, or the criteria cannot be met without changing the Skeleton) or `infra` (the run left no result).
 _Avoid_: Failure, abort
 
+**Lock**:
+The `in-progress` label: the factory holds the issue from the claim until the merge or an Escalation, whether or not a run is going (a ready pull request waiting at the Merge Gate still holds it). Only one run takes it.
+_Avoid_: Working (that is a Working Run)
+
+**Working Run**:
+A run of the factory that is going right now on an issue or pull request: the issue flow, a feedback round, a branch update, the Triage or the Retro. The `factory:working` label shows it, on the issue and its pull request, and comes off when the run ends, whatever the outcome; it says nothing about who holds the issue (that is the Lock).
+_Avoid_: In progress (that is the Lock)
+
 **Merge Danger**:
 The risk of merging a Factory pull request, stated as a door (one-way, hard to walk back, or two-way, cheap to roll back) and a blast radius (what the change could break).
 _Avoid_: Merge risk, risk summary

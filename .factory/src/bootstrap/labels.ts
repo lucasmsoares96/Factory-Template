@@ -11,6 +11,7 @@ const METADATA: Record<StaticLabelKey, { color: string; description: string }> =
   readyForHuman: { color: "1d76db", description: "Requires human implementation" },
   wontfix: { color: "ffffff", description: "Will not be actioned" },
   inProgress: { color: "5319e7", description: "The Factory holds the lock on this issue" },
+  working: { color: "ff9f1c", description: "A Factory run is working on this right now" },
   agentExplore: { color: "c5def5", description: "Ask the Factory to triage: it explores and comments, no code" },
   harnessChange: { color: "b60205", description: "Touches the harness: review with care" },
   preview: { color: "bfdadc", description: "The pull request has a preview deployment" },

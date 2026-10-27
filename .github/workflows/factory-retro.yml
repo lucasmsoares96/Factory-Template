@@ -1,11 +1,13 @@
 # The automatic Retro: it looks back at a Factory run and proposes changes to the Factory's environment (checks,
 # coding standards, navigation), never to the code. It only proposes: the candidates land in one `needs-triage` +
 # `retro` issue per origin, and a person picks what becomes work.
-#   collect  (job token, read-only)  a closed PR goes on only if a writer left a thread or review on it; then the run's
-#                                    record: the issue, writer-only threads and reviews, the work-out artifact of each run
+#   collect  (job token)  a closed PR goes on only if a writer left a thread or review on it; then the run's record: the
+#                         issue, writer-only threads and reviews, the work-out artifact of each run. Its one write:
+#                         factory:working on the origin issue.
 #   image    the published Factory image of the default branch
 #   work     (the image, read-only, Claude's auth only)  one Retro session (the `retro` skill) over retro-in -> retro.json
 #   publish  (fresh VM, FACTORY_TOKEN, the harness of the default branch)  creates or edits the Retro issue
+#   done     (job token, if: always())  takes factory:working off the origin issue, whatever happened
 # Started by `publish` on every Escalation (workflow_dispatch) and when a Factory PR closes. The PR's code never runs:
 # every job checks out the default branch, and the downloaded record is data the agent reads, never runs. The agent
 # never sees FACTORY_TOKEN; the jobs meet only through the `retro-in` and `retro-out` artifacts. Off until
@@ -45,11 +47,12 @@ jobs:
     # `actions: read` finds the runs and downloads their artifacts; nothing here can write.
     permissions:
       contents: read
-      issues: read
+      issues: write
       pull-requests: read
       actions: read
     outputs:
       collected: ${{ steps.collect.outputs.collected }}
+      issue: ${{ steps.collect.outputs.issue }}
     defaults:
       run:
         shell: bash
@@ -173,3 +176,36 @@ jobs:
         env:
           FACTORY_TOKEN: ${{ secrets.FACTORY_TOKEN }}
         run: pnpm factory retro-publish --in "$RUNNER_TEMP/retro-out"
+
+  # The end of the run, whatever happened: never with FACTORY_TOKEN.
+  done:
+    needs: [collect, publish]
+    if: ${{ always() && needs.collect.outputs.collected == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+      actions: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: corepack enable pnpm && pnpm install --frozen-lockfile --ignore-scripts --filter @factory/harness
+      - env:
+          VARS_JSON: ${{ toJSON(vars) }}
+        run: node .factory/src/ci/vars.ts
+      - name: working off
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ISSUE: ${{ needs.collect.outputs.issue }}
+        run: pnpm factory working off "$ISSUE"

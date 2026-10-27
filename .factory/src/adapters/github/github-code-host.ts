@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import type { CodeHost, ConversationEntry, EvidenceImage, FailedCheck, PullRequest, PushResult, Review, ReviewThread, SubmittedReview } from "../../seams/code-host.ts";
+import type { ActiveRun, CodeHost, ConversationEntry, EvidenceImage, FailedCheck, PullRequest, PushResult, ReactionTarget, Review, ReviewThread, SubmittedReview } from "../../seams/code-host.ts";
 import { marked } from "../../marker.ts";
 import { BASE_ENV, pick } from "../../env.ts";
 import { GitHubApi, type GitHubApiOptions } from "./api.ts";
@@ -32,6 +32,7 @@ const prRow = z.object({
   node_id: z.string().optional(),
   head: z.object({ ref: z.string(), sha: z.string(), repo: z.object({ full_name: z.string() }).nullable().optional() }),
   base: z.object({ ref: z.string() }),
+  labels: z.array(z.object({ name: z.string() })).default([]),
 });
 const refRow = z.object({ object: z.object({ sha: z.string() }) });
 const reviewRow = z.object({
@@ -50,6 +51,11 @@ const reviewCommentRow = z.object({
   in_reply_to_id: z.number().nullable().optional(),
 });
 const runRow = z.object({ id: z.number(), name: z.string().nullable().optional(), conclusion: z.string().nullable(), html_url: z.string() });
+const activeRunRow = z.object({ id: z.number(), path: z.string(), display_title: z.string() });
+/** Every status of a run that has not ended. */
+const ACTIVE_STATUSES = ["queued", "in_progress", "waiting", "pending", "requested"];
+/** The workflows whose runs work on an issue or a pull request. */
+const FACTORY_WORKFLOWS = new Set(["factory-issue.yml", "factory-pr-feedback.yml", "factory-update-branches.yml", "factory-triage.yml", "factory-retro.yml"]);
 const jobRow = z.object({ id: z.number(), name: z.string(), conclusion: z.string().nullable(), html_url: z.string().nullable() });
 /** A run that ended like this has no failed job to read. */
 const CLEAN_RUN = new Set(["success", "skipped", "neutral"]);
@@ -169,6 +175,10 @@ export class GitHubCodeHost implements CodeHost {
     await this.api.send("POST", this.api.repoPath(`/issues/${pr}/labels`), { labels: [label] });
   }
 
+  async unlabelPr(pr: number, label: string): Promise<void> {
+    await this.api.request("DELETE", `${this.api.repoPath(`/issues/${pr}/labels`)}/${encodeURIComponent(label)}`, z.unknown(), { allow404: true });
+  }
+
   async submitReview(pr: number, review: Review): Promise<void> {
     await this.api.send("POST", this.api.repoPath(`/pulls/${pr}/reviews`), {
       event: review.event,
@@ -238,6 +248,32 @@ export class GitHubCodeHost implements CodeHost {
     await this.api.send("POST", this.api.repoPath(`/pulls/${pr}/comments/${threadId}/replies`), { body: marked(body) });
   }
 
+  /** REST for comments; a review has no REST reactions endpoint, so GraphQL `addReaction` on its node id. */
+  async react(target: ReactionTarget, reaction: "eyes"): Promise<void> {
+    if (target.kind === "comment") return this.api.send("POST", this.api.repoPath(`/issues/comments/${target.id}/reactions`), { content: reaction });
+    if (target.kind === "review-comment") return this.api.send("POST", this.api.repoPath(`/pulls/comments/${target.id}/reactions`), { content: reaction });
+    const review = await this.api.get(this.api.repoPath(`/pulls/${target.pr}/reviews/${target.id}`), z.object({ node_id: z.string() }));
+    const response = await this.api.request("POST", "/graphql", graphql, {
+      body: {
+        query: "mutation($subject: ID!, $content: ReactionContent!) { addReaction(input: { subjectId: $subject, content: $content }) { reaction { content } } }",
+        variables: { subject: review.node_id, content: reaction.toUpperCase() },
+      },
+    });
+    if (response?.errors?.length) throw new Error(`GitHub could not react to review ${target.id}: ${response.errors.map((e) => e.message).join("; ")}`);
+  }
+
+  /** The repository's runs in each status that has not ended, kept when their workflow is a Factory one. */
+  async activeRuns(): Promise<ActiveRun[]> {
+    const found: ActiveRun[] = [];
+    for (const status of ACTIVE_STATUSES) {
+      for (const run of await this.api.listIn(this.api.repoPath(`/actions/runs?status=${status}`), "workflow_runs", activeRunRow)) {
+        const workflow = run.path.split("/").at(-1)!.split("@")[0]!;
+        if (FACTORY_WORKFLOWS.has(workflow)) found.push({ id: run.id, workflow, ...runTarget(run.display_title) });
+      }
+    }
+    return found;
+  }
+
   async dispatch(workflow: string, inputs: Record<string, string>): Promise<void> {
     const file = workflow.endsWith(".yml") ? workflow : `factory-${workflow}.yml`;
     await this.api.send("POST", this.api.repoPath(`/actions/workflows/${file}/dispatches`), { ref: this.options.baseBranch, inputs });
@@ -246,6 +282,14 @@ export class GitHubCodeHost implements CodeHost {
   private scrub(text: string): string {
     return text.replaceAll(this.options.token, "***").replaceAll(Buffer.from(`x-access-token:${this.options.token}`).toString("base64"), "***");
   }
+}
+
+/** What a Factory run title names: `PR #N` a pull request, else `#N` an issue (the `run-name` of each workflow). */
+export function runTarget(title: string): { issue: number | null; pr: number | null } {
+  const pr = /(?:^|\s)PR #(\d+)(?=\s|:|$)/.exec(title);
+  if (pr) return { issue: null, pr: Number(pr[1]) };
+  const issue = /(?:^|\s)#(\d+)(?=\s|:|$)/.exec(title);
+  return { issue: issue ? Number(issue[1]) : null, pr: null };
 }
 
 function lastLines(text: string, n: number): string {
@@ -259,7 +303,7 @@ function escapeRegExp(text: string): string {
 /** A head repository other than `repo`, or one deleted since (`null`), is a fork. */
 function toPr(row: z.infer<typeof prRow>, repo: string): PullRequest {
   const fork = row.head.repo?.full_name.toLowerCase() !== repo.toLowerCase();
-  return { number: row.number, url: row.html_url, branch: row.head.ref, headSha: row.head.sha, state: row.state, draft: row.draft, base: row.base.ref, fork };
+  return { number: row.number, url: row.html_url, branch: row.head.ref, headSha: row.head.sha, state: row.state, draft: row.draft, base: row.base.ref, fork, labels: row.labels.map((l) => l.name) };
 }
 
 /** What git and gh get: the base variables every tool needs, plus `extra` (the token they authenticate with). Never the parent's secrets. */
