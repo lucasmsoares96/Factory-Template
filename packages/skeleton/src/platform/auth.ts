@@ -8,7 +8,7 @@ import { createEmailSender, emailTransport } from "./email.ts";
 import type { SkeletonEnv } from "./env.ts";
 import { apiError } from "./errors.ts";
 import { passwordHashing } from "./password.ts";
-import { revokeAccessAfterCredentialChange } from "./credential-change.ts";
+import { revokeAccess } from "./revoke-access.ts";
 import { rateLimitStorage } from "./rate-limit.ts";
 
 export type AuthConfig = {
@@ -39,7 +39,7 @@ export function createAuth(c: Context<SkeletonEnv>, { emailFrom, t }: AuthConfig
       }),
       password: passwordHashing(c.env.PASSWORD_HASHER),
       rateLimit: rateLimitStorage(c.env.RATE_LIMITER),
-      onCredentialChange: (user) => revokeAccessAfterCredentialChange(c, user),
+      revokeAccess: (user) => revokeAccess(c, user),
       defer: c.var.defer,
     }),
   );

@@ -73,3 +73,8 @@ export const tooManyRequests = authError(429, "TOO_MANY_REQUESTS", "Too many req
 export function changePasswordHandler(answer?: Answer) {
   return handler("/change-password", answer ?? ok({ token: "new-session-token", user: { ...user("ana@example.com"), emailVerified: true } }));
 }
+
+/** `POST /api/auth/delete-user`: with the password; the Worker refuses an Owner with `OWNER_OF_COMPANIES` and the Companies. */
+export function deleteUserHandler(answer: Answer = ok({ success: true, message: "User deleted" })) {
+  return handler("/delete-user", answer);
+}

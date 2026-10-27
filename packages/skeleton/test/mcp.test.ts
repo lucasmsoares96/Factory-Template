@@ -497,6 +497,31 @@ test("a password change revokes every Connection of the user, and the session it
   expect((await listWith(again.tokens.access_token)).status).toBe(200);
 });
 
+test("deleting the account revokes every Connection of the user at once", async () => {
+  const email = `user-${randomUUID()}@example.com`;
+  await worker.post("/api/auth/sign-up/email", { name: "Ana Souza", email, password: "correct horse battery" });
+  await expect.poll(() => sent.some((message) => message.to.includes(email)), { timeout: 10_000 }).toBe(true);
+  const verify = new URL(linkIn(sent.find((message) => message.to.includes(email))!.html, "/api/auth/verify-email"));
+  await worker.fetch(`${verify.pathname}${verify.search}`, { redirect: "manual" });
+  const signIn = await worker.post("/api/auth/sign-in/email", { email, password: "correct horse battery" });
+  const cookie = cookiesOf(signIn).join("; ");
+  const { user } = (await signIn.json()) as { user: { id: string } };
+  const agents = [await connectAgent(cookie), await connectAgent(cookie, { access: "write" })];
+  for (const { tokens, client } of agents) {
+    await client.close();
+    expect((await listWith(tokens.access_token)).status).toBe(200);
+  }
+
+  const deletion = await worker.post("/api/auth/delete-user", { password: "correct horse battery" }, { cookie });
+  expect(deletion.status).toBe(200);
+
+  expect(await worker.grantsOf(user.id)).toEqual([]);
+  for (const { clientId, tokens } of agents) {
+    expect((await listWith(tokens.access_token)).status).toBe(401);
+    expect((await refresh(clientId, tokens.refresh_token!)).status).toBe(400);
+  }
+});
+
 test("a token issued for one Product's /mcp is rejected by another Product's /mcp (US73)", async () => {
   const otherDb = await createEmptyDatabase();
   await migrateDatabase({ databaseUrl: otherDb.url });
