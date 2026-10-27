@@ -1,4 +1,4 @@
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
@@ -39,7 +39,7 @@ async function setup(opts: { issues?: NonNullable<WorldOptions["issues"]>; triag
   });
   return { w, repo, out };
 }
-const triage = (s: Awaited<ReturnType<typeof setup>>, ...extra: string[]) => s.w.factory("triage", ...extra, "--out", s.out);
+const triage = (s: Awaited<ReturnType<typeof setup>>, ...extra: string[]) => s.w.factory("triage", ...extra, "--out", s.out, "--repo", s.repo);
 const apply = (s: Awaited<ReturnType<typeof setup>>) => s.w.factory("apply", "--in", s.out, "--repo", s.repo);
 const triageComments = (w: World, n: number) => w.tracker.commentsOn(n).filter((c) => c.body.includes(TRIAGE_MARKER));
 
@@ -278,6 +278,68 @@ describe("factory triage + apply", () => {
 
       expect(s.w.tracker.labelsOf(5)).toEqual(["ready-for-agent"]);
       expect(s.w.tracker.labelsOf(6).sort()).toEqual(["product:other", "ready-for-agent"]);
+    });
+  });
+
+  describe("references the approach cites", () => {
+    const cites = (...references: object[]) =>
+      verdict(5, { approach: "Import `line7` from src/app.ts and `PASSWORD_MIN_LENGTH` from src/auth.ts.", references });
+    const unchecked = "**Not found in the code (unchecked)**";
+
+    it("a missing export is posted as unchecked, an existing one as checked with where it was found", async () => {
+      const s = await setup({
+        triage: [says(cites({ symbol: "line7", foundAt: "src/app.ts:7" }, { symbol: "PASSWORD_MIN_LENGTH", foundAt: "src/app.ts" }))],
+      });
+
+      await triage(s);
+      await apply(s);
+
+      const [comment] = triageComments(s.w, 5);
+      const [found, notFound] = comment!.body.split(unchecked);
+      expect(found).toContain("**References checked**");
+      expect(found).toContain("`line7` at `src/app.ts:7`");
+      expect(found).not.toContain("`PASSWORD_MIN_LENGTH` at");
+      expect(notFound).toContain("`PASSWORD_MIN_LENGTH` at `src/app.ts`");
+      expect(notFound).not.toContain("line7");
+    });
+
+    it("a file that does not exist, or lies outside the checkout, is unchecked", async () => {
+      const s = await setup({
+        triage: [says(cites({ symbol: "line7", foundAt: "src/auth.ts:3" }, { symbol: "root", foundAt: "../../../../../../etc/passwd" }))],
+      });
+
+      await triage(s);
+      await apply(s);
+
+      const [comment] = triageComments(s.w, 5);
+      expect(comment!.body).not.toContain("**References checked**");
+      expect(comment!.body).toContain(unchecked);
+      expect(comment!.body).toContain("`line7` at `src/auth.ts:3`");
+      expect(comment!.body).toContain("`root` at `../../../../../../etc/passwd`");
+    });
+
+    it("the agent cannot mark its own reference checked", async () => {
+      const s = await setup({ triage: [says(cites({ symbol: "PASSWORD_MIN_LENGTH", foundAt: "src/app.ts", checked: true }))] });
+
+      await triage(s);
+      await apply(s);
+
+      const [comment] = triageComments(s.w, 5);
+      expect(comment!.body).not.toContain("**References checked**");
+      expect(comment!.body).toContain(unchecked);
+    });
+
+    it("an old triage.json without references still applies", async () => {
+      const s = await setup({ triage: [says(verdict(5))] });
+      await triage(s);
+      const file = join(s.out, "triage.json");
+      const old = JSON.parse(await readFile(file, "utf8"));
+      for (const v of old.issues) delete v.references;
+      await writeFile(file, JSON.stringify(old));
+
+      expect(await apply(s)).toBe(0);
+      expect(s.w.tracker.labelsOf(5)).toEqual(["ready-for-agent"]);
+      expect(triageComments(s.w, 5)[0]!.body).not.toContain("References checked");
     });
   });
 
