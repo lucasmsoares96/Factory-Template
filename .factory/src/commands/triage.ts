@@ -100,8 +100,9 @@ const PRODUCT_ID = /^[a-z][a-z0-9-]*$/;
  * `agent:explore` for the label of the verdict (the swap is the lock) and,
  * only once the swap held, removes `needs-triage`, a state label the verdict
  * replaces. Order matters: the comment first, because `ready-for-agent`
- * starts a run whose guard looks for it. `easy-call` → `ready-for-agent`, `needs-a-human` →
- * `ready-for-human`, `blocked` → `needs-info`; a duplicate is never queued.
+ * starts a run whose guard looks for it. `easy-call` → `ready-for-agent`,
+ * `needs-a-human` → `ready-for-human`, `blocked` → `needs-info`; a duplicate
+ * is never queued.
  * It adds `product:<id>` when the verdict names a Product that exists under
  * `apps/` and the issue has no `product:` label yet.
  */
