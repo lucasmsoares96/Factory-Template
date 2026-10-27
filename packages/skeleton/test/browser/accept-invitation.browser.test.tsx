@@ -15,7 +15,7 @@ import { expect, test } from "../spa/test.ts";
 
 const token = "invitation-token";
 const path = `/invitations/${token}`;
-const bruno = { id: "user-2", name: "Bruno Lima", email: "bruno@example.com" };
+const bruno = { id: "user-2", name: "Bruno Lima", email: "bruno@example.com", pendingEmail: null };
 const acme = { id: "company-acme", name: "Acme", role: "employee", createdAt: "2026-10-24T12:00:00.000Z" };
 const invitation = {
   companyId: acme.id,
@@ -89,7 +89,7 @@ test("an expired or canceled Invitation shows why, translated by its code", asyn
 });
 
 test("signed in with another email, the user sees the Invitation is for another address and switches account", async ({ worker }) => {
-  const ana = { id: "user-1", name: "Ana Souza", email: "ana@example.com" };
+  const ana = { id: "user-1", name: "Ana Souza", email: "ana@example.com", pendingEmail: null };
   const signOut = signOutHandler();
   worker.use(getInvitationByTokenHandler(invitation), getMeHandler(ana), signOut.handler);
   const { screen, router, t } = await renderSpa({ path });
