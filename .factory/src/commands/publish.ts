@@ -34,6 +34,11 @@ export interface PublishOptions {
    * token would start `pull_request_target: labeled` workflows. Best effort; the run's last step takes it off.
    */
   markWorking?: (pr: number) => Promise<void>;
+  /**
+   * Dispatches the automatic Retro of an Escalation with the job token (`actions: write`): the forge token may not
+   * dispatch workflows. Without it, the run's code host dispatches.
+   */
+  dispatchRetro?: (inputs: { issue: string; pr: string }) => Promise<void>;
 }
 
 /**
@@ -58,14 +63,14 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
   try {
     result = await loadArtifacts(git, number, branch, options.in);
   } catch (error) {
-    return escalate(ctx, issue, { reason: "infra", result: null, detail: (error as Error).message, pr: null, runUrl: options.runUrl }, options.pr);
+    return escalate(ctx, issue, { reason: "infra", result: null, detail: (error as Error).message, pr: null, runUrl: options.runUrl }, options.pr, options.dispatchRetro);
   }
   // Built before anything is written: a patch that cannot be the Skeleton pull request stops the run.
   let skeletonSha: string | null;
   try {
     skeletonSha = await skeletonChange(git, issue, result, options.in);
   } catch (error) {
-    return escalate(ctx, issue, { reason: "infra", result, detail: (error as Error).message, pr: null, runUrl: options.runUrl }, options.pr);
+    return escalate(ctx, issue, { reason: "infra", result, detail: (error as Error).message, pr: null, runUrl: options.runUrl }, options.pr, options.dispatchRetro);
   }
   if (result.outcome === "waiting" && options.pr === null) return waitOnSkeleton(ctx, issue, await openFollowUps(ctx, issue, result, skeletonSha));
 
@@ -73,7 +78,7 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
   const changed = head ? await changedFiles(git, result.base, head) : [];
   if (!head) {
     const followUps = await openFollowUps(ctx, issue, result, skeletonSha);
-    return escalate(ctx, issue, { reason: escalationReason(result), result, pr: null, runUrl: options.runUrl, followUps }, options.pr);
+    return escalate(ctx, issue, { reason: escalationReason(result), result, pr: null, runUrl: options.runUrl, followUps }, options.pr, options.dispatchRetro);
   }
 
   const push = await ctx.codeHost.push({ branch, sha: head, expectedSha: options.startSha });
@@ -91,7 +96,7 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
   }
   if (options.pr !== null) await postReplies(ctx, pr.number, result.threadReplies);
 
-  if (escalated) return escalate(ctx, issue, { reason: escalated, result, pr, runUrl: options.runUrl, followUps }, options.pr);
+  if (escalated) return escalate(ctx, issue, { reason: escalated, result, pr, runUrl: options.runUrl, followUps }, options.pr, options.dispatchRetro);
   if (followUps.length > 0) await ctx.tracker.comment(number, followUpComment(followUps));
   if (pr.draft) await ctx.codeHost.markReady(pr.number);
   return { issue: number, outcome: "ready", pr: pr.number, url: pr.url };
@@ -408,6 +413,7 @@ async function escalate(
   report: Parameters<typeof escalationComment>[0],
   /** The PR this run continues: it gets a short note too, and stays as it is (never turned back into a draft). */
   continuing: number | null = null,
+  dispatchRetro?: PublishOptions["dispatchRetro"],
 ): Promise<PublishResult> {
   const { tracker, config } = ctx;
   await tracker.comment(issue.number, escalationComment(report, config));
@@ -418,7 +424,7 @@ async function escalate(
       `The Factory could not finish this round (\`${report.reason}\`). Issue #${issue.number} is now \`${config.labels.readyForHuman}\`: the comment there has the attempts. This pull request stays as it is.`,
     );
   }
-  await startRetro(ctx, issue.number, report.pr?.number ?? continuing);
+  await startRetro(ctx, issue.number, report.pr?.number ?? continuing, dispatchRetro);
   return { issue: issue.number, outcome: "escalated", reason: report.reason, pr: report.pr?.number ?? null, url: report.pr?.url ?? null };
 }
 
@@ -426,10 +432,11 @@ async function escalate(
  * Every Escalation gets an automatic Retro (`factory-retro.yml`), unless `FACTORY_RETRO_ENABLED=false`. It must never
  * fail the Escalation: where it cannot be started (local mode, a refused dispatch), the run says so and goes on.
  */
-async function startRetro(ctx: CommandContext, issue: number, pr: number | null): Promise<void> {
+async function startRetro(ctx: CommandContext, issue: number, pr: number | null, dispatchRetro?: PublishOptions["dispatchRetro"]): Promise<void> {
   if (!ctx.config.retro.enabled) return;
+  const inputs = { issue: String(issue), pr: pr === null ? "" : String(pr) };
   try {
-    await ctx.codeHost.dispatch("retro", { issue: String(issue), pr: pr === null ? "" : String(pr) });
+    await (dispatchRetro ? dispatchRetro(inputs) : ctx.codeHost.dispatch("retro", inputs));
   } catch (error) {
     ctx.log(`The automatic Retro of #${issue} did not start: ${(error as Error).message}`);
   }
