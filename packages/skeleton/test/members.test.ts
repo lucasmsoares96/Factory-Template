@@ -169,6 +169,38 @@ test("the Owner removes another Member, who gets 404 on every Company route from
   expect(members.items.map((member) => member.userId)).toEqual([ana.user.id, carla.user.id]);
 });
 
+test("a removed Member's writes on the Company answer 404, not 403, and change nothing", async () => {
+  const { ana, bruno, carla, company } = await acme();
+  expect((await removeMember(company.id, bruno.user.id, ana.cookie)).status).toBe(204);
+
+  // `requireMember` refuses before `requireOwner` could tell the user the Company exists.
+  for (const [method, path, body] of [
+    ["PATCH", `/api/companies/${company.id}`, { name: "Hijacked" }],
+    ["DELETE", `/api/companies/${company.id}`, { name: "Acme" }],
+    ["GET", `/api/companies/${company.id}/invitations`, undefined],
+    ["POST", `/api/companies/${company.id}/invitations`, { email: "eve@example.com", role: "employee" }],
+    ["PATCH", `/api/companies/${company.id}/members/${carla.user.id}`, { role: "employee" }],
+    ["DELETE", `/api/companies/${company.id}/members/${carla.user.id}`, undefined],
+    ["POST", `/api/companies/${company.id}/leave`, undefined],
+  ] as const) {
+    const response = await api(path, { cookie: bruno.cookie, method, body });
+    expect(response.status, `${method} ${path}`).toBe(404);
+    expect(await response.json()).toEqual({ code: "NOT_FOUND", message: "Not found." });
+  }
+  expect(await db.query(`SELECT name FROM skeleton.companies WHERE id = '${company.id}'`)).toEqual([{ name: "Acme" }]);
+  expect(await roleOf(company.id, carla.user.id)).toEqual([{ role: "manager" }]);
+  expect(await db.query(`SELECT 1 FROM skeleton.invitations WHERE company_id = '${company.id}'`)).toEqual([]);
+});
+
+test("a removed Member is a stranger to the Owner's actions: changing their role or removing them again answers 404", async () => {
+  const { ana, bruno, company } = await acme();
+  expect((await removeMember(company.id, bruno.user.id, ana.cookie)).status).toBe(204);
+
+  expect((await changeRole(company.id, bruno.user.id, ana.cookie, "manager")).status).toBe(404);
+  expect((await removeMember(company.id, bruno.user.id, ana.cookie)).status).toBe(404);
+  expect(await roleOf(company.id, bruno.user.id)).toEqual([]);
+});
+
 test("an Employee or a Product's role removing a Member answers 403 FORBIDDEN, and the Member stays", async () => {
   const { ana, bruno, carla, company } = await acme();
 
