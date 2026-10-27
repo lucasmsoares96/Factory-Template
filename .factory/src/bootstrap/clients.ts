@@ -43,6 +43,8 @@ export interface GitHubClient {
   listRulesets(): Promise<RulesetInfo[]>;
   /** `refused` as for environments. */
   createRuleset(spec: RulesetSpec): Promise<"created" | "refused">;
+  /** Turns on "require branches to be up to date before merging" in ruleset `id`, leaving its other rules as they are. `refused` as for environments. */
+  requireUpToDate(id: number): Promise<"updated" | "refused">;
   /** Deletes a secret of the repo or of one environment (only `destroy` calls the delete methods). */
   deleteSecret(name: string, options?: { environment?: string }): Promise<void>;
   deleteVariable(name: string): Promise<void>;
@@ -112,6 +114,8 @@ export interface RulesetSpec {
   rules: string[];
   /** Contexts of the required status checks. */
   requiredChecks: string[];
+  /** The required checks must have run against the newest base branch (`strict_required_status_checks_policy`). */
+  strict: boolean;
 }
 
 export interface RulesetInfo {
@@ -122,6 +126,8 @@ export interface RulesetInfo {
   include: string[];
   rules: string[];
   requiredChecks: string[];
+  /** Whether its required checks must run against the newest base branch. */
+  strict: boolean;
 }
 
 export interface CloudflareAccount {

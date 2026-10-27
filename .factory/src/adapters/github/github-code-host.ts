@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import type { CodeHost, EvidenceImage, PullRequest, PushResult, Review, ReviewThread, SubmittedReview } from "../../seams/code-host.ts";
+import type { CodeHost, ConversationEntry, EvidenceImage, PullRequest, PushResult, Review, ReviewThread, SubmittedReview } from "../../seams/code-host.ts";
 import { marked } from "../../marker.ts";
 import { BASE_ENV, pick } from "../../env.ts";
 import { GitHubApi, type GitHubApiOptions } from "./api.ts";
@@ -30,10 +30,18 @@ const prRow = z.object({
   state: z.enum(["open", "closed"]),
   draft: z.boolean().default(false),
   node_id: z.string().optional(),
-  head: z.object({ ref: z.string(), sha: z.string() }),
+  head: z.object({ ref: z.string(), sha: z.string(), repo: z.object({ full_name: z.string() }).nullable().optional() }),
+  base: z.object({ ref: z.string() }),
 });
 const refRow = z.object({ object: z.object({ sha: z.string() }) });
-const reviewRow = z.object({ body: z.string().nullable().optional(), user: z.object({ login: z.string() }).nullable() });
+const reviewRow = z.object({
+  id: z.number(),
+  body: z.string().nullable().optional(),
+  user: z.object({ login: z.string() }).nullable(),
+  /** Absent on a pending review, which nobody else sees yet. */
+  submitted_at: z.string().nullable().optional(),
+});
+const issueCommentRow = z.object({ id: z.number(), body: z.string().nullable().optional(), user: z.object({ login: z.string() }).nullable(), created_at: z.string() });
 const reviewCommentRow = z.object({
   id: z.number(),
   path: z.string().nullable().optional(),
@@ -85,12 +93,17 @@ export class GitHubCodeHost implements CodeHost {
   async openPrFor(branch: string): Promise<PullRequest | null> {
     const owner = this.options.repo.split("/")[0]!;
     const rows = await this.api.get(this.api.repoPath(`/pulls?state=open&head=${encodeURIComponent(`${owner}:${branch}`)}`), z.array(prRow));
-    return rows[0] ? toPr(rows[0]) : null;
+    return rows[0] ? toPr(rows[0], this.options.repo) : null;
+  }
+
+  async openPullRequests(): Promise<PullRequest[]> {
+    const rows = await this.api.list(this.api.repoPath("/pulls?state=open"), prRow);
+    return rows.map((row) => toPr(row, this.options.repo));
   }
 
   async pullRequest(number: number): Promise<PullRequest | null> {
     const row = await this.api.getOrNull(this.api.repoPath(`/pulls/${number}`), prRow);
-    return row ? toPr(row) : null;
+    return row ? toPr(row, this.options.repo) : null;
   }
 
   async commentPr(pr: number, body: string): Promise<void> {
@@ -102,7 +115,7 @@ export class GitHubCodeHost implements CodeHost {
       body: { head: input.branch, base: input.base, title: input.title, body: marked(input.body), draft: true },
     });
     if (input.images?.length) await this.updatePrBody(row!.number, input.body, input.images);
-    return toPr(row!);
+    return toPr(row!, this.options.repo);
   }
 
   /**
@@ -177,6 +190,22 @@ export class GitHubCodeHost implements CodeHost {
     return rows.map((r) => ({ author: r.user?.login ?? "ghost", body: r.body ?? "" }));
   }
 
+  async conversation(pr: number): Promise<ConversationEntry[]> {
+    const [comments, reviews] = await Promise.all([
+      this.api.list(this.api.repoPath(`/issues/${pr}/comments`), issueCommentRow),
+      this.api.list(this.api.repoPath(`/pulls/${pr}/reviews`), reviewRow),
+    ]);
+    const entries = [
+      ...comments.map((c) => ({ at: c.created_at, entry: { id: `comment-${c.id}`, kind: "comment" as const, author: c.user?.login ?? "ghost", body: c.body ?? "" } })),
+      ...reviews.flatMap((r) => (r.submitted_at ? [{ at: r.submitted_at, entry: { id: `review-${r.id}`, kind: "review" as const, author: r.user?.login ?? "ghost", body: r.body ?? "" } }] : [])),
+    ];
+    // ISO 8601 UTC timestamps sort as strings; the sort is stable, so equal times keep the API's order.
+    return entries
+      .filter((e) => e.entry.body.trim() !== "")
+      .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))
+      .map((e) => e.entry);
+  }
+
   async replyToThread(pr: number, threadId: string, body: string): Promise<void> {
     await this.api.send("POST", this.api.repoPath(`/pulls/${pr}/comments/${threadId}/replies`), { body: marked(body) });
   }
@@ -195,8 +224,10 @@ function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function toPr(row: z.infer<typeof prRow>): PullRequest {
-  return { number: row.number, url: row.html_url, branch: row.head.ref, headSha: row.head.sha, state: row.state, draft: row.draft };
+/** A head repository other than `repo`, or one deleted since (`null`), is a fork. */
+function toPr(row: z.infer<typeof prRow>, repo: string): PullRequest {
+  const fork = row.head.repo?.full_name.toLowerCase() !== repo.toLowerCase();
+  return { number: row.number, url: row.html_url, branch: row.head.ref, headSha: row.head.sha, state: row.state, draft: row.draft, base: row.base.ref, fork };
 }
 
 /** What git and gh get: the base variables every tool needs, plus `extra` (the token they authenticate with). Never the parent's secrets. */
