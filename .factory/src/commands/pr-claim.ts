@@ -90,7 +90,11 @@ export async function scanBranches(
     }
     if (pr.fork) {
       forks.push(pr.number);
-      const asked = (await codeHost.conversation(pr.number)).some((e) => isMarked(e.body) && e.body.includes(FORK_UPDATE_TAG));
+      // Marker plus a writer, as for every Factory text: a stranger's forged copy does not silence it.
+      let asked = false;
+      for (const e of await codeHost.conversation(pr.number)) {
+        if (isMarked(e.body) && e.body.includes(FORK_UPDATE_TAG) && (await ctx.tracker.canWrite(e.author))) asked = true;
+      }
       if (!asked) {
         await codeHost.commentPr(
           pr.number,

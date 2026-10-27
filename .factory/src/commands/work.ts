@@ -364,7 +364,7 @@ export async function work(ctx: CommandContext, number: number | null, options: 
 
 /** A pull request is an issue on the forge: a run keyed by the PR alone uses its number, with this text in place of an issue body. */
 const PR_SUBJECT_BODY =
-  "This is a pull request written by a person. The Factory only keeps it up to date with the base branch: make the merge work, and change nothing beyond that.";
+  "This pull request is not a Factory run in progress (a person's, or one a human now owns). The Factory only keeps it up to date with the base branch: make the merge work, and change nothing beyond that.";
 
 /** The issue the run works for and its branch: the issue's Factory branch, or the PR's own branch when keyed by the PR. */
 async function subject(ctx: CommandContext, number: number | null, flow: WorkFlow | null): Promise<{ issue: Issue; branch: string }> {

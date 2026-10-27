@@ -168,6 +168,17 @@ describe("pnpm bootstrap product: Production module", () => {
     expect(w.github.rulesets.map((r) => r.name)).toEqual(["weak", "main"]);
   });
 
+  it("says so when GitHub refuses to turn on up-to-date branches in an existing ruleset", async () => {
+    const w = productWorld();
+    w.github.rulesets.push({ id: 7, name: "protect main", target: "branch", enforcement: "active", include: ["~DEFAULT_BRANCH"], rules: ["deletion", "non_fast_forward", "pull_request", "required_status_checks"], requiredChecks: ["verify"], strict: false });
+    w.github.refuseRulesets = true;
+
+    const { output } = await w.run("product", "example");
+
+    expect(output).toContain("GitHub refused to update ruleset protect main #7");
+    expect(w.github.rulesets).toHaveLength(1);
+  });
+
   it("skips the ruleset with a message when the API refuses it", async () => {
     const w = productWorld();
     w.github.refuseRulesets = true;
