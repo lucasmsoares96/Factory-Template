@@ -27,12 +27,16 @@ export function parseProductList(value: string | undefined): string[] {
   return (value ?? "").split(/[\s,]+/).filter(Boolean);
 }
 
-/** The ruleset the wizard makes for the default branch: a pull request, no force-push, no deletion, the `verify` check. */
+/**
+ * The ruleset the wizard makes for the default branch: a pull request, no force-push, no deletion, the `verify` check,
+ * which must have run against the newest default branch (`strict`: a green `verify` on an old base does not merge).
+ */
 export const MAIN_RULESET: RulesetSpec = {
   name: "main",
   include: ["~DEFAULT_BRANCH"],
   rules: ["deletion", "non_fast_forward", "pull_request", "required_status_checks"],
   requiredChecks: ["verify"],
+  strict: true,
 };
 
 /**
@@ -283,13 +287,20 @@ export function authSecretStep(product: ProductIdentity): Step {
 export function mainRulesetStep(): Step {
   return {
     id: "main-ruleset",
-    title: "Ruleset on the default branch (pull request, no force-push, no deletion, check verify)",
+    title: "Ruleset on the default branch (pull request, no force-push, no deletion, check verify on an up-to-date branch)",
     async check(ctx) {
       const { defaultBranch } = await ctx.github.repo();
       const found = (await ctx.github.listRulesets()).find((r) => coversMain(r, defaultBranch));
-      return { done: found !== undefined, detail: found ? `${found.name} #${found.id}` : undefined };
+      return { done: found?.strict === true, detail: found?.strict ? `${found.name} #${found.id}` : undefined };
     },
     async run(ctx) {
+      const { defaultBranch } = await ctx.github.repo();
+      const found = (await ctx.github.listRulesets()).find((r) => coversMain(r, defaultBranch));
+      if (found) {
+        // A ruleset that covers the branch is reused, never duplicated: only its up-to-date flag is turned on.
+        if ((await ctx.github.requireUpToDate(found.id)) === "refused") ctx.log(`  GitHub refused to update ruleset ${found.name} #${found.id}: turn on "Require branches to be up to date before merging" by hand.`);
+        return;
+      }
       if ((await ctx.github.createRuleset(MAIN_RULESET)) === "refused") {
         ctx.log("  GitHub refused the ruleset (the plan or visibility of the repo): skipped. Run this step again after upgrading.");
       }
