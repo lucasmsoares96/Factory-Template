@@ -1,13 +1,16 @@
 import { HttpResponse } from "msw";
+import { changeMemberRoleHandler } from "../../src/gen/msw/changeMemberRoleHandler.ts";
 import { createCompanyHandler } from "../../src/gen/msw/createCompanyHandler.ts";
 import { deleteCompanyHandler, deleteCompanyHandlerResponse400 } from "../../src/gen/msw/deleteCompanyHandler.ts";
 import { getCompanyHandler, getCompanyHandlerResponse404 } from "../../src/gen/msw/getCompanyHandler.ts";
 import { getLastCompanyHandler, getLastCompanyHandlerResponse404 } from "../../src/gen/msw/getLastCompanyHandler.ts";
 import { getMeHandler } from "../../src/gen/msw/getMeHandler.ts";
 import { getNavHandler } from "../../src/gen/msw/getNavHandler.ts";
+import { leaveCompanyHandler, leaveCompanyHandlerResponse409 } from "../../src/gen/msw/leaveCompanyHandler.ts";
 import { listCompaniesHandler } from "../../src/gen/msw/listCompaniesHandler.ts";
 import { listInvitationsHandler } from "../../src/gen/msw/listInvitationsHandler.ts";
 import { listMembersHandler } from "../../src/gen/msw/listMembersHandler.ts";
+import { removeMemberHandler } from "../../src/gen/msw/removeMemberHandler.ts";
 import { renameCompanyHandler } from "../../src/gen/msw/renameCompanyHandler.ts";
 import { format, messagesFor } from "../../src/i18n/index.ts";
 import { renderSpa } from "../spa/render.tsx";
@@ -25,26 +28,29 @@ const nav = (t = messagesFor("en")) => ({
 const noLastCompany = getLastCompanyHandler(() =>
   getLastCompanyHandlerResponse404({ code: "NOT_FOUND", message: "Not found." }),
 );
-const members = {
+const memberList = () => ({
   items: [
     { userId: ana.id, name: ana.name, email: ana.email, role: "owner" },
     { userId: "user-2", name: "Bruno Lima", email: "bruno@example.com", role: "employee" },
     { userId: "user-3", name: "Carla Dias", email: "carla@example.com", role: "manager" },
   ],
   nextCursor: null,
-};
+});
 
 /**
  * The Companies API over a list the test controls: the switcher, the page, the
- * creation, the renaming and the deletion read and change it. The Company used
+ * creation, the renaming, the deletion and the Members' actions read and change it. The Company used
  * last is the first of the list.
  */
 function companiesApi(companies: (typeof acme)[]) {
   const created: unknown[] = [];
   const deleted: { companyId: unknown; body: unknown }[] = [];
+  const memberCalls: unknown[] = [];
+  const members = memberList();
   return {
     created,
     deleted,
+    memberCalls,
     handlers: [
       getLastCompanyHandler(() =>
         companies[0] ? HttpResponse.json(companies[0]) : getLastCompanyHandlerResponse404({ code: "NOT_FOUND", message: "Not found." }),
@@ -58,7 +64,24 @@ function companiesApi(companies: (typeof acme)[]) {
           ? HttpResponse.json(company)
           : getCompanyHandlerResponse404({ code: "NOT_FOUND", message: "Not found." });
       }),
-      listMembersHandler(members),
+      listMembersHandler(() => HttpResponse.json(members)),
+      changeMemberRoleHandler(async ({ request, params }) => {
+        const body = await request.json();
+        memberCalls.push({ change: params.userId, body });
+        const member = members.items.find(({ userId }) => userId === params.userId)!;
+        member.role = body.role;
+        return HttpResponse.json(member);
+      }),
+      removeMemberHandler(({ params }) => {
+        memberCalls.push({ remove: params.userId });
+        members.items.splice(members.items.findIndex(({ userId }) => userId === params.userId), 1);
+        return new HttpResponse(null, { status: 204 });
+      }),
+      leaveCompanyHandler(({ params }) => {
+        memberCalls.push({ leave: params.companyId });
+        companies.splice(companies.findIndex(({ id }) => id === params.companyId), 1);
+        return new HttpResponse(null, { status: 204 });
+      }),
       // The Owner's page also shows the pending Invitations (none here).
       listInvitationsHandler({ items: [], nextCursor: null }),
       createCompanyHandler(async ({ request }) => {
@@ -160,11 +183,12 @@ test("the switcher's New Company opens the creation form", async ({ worker }) =>
 });
 
 test("the Company page shows the features' sections and the Members with name, email and role", async ({ worker }) => {
-  worker.use(...companiesApi([acme]).handlers);
-  const { screen, t } = await renderSpa({ path: `/c/${acme.id}` });
+  // An Employee's page: the Owner's has a role choice in place of each other Member's role.
+  worker.use(...companiesApi([globex]).handlers);
+  const { screen, t } = await renderSpa({ path: `/c/${globex.id}` });
 
   const sections = screen.getByRole("navigation", { name: t.companies.page.sections });
-  await expect.element(sections.getByRole("link", { name: "Notes" })).toHaveAttribute("href", `/c/${acme.id}/notes`);
+  await expect.element(sections.getByRole("link", { name: "Notes" })).toHaveAttribute("href", `/c/${globex.id}/notes`);
   const table = screen.getByRole("table", { name: t.companies.page.members });
   await expect.element(table.getByRole("columnheader", { name: t.companies.page.memberEmail })).toBeVisible();
   await expect.element(table.getByRole("row", { name: `${ana.name} ${ana.email} ${t.companies.roles.owner}` })).toBeVisible();
@@ -267,5 +291,78 @@ test("a confirmation the API refuses is shown translated, and the Company stays 
   await screen.getByRole("button", { name: t.companies.settings.delete.submit }).click();
 
   await expect.element(screen.getByRole("alert")).toHaveTextContent(t.errors.CONFIRMATION_MISMATCH);
+  expect(router.state.location.pathname).toBe(`/c/${acme.id}`);
+});
+
+test("the Owner sees a role choice and Remove for every other Member, and Leave", async ({ worker }) => {
+  const api = companiesApi([{ ...acme }]);
+  worker.use(...api.handlers);
+  const { screen, t } = await renderSpa({ path: `/c/${acme.id}` });
+  const m = t.companies.members;
+
+  const table = screen.getByRole("table", { name: t.companies.page.members });
+  await expect.element(table.getByRole("combobox", { name: format(m.roleOf, { name: "Bruno Lima" }) })).toHaveValue("employee");
+  await expect.element(table.getByRole("combobox", { name: format(m.roleOf, { name: "Carla Dias" }) })).toHaveValue("manager");
+  await expect.element(table.getByRole("button", { name: format(m.remove, { name: "Carla Dias" }) })).toBeVisible();
+  // Nobody changes their own role, and the Owner leaves through Leave.
+  await expect.element(table.getByRole("combobox", { name: format(m.roleOf, { name: ana.name }) })).not.toBeInTheDocument();
+  await expect.element(table.getByRole("button", { name: format(m.remove, { name: ana.name }) })).not.toBeInTheDocument();
+  await expect.element(screen.getByRole("button", { name: t.companies.leave.submit })).toBeVisible();
+});
+
+test("the Owner changes a Member's role and removes a Member from the table", async ({ worker }) => {
+  const api = companiesApi([{ ...acme }]);
+  worker.use(...api.handlers);
+  const { screen, t } = await renderSpa({ path: `/c/${acme.id}` });
+  const m = t.companies.members;
+  const table = screen.getByRole("table", { name: t.companies.page.members });
+
+  await table.getByRole("combobox", { name: format(m.roleOf, { name: "Carla Dias" }) }).selectOptions("employee");
+  await expect
+    .element(screen.getByRole("status"))
+    .toHaveTextContent(format(m.roleChanged, { name: "Carla Dias", role: t.companies.roles.employee }));
+  await table.getByRole("button", { name: format(m.remove, { name: "Bruno Lima" }) }).click();
+  await expect.element(screen.getByRole("status")).toHaveTextContent(format(m.removed, { name: "Bruno Lima" }));
+
+  await expect.element(table.getByRole("row", { name: /Bruno Lima/ })).not.toBeInTheDocument();
+  expect(table.getByRole("row").elements()).toHaveLength(3);
+  expect(api.memberCalls).toEqual([{ change: "user-3", body: { role: "employee" } }, { remove: "user-2" }]);
+});
+
+test("an Employee sees only Leave, and leaving goes to another Company", async ({ worker }) => {
+  const api = companiesApi([{ ...globex }, { ...acme }]);
+  worker.use(...api.handlers);
+  const { screen, router, t } = await renderSpa({ path: `/c/${globex.id}` });
+  const m = t.companies.members;
+
+  const table = screen.getByRole("table", { name: t.companies.page.members });
+  await expect.element(table.getByRole("row", { name: /Bruno Lima/ })).toBeVisible();
+  expect(table.getByRole("combobox").elements()).toHaveLength(0);
+  expect(table.getByRole("button").elements()).toHaveLength(0);
+  await expect.element(screen.getByRole("button", { name: format(m.remove, { name: "Bruno Lima" }) })).not.toBeInTheDocument();
+  await screen.getByRole("button", { name: t.companies.leave.submit }).click();
+
+  await expect.element(screen.getByRole("heading", { level: 1, name: acme.name })).toBeVisible();
+  expect(router.state.location.pathname).toBe(`/c/${acme.id}`);
+  expect(api.memberCalls).toEqual([{ leave: globex.id }]);
+});
+
+test("the Owner who tries to leave is told to transfer the ownership first, in their language", async ({ worker }) => {
+  const t = messagesFor("pt-BR");
+  worker.use(...companiesApi([{ ...acme }]).handlers);
+  worker.use(
+    getNavHandler(nav(t)),
+    leaveCompanyHandler(() =>
+      leaveCompanyHandlerResponse409({
+        code: "OWNER_MUST_TRANSFER",
+        message: "The Owner cannot leave the Company. Transfer its ownership to another Member first.",
+      }),
+    ),
+  );
+  const { screen, router } = await renderSpa({ path: `/c/${acme.id}`, locale: "pt-BR" });
+
+  await screen.getByRole("button", { name: t.companies.leave.submit }).click();
+
+  await expect.element(screen.getByRole("alert")).toHaveTextContent(t.errors.OWNER_MUST_TRANSFER);
   expect(router.state.location.pathname).toBe(`/c/${acme.id}`);
 });
