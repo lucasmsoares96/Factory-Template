@@ -81,6 +81,10 @@ describe("prompt templates", () => {
     expect(prompts.retro).toContain("`.agents/skills/retro/SKILL.md`");
   });
 
+  it("tells the update-branch session to regenerate the branch's own migration on top of the base branch's", () => {
+    expect(prompts["update-branch"]).toMatch(/delete the branch's migration folder and generate it again on top of the newest migration from `main`/);
+  });
+
   it("asks the Review for the rules it wanted and could not find, which the Retro reads", () => {
     expect(prompts.review).toContain("### Rules this review wanted and could not find");
     expect(prompts.retro).toContain("Rules this review wanted and could not find");
