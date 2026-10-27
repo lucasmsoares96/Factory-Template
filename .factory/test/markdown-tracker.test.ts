@@ -73,6 +73,27 @@ describe("Markdown Tracker", () => {
     expect(await t.labeled("ready-for-agent")).toEqual([7, 8]);
   });
 
+  it("addBlocker rewrites `Blocked by: None` or appends to the list, once, and the blocker holds until it is `done`", async () => {
+    const { issues, read } = await feature({
+      "03-other.md": ticket("03", "Other", { status: "done" }),
+      "07-greet.md": ticket("07", "Greet the user", { status: "ready-for-agent" }),
+      "08-more.md": ticket("08", "More", { status: "ready-for-agent", blockedBy: "03" }),
+      "09-skeleton.md": ticket("09", "The Skeleton must grow", { status: "ready-for-human" }),
+    });
+    const t = tracker(issues);
+
+    await t.addBlocker(7, 9);
+    await t.addBlocker(8, 9);
+    await t.addBlocker(8, 9);
+
+    expect(await read("07-greet.md")).toContain("**Blocked by:** 09\n");
+    expect(await read("08-more.md")).toContain("**Blocked by:** 03, 09\n");
+    expect(await t.blockers(7)).toEqual([{ number: 9, done: false }]);
+    expect(await t.blockers(8)).toEqual([{ number: 3, done: true }, { number: 9, done: false }]);
+    await t.swapLabel(9, "ready-for-human", "done");
+    expect(await t.blockers(7)).toEqual([{ number: 9, done: true }]);
+  });
+
   it("swaps the Status line as the lock, keeping its format, and refuses when the label is gone", async () => {
     const { issues, read } = await feature({ "07-greet.md": ticket("07", "Greet the user", { status: "ready-for-agent" }) });
     const t = tracker(issues);

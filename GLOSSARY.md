@@ -73,7 +73,7 @@ The hidden `<!-- factory -->` the factory puts in every text it writes. It write
 _Avoid_: Bot signature, machine user
 
 **Skeleton gap**:
-What a Product issue needs that the Skeleton lacks. The factory reverts any Skeleton change made for a Product issue and opens an issue titled "The Skeleton must grow: ...", so the Skeleton grows in its own change.
+What a Product issue needs that the Skeleton lacks. The factory reverts any Skeleton change made for a Product issue and opens an issue titled "The Skeleton must grow: ...", so the Skeleton grows in its own change. When the run had changed Skeleton files, that change becomes a pull request of its own, ready for a human to approve; a Product issue that cannot finish without it waits on it, blocked and back in the queue.
 _Avoid_: Workaround
 
 **Default account**:
