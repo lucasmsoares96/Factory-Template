@@ -49,6 +49,13 @@ export class MarkdownTracker implements Tracker {
     );
   }
 
+  async addBlocker(number: number, blockedBy: number): Promise<void> {
+    const { issue } = await this.files.read(number);
+    if (issue.blockedBy.includes(blockedBy)) return;
+    const { file } = await this.files.read(blockedBy);
+    await this.files.setBlockedBy(number, [...issue.blockedBy.map((n) => n.toString().padStart(2, "0")), file.id]);
+  }
+
   async blocking(number: number): Promise<number[]> {
     return this.scan((issue) => !isClosed(issue.status) && issue.blockedBy.includes(number));
   }
