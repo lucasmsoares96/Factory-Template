@@ -61,8 +61,10 @@ Commands:
                                          The issue flow on this machine for a Markdown ticket
                                          (.scratch/<feature>/issues/NN-*.md): claim and publish here, work in a
                                          throwaway Docker container. A ticket labelled agent:explore gets the Triage instead. Needs CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY.
-  triage [<issue>...] --out <dir>        The Triage, read-only: one session over the issues labelled agent:explore (or the
-                                         ones given); writes triage.json. Changes nothing on the forge.
+  triage [<issue>...] --out <dir> [--repo <dir>]
+                                         The Triage, read-only: one session over the issues labelled agent:explore (or the
+                                         ones given); checks the references of each verdict in the checkout; writes triage.json.
+                                         Changes nothing on the forge.
   apply --in <dir> [--repo <dir>]        Apply triage.json: the marked comment, then agent:explore → ready-for-agent
                                          (easy-call), ready-for-human (needs-a-human) or needs-info (blocked); adds product:<id>.
   unblock [--issue N]                    Drop in-progress from the closed issue N, then sweep the ready-for-agent issues and start the ones whose blockers are all done.
@@ -212,7 +214,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
       return 0;
     }
     case "triage": {
-      const result = await triage(ctx, { issues: positionals.map(parseIssue), out: required(values.out, "--out") });
+      const result = await triage(ctx, { issues: positionals.map(parseIssue), out: required(values.out, "--out"), repo: values.repo });
       deps.log(JSON.stringify(result));
       return 0;
     }
