@@ -193,8 +193,17 @@ describe("GitHubTracker", () => {
         { event: "labeled", label: { name: "agent:explore" }, actor: { login: "carol" } },
       ],
     }));
+    // The swap's POST of a label already on the issue makes no event: the label keeps a stranger's actor.
+    s.on("GET", `${R}/issues/10/events`, () => ({
+      json: [
+        { event: "labeled", label: { name: "agent:explore" }, actor: { login: "mallory" } },
+        { event: "labeled", label: { name: "ready-for-agent" }, actor: { login: "alice" } },
+        { event: "unlabeled", label: { name: "ready-for-agent" }, actor: BOT },
+      ],
+    }));
     const t = tracker(s);
 
+    expect(await t.labelOrigin(10, "agent:explore")).toEqual({ actor: "mallory", replaced: null });
     expect(await t.labelOrigin(7, "agent:explore")).toEqual({ actor: "github-actions[bot]", replaced: { label: "ready-for-agent", actor: "alice" } });
     expect(await t.labelOrigin(8, "agent:explore")).toEqual({ actor: "github-actions[bot]", replaced: null });
     expect(await t.labelOrigin(8, "needs-info")).toEqual({ actor: "mallory", replaced: null });
