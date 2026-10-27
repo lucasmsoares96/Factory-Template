@@ -165,9 +165,10 @@ export function prFeedbackPrompt(ctx: { issue: Issue; pr: number; log: string; t
 }
 
 /** Merge conflicts with the base branch on a Factory branch (ticket 18 runs it). */
-export function updateBranchPrompt(ctx: { issue: Issue; base: string; conflicts: string[] }): string {
+export function updateBranchPrompt(ctx: { issue: Issue; base: string; conflicts: string[]; pr?: number | null }): string {
   return renderTemplate("update-branch", {
     NUMBER: String(ctx.issue.number),
+    TARGET: ctx.pr ? `pull request #${ctx.pr}` : `issue #${ctx.issue.number}`,
     BASE: ctx.base,
     CONFLICTS: ctx.conflicts.map((path) => `- \`${path}\``).join("\n"),
     ISSUE: issueBlock(ctx.issue),

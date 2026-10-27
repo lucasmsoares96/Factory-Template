@@ -33,6 +33,17 @@ export class Git {
     return (await this.run("log", "--format=%h %s", `${from}..${to}`)).trim();
   }
 
+  /** Whether `ancestor` is reachable from `commit` (a branch that contains it is not behind it). */
+  async isAncestor(ancestor: string, commit: string): Promise<boolean> {
+    try {
+      await this.run("merge-base", "--is-ancestor", ancestor, commit);
+      return true;
+    } catch (error) {
+      if ((error as { code?: number }).code === 1) return false;
+      throw error;
+    }
+  }
+
   /**
    * Files that conflict when `b` is merged into `a` (`git merge-tree --write-tree`, nothing touches the working
    * tree); empty when the merge is clean.

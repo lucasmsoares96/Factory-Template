@@ -3,7 +3,7 @@ import { issueBranch } from "../config.ts";
 import { diffLines, filterToDiff, type DiffLines } from "../diff.ts";
 import { Git } from "../git.ts";
 import { isHarnessPath, isSensitivePath } from "../paths.ts";
-import { costFooter, escalationComment, followUpComment, type EscalationReason, type FollowUpRef } from "../report.ts";
+import { attemptLine, costFooter, escalationComment, fence, followUpComment, lastFailure, type EscalationReason, type FollowUpRef } from "../report.ts";
 import { BUNDLE_FILE, EVIDENCE_DIR, RESULT_FILE, readResult, type FactoryResult } from "../result.ts";
 import { withEvidence } from "../pull-request-evidence.ts";
 import type { EvidenceImage, PullRequest } from "../seams/code-host.ts";
@@ -77,6 +77,62 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
   if (followUps.length > 0) await ctx.tracker.comment(number, followUpComment(followUps));
   if (pr.draft) await ctx.codeHost.markReady(pr.number);
   return { issue: number, outcome: "ready", pr: pr.number, url: pr.url };
+}
+
+export type PrUpdateResult =
+  | { pr: number; outcome: "updated"; url: string }
+  | { pr: number; outcome: "up-to-date" | "stopped" | "discarded"; reason: string };
+
+/**
+ * `publish` of an update keyed by the pull request alone (`publish --pr N` without an issue): it never runs as an
+ * issue flow. It changes no label, opens no PR and comments only on this one: what was merged, or why it stopped.
+ * The push leases against the head of the claim; a run that did not pass Verify pushes nothing.
+ */
+export async function publishPrUpdate(ctx: CommandContext, number: number, options: Omit<PublishOptions, "pr">): Promise<PrUpdateResult> {
+  const { codeHost, config } = ctx;
+  const git = new Git(options.repo);
+  const stop = async (outcome: "stopped" | "discarded", reason: string, comment: string): Promise<PrUpdateResult> => {
+    await codeHost.commentPr(number, comment);
+    return { pr: number, outcome, reason };
+  };
+  const pr = await codeHost.pullRequest(number);
+  if (!pr || pr.state !== "open" || pr.fork) return { pr: number, outcome: "discarded", reason: `pull request #${number} is no longer open on this repository` };
+  const moved = `branch ${pr.branch} moved since the run started`;
+  if ((await codeHost.branchHead(pr.branch)) !== options.startSha) return stop("discarded", moved, `Run discarded: ${moved}. Nothing was pushed.`);
+
+  let result: FactoryResult;
+  try {
+    result = await loadArtifacts(git, number, pr.branch, options.in);
+  } catch (error) {
+    const detail = (error as Error).message;
+    return stop("stopped", "infra", `The Factory could not update this branch with \`${config.baseBranch}\`: the work job left no valid result (${detail}). Nothing was pushed.${runLine(options.runUrl)}`);
+  }
+  if (result.outcome === "escalated") {
+    return stop("stopped", result.reason ?? "infra", prUpdateStopped(result, config.baseBranch, options.runUrl));
+  }
+  if (result.head === null || result.head === options.startSha) return { pr: number, outcome: "up-to-date", reason: `already contains ${config.baseBranch}` };
+
+  const push = await codeHost.push({ branch: pr.branch, sha: result.head, expectedSha: options.startSha });
+  if (!push.ok) return stop("discarded", moved, `Run discarded: ${moved}. Nothing was pushed.`);
+  const fixes = result.attempts.length > 1 ? ` The merge broke \`verify\`; the Factory fixed it on this branch:\n\n${result.attempts.map((a) => `- ${attemptLine(a)}`).join("\n")}` : " `verify` passed.";
+  await codeHost.commentPr(number, `Merged \`${config.baseBranch}\` (\`${result.base.slice(0, 7)}\`) into this branch and pushed \`${result.head.slice(0, 7)}\`.${fixes}${runLine(options.runUrl)}`);
+  return { pr: number, outcome: "updated", url: pr.url };
+}
+
+/** Why the update of a person's PR stopped, with the attempts: the branch is left as it was. */
+function prUpdateStopped(result: FactoryResult, base: string, runUrl: string | null): string {
+  const lines = [`The Factory could not update this branch with \`${base}\` (\`${result.reason ?? "infra"}\`), so it pushed nothing and stopped.`];
+  if (result.question) lines.push("", result.question);
+  if (result.attempts.length > 0) {
+    lines.push("", "**Attempts**", ...result.attempts.map((a) => `- ${attemptLine(a)}`));
+    const failure = lastFailure(result);
+    if (failure?.output) lines.push("", `**Last output**${failure.failedCommand ? ` (\`${failure.failedCommand}\`)` : ""}, truncated:`, fence(failure.output, "text"));
+  }
+  return lines.join("\n") + runLine(runUrl);
+}
+
+function runLine(runUrl: string | null): string {
+  return runUrl ? `\n\n**Workflow run:** ${runUrl}` : "";
 }
 
 type Recheck = { ok: true; issue: Issue; openPr: PullRequest | null } | { ok: false; reason: string };

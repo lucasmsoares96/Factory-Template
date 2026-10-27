@@ -12,6 +12,10 @@ export interface PullRequest {
   headSha: string;
   state: "open" | "closed";
   draft: boolean;
+  /** The branch it merges into. */
+  base: string;
+  /** Its head lives in another repository: the Factory cannot push there, and never runs its code. */
+  fork: boolean;
 }
 
 export interface InlineComment {
@@ -71,6 +75,8 @@ export interface CodeHost {
   push(input: { branch: string; sha: string; expectedSha: string | null }): Promise<PushResult>;
   /** The open pull request whose head is `branch`, if any. */
   openPrFor(branch: string): Promise<PullRequest | null>;
+  /** Every open pull request of the repository, drafts and forks included. */
+  openPullRequests(): Promise<PullRequest[]>;
   /** Pull request `number` in any state, or null when it does not exist. */
   pullRequest(number: number): Promise<PullRequest | null>;
   /** A conversation comment on the pull request (not a review thread). */

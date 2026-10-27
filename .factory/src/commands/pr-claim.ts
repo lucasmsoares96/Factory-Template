@@ -1,9 +1,11 @@
 import { issueBranch } from "../config.ts";
 import type { CommandContext } from "./context.ts";
+import { isMarked } from "../marker.ts";
 import { issueOfBranch, openThreads } from "./pr-threads.ts";
 
+/** `issue` is null for an update keyed by the pull request alone (one that is not a Factory PR in progress). */
 export type PrClaim =
-  | { claimed: true; issue: number; pr: number; branch: string; startSha: string }
+  | { claimed: true; issue: number | null; pr: number; branch: string; startSha: string }
   | { claimed: false; reason: string };
 
 /**
@@ -41,28 +43,73 @@ async function claimOpenPr(ctx: CommandContext, issue: number, pr: number, branc
 }
 
 /**
- * After a push to the base branch: every `in-progress` issue with an open Factory PR whose branch no longer merges
- * cleanly gets `update-branch` dispatched. Clean ones are left alone.
+ * The guard of the update of any other open pull request, keyed by its number: open, into the base branch, from
+ * this repository (the Factory never pushes to a fork nor runs its code). It touches no issue.
+ */
+export async function claimPrUpdate(ctx: CommandContext, number: number): Promise<PrClaim> {
+  const no = (reason: string): PrClaim => ({ claimed: false, reason });
+  const pr = await ctx.codeHost.pullRequest(number);
+  if (!pr || pr.state !== "open") return no("pr-not-open");
+  if (pr.fork) return no("fork");
+  if (pr.base !== ctx.config.baseBranch) return no("other-base");
+  const startSha = await ctx.codeHost.branchHead(pr.branch);
+  if (startSha === null) return no("no-branch");
+  return { claimed: true, issue: null, pr: pr.number, branch: pr.branch, startSha };
+}
+
+/** Hidden tag of the one comment a fork's PR gets when it is behind. */
+export const FORK_UPDATE_TAG = "<!-- factory:update-fork -->";
+
+/**
+ * After a push to the base branch: every open PR into it whose head does not contain the base head is behind and gets
+ * `update-branch` dispatched, Factory PRs and people's PRs alike, clean or conflicting. A Factory PR whose issue is
+ * `in-progress` runs in the issue's flow (`issue`); any other one is keyed by the PR (`pr`). A fork's PR is never
+ * pushed to: it gets one comment asking its author to update the branch.
  */
 export async function scanBranches(
   ctx: CommandContext,
-  git: { mergeConflicts(a: string, b: string): Promise<string[]> },
+  git: { isAncestor(ancestor: string, commit: string): Promise<boolean> },
   base: string,
-): Promise<{ dispatched: number[]; clean: number[] }> {
-  const { tracker, codeHost, config } = ctx;
+): Promise<{ dispatched: number[]; upToDate: number[]; forks: number[] }> {
+  const { codeHost, config } = ctx;
   const dispatched: number[] = [];
-  const clean: number[] = [];
-  for (const issue of (await tracker.labeled(config.labels.inProgress)).sort((a, b) => a - b)) {
-    const branch = issueBranch(config, issue);
-    if (!(await codeHost.openPrFor(branch))) continue;
-    const head = await codeHost.branchHead(branch);
-    if (head === null) continue;
-    if ((await git.mergeConflicts(base, head)).length === 0) {
-      clean.push(issue);
+  const upToDate: number[] = [];
+  const forks: number[] = [];
+  const prs = (await codeHost.openPullRequests()).filter((pr) => pr.base === config.baseBranch).sort((a, b) => a.number - b.number);
+  for (const pr of prs) {
+    let behind: boolean;
+    try {
+      behind = !(await git.isAncestor(base, pr.headSha));
+    } catch (error) {
+      ctx.log(`PR #${pr.number}: could not compare its head with ${config.baseBranch} (${(error as Error).message.split("\n")[0]}); skipped.`);
       continue;
     }
-    await codeHost.dispatch("factory-update-branches.yml", { issue: String(issue) });
-    dispatched.push(issue);
+    if (!behind) {
+      upToDate.push(pr.number);
+      continue;
+    }
+    if (pr.fork) {
+      forks.push(pr.number);
+      const asked = (await codeHost.conversation(pr.number)).some((e) => isMarked(e.body) && e.body.includes(FORK_UPDATE_TAG));
+      if (!asked) {
+        await codeHost.commentPr(
+          pr.number,
+          `${FORK_UPDATE_TAG}\nThis branch is behind \`${config.baseBranch}\`, which must be merged in before this pull request can merge. The Factory does not push to forks: please update the branch (merge \`${config.baseBranch}\` into it, or use "Update branch") and push.`,
+        );
+      }
+      continue;
+    }
+    const issue = await inProgressIssue(ctx, pr.branch);
+    await codeHost.dispatch("factory-update-branches.yml", issue === null ? { pr: String(pr.number) } : { issue: String(issue) });
+    dispatched.push(pr.number);
   }
-  return { dispatched, clean };
+  return { dispatched, upToDate, forks };
+}
+
+/** The issue of a Factory branch while it is open and `in-progress`; null for any other branch or state. */
+async function inProgressIssue(ctx: CommandContext, branch: string): Promise<number | null> {
+  const issue = issueOfBranch(ctx.config, branch);
+  if (issue === null) return null;
+  const current = await ctx.tracker.issue(issue).catch(() => null);
+  return current?.state === "open" && current.labels.includes(ctx.config.labels.inProgress) ? issue : null;
 }

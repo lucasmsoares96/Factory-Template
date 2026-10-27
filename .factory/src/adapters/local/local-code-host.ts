@@ -74,6 +74,11 @@ export class LocalCodeHost implements CodeHost {
     return pr && pr.state === "open" && pr.branch === branch ? this.view(pr) : null;
   }
 
+  /** Local mode runs one ticket at a time: there is no list of pull requests to keep up to date. */
+  async openPullRequests(): Promise<PullRequest[]> {
+    return [];
+  }
+
   async pullRequest(number: number): Promise<PullRequest | null> {
     const pr = await this.read(number);
     return pr ? this.view(pr) : null;
@@ -197,6 +202,8 @@ export class LocalCodeHost implements CodeHost {
       headSha: (await this.branchHead(pr.branch)) ?? "",
       state: pr.state,
       draft: pr.draft,
+      base: pr.base,
+      fork: false,
     };
   }
 }
