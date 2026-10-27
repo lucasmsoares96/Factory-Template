@@ -26,7 +26,7 @@
   "scripts": {
     "generate": "wrangler types test/worker/worker-configuration.d.ts -c test/worker/wrangler.jsonc && node bin/skeleton.ts generate",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.worker.json && tsc -p tsconfig.client.json",
-    "lint": "oxlint && node bin/skeleton.ts migrations check-published",
+    "lint": "oxlint && node bin/skeleton.ts migrations check-published && node bin/skeleton.ts migrations check-chain",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate"
   },

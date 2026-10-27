@@ -20,7 +20,9 @@ Things the base knowingly lives with. Each says what it is, how likely it bites,
 - **A Product that never published is invisible to a push deploy** until a merge affects it (see `docs/measured-facts.md`).
 - **The Factory's workflow changes cannot be tested from their own PR** (`pull_request_target`, ADR 0006).
 - **A workflow the Factory writes can run with secrets before review** (ADR 0012): an `on: push` workflow pushed to a `factory/issue-N` branch runs on that push. Sensitive paths are only flagged on the PR.
-- **Never demonstrated live**: a Factory PR in conflict with `main` (`update-branch` is covered by tests), the cap of 9 previews, `bootstrap destroy` against real accounts, the self-hosted runner on a real VM, a session resumed to extract output with real Claude (Claude returned the block the first time; the adapter test uses a fake `claude`).
+- **Every push to `main` updates every open PR that is behind it**, people's PRs included: the Factory pushes a merge commit (and, when Verify fails, its fixes) onto a person's branch. A run that does not pass Verify after 5 attempts pushes nothing and says why on the PR. A branch the person moved meanwhile is never overwritten (lease).
+- **An update that brings workflow changes from `main` may be refused**: `FACTORY_TOKEN` has no `workflows` permission, and GitHub refuses a push that adds or changes `.github/workflows/` without it (unverified for a merge of commits already on `main`). The PR then needs a manual update.
+- **Never demonstrated live**: a Factory PR in conflict with `main` (`update-branch` is covered by tests), the update of a person's PR or a fork's comment, the cap of 9 previews, `bootstrap destroy` against real accounts, the self-hosted runner on a real VM, a session resumed to extract output with real Claude (Claude returned the block the first time; the adapter test uses a fake `claude`).
 
 ## Tokens
 

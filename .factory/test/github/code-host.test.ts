@@ -9,7 +9,7 @@ import { git, tempDir } from "../helpers.ts";
 const R = "/repos/o/r";
 const pr = (n: number, extra: Record<string, unknown> = {}) => ({
   number: n, html_url: `https://github.com/o/r/pull/${n}`, state: "open", draft: true, node_id: `PR_${n}`,
-  head: { ref: "factory/issue-7", sha: "a".repeat(40) }, ...extra,
+  head: { ref: "factory/issue-7", sha: "a".repeat(40), repo: { full_name: "o/r" } }, base: { ref: "main" }, ...extra,
 });
 
 function host(server: FakeGitHubServer, extra: { git?: GitRunner; gh?: (args: string[], env: Record<string, string>) => Promise<void> } = {}) {
@@ -85,7 +85,7 @@ describe("GitHubCodeHost", () => {
     s.on("POST", `${R}/pulls`, ({ body }) => ({ status: 201, json: pr(4, { echo: body }) }));
     const h = host(s);
 
-    expect(await h.openPrFor("factory/issue-7")).toEqual({ number: 3, url: "https://github.com/o/r/pull/3", branch: "factory/issue-7", headSha: "a".repeat(40), state: "open", draft: true });
+    expect(await h.openPrFor("factory/issue-7")).toEqual({ number: 3, url: "https://github.com/o/r/pull/3", branch: "factory/issue-7", headSha: "a".repeat(40), state: "open", draft: true, base: "main", fork: false });
     expect(await h.openPrFor("factory/issue-9")).toBeNull();
     await h.openDraftPr({ branch: "factory/issue-7", base: "main", title: "Fix #7: x", body: "B" });
     expect(s.calls.at(-1)!.body).toEqual({ head: "factory/issue-7", base: "main", title: "Fix #7: x", body: marked("B"), draft: true });
@@ -141,6 +141,28 @@ describe("GitHubCodeHost", () => {
     expect(s.calls.at(-1)!.body).toEqual({ body: marked("stopped") });
   });
 
+  it("lists every open pull request with its base, telling a fork's (or a deleted fork's) from this repository's", async () => {
+    const s = new FakeGitHubServer();
+    s.on("GET", `${R}/pulls`, ({ query }) => ({
+      json:
+        query.get("state") === "open" && query.get("page") === "1"
+          ? [
+              pr(4, { draft: false }),
+              pr(5, { head: { ref: "patch-1", sha: "b".repeat(40), repo: { full_name: "someone/r" } }, base: { ref: "main" } }),
+              pr(6, { head: { ref: "gone", sha: "c".repeat(40), repo: null }, base: { ref: "release" } }),
+            ]
+          : [],
+    }));
+
+    const prs = await host(s).openPullRequests();
+
+    expect(prs.map((p) => [p.number, p.branch, p.base, p.fork])).toEqual([
+      [4, "factory/issue-7", "main", false],
+      [5, "patch-1", "main", true],
+      [6, "gone", "release", true],
+    ]);
+  });
+
   it("groups review comments into threads by their root and replies to a thread", async () => {
     const s = new FakeGitHubServer();
     s.on("GET", `${R}/pulls/4/comments`, () => ({
@@ -155,6 +177,29 @@ describe("GitHubCodeHost", () => {
     expect(await h.threads(4)).toEqual([{ id: "10", path: "a.ts", author: "alice", body: "root", replies: [{ author: "bob", body: "reply" }] }]);
     await h.replyToThread(4, "10", "done");
     expect(s.calls.at(-1)!.body).toEqual({ body: marked("done") });
+  });
+
+  it("reads the Conversation as comments and submitted review bodies in time order, without empty or pending ones", async () => {
+    const s = new FakeGitHubServer();
+    s.on("GET", `${R}/issues/4/comments`, () => ({
+      json: [
+        { id: 1, body: "first", user: { login: "alice" }, created_at: "2026-10-26T10:00:00Z" },
+        { id: 2, body: "third", user: { login: "bob" }, created_at: "2026-10-26T12:00:00Z" },
+      ],
+    }));
+    s.on("GET", `${R}/pulls/4/reviews`, () => ({
+      json: [
+        { id: 7, body: "second", user: { login: "alice" }, submitted_at: "2026-10-26T11:00:00Z" },
+        { id: 8, body: "", user: { login: "alice" }, submitted_at: "2026-10-26T11:30:00Z" },
+        { id: 9, body: "draft", user: { login: "alice" } },
+      ],
+    }));
+
+    expect(await host(s).conversation(4)).toEqual([
+      { id: "comment-1", kind: "comment", author: "alice", body: "first" },
+      { id: "review-7", kind: "review", author: "alice", body: "second" },
+      { id: "comment-2", kind: "comment", author: "bob", body: "third" },
+    ]);
   });
 
   describe("body with the evidence images", () => {

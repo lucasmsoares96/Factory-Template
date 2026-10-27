@@ -73,7 +73,7 @@ describe("GhCli: environments and rulesets (command construction)", () => {
       throw new Error("gh api failed: gh: Upgrade to GitHub Pro (HTTP 403)");
     });
     expect(await refusing.upsertEnvironment("e", { branch: "main" })).toBe("refused");
-    expect(await refusing.createRuleset({ name: "main", include: ["~DEFAULT_BRANCH"], rules: ["deletion"], requiredChecks: [] })).toBe("refused");
+    expect(await refusing.createRuleset({ name: "main", include: ["~DEFAULT_BRANCH"], rules: ["deletion"], requiredChecks: [], strict: true })).toBe("refused");
     expect(await refusing.listEnvironments()).toEqual([]);
     expect(await refusing.listRulesets()).toEqual([]);
 
@@ -81,6 +81,26 @@ describe("GhCli: environments and rulesets (command construction)", () => {
       throw new Error("gh api failed: HTTP 500");
     });
     await expect(broken.upsertEnvironment("e", { branch: "main" })).rejects.toThrow("500");
+  });
+
+  it("turns on up-to-date branches by writing back the ruleset's own rules with only that flag changed", async () => {
+    const calls: { args: string[]; input?: string }[] = [];
+    const gh = new GhCli(async (args, input) => {
+      calls.push({ args, input });
+      return args.includes("PUT")
+        ? ""
+        : JSON.stringify({
+            id: 7,
+            rules: [{ type: "deletion" }, { type: "required_status_checks", parameters: { strict_required_status_checks_policy: false, required_status_checks: [{ context: "verify", integration_id: 15368 }] } }],
+          });
+    });
+
+    expect(await gh.requireUpToDate(7)).toBe("updated");
+
+    expect(calls.map((c) => c.args.join(" "))).toEqual(["api repos/{owner}/{repo}/rulesets/7", "api -X PUT repos/{owner}/{repo}/rulesets/7 --input -"]);
+    expect(JSON.parse(calls[1]!.input!)).toEqual({
+      rules: [{ type: "deletion" }, { type: "required_status_checks", parameters: { strict_required_status_checks_policy: true, required_status_checks: [{ context: "verify", integration_id: 15368 }] } }],
+    });
   });
 
   it("reads a hand-made ruleset's rules and required checks", async () => {
@@ -97,7 +117,7 @@ describe("GhCli: environments and rulesets (command construction)", () => {
           }),
     );
     expect(await gh.listRulesets()).toEqual([
-      { id: 25500591, name: "main", target: "branch", enforcement: "active", include: ["~DEFAULT_BRANCH"], rules: ["deletion", "non_fast_forward", "pull_request", "required_status_checks"], requiredChecks: ["verify"] },
+      { id: 25500591, name: "main", target: "branch", enforcement: "active", include: ["~DEFAULT_BRANCH"], rules: ["deletion", "non_fast_forward", "pull_request", "required_status_checks"], requiredChecks: ["verify"], strict: false },
     ]);
   });
 });
