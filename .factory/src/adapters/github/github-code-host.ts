@@ -30,7 +30,8 @@ const prRow = z.object({
   state: z.enum(["open", "closed"]),
   draft: z.boolean().default(false),
   node_id: z.string().optional(),
-  head: z.object({ ref: z.string(), sha: z.string() }),
+  head: z.object({ ref: z.string(), sha: z.string(), repo: z.object({ full_name: z.string() }).nullable().optional() }),
+  base: z.object({ ref: z.string() }),
 });
 const refRow = z.object({ object: z.object({ sha: z.string() }) });
 const reviewRow = z.object({
@@ -92,12 +93,17 @@ export class GitHubCodeHost implements CodeHost {
   async openPrFor(branch: string): Promise<PullRequest | null> {
     const owner = this.options.repo.split("/")[0]!;
     const rows = await this.api.get(this.api.repoPath(`/pulls?state=open&head=${encodeURIComponent(`${owner}:${branch}`)}`), z.array(prRow));
-    return rows[0] ? toPr(rows[0]) : null;
+    return rows[0] ? toPr(rows[0], this.options.repo) : null;
+  }
+
+  async openPullRequests(): Promise<PullRequest[]> {
+    const rows = await this.api.list(this.api.repoPath("/pulls?state=open"), prRow);
+    return rows.map((row) => toPr(row, this.options.repo));
   }
 
   async pullRequest(number: number): Promise<PullRequest | null> {
     const row = await this.api.getOrNull(this.api.repoPath(`/pulls/${number}`), prRow);
-    return row ? toPr(row) : null;
+    return row ? toPr(row, this.options.repo) : null;
   }
 
   async commentPr(pr: number, body: string): Promise<void> {
@@ -109,7 +115,7 @@ export class GitHubCodeHost implements CodeHost {
       body: { head: input.branch, base: input.base, title: input.title, body: marked(input.body), draft: true },
     });
     if (input.images?.length) await this.updatePrBody(row!.number, input.body, input.images);
-    return toPr(row!);
+    return toPr(row!, this.options.repo);
   }
 
   /**
@@ -218,8 +224,10 @@ function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function toPr(row: z.infer<typeof prRow>): PullRequest {
-  return { number: row.number, url: row.html_url, branch: row.head.ref, headSha: row.head.sha, state: row.state, draft: row.draft };
+/** A head repository other than `repo`, or one deleted since (`null`), is a fork. */
+function toPr(row: z.infer<typeof prRow>, repo: string): PullRequest {
+  const fork = row.head.repo?.full_name.toLowerCase() !== repo.toLowerCase();
+  return { number: row.number, url: row.html_url, branch: row.head.ref, headSha: row.head.sha, state: row.state, draft: row.draft, base: row.base.ref, fork };
 }
 
 /** What git and gh get: the base variables every tool needs, plus `extra` (the token they authenticate with). Never the parent's secrets. */

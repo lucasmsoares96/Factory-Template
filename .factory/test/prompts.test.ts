@@ -123,6 +123,6 @@ describe("prompt templates", () => {
   });
 
   it("refuses a template variable it was not given", () => {
-    expect(() => renderTemplate("update-branch", { NUMBER: "7" })).toThrow(/update-branch\.md needs \{\{BASE\}\}/);
+    expect(() => renderTemplate("update-branch", { NUMBER: "7", TARGET: "issue #7" })).toThrow(/update-branch\.md needs \{\{BASE\}\}/);
   });
 });

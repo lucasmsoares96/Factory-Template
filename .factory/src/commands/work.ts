@@ -21,6 +21,7 @@ import { parseReviewOutput, reviewExtraction } from "../review-output.ts";
 import { parseReplies, repliesExtraction, type ThreadReply } from "../replies-output.ts";
 import type { Usage } from "../seams/agent.ts";
 import type { ReviewThread } from "../seams/code-host.ts";
+import type { Issue } from "../seams/tracker.ts";
 import type { CommandContext } from "./context.ts";
 import { openThreads } from "./pr-threads.ts";
 
@@ -51,15 +52,20 @@ export interface WorkFlow {
   pr: number;
 }
 
-export async function work(ctx: CommandContext, number: number, options: { repo: string; out: string; flow?: WorkFlow }): Promise<FactoryResult> {
-  const { tracker, agent, verify, config } = ctx;
+/**
+ * `number` is the issue; null for `update-branch` keyed by the pull request alone (a person's PR, or a Factory PR whose
+ * issue is not `in-progress`): the run then works on the PR's branch and reads no issue.
+ */
+export async function work(ctx: CommandContext, number: number | null, options: { repo: string; out: string; flow?: WorkFlow }): Promise<FactoryResult> {
+  const { agent, verify, config } = ctx;
   const deadline = ctx.now() + config.timeouts.total * MINUTE;
   const git = new Git(options.repo);
-  const branch = issueBranch(config, number);
-  const issue = await tracker.issue(number);
-  const base = await resolveBase(git, config.baseBranch);
   const flow = options.flow ?? null;
+  const { issue, branch } = await subject(ctx, number, flow);
+  const base = await resolveBase(git, config.baseBranch);
   await git.run("checkout", "--quiet", ...(flow ? [branch] : ["-B", branch, base]));
+  // A branch that already contains the base branch has nothing to update.
+  const upToDate = flow?.kind === "update-branch" && (await git.isAncestor(base, "HEAD"));
 
   const usage = { development: zeroUsage(), review: zeroUsage(), pullRequest: zeroUsage() };
   const attempts: FactoryResult["attempts"] = [];
@@ -87,13 +93,15 @@ export async function work(ctx: CommandContext, number: number, options: { repo:
   const round = () => ({ threads: roundThreads, decisions: [...replies.values()] });
   const outOfTime = () => ctx.now() >= deadline;
 
-  if (flow) {
+  if (upToDate) {
+    ready = true;
+  } else if (flow) {
     const conflicts = await mergeBase(git, base);
     if (conflicts.length > 0) {
       const timeout = budget(config.timeouts.development);
       let resolved = false;
       if (timeout !== null) {
-        const run = await agent.run("development", updateBranchPrompt({ issue, base: config.baseBranch, conflicts }), { timeoutMs: timeout, model: config.models.development });
+        const run = await agent.run("development", updateBranchPrompt({ issue, base: config.baseBranch, conflicts, pr: number === null ? flow.pr : null }), { timeoutMs: timeout, model: config.models.development });
         add(usage.development, run.usage);
         resolved = !run.timedOut && !(await mergeInProgress(git));
       }
@@ -107,7 +115,7 @@ export async function work(ctx: CommandContext, number: number, options: { repo:
   }
 
   let startAttempt = 1;
-  if (flow?.kind === "update-branch" && !bail) {
+  if (flow?.kind === "update-branch" && !bail && !upToDate) {
     // The merge is verified before anything else; only a failure enters the loop.
     const timeoutMs = budget(config.timeouts.e2e);
     if (timeoutMs === null) {
@@ -333,7 +341,7 @@ export async function work(ctx: CommandContext, number: number, options: { repo:
 
   const result: FactoryResult = {
     version: 1,
-    issue: number,
+    issue: issue.number,
     branch,
     base,
     head,
@@ -352,6 +360,20 @@ export async function work(ctx: CommandContext, number: number, options: { repo:
   await writeResult(join(options.out, RESULT_FILE), result);
   await ctx.stepSummary(summaryMarkdown(result, config));
   return result;
+}
+
+/** A pull request is an issue on the forge: a run keyed by the PR alone uses its number, with this text in place of an issue body. */
+const PR_SUBJECT_BODY =
+  "This is a pull request written by a person. The Factory only keeps it up to date with the base branch: make the merge work, and change nothing beyond that.";
+
+/** The issue the run works for and its branch: the issue's Factory branch, or the PR's own branch when keyed by the PR. */
+async function subject(ctx: CommandContext, number: number | null, flow: WorkFlow | null): Promise<{ issue: Issue; branch: string }> {
+  if (number !== null) return { issue: await ctx.tracker.issue(number), branch: issueBranch(ctx.config, number) };
+  if (flow?.kind !== "update-branch") throw new Error("Only update-branch runs without an issue (keyed by --pr).");
+  const pr = await ctx.codeHost.pullRequest(flow.pr);
+  if (!pr) throw new Error(`Pull request #${flow.pr} does not exist.`);
+  const issue: Issue = { number: pr.number, title: `Pull request #${pr.number}`, body: PR_SUBJECT_BODY, state: "open", labels: [], parent: null, children: [], comments: [] };
+  return { issue, branch: pr.branch };
 }
 
 /** What the run ended with, for the Pull Request Stage: green and when, or why it escalated and the last failing E2E. */

@@ -75,6 +75,10 @@ export class FakeCodeHost implements CodeHost {
     return pr ? { ...pr } : null;
   }
 
+  async openPullRequests(): Promise<PullRequest[]> {
+    return this.prs.filter((p) => p.state === "open").map((p) => ({ ...p }));
+  }
+
   async pullRequest(number: number): Promise<PullRequest | null> {
     const pr = this.prs.find((p) => p.number === number);
     return pr ? { ...pr } : null;
@@ -175,6 +179,7 @@ function fakePr(seed: FakePullRequestSeed): FakePullRequest {
     title: `PR ${seed.number}`,
     body: "",
     base: "main",
+    fork: false,
     reviews: [],
     images: [],
     threads: [],

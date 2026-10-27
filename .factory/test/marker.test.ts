@@ -7,7 +7,7 @@ import { FACTORY_MARKER, isMarked, marked } from "../src/marker.ts";
 import { FakeGitHubServer } from "./github/fake-github.ts";
 
 const R = "/repos/o/r";
-const pr = { number: 5, html_url: "https://github.com/o/r/pull/5", state: "open", draft: true, node_id: "PR_5", head: { ref: "factory/issue-7", sha: "a".repeat(40) } };
+const pr = { number: 5, html_url: "https://github.com/o/r/pull/5", state: "open", draft: true, node_id: "PR_5", head: { ref: "factory/issue-7", sha: "a".repeat(40), repo: { full_name: "o/r" } }, base: { ref: "main" } };
 
 describe("the Factory marker", () => {
   it("is put once, however many times a text is marked", () => {
