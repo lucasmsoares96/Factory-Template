@@ -6,7 +6,7 @@
     "dev": "skeleton dev --product .",
     "generate": "wrangler types && skeleton generate --product .",
     "typecheck": "tsc -p tsconfig.worker.json && tsc -p tsconfig.app.json && tsc -p tsconfig.json",
-    "lint": "oxlint && skeleton migrations check-published",
+    "lint": "oxlint && skeleton migrations check-published && skeleton migrations check-chain",
     "test": "skeleton db check --product .",
     "build": "vite build",
     "e2e": "vitest run --config vitest.e2e.config.ts && playwright test",

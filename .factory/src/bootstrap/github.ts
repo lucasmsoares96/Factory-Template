@@ -125,6 +125,7 @@ export class GhCli implements GitHubClient {
           include: r.conditions?.ref_name?.include ?? [],
           rules: r.rules.map((rule) => rule.type),
           requiredChecks: r.rules.flatMap((rule) => rule.parameters?.required_status_checks?.map((c) => c.context) ?? []),
+          strict: r.rules.some((rule) => rule.type === "required_status_checks" && rule.parameters?.strict_required_status_checks_policy === true),
         });
       }
       return detailed;
@@ -141,7 +142,7 @@ export class GhCli implements GitHubClient {
         return { type, parameters: { required_approving_review_count: 0, dismiss_stale_reviews_on_push: false, require_code_owner_review: false, require_last_push_approval: false, required_review_thread_resolution: false } };
       }
       if (type === "required_status_checks") {
-        return { type, parameters: { strict_required_status_checks_policy: false, required_status_checks: spec.requiredChecks.map((context) => ({ context })) } };
+        return { type, parameters: { strict_required_status_checks_policy: spec.strict, required_status_checks: spec.requiredChecks.map((context) => ({ context })) } };
       }
       return { type };
     });
@@ -157,6 +158,21 @@ export class GhCli implements GitHubClient {
     try {
       await this.gh(["api", "-X", "POST", "repos/{owner}/{repo}/rulesets", "--input", "-"], JSON.stringify(body));
       return "created";
+    } catch (error) {
+      if (isRefusal(error)) return "refused";
+      throw error;
+    }
+  }
+
+  async requireUpToDate(id: number): Promise<"updated" | "refused"> {
+    try {
+      // The rules are read back whole and only the one flag changes: the PUT sends the full list, whatever else the ruleset has.
+      const current = rawRules.parse(JSON.parse(await this.gh(["api", `repos/{owner}/{repo}/rulesets/${id}`])));
+      const rules = current.rules.map((rule) =>
+        rule.type === "required_status_checks" ? { ...rule, parameters: { ...rule.parameters, strict_required_status_checks_policy: true } } : rule,
+      );
+      await this.gh(["api", "-X", "PUT", `repos/{owner}/{repo}/rulesets/${id}`, "--input", "-"], JSON.stringify({ rules }));
+      return "updated";
     } catch (error) {
       if (isRefusal(error)) return "refused";
       throw error;
@@ -260,7 +276,10 @@ const ruleset = z.object({
   rules: z.array(
     z.object({
       type: z.string(),
-      parameters: z.object({ required_status_checks: z.array(z.object({ context: z.string() })).optional() }).nullish(),
+      parameters: z
+        .object({ required_status_checks: z.array(z.object({ context: z.string() })).optional(), strict_required_status_checks_policy: z.boolean().optional() })
+        .nullish(),
     }),
   ),
 });
+const rawRules = z.object({ rules: z.array(z.object({ type: z.string(), parameters: z.record(z.string(), z.unknown()).optional() }).passthrough()) });

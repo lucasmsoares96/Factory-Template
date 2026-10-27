@@ -1,6 +1,6 @@
 # A human's comment on a Factory pull request becomes a round of answers and commits.
 #   wait    debounce: a comment waits 180 s and a newer comment cancels the wait; a submitted review does not wait
-#   claim   (job token, read-only)  filters (writer, factory/issue-N branch, open threads; the Factory's own texts carry a hidden marker)
+#   claim   (job token, read-only)  filters (writer, factory/issue-N branch, open threads or Conversation requests; the Factory's own texts carry a hidden marker)
 #   notify  (job token, issues: write)  a comment from github-actions[bot] on the issue that mentions who commented
 #   image / work / publish          as in factory-issue.yml, on the branch of the open PR: merge the base branch first,
 #                                   Address / Decline / Defer / Answer per thread -> Development -> Review -> E2E -> prints
