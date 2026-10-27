@@ -3,17 +3,20 @@ import { issueBranch } from "../config.ts";
 import { diffLines, filterToDiff, type DiffLines } from "../diff.ts";
 import { Git } from "../git.ts";
 import { isHarnessPath, isSensitivePath } from "../paths.ts";
-import { attemptLine, costFooter, escalationComment, fence, followUpComment, lastFailure, type EscalationReason, type FollowUpRef } from "../report.ts";
+import { attemptLine, costFooter, escalationComment, fence, followUpComment, lastFailure, waitingComment, type EscalationReason, type FollowUpRef } from "../report.ts";
 import { BUNDLE_FILE, EVIDENCE_DIR, RESULT_FILE, readResult, type FactoryResult } from "../result.ts";
+import { gapsSection, SKELETON_PATH, skeletonCommit } from "../scope.ts";
 import { withEvidence } from "../pull-request-evidence.ts";
 import type { EvidenceImage, PullRequest } from "../seams/code-host.ts";
 import type { Issue } from "../seams/tracker.ts";
+import { WAITING_MARKER } from "./claim.ts";
 import type { CommandContext } from "./context.ts";
 
 export type PublishResult =
   | { issue: number; outcome: "ready"; pr: number; url: string }
   | { issue: number; outcome: "escalated"; reason: EscalationReason; pr: number | null; url: string | null }
-  | { issue: number; outcome: "discarded"; reason: string };
+  | { issue: number; outcome: "discarded"; reason: string }
+  | { issue: number; outcome: "waiting"; blockedBy: number[] };
 
 export interface PublishOptions {
   /** Checkout the bundle is fetched into. */
@@ -43,7 +46,9 @@ export interface PublishOptions {
  * and discards the run if it changed, validates the artifacts of `work` (none
  * or invalid: Escalation "infra"), then pushes with a lease and either delivers
  * a ready PR or escalates. A diff in a sensitive or harness path is flagged on
- * the PR, never refused.
+ * the PR, never refused. A Skeleton change a Product run reverted becomes a
+ * pull request of its own; a Product issue that cannot finish without it waits
+ * on it, blocked and back in the queue.
  */
 export async function publish(ctx: CommandContext, number: number, options: PublishOptions): Promise<PublishResult> {
   const { config } = ctx;
@@ -60,22 +65,30 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
   } catch (error) {
     return escalate(ctx, issue, { reason: "infra", result: null, detail: (error as Error).message, pr: null, runUrl: options.runUrl }, options.pr, options.dispatchRetro);
   }
+  // Built before anything is written: a patch that cannot be the Skeleton pull request stops the run.
+  let skeletonSha: string | null;
+  try {
+    skeletonSha = await skeletonChange(git, issue, result, options.in);
+  } catch (error) {
+    return escalate(ctx, issue, { reason: "infra", result, detail: (error as Error).message, pr: null, runUrl: options.runUrl }, options.pr, options.dispatchRetro);
+  }
+  if (result.outcome === "waiting" && options.pr === null) return waitOnSkeleton(ctx, issue, await openFollowUps(ctx, issue, result, skeletonSha));
 
   const head = result.head;
   const changed = head ? await changedFiles(git, result.base, head) : [];
   if (!head) {
-    const followUps = await openFollowUps(ctx, issue, result);
-    return escalate(ctx, issue, { reason: result.reason ?? "infra", result, pr: null, runUrl: options.runUrl, followUps }, options.pr, options.dispatchRetro);
+    const followUps = await openFollowUps(ctx, issue, result, skeletonSha);
+    return escalate(ctx, issue, { reason: escalationReason(result), result, pr: null, runUrl: options.runUrl, followUps }, options.pr, options.dispatchRetro);
   }
 
   const push = await ctx.codeHost.push({ branch, sha: head, expectedSha: options.startSha });
   if (!push.ok) return discard(ctx, number, `branch ${branch} moved since the run started`);
 
-  const followUps = await openFollowUps(ctx, issue, result);
+  const followUps = await openFollowUps(ctx, issue, result, skeletonSha);
   const lines = await diffLines(git, result.base, head);
   const sensitivePaths = changed.filter(isSensitivePath);
   const harnessPaths = changed.filter((path) => isHarnessPath(path) && !isSensitivePath(path));
-  const escalated = result.outcome === "escalated" ? (result.reason ?? "infra") : null;
+  const escalated = result.outcome === "ready" ? null : escalationReason(result);
   const pr = await pullRequest(ctx, issue, { branch, openPr, continues: options.pr !== null, sensitivePaths, harnessPaths, escalated, followUps, text: result.pullRequestBody, images: evidenceImages(result, options.in), markWorking: options.markWorking });
   if (!escalated || result.review.summary !== "") {
     // A PR round without a Review (update-branch, a round that only answers) leaves no empty review behind.
@@ -293,19 +306,83 @@ async function submitReview(ctx: CommandContext, pr: number, result: FactoryResu
   });
 }
 
-/** Opens the Skeleton tickets the run asked for, linked to the issue; they wait for triage. */
-async function openFollowUps(ctx: CommandContext, issue: Issue, result: FactoryResult): Promise<FollowUpRef[]> {
+/** Why a run that is not ready escalates. `waiting` only comes from an issue run; anywhere else it is a needs-human Escalation. */
+function escalationReason(result: FactoryResult): EscalationReason {
+  return result.reason ?? (result.outcome === "waiting" ? "needs-human" : "infra");
+}
+
+/** The commit of the reverted Skeleton change on the base, or null when the run reverted none. Throws on a bad patch. */
+async function skeletonChange(git: Git, issue: Issue, result: FactoryResult, dir: string): Promise<string | null> {
+  const patch = result.followUps.find((f) => f.patch !== null)?.patch;
+  if (!patch) return null;
+  return skeletonCommit(git, result.base, join(dir, patch), `feat: grow the Skeleton for Product issue #${issue.number}`);
+}
+
+/**
+ * Opens the Skeleton tickets the run asked for, linked to the issue. One with the reverted change (`skeletonSha`) is
+ * `ready-for-human` and gets the pull request that makes it; a gap alone waits for triage.
+ */
+async function openFollowUps(ctx: CommandContext, issue: Issue, result: FactoryResult, skeletonSha: string | null): Promise<FollowUpRef[]> {
+  const { labels } = ctx.config;
   const refs: FollowUpRef[] = [];
   for (const followUp of result.followUps) {
+    const withChange = skeletonSha !== null && followUp.patch !== null;
     const created = await ctx.tracker.createIssue({
       title: followUp.title,
       body: followUp.body,
-      labels: [ctx.config.labels.needsTriage],
+      labels: [withChange ? labels.readyForHuman : labels.needsTriage],
       relatedTo: issue.number,
     });
-    refs.push({ number: created.number, title: followUp.title });
+    const pr = withChange ? await skeletonPullRequest(ctx, issue, followUp, created.number, skeletonSha) : null;
+    refs.push({ number: created.number, title: followUp.title, pr });
   }
   return refs;
+}
+
+/**
+ * The Skeleton pull request: `sha` (the base plus the reverted change, nothing else) on a new branch, opened ready for
+ * review, closing the Skeleton issue. A branch that already exists is never overwritten: the issue stays without one.
+ */
+async function skeletonPullRequest(
+  ctx: CommandContext,
+  issue: Issue,
+  followUp: FactoryResult["followUps"][number],
+  skeletonIssue: number,
+  sha: string,
+): Promise<{ number: number; url: string } | null> {
+  const { codeHost, config } = ctx;
+  const branch = issueBranch(config, skeletonIssue);
+  const push = await codeHost.push({ branch, sha, expectedSha: null });
+  if (!push.ok) {
+    ctx.log(`The Skeleton pull request for #${skeletonIssue} was not opened: branch ${branch} already exists.`);
+    return null;
+  }
+  const body = [
+    `Product issue #${issue.number} (${issue.title}) needs this change in \`${SKELETON_PATH}\`. A Product issue never changes the Skeleton, so the Factory took it out of that run and opened it here, from \`${config.baseBranch}\`, as the run wrote it. Review it as a change to the Skeleton.`,
+    ...gapsSection(followUp.gaps),
+    "",
+    "## Files",
+    "",
+    ...followUp.files.map((f) => `- \`${f}\``),
+    "",
+    `Closes #${skeletonIssue}`,
+  ].join("\n");
+  const pr = await codeHost.openDraftPr({ branch, base: config.baseBranch, title: followUp.title, body });
+  await codeHost.markReady(pr.number);
+  return { number: pr.number, url: pr.url };
+}
+
+/**
+ * A Product issue that cannot finish without its Skeleton issues: blocked by them and back in `ready-for-agent`, with no
+ * Escalation and no Product pull request. The blockers go first, so the run the label starts finds it blocked; when
+ * they close, `factory-unblock.yml` queues it again and the new run starts from the base that has the new Skeleton.
+ */
+async function waitOnSkeleton(ctx: CommandContext, issue: Issue, followUps: FollowUpRef[]): Promise<PublishResult> {
+  const { tracker, config } = ctx;
+  for (const followUp of followUps) await tracker.addBlocker(issue.number, followUp.number);
+  await tracker.comment(issue.number, waitingComment(followUps, config, WAITING_MARKER));
+  await tracker.swapLabel(issue.number, config.labels.inProgress, config.labels.readyForAgent);
+  return { issue: issue.number, outcome: "waiting", blockedBy: followUps.map((f) => f.number) };
 }
 
 const DECISION_LABEL = { address: "Address", decline: "Decline", defer: "Defer", answer: "Answer" } as const;

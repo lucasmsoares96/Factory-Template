@@ -41,6 +41,8 @@ export interface Tracker {
   issue(number: number): Promise<Issue>;
   /** Issues that block `number`. */
   blockers(number: number): Promise<Blocker[]>;
+  /** Makes `blockedBy` block `number` (a no-op when it already does). */
+  addBlocker(number: number, blockedBy: number): Promise<void>;
   /** Open issues that `number` blocks. */
   blocking(number: number): Promise<number[]>;
   /** Open issues that currently carry `label`. */
