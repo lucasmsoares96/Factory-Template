@@ -43,6 +43,8 @@ export class FakeGitHub implements GitHubClient {
   refuseEnvironments = false;
   /** Same for rulesets. */
   refuseRulesets = false;
+  /** The repo setting `allow_auto_merge`. */
+  autoMerge = false;
   info: RepoInfo = { fullName: "owner/repo", visibility: "public", viewerPermission: "ADMIN", defaultBranch: "main" };
   login = "owner";
   /** Names of the deletes that must fail (`secret:NAME`, `variable:NAME`, `environment:NAME`, `ruleset`). */
@@ -221,6 +223,13 @@ export class FakeGitHub implements GitHubClient {
       strict: spec.strict,
     });
     return "created";
+  }
+  async autoMergeAllowed(): Promise<boolean> {
+    return this.autoMerge;
+  }
+  async allowAutoMerge(): Promise<void> {
+    this.writes++;
+    this.autoMerge = true;
   }
   async requireUpToDate(id: number): Promise<"updated" | "refused"> {
     if (this.refuseRulesets) return "refused";

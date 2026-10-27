@@ -144,16 +144,20 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
           filter: blob:none
+          # The base commit, for what this PR itself changed.
+          fetch-depth: 0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
-      # Restores .agents/skills from skills-lock.json: the committed skills must be exactly the locked ones.
+      # Restores .agents/skills from skills-lock.json. A skill or lock this PR changed must be exactly what the restore
+      # gives; an upstream change the PR did not make is only a notice (factory-skills-update.yml takes it, ADR 0013).
       - run: npx --yes skills@1.7.2 experimental_install
-      - run: git diff --exit-code
-      - name: No file left over
-        run: test -z "$(git status --porcelain)"
+      - name: skills
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: node .factory/src/ci/skills.ts check --base "$BASE_SHA"
       - name: .claude/skills links
-        run: node .factory/src/ci/skills.ts
+        run: node .factory/src/ci/skills.ts links
 
   # `new-product ci-probe` in a throwaway copy, then its `verify`; no deploy.
   ci-probe:

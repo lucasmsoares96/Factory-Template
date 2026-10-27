@@ -164,6 +164,14 @@ export class GhCli implements GitHubClient {
     }
   }
 
+  async autoMergeAllowed(): Promise<boolean> {
+    return (await this.gh(["api", "repos/{owner}/{repo}", "--jq", ".allow_auto_merge"])).trim() === "true";
+  }
+
+  async allowAutoMerge(): Promise<void> {
+    await this.gh(["api", "-X", "PATCH", "repos/{owner}/{repo}", "-F", "allow_auto_merge=true"]);
+  }
+
   async requireUpToDate(id: number): Promise<"updated" | "refused"> {
     try {
       // The rules are read back whole and only the one flag changes: the PUT sends the full list, whatever else the ruleset has.
