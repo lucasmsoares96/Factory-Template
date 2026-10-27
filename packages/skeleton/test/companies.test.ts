@@ -340,6 +340,7 @@ test("every Company route is described in the OpenAPI document under /api/compan
       ["listMembers", "/api/companies/{companyId}/members", ["200", "400", "401", "404"]],
       ["renameCompany", "/api/companies/{companyId}", ["200", "400", "401", "403", "404"]],
       ["deleteCompany", "/api/companies/{companyId}", ["204", "400", "401", "403", "404"]],
+      ["transferOwnership", "/api/companies/{companyId}/transfer-ownership", ["200", "400", "401", "403", "404"]],
     ]),
   );
 });
@@ -496,4 +497,145 @@ test("DELETE /api/companies/{companyId} deletes nothing when a feature's company
     { members: 2 },
   ]);
   expect(await (await api(`/api/companies/${company.id}`, { cookie: bruno.cookie })).json()).toEqual({ ...company, role: "employee" });
+});
+
+function transfer(companyId: string, cookie: string | undefined, body: unknown) {
+  return api(`/api/companies/${companyId}/transfer-ownership`, { cookie, method: "POST", body });
+}
+
+async function rolesOf(companyId: string) {
+  const rows = (await db.query(`SELECT user_id, role FROM skeleton.members WHERE company_id = '${companyId}'`)) as {
+    user_id: string;
+    role: string;
+  }[];
+  return Object.fromEntries(rows.map(({ user_id, role }) => [user_id, role]));
+}
+
+test("POST /api/companies/{companyId}/transfer-ownership makes the Member the Owner and the former Owner an Employee", async () => {
+  await db.query(`INSERT INTO skeleton.member_roles (id) VALUES ('manager') ON CONFLICT DO NOTHING`);
+  const ana = await signedInUser();
+  const bruno = await signedInUser("Bruno Lima");
+  const carla = await signedInUser("Carla Dias");
+  const company = await createCompany(ana.cookie, "Acme");
+  await join(company.id, bruno.user.id, "manager");
+  await join(company.id, carla.user.id);
+
+  const response = await transfer(company.id, ana.cookie, { userId: bruno.user.id, name: "  Acme  " });
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ ...company, role: "employee" });
+  expect(await rolesOf(company.id)).toEqual({ [ana.user.id]: "employee", [bruno.user.id]: "owner", [carla.user.id]: "employee" });
+  expect(await db.query(`SELECT count(*)::int AS owners FROM skeleton.members WHERE company_id = '${company.id}' AND role = 'owner'`)).toEqual([
+    { owners: 1 },
+  ]);
+});
+
+test("after a transfer the new Owner has every Owner's action, and the former Owner none", async () => {
+  const ana = await signedInUser();
+  const bruno = await signedInUser("Bruno Lima");
+  const company = await createCompany(ana.cookie, "Acme");
+  await join(company.id, bruno.user.id);
+  expect((await transfer(company.id, ana.cookie, { userId: bruno.user.id, name: "Acme" })).status).toBe(200);
+
+  // The former Owner is an Employee now: nothing the Owner does is theirs any more.
+  expect((await api(`/api/companies/${company.id}`, { cookie: ana.cookie, method: "PATCH", body: { name: "Mine" } })).status).toBe(403);
+  expect((await transfer(company.id, ana.cookie, { userId: ana.user.id, name: "Acme" })).status).toBe(403);
+  expect((await api(`/api/companies/${company.id}/invitations`, { cookie: ana.cookie })).status).toBe(403);
+
+  // The new Owner renames, invites, gives the Company back, and could delete it.
+  expect(await (await api(`/api/companies/${company.id}`, { cookie: bruno.cookie })).json()).toEqual({ ...company, role: "owner" });
+  expect((await api(`/api/companies/${company.id}`, { cookie: bruno.cookie, method: "PATCH", body: { name: "Acme Corp" } })).status).toBe(200);
+  const invited = await api(`/api/companies/${company.id}/invitations`, {
+    cookie: bruno.cookie,
+    method: "POST",
+    body: { email: `guest-${randomUUID()}@example.com`, role: "employee" },
+  });
+  expect(invited.status).toBe(201);
+  expect((await transfer(company.id, bruno.cookie, { userId: ana.user.id, name: "Acme Corp" })).status).toBe(200);
+  expect(await rolesOf(company.id)).toEqual({ [ana.user.id]: "owner", [bruno.user.id]: "employee" });
+  expect((await api(`/api/companies/${company.id}`, { cookie: ana.cookie, method: "DELETE", body: { name: "Acme Corp" } })).status).toBe(204);
+});
+
+test("POST /api/companies/{companyId}/transfer-ownership answers 400 CONFIRMATION_MISMATCH for a name other than the current one, and nothing changes", async () => {
+  const ana = await signedInUser();
+  const bruno = await signedInUser("Bruno Lima");
+  const company = await createCompany(ana.cookie, "Acme");
+  await join(company.id, bruno.user.id);
+  await api(`/api/companies/${company.id}`, { cookie: ana.cookie, method: "PATCH", body: { name: "Acme Corp" } });
+
+  for (const name of ["Acme", "acme corp", "Globex"]) {
+    const response = await transfer(company.id, ana.cookie, { userId: bruno.user.id, name });
+    expect(response.status, name).toBe(400);
+    expect(await response.json()).toEqual({
+      code: "CONFIRMATION_MISMATCH",
+      message: "The confirmation does not match the Company's name.",
+    });
+  }
+  for (const body of [{ userId: bruno.user.id }, { name: "Acme Corp" }, { userId: 42, name: "Acme Corp" }]) {
+    const response = await transfer(company.id, ana.cookie, body);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ code: "VALIDATION_FAILED", message: "The request is invalid." });
+  }
+  expect(await rolesOf(company.id)).toEqual({ [ana.user.id]: "owner", [bruno.user.id]: "employee" });
+});
+
+test("POST /api/companies/{companyId}/transfer-ownership answers 404 NOT_FOUND for someone who is not a Member, and refuses the Owner themself", async () => {
+  const ana = await signedInUser();
+  const bruno = await signedInUser("Bruno Lima");
+  const mallory = await signedInUser("Mallory");
+  const company = await createCompany(ana.cookie, "Acme");
+  const other = await createCompany(mallory.cookie, "Globex");
+  await join(company.id, bruno.user.id);
+  await join(other.id, bruno.user.id);
+
+  for (const userId of [mallory.user.id, randomUUID()]) {
+    const response = await transfer(company.id, ana.cookie, { userId, name: "Acme" });
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ code: "NOT_FOUND", message: "Not found." });
+  }
+  const self = await transfer(company.id, ana.cookie, { userId: ana.user.id, name: "Acme" });
+  expect(self.status).toBe(400);
+  expect(await self.json()).toEqual({ code: "VALIDATION_FAILED", message: "The request is invalid." });
+  expect(await rolesOf(company.id)).toEqual({ [ana.user.id]: "owner", [bruno.user.id]: "employee" });
+  expect(await rolesOf(other.id)).toEqual({ [mallory.user.id]: "owner", [bruno.user.id]: "employee" });
+});
+
+test("POST /api/companies/{companyId}/transfer-ownership answers 403 FORBIDDEN to an Employee or a Product's role, 404 to a non-Member and 401 without a session", async () => {
+  await db.query(`INSERT INTO skeleton.member_roles (id) VALUES ('manager') ON CONFLICT DO NOTHING`);
+  const ana = await signedInUser();
+  const bruno = await signedInUser("Bruno Lima");
+  const carla = await signedInUser("Carla Dias");
+  const mallory = await signedInUser("Mallory");
+  const company = await createCompany(ana.cookie, "Acme");
+  await join(company.id, bruno.user.id);
+  await join(company.id, carla.user.id, "manager");
+
+  for (const { cookie, user } of [bruno, carla]) {
+    const response = await transfer(company.id, cookie, { userId: user.id, name: "Acme" });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ code: "FORBIDDEN", message: "Your role in this Company does not allow this." });
+  }
+  expect((await transfer(company.id, mallory.cookie, { userId: mallory.user.id, name: "Acme" })).status).toBe(404);
+  const anonymous = await transfer(company.id, undefined, { userId: bruno.user.id, name: "Acme" });
+  expect(anonymous.status).toBe(401);
+  expect(await anonymous.json()).toEqual({ code: "UNAUTHENTICATED", message: "Sign in to continue." });
+  expect(await rolesOf(company.id)).toEqual({ [ana.user.id]: "owner", [bruno.user.id]: "employee", [carla.user.id]: "manager" });
+});
+
+test("two transfers at once leave the Company with exactly one Owner", async () => {
+  const ana = await signedInUser();
+  const bruno = await signedInUser("Bruno Lima");
+  const carla = await signedInUser("Carla Dias");
+  const company = await createCompany(ana.cookie, "Acme");
+  await join(company.id, bruno.user.id);
+  await join(company.id, carla.user.id);
+
+  const responses = await Promise.all(
+    [bruno, carla].map(({ user }) => transfer(company.id, ana.cookie, { userId: user.id, name: "Acme" })),
+  );
+
+  expect(responses.map((response) => response.status).sort()).toEqual([200, 403]);
+  const roles = Object.values(await rolesOf(company.id)).sort();
+  expect(roles).toEqual(["employee", "employee", "owner"]);
+  expect((await rolesOf(company.id))[ana.user.id]).toBe("employee");
 });
