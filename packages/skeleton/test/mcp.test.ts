@@ -25,7 +25,7 @@ import { startTestWorker, type TestWorker } from "./support/worker.ts";
 // tools through the SDK's client. The composition's tools: getMe, getNote,
 // getCompanyNote, listConnections and the Companies' and Invitations' reads (read),
 // createNote, revokeConnection, updateMe, createCompany, renameCompany, the
-// Invitations' writes and inviteFromNotes (write); deleteCompany and
+// Members' and Invitations' writes and inviteFromNotes (write); deleteCompany and
 // transferOwnership are `x-mcp: false`.
 
 /** A client that publishes its metadata (CIMD) instead of registering. */
@@ -177,6 +177,7 @@ test("a `write` Connection sees every tool and its writes reach the route as the
   expect(tokens.scope.split(" ").sort()).toEqual(["read", "write"]);
   expect(names((await client.listTools()).tools)).toEqual([
     "cancelInvitation",
+    "changeMemberRole",
     "createCompany",
     "createInvitation",
     "createNote",
@@ -186,10 +187,12 @@ test("a `write` Connection sees every tool and its writes reach the route as the
     "getMe",
     "getNote",
     "inviteFromNotes",
+    "leaveCompany",
     "listCompanies",
     "listConnections",
     "listInvitations",
     "listMembers",
+    "removeMember",
     "renameCompany",
     "resendInvitation",
     "revokeConnection",
@@ -288,6 +291,44 @@ test("an agent renames a Company for its Owner, an Employee's agent gets a tool 
     }
     await client.close();
   }
+});
+
+test("an agent manages Members as the Owner, and a removed Member's agent gets NOT_FOUND on its next call", async () => {
+  const ana = await signedInUser();
+  const bruno = await signedInUser("Bruno Lima");
+  const carla = await signedInUser("Carla Dias");
+  const company = (await (await worker.post("/api/companies", { name: "Acme" }, { cookie: ana.cookie })).json()) as { id: string };
+  for (const { user } of [bruno, carla]) {
+    await db.query(`INSERT INTO skeleton.members (company_id, user_id, role) VALUES ('${company.id}', '${user.id}', 'employee')`);
+  }
+  const owner = await connectAgent(ana.cookie, { access: "write" });
+  const brunos = await connectAgent(bruno.cookie, { access: "read" });
+  const carlas = await connectAgent(carla.cookie, { access: "write" });
+  expect((await brunos.client.callTool({ name: "getCompany", arguments: { companyId: company.id } })).isError).toBeFalsy();
+
+  const refused = await carlas.client.callTool({ name: "removeMember", arguments: { companyId: company.id, userId: bruno.user.id } });
+  expect(refused.isError).toBe(true);
+  expect(refused.content).toEqual([{ type: "text", text: "FORBIDDEN: Your role in this Company does not allow this." }]);
+  const ownRole = await owner.client.callTool({
+    name: "changeMemberRole",
+    arguments: { companyId: company.id, userId: ana.user.id, body: { role: "employee" } },
+  });
+  expect(ownRole.content).toEqual([{ type: "text", text: "OWN_ROLE: Nobody changes their own role." }]);
+  const removed = await owner.client.callTool({ name: "removeMember", arguments: { companyId: company.id, userId: bruno.user.id } });
+  expect(removed.isError).toBeFalsy();
+
+  // No Connection was revoked: the route refuses whoever is no longer a Member.
+  for (const name of ["getCompany", "listMembers", "getCompanyNote"]) {
+    const result = await brunos.client.callTool({ name, arguments: { companyId: company.id } });
+    expect(result.isError, name).toBe(true);
+    expect(result.content).toEqual([{ type: "text", text: "NOT_FOUND: Not found." }]);
+  }
+  const left = await carlas.client.callTool({ name: "leaveCompany", arguments: { companyId: company.id } });
+  expect(left.isError).toBeFalsy();
+  expect((await carlas.client.callTool({ name: "getCompany", arguments: { companyId: company.id } })).content).toEqual([
+    { type: "text", text: "NOT_FOUND: Not found." },
+  ]);
+  for (const { client } of [owner, brunos, carlas]) await client.close();
 });
 
 test("an agent invites as the Owner, and an Employee's agent gets a tool error FORBIDDEN", async () => {

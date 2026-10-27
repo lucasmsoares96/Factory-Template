@@ -1,13 +1,13 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Alert, AlertDescription } from "#ui/alert";
-import { Button, buttonVariants } from "#ui/button";
+import { buttonVariants } from "#ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "#ui/card";
 import { useGetCompany } from "../../../../gen/hooks/useGetCompany.ts";
 import { useGetNav } from "../../../../gen/hooks/useGetNav.ts";
 import { useErrorMessage, useMessages } from "../../../../client/i18n.tsx";
 import { format } from "../../../../i18n/index.ts";
 import { CompanySettings } from "../../company-settings.tsx";
-import { useMembers } from "../../members.ts";
+import { LeaveCompany, Members } from "../../members.tsx";
 import { InvitationsSection } from "../../../invitations/invitations-section.tsx";
 import { useRoleLabel } from "../../role-label.ts";
 
@@ -16,9 +16,10 @@ export const Route = createFileRoute("/_signed-in/c/$companyId/")({ component: C
 
 /**
  * The Company page: its name and the user's role, the features' `companyPage`
- * sections (`GET /api/nav`), the Members and, for the Owner only, the Invitations
- * and the settings (rename, delete, transfer). Opening it makes it the Company the user
- * lands on next time (the API records it on `GET /api/companies/{companyId}`).
+ * sections (`GET /api/nav`), the Members (with the Owner's actions on them), for
+ * the Owner only the Invitations and the settings (rename, delete, transfer), and Leave.
+ * Opening it makes it the Company the user lands on next time (the API records
+ * it on `GET /api/companies/{companyId}`).
  */
 function CompanyPage() {
   const t = useMessages();
@@ -63,65 +64,11 @@ function CompanyPage() {
           </CardContent>
         ) : null}
       </Card>
-      <Members companyId={companyId} />
+      <Members key={companyId} companyId={companyId} isOwner={company.data.role === "owner"} />
       {company.data.role === "owner" ? <InvitationsSection companyId={companyId} /> : null}
       {/* The Owner's actions; the API refuses them to any other role. A new key resets the forms in another Company. */}
       {company.data.role === "owner" ? <CompanySettings key={companyId} company={company.data} /> : null}
+      <LeaveCompany key={`leave-${companyId}`} companyId={companyId} />
     </div>
-  );
-}
-
-function Members({ companyId }: { companyId: string }) {
-  const t = useMessages();
-  const errorMessage = useErrorMessage();
-  const roleLabel = useRoleLabel();
-  const members = useMembers(companyId);
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>
-          <h2 id="members-title">{t.companies.page.members}</h2>
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        {members.isError ? (
-          <Alert variant="destructive">
-            <AlertDescription>{errorMessage(members.error)}</AlertDescription>
-          </Alert>
-        ) : null}
-        <table aria-labelledby="members-title" className="w-full text-left text-sm">
-          <thead className="text-muted-foreground">
-            <tr>
-              <th scope="col" className="py-2 font-medium">{t.companies.page.memberName}</th>
-              <th scope="col" className="py-2 font-medium">{t.companies.page.memberEmail}</th>
-              <th scope="col" className="py-2 font-medium">{t.companies.page.memberRole}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {members.data?.pages
-              .flatMap((page) => page.items)
-              .map((member) => (
-                <tr key={member.userId} className="border-t">
-                  <td className="py-2">{member.name}</td>
-                  <td className="py-2">{member.email}</td>
-                  <td className="py-2">{roleLabel(member.role)}</td>
-                </tr>
-              ))}
-          </tbody>
-        </table>
-        {members.hasNextPage ? (
-          <Button
-            variant="outline"
-            size="sm"
-            className="self-start"
-            disabled={members.isFetchingNextPage}
-            onClick={() => void members.fetchNextPage()}
-          >
-            {t.companies.page.moreMembers}
-          </Button>
-        ) : null}
-      </CardContent>
-    </Card>
   );
 }
