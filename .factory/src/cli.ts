@@ -287,6 +287,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
         runUrl: values["run-url"] || runUrlFromEnv(deps.env),
         pr: values.pr ? parseIssue(values.pr) : null,
         markWorking: async (pr) => await deps.adapters({ config, repo: values.repo, jobToken: true }).codeHost.labelPr(pr, config.labels.working),
+        dispatchRetro: async (inputs) => await deps.adapters({ config, repo: values.repo, jobToken: true }).codeHost.dispatch("retro", inputs),
       });
       deps.log(JSON.stringify(result));
       if (deps.env.GITHUB_OUTPUT) {

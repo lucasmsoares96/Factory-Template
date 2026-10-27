@@ -166,6 +166,8 @@ export interface WorldOptions {
   agent?: Partial<Record<Stage, AgentStep[]>>;
   verify?: VerifyStep[];
   env?: Record<string, string>;
+  /** The code host of the job token (`jobToken: true`); the forge token's one when absent. */
+  jobCodeHost?: FakeCodeHost;
 }
 
 export function world(options: WorldOptions = {}): World {
@@ -191,7 +193,7 @@ export function world(options: WorldOptions = {}): World {
       runFactory(argv, {
         env,
         log: (line) => logs.push(line),
-        adapters: () => ({ tracker, codeHost, agent, verify }),
+        adapters: ({ jobToken }) => ({ tracker, codeHost: (jobToken && options.jobCodeHost) || codeHost, agent, verify }),
         ...(options.now ? { now: options.now } : {}),
       }),
   };
