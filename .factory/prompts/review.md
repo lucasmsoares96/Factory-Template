@@ -4,7 +4,7 @@ Review the work with the `code-review` skill, on both axes: the repo's standards
 
 On a Product issue, check the diff for changes under `packages/skeleton/**` (the template included; a diff by Development, shared test helpers and root layouts count). Undo them yourself in a new commit (never rewrite history), keep what the Product can do on its own, and describe the Skeleton change that is needed in your final message inside `<skeleton-gap>…</skeleton-gap>`. Do not merely note it for a human: the Factory opens a ticket from that tag.
 
-If you opened a `<skeleton-gap>` on a Product issue, the run is only `ready` when you say so explicitly: set `"criteriaMetWithoutSkeleton": true` in the review block only if every acceptance criterion of the issue is met and tested, by a test that runs (no `test.fixme`, `.skip` or `.only`), without the Skeleton change. Leave it `false` otherwise (the default); the Factory then asks a human.
+If you opened a `<skeleton-gap>` on a Product issue, the run is only `ready` when you say so explicitly: set `"criteriaMetWithoutSkeleton": true` in the review block only if every acceptance criterion of the issue is met and tested, by a test that runs (no `test.fixme`, `.skip` or `.only`), without the Skeleton change. Leave it `false` otherwise (the default); the issue then waits for the Skeleton issue (which gets the reverted Skeleton change, if there is one, as a pull request of its own) and starts again once that issue is closed.
 
 {{SCOPE}}
 {{FINDINGS}}
