@@ -17,6 +17,7 @@ export const errorMessages = {
   INVITATION_EMAIL_MISMATCH: "This Invitation is for another email address. Sign in with that address to accept it.",
   INVITATION_EXPIRED: "This Invitation expired or was canceled. Ask for a new one.",
   CONFIRMATION_MISMATCH: "The confirmation does not match the Company's name.",
+  OWNER_OF_COMPANIES: "You are the Owner of these Companies. Transfer or delete them before you delete your account.",
 } as const;
 
 export type ErrorCode = keyof typeof errorMessages;

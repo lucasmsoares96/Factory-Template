@@ -32,6 +32,17 @@ export const ptBR: Messages = {
       submitting: "Trocando…",
       changed: "A sua senha foi trocada. As suas outras sessões foram encerradas.",
     },
+    delete: {
+      title: "Apagar a conta",
+      description:
+        "A sua conta é apagada para sempre: todas as sessões são encerradas, todo agente conectado perde o acesso e você sai de todas as Companies em que trabalha. Os convites que você enviou continuam valendo.",
+      start: "Apagar a minha conta",
+      password: "A sua senha",
+      passwordHint: "Digite a sua senha para confirmar. Não dá para desfazer.",
+      submit: "Apagar para sempre",
+      submitting: "Apagando…",
+      cancel: "Cancelar",
+    },
     connections: {
       link: "Conexões",
       title: "Conexões",
@@ -156,6 +167,7 @@ export const ptBR: Messages = {
       signedOut: "Você saiu.",
       forgotPassword: "Esqueceu a senha?",
       passwordReset: "A sua senha foi trocada. Entre com a senha nova.",
+      accountDeleted: "A sua conta foi apagada.",
     },
     signOut: "Sair",
     signUp: {
@@ -264,6 +276,7 @@ export const ptBR: Messages = {
     UNAUTHENTICATED: "Entre para continuar.",
     TOO_MANY_REQUESTS: "Tentativas demais. Espere alguns segundos e tente de novo.",
     CONFIRMATION_MISMATCH: "O nome digitado não é o nome da Company.",
+    OWNER_OF_COMPANIES: "Você é Owner destas Companies. Transfira ou apague cada uma antes de apagar a sua conta.",
     INVALID_EMAIL: "Informe um endereço de email válido.",
     PASSWORD_TOO_SHORT: "A senha é curta demais.",
     PASSWORD_TOO_LONG: "A senha é longa demais.",
