@@ -4,5 +4,6 @@
 - `measured-facts.md`: numbers and behaviour observed on real accounts (CPU, rate limit, previews, Actions, GHCR, free-plan ceilings).
 - `known-risks.md`: limits the base knowingly lives with.
 - `forgejo.md`: what changes on Forgejo.
+- `forgejo-install-prompt.md`: the one prompt an agent runs to install the Factory on an existing Forgejo repository.
 - `self-hosted-runner.md`: optional runner of your own for a private repo.
 - `agents/`: agent configuration (issue tracker, labels, domain docs, MCP servers, Retro sources).
