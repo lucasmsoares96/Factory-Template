@@ -1,0 +1,1 @@
+ALTER TABLE "skeleton"."users" ADD COLUMN "pending_email" text;

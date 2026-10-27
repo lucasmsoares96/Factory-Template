@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { users } from "../../db/schema.ts";
 import { apiError, createRouter, errorResponse } from "../../platform/errors.ts";
 import { requireIdentity, unauthenticatedResponse } from "../../platform/identity.ts";
-import { Me } from "../me/api.ts";
+import { Me, meColumns } from "../me/api.ts";
 
 const UpdateMe = z
   .object({
@@ -38,7 +38,7 @@ export const accountApi = createRouter().openapi(updateMe, async (c) => {
     .update(users)
     .set({ name })
     .where(eq(users.id, c.var.identity.user.id))
-    .returning({ id: users.id, name: users.name, email: users.email });
+    .returning(meColumns);
   // The user was deleted after `requireIdentity` found them: nobody is signed in any more.
   if (!user) return c.json(apiError("UNAUTHENTICATED"), 401);
   return c.json(user, 200);
