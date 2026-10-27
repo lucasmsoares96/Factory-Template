@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import type { CodeHost, ConversationEntry, EvidenceImage, PullRequest, PushResult, Review, ReviewThread, SubmittedReview } from "../../seams/code-host.ts";
+import type { CodeHost, ConversationEntry, EvidenceImage, FailedCheck, PullRequest, PushResult, Review, ReviewThread, SubmittedReview } from "../../seams/code-host.ts";
 import { marked } from "../../marker.ts";
 import { BASE_ENV, pick } from "../../env.ts";
 import { GitHubApi, type GitHubApiOptions } from "./api.ts";
@@ -49,6 +49,11 @@ const reviewCommentRow = z.object({
   user: z.object({ login: z.string() }).nullable(),
   in_reply_to_id: z.number().nullable().optional(),
 });
+const runRow = z.object({ id: z.number(), name: z.string().nullable().optional(), conclusion: z.string().nullable(), html_url: z.string() });
+const jobRow = z.object({ id: z.number(), name: z.string(), conclusion: z.string().nullable(), html_url: z.string().nullable() });
+/** A run that ended like this has no failed job to read. */
+const CLEAN_RUN = new Set(["success", "skipped", "neutral"]);
+const FAILED_JOB = new Set(["failure", "timed_out"]);
 const graphql = z.object({ data: z.unknown().optional(), errors: z.array(z.object({ message: z.string() })).optional() });
 
 /**
@@ -190,6 +195,25 @@ export class GitHubCodeHost implements CodeHost {
     return rows.map((r) => ({ author: r.user?.login ?? "ghost", body: r.body ?? "" }));
   }
 
+  /**
+   * Through the Actions API, which the job token reads with `actions: read` (the check-runs API would need `checks: read`):
+   * the runs of the head, their jobs that failed or timed out, and the end of each job's log. A check posted by an app
+   * other than Actions is not seen.
+   */
+  async failedChecks(pr: number, lines: number): Promise<FailedCheck[]> {
+    const head = (await this.api.get(this.api.repoPath(`/pulls/${pr}`), prRow)).head.sha;
+    const runs = await this.api.listIn(this.api.repoPath(`/actions/runs?head_sha=${head}`), "workflow_runs", runRow);
+    const checks: FailedCheck[] = [];
+    for (const run of runs.filter((r) => !CLEAN_RUN.has(r.conclusion ?? ""))) {
+      const jobs = await this.api.listIn(this.api.repoPath(`/actions/runs/${run.id}/jobs`), "jobs", jobRow);
+      for (const job of jobs.filter((j) => FAILED_JOB.has(j.conclusion ?? ""))) {
+        const log = await this.api.text(this.api.repoPath(`/actions/jobs/${job.id}/logs`));
+        checks.push({ name: run.name ? `${run.name} / ${job.name}` : job.name, url: job.html_url ?? run.html_url, log: lastLines(log, lines) });
+      }
+    }
+    return checks;
+  }
+
   async conversation(pr: number): Promise<ConversationEntry[]> {
     const [comments, reviews] = await Promise.all([
       this.api.list(this.api.repoPath(`/issues/${pr}/comments`), issueCommentRow),
@@ -218,6 +242,10 @@ export class GitHubCodeHost implements CodeHost {
   private scrub(text: string): string {
     return text.replaceAll(this.options.token, "***").replaceAll(Buffer.from(`x-access-token:${this.options.token}`).toString("base64"), "***");
   }
+}
+
+function lastLines(text: string, n: number): string {
+  return text.trimEnd().split(/\r?\n/).slice(-n).join("\n");
 }
 
 function escapeRegExp(text: string): string {

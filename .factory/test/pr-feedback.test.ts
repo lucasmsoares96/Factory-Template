@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { FACTORY_MARKER, marked } from "../src/marker.ts";
 import { git, HUMAN, lastJson, OWNER, unmarked } from "./helpers.ts";
-import { BRANCH, PR, commits, feedbackRound, prWorld, replies, reviewOk, said, thread } from "./pr-flow-helpers.ts";
+import { BRANCH, PR, commits, feedbackRound, prWorld, replies, reviewOk, said, thread, type PrWorld } from "./pr-flow-helpers.ts";
 
 const claimReason = async (options: Parameters<typeof prWorld>[0], actor: string) => {
   const p = await prWorld(options);
@@ -370,5 +370,65 @@ describe("factory pr-feedback: the Conversation tab", () => {
 
     expect(await p.w.factory("pr-feedback", "--pr", String(PR), "--actor", HUMAN)).toBe(0);
     expect(lastJson(p.w.logs)).toEqual({ claimed: false, reason: "no-open-threads" });
+  });
+});
+
+describe("factory pr-feedback: the failed checks of the PR's head", () => {
+  const roundWith = async (seed: (p: PrWorld) => void) => {
+    const p = await prWorld({
+      main: "none",
+      threads: [thread("t1", "The preview smoke failed, see its log.")],
+      agent: { development: [commits(replies({ threadId: "t1", decision: "address", body: "Fixed /api/me." }))], review: [reviewOk] },
+      verify: [{ ok: true }],
+    });
+    seed(p);
+    await feedbackRound(p);
+    return { p, prompt: p.w.agent.calls.find((c) => c.stage === "development")!.prompt };
+  };
+  const checksOf = (prompt: string) => /<checks>\n([\s\S]*?)\n<\/checks>/.exec(prompt)?.[1] ?? null;
+  const lines = (prefix: string, n: number) => Array.from({ length: n }, (_, i) => `${prefix} ${i + 1}`).join("\n");
+
+  it("gives the Development the name, the link and the end of the log of each failed check, as untrusted content", async () => {
+    const { p, prompt } = await roundWith((p) => {
+      p.w.codeHost.pr(PR).failedChecks = [{ name: "Factory PR / preview smoke", url: "https://forge.test/runs/40106291796/job/1", log: "signing up\nGET /api/me failed with status 500" }];
+    });
+
+    const block = checksOf(prompt)!;
+    expect(block).toContain('<check name="Factory PR / preview smoke" url="https://forge.test/runs/40106291796/job/1">');
+    expect(block).toContain("GET /api/me failed with status 500");
+    expect(prompt).toMatch(/`<checks>`[^\n]*untrusted/);
+    expect(p.w.codeHost.checkReads).toEqual([PR]);
+  });
+
+  it("says so when no check failed", async () => {
+    const { prompt } = await roundWith(() => {});
+    expect(checksOf(prompt)).toBe("(no failed checks)");
+  });
+
+  it("an error reading the checks becomes a message in the block, and the round goes on", async () => {
+    const { p, prompt } = await roundWith((p) => {
+      p.w.codeHost.pr(PR).failedChecksError = "GitHub GET /actions/runs failed (403): Resource not accessible by integration";
+    });
+
+    expect(checksOf(prompt)).toBe("The logs of the failed checks could not be read: GitHub GET /actions/runs failed (403): Resource not accessible by integration");
+    expect(unmarked(p.w.codeHost.pr(PR).threads[0]!.replies[0]!.body)).toBe("Address: Fixed /api/me.");
+  });
+
+  it("keeps at most 200 lines per job and 1,000 in all, cutting from the start", async () => {
+    const { prompt } = await roundWith((p) => {
+      p.w.codeHost.pr(PR).failedChecks = Array.from({ length: 6 }, (_, i) => ({ name: `job ${i + 1}`, url: `https://forge.test/job/${i + 1}`, log: lines(`job${i + 1} line`, 300) }));
+    });
+
+    const block = checksOf(prompt)!;
+    const logLines = block.split("\n").filter((l) => /^job\d line \d+$/.test(l));
+    expect(logLines).toHaveLength(1000);
+    // Each job keeps its last 200; the first job, earliest in the block, loses the rest of what exceeds 1,000.
+    expect(block).not.toContain("job1 line 300");
+    expect(block).toContain('<check name="job 1" url="https://forge.test/job/1">');
+    for (const job of [2, 3, 4, 5, 6]) {
+      expect(block).toContain(`job${job} line 101\n`);
+      expect(block).not.toContain(`job${job} line 100\n`);
+      expect(block).toContain(`job${job} line 300`);
+    }
   });
 });

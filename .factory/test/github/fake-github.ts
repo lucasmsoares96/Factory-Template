@@ -9,7 +9,8 @@ export interface Call {
   headers: Headers;
 }
 
-type Handler = (call: { params: string[]; query: URLSearchParams; body: any; method: string }) => { status?: number; json?: unknown; headers?: Record<string, string> } | undefined;
+/** `text` answers with a plain body, as a log download does once `fetch` has followed its redirect. */
+type Handler = (call: { params: string[]; query: URLSearchParams; body: any; method: string }) => { status?: number; json?: unknown; text?: string; headers?: Record<string, string> } | undefined;
 
 export class FakeGitHubServer {
   readonly calls: Call[] = [];
@@ -29,7 +30,7 @@ export class FakeGitHubServer {
       if (route.method !== method || !match) continue;
       const out = route.handler({ params: match.slice(1), query: url.searchParams, body, method });
       if (!out) break;
-      return new Response(out.json === undefined ? null : JSON.stringify(out.json), { status: out.status ?? 200, headers: out.headers });
+      return new Response(out.text ?? (out.json === undefined ? null : JSON.stringify(out.json)), { status: out.status ?? 200, headers: out.headers });
     }
     return new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
   };
