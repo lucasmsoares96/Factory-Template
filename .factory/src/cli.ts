@@ -282,13 +282,16 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
         return 0;
       }
       const issue = issueArg();
+      // The job token's code host: its writes start no workflow, and it may dispatch one (`actions: write`).
+      const jobCodeHost = () => deps.adapters({ config, repo: values.repo, jobToken: true }).codeHost;
       const result = await publish(ctx, issue, {
         repo: values.repo,
         in: required(values.in, "--in"),
         startSha: values["start-sha"] || null,
         runUrl: values["run-url"] || runUrlFromEnv(deps.env),
         pr: values.pr ? parseIssue(values.pr) : null,
-        markWorking: async (pr) => await deps.adapters({ config, repo: values.repo, jobToken: true }).codeHost.labelPr(pr, config.labels.working),
+        markWorking: async (pr) => await jobCodeHost().labelPr(pr, config.labels.working),
+        dispatchRetro: async (inputs) => await jobCodeHost().dispatch("retro", inputs),
       });
       deps.log(JSON.stringify(result));
       if (deps.env.GITHUB_OUTPUT) {

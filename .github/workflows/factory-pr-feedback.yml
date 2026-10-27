@@ -187,12 +187,13 @@ jobs:
     env:
       ISSUE: ${{ needs.claim.outputs.issue }}
       PR: ${{ needs.claim.outputs.pr }}
-    # The job token writes only factory:working (last step) and reads the runs it is kept for; FACTORY_TOKEN does the rest.
+    # The job token writes only factory:working (last step), reads the runs it is kept for and, with `actions: write`,
+    # dispatches the automatic Retro of an Escalation (FACTORY_TOKEN may not); FACTORY_TOKEN does the rest.
     permissions:
       contents: read
       issues: write
       pull-requests: write
-      actions: read
+      actions: write
     outputs:
       outcome: ${{ steps.publish.outputs.outcome }}
       url: ${{ steps.publish.outputs.url }}
@@ -219,8 +220,10 @@ jobs:
           path: ${{ runner.temp }}/out
       - name: publish
         id: publish
+        # GITHUB_TOKEN only dispatches the Retro of an Escalation; FACTORY_TOKEN does every write.
         env:
           FACTORY_TOKEN: ${{ secrets.FACTORY_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
           START_SHA: ${{ needs.claim.outputs.start_sha }}
           PR: ${{ needs.claim.outputs.pr }}
         run: |
