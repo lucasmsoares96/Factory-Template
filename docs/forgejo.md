@@ -32,7 +32,7 @@ The Factory is built for GitHub; only the adapters are designed to fit Forgejo. 
 
 ## Keeping pull requests up to date
 
-- GitHub: the `main` ruleset requires up-to-date branches (`strict_required_status_checks_policy`), and `factory-update-branches.yml` merges `main` into every open PR that is behind and pushes. On Forgejo, the same rule is `block_on_outdated_branch: true` on the branch protection of `main` (with `enable_status_check` and `verify` in `status_check_contexts`); a Forgejo bootstrap would set it there instead of the ruleset (not written yet).
+- ADR 0014. GitHub: the `main` ruleset requires up-to-date branches (`strict_required_status_checks_policy`), and `factory-update-branches.yml` merges `main` into every open PR that is behind and pushes. On Forgejo, the same rule is `block_on_outdated_branch: true` on the branch protection of `main` (with `enable_status_check` and `verify` in `status_check_contexts`); a Forgejo bootstrap would set it there instead of the ruleset (not written yet).
 - The update stays a merge and a push from the Factory's own checkout (`git merge` of the base branch, the agent only on a conflict, then Verify, then `git push --force-with-lease`), not the forge's "Update branch" button or API: the Factory has to run Verify on the merge before it pushes, and that path is the same on both forges. Listing the open PRs, telling a fork's head from the repository's and commenting on a PR are the only forge calls it adds.
 - A fork's PR (and an AGit PR) is never pushed to: it gets one comment asking its author to update the branch.
 
