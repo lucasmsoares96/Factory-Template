@@ -6,7 +6,7 @@ import { expect, test } from "../spa/test.ts";
 const email = "ana@example.com";
 const name = "Ana Souza";
 const signedOut = getMeHandler(() => getMeHandlerResponse401({ code: "UNAUTHENTICATED", message: "Sign in to continue." }));
-const signedIn = getMeHandler({ id: "user-1", name, email });
+const signedIn = getMeHandler({ id: "user-1", name, email, pendingEmail: null });
 
 test("a visitor signs in and lands on the home page, greeted by name", async ({ worker }) => {
   const signIn = signInHandler();
