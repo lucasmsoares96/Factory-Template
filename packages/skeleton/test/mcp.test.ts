@@ -144,7 +144,7 @@ test("a `read` Connection calls getMe as the user who consented, and never sees 
   expect(names((await client.listTools()).tools)).toEqual(READ_TOOLS);
   const result = await client.callTool({ name: "getMe", arguments: {} });
   expect(result.isError).toBeFalsy();
-  expect(result.structuredContent).toEqual({ id: user.id, name: "Ana Souza", email: user.email });
+  expect(result.structuredContent).toEqual({ id: user.id, name: "Ana Souza", email: user.email, pendingEmail: null });
   await expect(client.callTool({ name: "createNote", arguments: { body: { text: "Hi" } } })).rejects.toThrow(
     "Tool createNote not found",
   );
@@ -161,7 +161,7 @@ test("a `write` Connection renames the user who consented with updateMe, and get
   const renamed = await client.callTool({ name: "updateMe", arguments: { body: { name: " Ana Lima " } } });
 
   expect(renamed.isError).toBeFalsy();
-  expect(renamed.structuredContent).toEqual({ id: user.id, name: "Ana Lima", email: user.email });
+  expect(renamed.structuredContent).toEqual({ id: user.id, name: "Ana Lima", email: user.email, pendingEmail: null });
   expect((await client.callTool({ name: "getMe", arguments: {} })).structuredContent).toMatchObject({ name: "Ana Lima" });
   expect(await (await worker.fetch("/api/me", { headers: { cookie } })).json()).toMatchObject({ name: "Ana Lima" });
   const blank = await client.callTool({ name: "updateMe", arguments: { body: { name: "  " } } });
