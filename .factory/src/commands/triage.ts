@@ -34,9 +34,9 @@ export interface TriageRun {
  * forge. Issues whose `agent:explore` is not trusted (put by someone with
  * `write`+, or the Factory's swap of a writer's `ready-for-agent`: `trustedExplore`)
  * are not read: their text never reaches the Agent. The references each verdict cites are checked
- * in `repo` (the checkout, default the cwd): `checkReferences`.
+ * in `repo` (the checkout): `checkReferences`.
  */
-export async function triage(ctx: CommandContext, options: { issues: number[]; out: string; repo?: string }): Promise<TriageRun> {
+export async function triage(ctx: CommandContext, options: { issues: number[]; out: string; repo: string }): Promise<TriageRun> {
   const { tracker, agent, config } = ctx;
   const chosen = await triageBatch(ctx, options.issues);
   const skipped = chosen.skipped;
@@ -58,7 +58,7 @@ export async function triage(ctx: CommandContext, options: { issues: number[]; o
     for (const number of numbers) {
       const verdict = found.get(number);
       if (verdict) {
-        result.issues.push(await checkReferences(verdict, options.repo ?? process.cwd()));
+        result.issues.push(await checkReferences(verdict, options.repo));
       } else {
         fallback.push(number);
         result.issues.push(fallbackVerdict(number, run.timedOut ? "timeout" : "invalid", run.output));
