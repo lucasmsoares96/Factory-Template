@@ -2,7 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
-import type { ReviewThread } from "../src/seams/code-host.ts";
+import type { ConversationEntry, ReviewThread } from "../src/seams/code-host.ts";
 import { commitFile, derivedCheckout, git, HUMAN, lastJson, OWNER, readyIssue, tempDir, world, type World, type WorldOptions } from "./helpers.ts";
 
 export const BRANCH = "factory/issue-7";
@@ -37,6 +37,9 @@ export const thread = (id: string, body: string, extra: Partial<ReviewThread> = 
   ...extra,
 });
 
+/** A comment in the PR's Conversation tab (`kind: "review"`: the body of a submitted review). */
+export const said = (id: string, body: string, extra: Partial<ConversationEntry> = {}): ConversationEntry => ({ id, kind: "comment", author: HUMAN, body, ...extra });
+
 export const replies = (...items: { threadId: string; decision: "address" | "decline" | "defer" | "answer"; body: string }[]) =>
   `<replies>${JSON.stringify({ threadReplies: items })}</replies>`;
 
@@ -51,14 +54,14 @@ export const commits = (output = ""): AgentStep => async ({ cwd }) => {
 };
 
 /** The Factory branch with a ready PR #101 whose issue #7 is `in-progress`, and two checkouts: one per job. */
-export async function prWorld(input: { main: MainChange; threads?: ReviewThread[]; draft?: boolean } & Pick<WorldOptions, "agent" | "verify">) {
+export async function prWorld(input: { main: MainChange; threads?: ReviewThread[]; conversation?: ConversationEntry[]; draft?: boolean } & Pick<WorldOptions, "agent" | "verify">) {
   const [workRepo, publishRepo] = [await prCheckout(input.main), await prCheckout(input.main)];
   const head = await git(workRepo, "rev-parse", BRANCH);
   const w = world({
     repo: workRepo,
     issues: readyIssue({ labels: { "in-progress": OWNER } }),
     branches: { [BRANCH]: head },
-    prs: [{ number: PR, branch: BRANCH, headSha: head, draft: input.draft ?? false, body: "Original body\n\nCloses #7", threads: input.threads ?? [] }],
+    prs: [{ number: PR, branch: BRANCH, headSha: head, draft: input.draft ?? false, body: "Original body\n\nCloses #7", threads: input.threads ?? [], conversation: input.conversation ?? [] }],
     agent: input.agent,
     verify: input.verify,
   });

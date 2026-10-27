@@ -725,8 +725,11 @@ describe.each([["factory-pr-feedback.yml", "pr-feedback"], ["factory-update-bran
     expect(checkout?.with).toMatchObject({ "persist-credentials": false });
   });
 
-  it("`work` shares the issue flow's factory-N group without cancelling a running job", () => {
-    expect(concurrencyOf(work!)).toEqual({ group: "factory-${{ needs.claim.outputs.issue }}", "cancel-in-progress": false, queue: "max" });
+  it("`work` shares the issue flow's factory-N group without cancelling a running job (a PR-keyed update: factory-pr-N)", () => {
+    const group = flow === "update-branch"
+      ? "${{ needs.claim.outputs.issue && format('factory-{0}', needs.claim.outputs.issue) || format('factory-pr-{0}', needs.claim.outputs.pr) }}"
+      : "factory-${{ needs.claim.outputs.issue }}";
+    expect(concurrencyOf(work!)).toEqual({ group, "cancel-in-progress": false, queue: "max" });
   });
 
   it("`claim` is read-only on a fresh VM; only `publish` holds FACTORY_TOKEN, and runs even when `work` failed", () => {
@@ -737,8 +740,9 @@ describe.each([["factory-pr-feedback.yml", "pr-feedback"], ["factory-update-bran
     expect(publish!.container).toBeUndefined();
     expect(publish!.if).toContain("always()");
     expect(secretsOf(publish!)).toEqual(["secrets.FACTORY_TOKEN"]);
-    expect(runs(publish!).join("\n")).toMatch(/pnpm factory publish "\$ISSUE" .*--pr "\$PR" --start-sha/);
-    expect(runs(work!).join("\n")).toContain(`--flow ${flow} --pr "$PR"`);
+    const issueArg = flow === "update-branch" ? String.raw`\$\{ISSUE:\+"\$ISSUE"\}` : String.raw`"\$ISSUE"`;
+    expect(runs(publish!).join("\n")).toMatch(new RegExp(String.raw`pnpm factory publish ${issueArg} .*--pr "\$PR" --start-sha`));
+    expect(runs(work!).join("\n")).toMatch(new RegExp(String.raw`pnpm factory work ${issueArg} --flow ${flow} --pr "\$PR"`));
   });
 
   it("is off until FACTORY_ENABLED and never interpolates event data into a script", () => {
@@ -795,6 +799,8 @@ describe("Factory PR feedback workflow", () => {
     expect(filter).toContain("!contains(github.event.review.body, '<!-- factory -->')");
     expect(filter).not.toContain("MACHINE_USER");
     expect(filter).toContain("startsWith(github.event.pull_request.head.ref, 'factory/issue-')");
+    // A Conversation comment has no head ref in its event: it goes through on being a PR's, and `claim` checks the branch.
+    expect(filter).toContain("github.event_name == 'issue_comment' && github.event.issue.pull_request");
     expect(feedback.jobs.claim!.steps!.map((s) => s.run).join("\n")).toContain('pnpm factory pr-feedback --pr "$PR" --actor "$ACTOR"');
   });
 });
@@ -810,10 +816,43 @@ describe("Factory update branches workflow", () => {
     expect(update.jobs.claim!.if).toContain("github.event_name == 'workflow_dispatch'");
   });
 
-  it("`scan` dispatches with the job token and holds no secret", () => {
+  it("`scan` dispatches with the job token and holds no secret; it may write only a fork PR's comment", () => {
     const scan = update.jobs.scan!;
-    expect(scan.permissions).toEqual({ contents: "read", issues: "read", "pull-requests": "read", actions: "write" });
+    expect(scan.permissions).toEqual({ contents: "read", issues: "read", "pull-requests": "write", actions: "write" });
     expect(textOf(scan)).not.toMatch(/secrets\./);
     expect(runs(scan).join("\n")).toContain("pnpm factory update-branch --scan");
+  });
+
+  it("`scan` fetches every PR head only as data, after installing the default branch's harness without scripts", () => {
+    const scan = update.jobs.scan!;
+    const scripts = runs(scan);
+    const install = scripts.findIndex((s) => s.includes("pnpm install"));
+    const fetch = scripts.findIndex((s) => s.includes("refs/pull/*/head"));
+    expect(scripts[install]).toContain("--ignore-scripts");
+    expect(fetch).toBeGreaterThan(install);
+    expect(steps(scan).filter((s) => s.uses?.startsWith("actions/checkout@")).map((s) => s.with?.ref)).toEqual(["${{ github.event.repository.default_branch }}"]);
+  });
+
+  it("is dispatched for one issue or one PR, and names the run `#N` or `PR #N`", () => {
+    const inputs = (update.on.workflow_dispatch as { inputs: Record<string, { required: boolean }> }).inputs;
+    expect(Object.keys(inputs).sort()).toEqual(["issue", "pr"]);
+    expect(inputs.issue!.required).toBe(false);
+    expect(inputs.pr!.required).toBe(false);
+    const runName = (update as unknown as { "run-name": string })["run-name"];
+    expect(runName).toContain("format('#{0} update branch', inputs.issue)");
+    expect(runName).toContain("format('PR #{0} update branch', inputs.pr)");
+    expect(runs(update.jobs.claim!).join("\n")).toMatch(/pnpm factory update-branch "\$ISSUE"[\s\S]*pnpm factory update-branch --pr "\$PR"/);
+  });
+
+  it("the update jobs never run a fork's code: the default branch's checkout, and only the claimed branch of this repository", () => {
+    for (const id of ["claim", "work", "publish"]) {
+      const job = update.jobs[id]!;
+      const checkouts = steps(job).filter((s) => s.uses?.startsWith("actions/checkout@"));
+      expect(checkouts.map((s) => s.with), id).toEqual([expect.objectContaining({ ref: "${{ github.event.repository.default_branch }}", "persist-credentials": false })]);
+      expect(textOf(job), id).not.toMatch(/refs\/pull|head\.repo|head\.sha|head\.ref/);
+    }
+    const fetch = steps(update.jobs.work!).find((s) => s.run?.includes("git fetch"))!;
+    expect(fetch.env?.BRANCH).toBe("${{ needs.claim.outputs.branch }}");
+    expect(fetch.run).toContain('git fetch --no-tags origin "+refs/heads/$BRANCH:refs/heads/$BRANCH"');
   });
 });

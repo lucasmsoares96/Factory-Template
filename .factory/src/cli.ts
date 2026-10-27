@@ -4,9 +4,9 @@ import { adaptersFromEnv } from "./adapters/index.ts";
 import { claim } from "./commands/claim.ts";
 import type { Adapters, CommandContext } from "./commands/context.ts";
 import { CLAUDE_AUTH, local } from "./commands/local.ts";
-import { claimPrFeedback, claimUpdateBranch, scanBranches, type PrClaim } from "./commands/pr-claim.ts";
+import { claimPrFeedback, claimPrUpdate, claimUpdateBranch, scanBranches, type PrClaim } from "./commands/pr-claim.ts";
 import { notify } from "./commands/notify.ts";
-import { publish } from "./commands/publish.ts";
+import { publish, publishPrUpdate } from "./commands/publish.ts";
 import { retro, retroCollect, retroPublish, type RunLogs } from "./commands/retro.ts";
 import { GitHubRunLogs } from "./adapters/github/run-logs.ts";
 import { apply, triage } from "./commands/triage.ts";
@@ -38,13 +38,18 @@ Commands:
   work <issue> --out <dir> [--repo <dir>] [--flow pr-feedback|update-branch --pr <n>]
                                          Run Development → Review → E2E; write result.json, the branch bundle and the prints.
                                          --flow: continue the branch of PR <n> (merge the base branch first).
+  work --flow update-branch --pr <n> --out <dir> [--repo <dir>]
+                                         The same update keyed by PR <n> alone (no issue): its own branch.
   pr-feedback --pr <n> --actor <login>   Guard a comment on a Factory PR (writer, factory/issue-N, open threads) and print the claim; the pr-feedback workflow then runs work and publish.
   update-branch <issue>                  Guard an update of the Factory branch of an issue (in-progress, open PR).
-  update-branch --scan [--repo <dir>]    After a push to the base branch: dispatch update-branch for each Factory PR that
-                                         now conflicts with it (git merge-tree).
+  update-branch --pr <n>                 Guard an update keyed by PR <n> alone (open, into the base branch, not a fork).
+  update-branch --scan [--repo <dir>]    After a push to the base branch: dispatch update-branch for each open PR that is
+                                         behind it (Factory and people's PRs); a fork's PR gets one comment instead.
   publish <issue> --in <dir> [--repo <dir>] [--start-sha <sha>] [--run-url <url>] [--pr <n>]
                                          Re-check the forge, validate result.json, push with a lease, then open the
                                          PR with review and evidence, or escalate. --pr: the run continues PR <n>.
+  publish --pr <n> --in <dir> [--repo <dir>] --start-sha <sha> [--run-url <url>]
+                                         Publish an update keyed by PR <n> alone: push with a lease and comment on the PR only.
   local <issue> [--issues <dir>] [--repo <dir>]
                                          The issue flow on this machine for a Markdown ticket
                                          (.scratch/<feature>/issues/NN-*.md): claim and publish here, work in a
@@ -134,7 +139,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
   const writeOutputs = async (claim: PrClaim) => {
     if (!deps.env.GITHUB_OUTPUT) return;
     const lines = claim.claimed
-      ? [`claimed=true`, `issue=${claim.issue}`, `pr=${claim.pr}`, `branch=${claim.branch}`, `start_sha=${claim.startSha}`]
+      ? [`claimed=true`, `issue=${claim.issue ?? ""}`, `pr=${claim.pr}`, `branch=${claim.branch}`, `start_sha=${claim.startSha}`]
       : [`claimed=false`, `reason=${claim.reason}`];
     await appendFile(deps.env.GITHUB_OUTPUT, `${lines.join("\n")}\n`);
   };
@@ -153,7 +158,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
         deps.log(JSON.stringify(result));
         return 0;
       }
-      const claim = await claimUpdateBranch(ctx, issueArg());
+      const claim = positionals[0] === undefined && values.pr ? await claimPrUpdate(ctx, parseIssue(values.pr)) : await claimUpdateBranch(ctx, issueArg());
       deps.log(JSON.stringify(claim));
       await writeOutputs(claim);
       return 0;
@@ -185,7 +190,8 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
       return 0;
     }
     case "work": {
-      const issue = issueArg();
+      // `update-branch --pr N` with no issue: keyed by the pull request.
+      const issue = positionals[0] === undefined && values.flow === "update-branch" ? null : issueArg();
       const result = await work(ctx, issue, { repo: values.repo, out: required(values.out, "--out"), ...(flowOf(values) ? { flow: flowOf(values)! } : {}) });
       deps.log(JSON.stringify({ issue, outcome: result.outcome, reason: result.reason, attempts: result.attempts.length }));
       return 0;
@@ -230,6 +236,17 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
       return result.failed.length > 0 ? 1 : 0;
     }
     default: {
+      if (positionals[0] === undefined && values.pr) {
+        const result = await publishPrUpdate(ctx, parseIssue(values.pr), {
+          repo: values.repo,
+          in: required(values.in, "--in"),
+          startSha: values["start-sha"] || null,
+          runUrl: values["run-url"] || runUrlFromEnv(deps.env),
+        });
+        deps.log(JSON.stringify(result));
+        if (deps.env.GITHUB_OUTPUT) await appendFile(deps.env.GITHUB_OUTPUT, `outcome=${result.outcome}\nurl=${"url" in result ? result.url : ""}\n`);
+        return 0;
+      }
       const issue = issueArg();
       const result = await publish(ctx, issue, {
         repo: values.repo,
