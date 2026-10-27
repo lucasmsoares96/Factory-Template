@@ -126,6 +126,32 @@ describe("Skeleton scope of a Product issue", () => {
     expect(w.agent.calls.filter((c) => c.stage === "development")[1]!.prompt).toContain("packages/skeleton/");
   });
 
+  it("writes one <skeleton-gap> when Development and the Review report the same gap, and shows the Review that gap", async () => {
+    const gapDev: AgentStep = async (call) => {
+      await develop(call);
+      return { output: "Done.\n<skeleton-gap>\nThe root layout needs a **footer** slot\n</skeleton-gap>" };
+    };
+    const { w } = await run({ labels: { "ready-for-agent": HUMAN, "product:example": HUMAN }, develop: gapDev });
+
+    const body = w.tracker.issues.get(8)!.body;
+    expect(body.match(/<skeleton-gap>/g)).toHaveLength(1);
+    expect(body).toContain("The root layout needs a **footer** slot");
+    expect(w.agent.calls.find((c) => c.stage === "review")!.prompt).toContain("The root layout needs a **footer** slot");
+  });
+
+  it("keeps two different gaps from Development and the Review", async () => {
+    const gapDev: AgentStep = async (call) => {
+      await develop(call);
+      return { output: "Done.\n<skeleton-gap>The header needs a logo slot.</skeleton-gap>" };
+    };
+    const { w } = await run({ labels: { "ready-for-agent": HUMAN, "product:example": HUMAN }, develop: gapDev });
+
+    const body = w.tracker.issues.get(8)!.body;
+    expect(body.match(/<skeleton-gap>/g)).toHaveLength(2);
+    expect(body).toContain("The header needs a logo slot.");
+    expect(body).toContain("The root layout needs a footer slot.");
+  });
+
   it("leaves an issue whose own scope is the Skeleton untouched", async () => {
     const skeletonDev: AgentStep = async ({ cwd }) => {
       await commitFile(cwd, LAYOUT, "export const Layout = 'footer';\n", "feat: skeleton footer slot #7");
