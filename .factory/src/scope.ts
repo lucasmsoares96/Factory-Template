@@ -55,6 +55,28 @@ export function skeletonGaps(output: string): string[] {
   return [...output.matchAll(/<skeleton-gap>([\s\S]*?)<\/skeleton-gap>/g)].map((m) => m[1]!.trim()).filter(Boolean);
 }
 
+/** A gap's text for comparison: case, whitespace and Markdown punctuation folded. */
+function gapKey(gap: string): string {
+  return ` ${gap.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim()} `;
+}
+
+/**
+ * The gaps without repeats, in first-reported order (Development before Review).
+ * Two gaps are the same when, folded by `gapKey`, one equals or contains the
+ * other (as whole words); the longer text is kept, in the place of the first.
+ */
+export function mergeGaps(gaps: Iterable<string>): string[] {
+  const kept: { gap: string; key: string }[] = [];
+  for (const gap of gaps) {
+    const key = gapKey(gap);
+    if (key.trim() === "") continue;
+    const same = kept.find((k) => k.key.includes(key) || key.includes(k.key));
+    if (!same) kept.push({ gap, key });
+    else if (key.length > same.key.length) Object.assign(same, { gap, key });
+  }
+  return kept.map((k) => k.gap);
+}
+
 export interface SkeletonFollowUp {
   title: string;
   body: string;
@@ -62,7 +84,8 @@ export interface SkeletonFollowUp {
 }
 
 /** The ticket asking for the Skeleton change; the Tracker adapter adds the link back to the issue. */
-export function followUpTicket(issue: Pick<Issue, "number" | "title">, product: string, files: string[], gaps: string[]): SkeletonFollowUp {
+export function followUpTicket(issue: Pick<Issue, "number" | "title">, product: string, files: string[], reported: string[]): SkeletonFollowUp {
+  const gaps = mergeGaps(reported);
   const body = [
     `The Skeleton must grow: Product \`${product}\` needs a change in \`${SKELETON_PATH}\` to finish #${issue.number} (${issue.title}).`,
     "",

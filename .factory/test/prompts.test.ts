@@ -108,6 +108,13 @@ describe("prompt templates", () => {
     expect(prompts.retro).toContain("<retro>");
   });
 
+  it("lists the Skeleton gaps reported so far and asks the Review to add only new ones", () => {
+    expect(prompts.review).toMatch(/Skeleton gaps already reported[^\n]*\n\(none\)/);
+    const listed = reviewPrompt({ issue, log: "", since: null, findings: [], gaps: ["The layout needs a footer slot."] });
+    expect(listed).toContain("<skeleton-gap>The layout needs a footer slot.</skeleton-gap>");
+    expect(listed).toContain("only for a change not already listed");
+  });
+
   it("tells the Review to comment inline only on unfixed findings that need a human decision", () => {
     expect(prompts.review).toMatch(/inline comments? only/i);
     expect(prompts.review).toContain("needs a human decision");
