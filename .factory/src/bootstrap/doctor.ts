@@ -262,7 +262,9 @@ async function productionChecks(
   add(listed ? "ok" : "missing", `${id} in ${DEPLOY_PRODUCTS}`, listed ? undefined : redo);
 
   const ruleset = (await ctx.github.listRulesets()).find((r) => coversMain(r, defaultBranch));
-  add(ruleset ? "ok" : "off", "Ruleset on the default branch", ruleset ? `${ruleset.name} #${ruleset.id}` : "none (the plan may refuse it) or not made yet");
+  if (!ruleset) add("off", "Ruleset on the default branch", "none (the plan may refuse it) or not made yet");
+  else if (!ruleset.strict) add("off", "Ruleset on the default branch", `${ruleset.name} #${ruleset.id} does not require branches to be up to date before merging: ${redo}`);
+  else add("ok", "Ruleset on the default branch", `${ruleset.name} #${ruleset.id}`);
 
   await accountChecks(ctx, product, variables, add, redo);
 

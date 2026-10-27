@@ -23,6 +23,9 @@ Commands:
   migrations check-published [--dir drizzle] [--base <ref>]
                                  Fail if a migration already on the base branch was edited,
                                  renamed or deleted.
+  migrations check-chain [--dir drizzle]
+                                 Fail if two migration snapshots share a parent (the chain
+                                 forked, e.g. two branches each added one) or a parent is missing.
 
 Without --product, only the Skeleton's migrations are involved.
 `;
@@ -85,6 +88,9 @@ try {
     case "migrations check-published":
       await checkPublished();
       break;
+    case "migrations check-chain":
+      await checkChain();
+      break;
     default:
       console.error(usage);
       process.exitCode = 2;
@@ -146,6 +152,17 @@ async function dev(dir: string) {
     },
   });
   vite.on("exit", (code) => process.exit(code ?? 0));
+}
+
+async function checkChain() {
+  const { findBrokenMigrationChain } = await import("../src/node/migration-chain.ts");
+  const problems = findBrokenMigrationChain({ dir: values.dir });
+  if (problems.length) {
+    console.error(`The migration chain in ${values.dir} is broken:\n${problems.map((p) => `  ${p}`).join("\n")}`);
+    process.exitCode = 1;
+  } else {
+    console.log(`The migration chain in ${values.dir} is linear.`);
+  }
 }
 
 async function checkPublished() {

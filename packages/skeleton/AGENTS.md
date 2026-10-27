@@ -16,7 +16,7 @@ The shared package every Product builds on: a Hono + OpenAPI Worker, Better Auth
 
 - The Skeleton core does not know any Product. Product behaviour goes through `Feature`, never through an `if` on a product id.
 - Every API route has an `operationId`, a `summary`, a `description`, every response it can return, and stable error codes. `limit` defaults to 50 with a cursor. `x-mcp: false` keeps a route out of MCP. Better Auth routes are not exposed as tools.
-- The database only grows. A published migration is never edited, renamed or deleted (`skeleton migrations check-published` enforces it). `drizzle-kit check` must pass.
+- The database only grows. A published migration is never edited, renamed or deleted (`skeleton migrations check-published` enforces it). `drizzle-kit check` must pass. The chain stays linear: two snapshots with the same parent, or a missing parent, fail `skeleton migrations check-chain` (in `lint`); delete the folder it names and generate the migration again on top of the newest one.
 - Generated files: the Kubb client, `openapi.json` and `worker-configuration.d.ts` are not committed; `routeTree.gen.ts` and `src/mcp-tools.gen.json` are. Changing a tool changes the snapshot in the same commit.
 - UI strings live in `src/i18n/en.ts` and `pt-BR.ts` (typed objects, so `tsc` flags a missing key). The locale is the `LOCALE` build variable. The API returns a stable error code plus an English message; the SPA translates by code.
 - Library versions are pinned exactly in the `pnpm-workspace.yaml` catalog. Check the official docs before bumping one.
