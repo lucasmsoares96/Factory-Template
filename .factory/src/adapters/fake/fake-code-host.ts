@@ -1,6 +1,7 @@
 import { marked } from "../../marker.ts";
 import type {
   CodeHost,
+  ConversationEntry,
   EvidenceImage,
   PullRequest,
   PushResult,
@@ -21,6 +22,8 @@ export interface FakePullRequest extends PullRequest {
   labels: string[];
   /** Comments left on the PR outside reviews (e.g. when it is closed). */
   comments: string[];
+  /** The Conversation tab in order: seeded entries, then what the Factory writes there (comments and review bodies). */
+  conversation: ConversationEntry[];
 }
 
 /** In-memory CodeHost. Tests seed branches and read PRs and pushes back. */
@@ -78,7 +81,7 @@ export class FakeCodeHost implements CodeHost {
   }
 
   async commentPr(pr: number, body: string): Promise<void> {
-    this.pr(pr).comments.push(marked(body));
+    this.say(pr, marked(body));
     this.writes.push(`commentPr #${pr}`);
   }
 
@@ -107,7 +110,7 @@ export class FakeCodeHost implements CodeHost {
 
   async closePr(pr: number, comment?: string): Promise<void> {
     const target = this.pr(pr);
-    if (comment) target.comments.push(marked(comment));
+    if (comment) this.say(pr, marked(comment));
     target.state = "closed";
     this.writes.push(`closePr #${pr}`);
   }
@@ -120,6 +123,7 @@ export class FakeCodeHost implements CodeHost {
 
   async submitReview(pr: number, review: Review): Promise<void> {
     this.pr(pr).reviews.push(structuredClone({ ...review, body: marked(review.body), comments: review.comments.map((c) => ({ ...c, body: marked(c.body) })) }));
+    this.pr(pr).conversation.push({ id: `review-f${this.pr(pr).conversation.length + 1}`, kind: "review", author: this.self, body: marked(review.body) });
     this.writes.push(`submitReview #${pr}`);
   }
 
@@ -129,6 +133,17 @@ export class FakeCodeHost implements CodeHost {
 
   async reviews(pr: number): Promise<SubmittedReview[]> {
     return this.pr(pr).reviews.map((r) => ({ author: r.author ?? this.self, body: r.body }));
+  }
+
+  async conversation(pr: number): Promise<ConversationEntry[]> {
+    return structuredClone(this.pr(pr).conversation.filter((e) => e.body.trim() !== ""));
+  }
+
+  /** A comment by the Factory in the Conversation tab. */
+  private say(pr: number, body: string): void {
+    const target = this.pr(pr);
+    target.comments.push(body);
+    target.conversation.push({ id: `comment-f${target.conversation.length + 1}`, kind: "comment", author: this.self, body });
   }
 
   async replyToThread(pr: number, threadId: string, body: string): Promise<void> {
@@ -165,6 +180,7 @@ function fakePr(seed: FakePullRequestSeed): FakePullRequest {
     threads: [],
     labels: [],
     comments: [],
+    conversation: [],
     ...seed,
   };
 }

@@ -33,9 +33,20 @@ export interface SubmittedReview {
   body: string;
 }
 
+/** One entry of the pull request's Conversation tab: a comment, or the body of a submitted review. */
+export interface ConversationEntry {
+  /** Unique across both kinds (`comment-<id>`, `review-<id>` on GitHub), never equal to a thread id. */
+  id: string;
+  kind: "comment" | "review";
+  author: string;
+  body: string;
+}
+
 export interface ReviewThread {
   id: string;
   path: string | null;
+  /** A request from the Conversation tab rather than an inline thread: it is answered there, in one comment for the round. */
+  conversation?: true;
   author: string;
   body: string;
   replies: { author: string; body: string }[];
@@ -80,6 +91,8 @@ export interface CodeHost {
   threads(pr: number): Promise<ReviewThread[]>;
   /** The reviews submitted on the pull request, oldest first. */
   reviews(pr: number): Promise<SubmittedReview[]>;
+  /** The Conversation tab, oldest first: its comments and the bodies of submitted reviews (empty bodies left out). */
+  conversation(pr: number): Promise<ConversationEntry[]>;
   replyToThread(pr: number, threadId: string, body: string): Promise<void>;
   /** Starts a Factory workflow run (e.g. `issue` for an unblocked issue). */
   dispatch(workflow: string, inputs: Record<string, string>): Promise<void>;
