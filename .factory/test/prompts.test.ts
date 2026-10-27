@@ -85,6 +85,11 @@ describe("prompt templates", () => {
     expect(prompts.retro).toContain("`.agents/skills/retro/SKILL.md`");
   });
 
+  it("tells the Triage to check and locate every symbol its approach cites", () => {
+    expect(prompts.triage).toContain("every import, export, function, route or file the approach cites");
+    expect(prompts.triage).toContain('"references": [{"symbol"');
+  });
+
   it("tells the update-branch session to regenerate the branch's own migration on top of the base branch's", () => {
     expect(prompts["update-branch"]).toMatch(/delete the branch's migration folder and generate it again on top of the newest migration from `main`/);
   });
