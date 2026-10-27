@@ -1,5 +1,6 @@
 # A ready issue becomes a pull request, written with the repo owner's FACTORY_TOKEN (the Factory marks its texts with a hidden marker).
-#   claim   (job token, issues: write)  guard + lock: ready-for-agent -> in-progress
+#   claim   (job token, issues: write, actions: write)  guard + lock: ready-for-agent -> in-progress; an issue without
+#           seams goes to agent:explore and the job dispatches factory-triage.yml (a job-token label event starts no run)
 #   image   the published Factory image of the default branch
 #   work    (the image, read-only, Claude's auth only)  Development -> Review -> E2E; branch bundle, result.json, prints
 #   publish (fresh VM, FACTORY_TOKEN, the harness of the default branch)  checks the forge again, pushes, opens the PR
@@ -42,6 +43,7 @@ jobs:
       contents: read
       issues: write
       pull-requests: read
+      actions: write
     defaults:
       run:
         shell: bash

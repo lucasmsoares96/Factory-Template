@@ -121,6 +121,93 @@ describe("factory triage + apply", () => {
     expect(s.w.agent.calls).toEqual([]);
   });
 
+  describe("an issue the Factory sent to Triage (its own swap, with the job token)", () => {
+    const BOT = "github-actions[bot]";
+    /** `agent:explore` put by the job token in the swap that removed a `ready-for-agent` put by `by`. */
+    const sent = (number: number, by: string) => ({
+      number,
+      title: `Sent by ${by}`,
+      body: ISSUE_BODY,
+      labels: { "agent:explore": BOT },
+      swapped: { "agent:explore": { from: "ready-for-agent", by } },
+    });
+
+    it("is read when the ready-for-agent it replaced was put by a writer, and apply posts its verdict", async () => {
+      const s = await setup({ issues: [sent(5, HUMAN)], triage: [says(verdict(5))] });
+
+      await triage(s);
+      expect(lastJson(s.w.logs)).toMatchObject({ triaged: [5], skipped: [] });
+      expect(await apply(s)).toBe(0);
+
+      expect(lastJson(s.w.logs)).toMatchObject({ skipped: [] });
+      expect(s.w.tracker.labelsOf(5)).toEqual(["ready-for-agent"]);
+      expect(triageComments(s.w, 5)).toHaveLength(1);
+    });
+
+    it("the whole path: a writer's ready-for-agent refused for missing seams reaches the Triage", async () => {
+      const s = await setup({ issues: [{ number: 5, body: ISSUE_BODY, labels: { "ready-for-agent": HUMAN } }], triage: [says(verdict(5))] });
+      s.w.tracker.actAs(BOT);
+      await s.w.factory("claim", "5");
+      expect(s.w.tracker.labelsOf(5)).toEqual(["agent:explore"]);
+      s.w.tracker.actAs(OWNER);
+
+      await triage(s);
+      await apply(s);
+
+      expect(s.w.tracker.labelsOf(5)).toEqual(["ready-for-agent"]);
+      expect(triageComments(s.w, 5)).toHaveLength(1);
+    });
+
+    it("is skipped when the ready-for-agent it replaced was put by a non-writer, by triage and by apply", async () => {
+      const s = await setup({ issues: [sent(5, "mallory")], triage: [] });
+
+      await triage(s);
+
+      expect(s.w.agent.calls).toEqual([]);
+      expect(lastJson(s.w.logs)).toMatchObject({ skipped: [5] });
+    });
+
+    it("apply skips a verdict for a swap of a non-writer's ready-for-agent", async () => {
+      const s = await setup({ issues: [sent(5, HUMAN)], triage: [says(verdict(5))] });
+      await triage(s);
+      s.w.tracker.issues.get(5)!.swapped.set("agent:explore", { from: "ready-for-agent", by: "mallory" });
+
+      await apply(s);
+
+      expect(lastJson(s.w.logs)).toMatchObject({ skipped: [{ issue: 5, reason: "label not put by someone with write access" }] });
+      expect(s.w.tracker.labelsOf(5)).toEqual(["agent:explore"]);
+      expect(s.w.tracker.commentsOn(5)).toEqual([]);
+    });
+
+    it("a non-writer's agent:explore is still skipped, swap or not", async () => {
+      const s = await setup({
+        issues: [
+          { number: 5, body: ISSUE_BODY, labels: { "agent:explore": "mallory" }, swapped: { "agent:explore": { from: "needs-info", by: HUMAN } } },
+          { number: 6, body: ISSUE_BODY, labels: { "agent:explore": "mallory" } },
+        ],
+        triage: [],
+      });
+
+      await triage(s);
+
+      expect(s.w.agent.calls).toEqual([]);
+      expect(lastJson(s.w.logs)).toMatchObject({ skipped: [5, 6] });
+    });
+
+    it("a writer who removes and re-adds agent:explore by hand still gets it triaged", async () => {
+      const s = await setup({ issues: [sent(5, "mallory")], triage: [says(verdict(5))] });
+      await s.w.tracker.removeLabel(5, "agent:explore");
+      s.w.tracker.actAs(HUMAN);
+      await s.w.tracker.addLabel(5, "agent:explore");
+      s.w.tracker.actAs(OWNER);
+
+      await triage(s);
+      await apply(s);
+
+      expect(s.w.tracker.labelsOf(5)).toEqual(["ready-for-agent"]);
+    });
+  });
+
   it("apply checks the forge again: an issue no longer in Triage is left alone", async () => {
     const s = await setup({ triage: [says(verdict(5))] });
     await triage(s);
