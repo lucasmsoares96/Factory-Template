@@ -50,6 +50,7 @@ async function answerRefusal(ctx: CommandContext, decision: Exclude<GuardDecisio
           number,
           "No agreed seams: the parent spec has no `## Testing Decisions` and there is no Triage comment. Sent to Triage.",
         );
+        await startTriage(ctx, number);
       }
       return;
     case "blocked": {
@@ -68,5 +69,18 @@ async function answerRefusal(ctx: CommandContext, decision: Exclude<GuardDecisio
     }
     default:
       return;
+  }
+}
+
+/**
+ * The swap above is made with the job token, which starts no workflow, so the Factory starts the Triage itself. No
+ * issue list: a run already queued or going reads every issue in Triage. A dispatch that fails (local mode, a refused
+ * call) leaves the issue in Triage for the next run, and is logged.
+ */
+async function startTriage(ctx: CommandContext, number: number): Promise<void> {
+  try {
+    await ctx.codeHost.dispatch("triage", {});
+  } catch (error) {
+    ctx.log(`The Triage of #${number} did not start: ${(error as Error).message}`);
   }
 }

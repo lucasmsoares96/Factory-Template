@@ -1,4 +1,5 @@
-# The Triage of issues labelled `agent:explore` (by someone with write access), in a batch.
+# The Triage of issues labelled `agent:explore` (by someone with write access, or by the Factory's own swap of a writer's
+# `ready-for-agent`, which dispatches this workflow), in a batch.
 #   image  the published Factory image of the default branch
 #   work   (the image, read-only, Claude's auth only)  one Triage session over every issue in Triage -> triage.json
 #   apply  (fresh VM, FACTORY_TOKEN, the harness of the default branch)  comment + label per verdict

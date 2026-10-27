@@ -161,6 +161,47 @@ describe("GitHubTracker", () => {
     expect(await t.labelActor(8, "ready-for-agent")).toBeNull();
   });
 
+  it("labelOrigin sees the Factory's swap: the same actor removed ready-for-agent right before adding the label", async () => {
+    const s = new FakeGitHubServer();
+    const BOT = { login: "github-actions[bot]" };
+    s.on("GET", `${R}/issues/7/events`, () => ({
+      json: [
+        { event: "labeled", label: { name: "ready-for-agent" }, actor: { login: "alice" } },
+        { event: "commented", actor: { login: "zed" } },
+        { event: "unlabeled", label: { name: "ready-for-agent" }, actor: BOT },
+        { event: "labeled", label: { name: "agent:explore" }, actor: BOT },
+      ],
+    }));
+    // Not a swap: another label event between them, or another actor.
+    s.on("GET", `${R}/issues/8/events`, () => ({
+      json: [
+        { event: "labeled", label: { name: "ready-for-agent" }, actor: { login: "alice" } },
+        { event: "unlabeled", label: { name: "ready-for-agent" }, actor: BOT },
+        { event: "labeled", label: { name: "other" }, actor: BOT },
+        { event: "labeled", label: { name: "agent:explore" }, actor: BOT },
+        { event: "unlabeled", label: { name: "other" }, actor: { login: "bob" } },
+        { event: "labeled", label: { name: "needs-info" }, actor: { login: "mallory" } },
+      ],
+    }));
+    // A swap, then the label removed and re-added by hand.
+    s.on("GET", `${R}/issues/9/events`, () => ({
+      json: [
+        { event: "labeled", label: { name: "ready-for-agent" }, actor: { login: "alice" } },
+        { event: "unlabeled", label: { name: "ready-for-agent" }, actor: BOT },
+        { event: "labeled", label: { name: "agent:explore" }, actor: BOT },
+        { event: "unlabeled", label: { name: "agent:explore" }, actor: { login: "carol" } },
+        { event: "labeled", label: { name: "agent:explore" }, actor: { login: "carol" } },
+      ],
+    }));
+    const t = tracker(s);
+
+    expect(await t.labelOrigin(7, "agent:explore")).toEqual({ actor: "github-actions[bot]", replaced: { label: "ready-for-agent", actor: "alice" } });
+    expect(await t.labelOrigin(8, "agent:explore")).toEqual({ actor: "github-actions[bot]", replaced: null });
+    expect(await t.labelOrigin(8, "needs-info")).toEqual({ actor: "mallory", replaced: null });
+    expect(await t.labelOrigin(9, "agent:explore")).toEqual({ actor: "carol", replaced: null });
+    expect(await t.labelOrigin(9, "ready-for-agent")).toBeNull();
+  });
+
   it("a refused call says what failed without leaking the token", async () => {
     const s = new FakeGitHubServer();
     s.on("GET", `${R}/issues/7`, () => ({ status: 403, json: { message: "Resource not accessible" } }));

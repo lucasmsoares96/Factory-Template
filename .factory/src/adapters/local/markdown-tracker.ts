@@ -1,5 +1,5 @@
 import { marked } from "../../marker.ts";
-import type { Blocker, Issue, NewIssue, Tracker } from "../../seams/tracker.ts";
+import type { Blocker, Issue, LabelOrigin, NewIssue, Tracker } from "../../seams/tracker.ts";
 import { comments, isClosed, MarkdownIssues } from "./markdown-issues.ts";
 
 export interface MarkdownTrackerOptions {
@@ -91,6 +91,12 @@ export class MarkdownTracker implements Tracker {
   async labelActor(number: number, label: string): Promise<string | null> {
     const { issue } = await this.files.read(number);
     return issue.status === label ? this.human : null;
+  }
+
+  /** A ticket keeps no history: every Status is the local human's. */
+  async labelOrigin(number: number, label: string): Promise<LabelOrigin | null> {
+    const actor = await this.labelActor(number, label);
+    return actor === null ? null : { actor, replaced: null };
   }
 
   private async scan(match: (issue: Awaited<ReturnType<MarkdownIssues["read"]>>["issue"]) => boolean): Promise<number[]> {

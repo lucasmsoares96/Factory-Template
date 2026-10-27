@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Blocker, Issue, IssueComment, NewIssue, Tracker } from "../../seams/tracker.ts";
+import type { Blocker, Issue, IssueComment, LabelOrigin, NewIssue, Tracker } from "../../seams/tracker.ts";
 import { marked } from "../../marker.ts";
 import { GitHubApi, GitHubError, type GitHubApiOptions } from "./api.ts";
 import { createGitHubIssue } from "./create-issue.ts";
@@ -112,13 +112,30 @@ export class GitHubTracker implements Tracker {
   }
 
   async labelActor(number: number, label: string): Promise<string | null> {
+    return (await this.labelOrigin(number, label))?.actor ?? null;
+  }
+
+  /**
+   * Walks the issue's label events, oldest first. A `labeled` right after an `unlabeled` of another label by the same
+   * actor, with no label event between them, is a swap (`swapLabel` removes, then adds).
+   */
+  async labelOrigin(number: number, label: string): Promise<LabelOrigin | null> {
     const events = await this.api.list(this.api.repoPath(`/issues/${number}/events`), eventRow);
-    let actor: string | null = null;
+    const putBy = new Map<string, string | null>();
+    let previous: { event: "labeled" | "unlabeled"; label: string; actor: string | null; putBy: string | null } | null = null;
+    let origin: LabelOrigin | null = null;
     for (const event of events) {
-      if (event.label?.name !== label) continue;
-      if (event.event === "labeled") actor = event.actor?.login ?? null;
-      else if (event.event === "unlabeled") actor = null;
+      const name = event.label?.name;
+      if (name === undefined || (event.event !== "labeled" && event.event !== "unlabeled")) continue;
+      const actor = event.actor?.login ?? null;
+      if (name === label) {
+        const swap = event.event === "labeled" && previous?.event === "unlabeled" && previous.label !== label && previous.actor === actor;
+        origin = event.event === "labeled" && actor !== null ? { actor, replaced: swap ? { label: previous!.label, actor: previous!.putBy } : null } : null;
+      }
+      previous = { event: event.event, label: name, actor, putBy: putBy.get(name) ?? null };
+      if (event.event === "labeled") putBy.set(name, actor);
+      else putBy.delete(name);
     }
-    return actor;
+    return origin;
   }
 }
