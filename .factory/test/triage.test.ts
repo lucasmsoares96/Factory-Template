@@ -234,6 +234,62 @@ describe("factory triage + apply", () => {
     expect(s.w.tracker.commentsOn(5)).toEqual([]);
   });
 
+  describe("needs-triage", () => {
+    const untriaged = { ...explore, "needs-triage": HUMAN };
+
+    it("is removed with the verdict, so the issue leaves the Triage with only the verdict's label", async () => {
+      const s = await setup({
+        issues: [
+          { number: 5, body: ISSUE_BODY, labels: untriaged },
+          { number: 6, body: ISSUE_BODY, labels: untriaged },
+          { number: 7, body: ISSUE_BODY, labels: untriaged },
+        ],
+        triage: [
+          says(
+            verdict(5),
+            verdict(6, { tag: "needs-a-human", questions: ["Which provider?"] }),
+            verdict(7, { tag: "blocked", seams: [], product: "example" }),
+          ),
+        ],
+      });
+      await triage(s);
+      await apply(s);
+
+      expect(s.w.tracker.labelsOf(5)).toEqual(["ready-for-agent"]);
+      expect(s.w.tracker.labelsOf(6)).toEqual(["ready-for-human"]);
+      expect(s.w.tracker.labelsOf(7).sort()).toEqual(["needs-info", "product:example"]);
+    });
+
+    it("is removed only after the swap, the lock", async () => {
+      const s = await setup({ issues: [{ number: 5, body: ISSUE_BODY, labels: untriaged }], triage: [says(verdict(5))] });
+      await triage(s);
+      const order: string[] = [];
+      const { removeLabel, swapLabel } = s.w.tracker;
+      s.w.tracker.removeLabel = async (n, label) => (order.push(`remove ${label}`), removeLabel.call(s.w.tracker, n, label));
+      s.w.tracker.swapLabel = async (n, from, to) => (order.push(`swap ${to}`), swapLabel.call(s.w.tracker, n, from, to));
+
+      await apply(s);
+
+      expect(order).toEqual(["swap ready-for-agent", "remove needs-triage"]);
+    });
+
+    it("is kept on an issue that lost agent:explore while applying", async () => {
+      const s = await setup({ issues: [{ number: 5, body: ISSUE_BODY, labels: untriaged }], triage: [says(verdict(5))] });
+      await triage(s);
+      const { comment } = s.w.tracker;
+      // Someone takes the issue out of Triage between the read and the swap.
+      s.w.tracker.comment = async (n, body) => {
+        await comment.call(s.w.tracker, n, body);
+        s.w.tracker.issues.get(n)!.labels.delete("agent:explore");
+      };
+
+      await apply(s);
+
+      expect(s.w.tracker.labelsOf(5)).toEqual(["needs-triage"]);
+      expect(lastJson(s.w.logs)).toMatchObject({ skipped: [{ issue: 5, reason: "lost the label while applying" }] });
+    });
+  });
+
   it("a duplicate is never queued: it goes to a human, naming the original", async () => {
     const s = await setup({ triage: [says(verdict(5, { duplicateOf: 3 }))] });
     await triage(s);
