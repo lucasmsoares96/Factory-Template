@@ -1,5 +1,6 @@
 import { HttpResponse } from "msw";
 import { createCompanyHandler } from "../../src/gen/msw/createCompanyHandler.ts";
+import { deleteCompanyHandler, deleteCompanyHandlerResponse400 } from "../../src/gen/msw/deleteCompanyHandler.ts";
 import { getCompanyHandler, getCompanyHandlerResponse404 } from "../../src/gen/msw/getCompanyHandler.ts";
 import { getLastCompanyHandler, getLastCompanyHandlerResponse404 } from "../../src/gen/msw/getLastCompanyHandler.ts";
 import { getMeHandler } from "../../src/gen/msw/getMeHandler.ts";
@@ -7,6 +8,7 @@ import { getNavHandler } from "../../src/gen/msw/getNavHandler.ts";
 import { listCompaniesHandler } from "../../src/gen/msw/listCompaniesHandler.ts";
 import { listInvitationsHandler } from "../../src/gen/msw/listInvitationsHandler.ts";
 import { listMembersHandler } from "../../src/gen/msw/listMembersHandler.ts";
+import { renameCompanyHandler } from "../../src/gen/msw/renameCompanyHandler.ts";
 import { format, messagesFor } from "../../src/i18n/index.ts";
 import { renderSpa } from "../spa/render.tsx";
 import { expect, test } from "../spa/test.ts";
@@ -32,12 +34,21 @@ const members = {
   nextCursor: null,
 };
 
-/** The Companies API over a list the test controls: the switcher, the page and the creation read and change it. */
+/**
+ * The Companies API over a list the test controls: the switcher, the page, the
+ * creation, the renaming and the deletion read and change it. The Company used
+ * last is the first of the list.
+ */
 function companiesApi(companies: (typeof acme)[]) {
   const created: unknown[] = [];
+  const deleted: { companyId: unknown; body: unknown }[] = [];
   return {
     created,
+    deleted,
     handlers: [
+      getLastCompanyHandler(() =>
+        companies[0] ? HttpResponse.json(companies[0]) : getLastCompanyHandlerResponse404({ code: "NOT_FOUND", message: "Not found." }),
+      ),
       getMeHandler(ana),
       getNavHandler(nav()),
       listCompaniesHandler(() => HttpResponse.json({ items: companies, nextCursor: null })),
@@ -56,6 +67,16 @@ function companiesApi(companies: (typeof acme)[]) {
         const company = { id: `company-${created.length}`, name: body.name.trim(), role: "owner", createdAt: acme.createdAt };
         companies.push(company);
         return HttpResponse.json(company, { status: 201 });
+      }),
+      renameCompanyHandler(async ({ request, params }) => {
+        const company = companies.find(({ id }) => id === params.companyId)!;
+        company.name = (await request.json()).name.trim();
+        return HttpResponse.json(company);
+      }),
+      deleteCompanyHandler(async ({ request, params }) => {
+        deleted.push({ companyId: params.companyId, body: await request.json() });
+        companies.splice(companies.findIndex(({ id }) => id === params.companyId), 1);
+        return new HttpResponse(null, { status: 204 });
       }),
     ],
   };
@@ -105,7 +126,8 @@ test("a refused Company name is shown translated by its code", async ({ worker }
 });
 
 test("the signed-in root goes to the Company used last", async ({ worker }) => {
-  worker.use(...companiesApi([acme, globex]).handlers, getLastCompanyHandler(globex));
+  worker.use(...companiesApi([acme, globex]).handlers);
+  worker.use(getLastCompanyHandler(globex));
 
   const { screen, router } = await renderSpa();
 
@@ -158,4 +180,92 @@ test("a Company the user is not a Member of is not found", async ({ worker }) =>
   const { screen, t } = await renderSpa({ path: "/c/someone-elses" });
 
   await expect.element(screen.getByRole("alert")).toHaveTextContent(t.errors.NOT_FOUND);
+});
+
+test("an Employee sees none of the Owner's actions", async ({ worker }) => {
+  worker.use(...companiesApi([{ ...globex }]).handlers);
+  const { screen, t } = await renderSpa({ path: `/c/${globex.id}` });
+
+  await expect.element(screen.getByRole("heading", { level: 1, name: globex.name })).toBeVisible();
+  await expect.element(screen.getByRole("heading", { name: t.companies.settings.title })).not.toBeInTheDocument();
+  await expect.element(screen.getByRole("button", { name: t.companies.settings.rename.submit })).not.toBeInTheDocument();
+  await expect.element(screen.getByRole("button", { name: t.companies.settings.delete.submit })).not.toBeInTheDocument();
+});
+
+test("the Owner renames the Company: the page and the switcher show the new name, at the same URL", async ({ worker }) => {
+  worker.use(...companiesApi([{ ...acme }]).handlers);
+  const { screen, router, t } = await renderSpa({ path: `/c/${acme.id}` });
+
+  const name = screen.getByLabelText(t.companies.settings.rename.name);
+  await expect.element(name).toHaveValue(acme.name);
+  await name.fill("  Acme Corp  ");
+  await screen.getByRole("button", { name: t.companies.settings.rename.submit }).click();
+
+  await expect.element(screen.getByRole("heading", { level: 1, name: "Acme Corp" })).toBeVisible();
+  await expect.element(screen.getByRole("status")).toHaveTextContent(t.companies.settings.rename.saved);
+  await expect.element(name).toHaveValue("Acme Corp");
+  await expect
+    .element(screen.getByRole("combobox", { name: t.companies.switcher.label }).getByRole("option", { name: "Acme Corp" }))
+    .toBeInTheDocument();
+  expect(router.state.location.pathname).toBe(`/c/${acme.id}`);
+});
+
+test("a refused new name is shown translated by its code", async ({ worker }) => {
+  const t = messagesFor("pt-BR");
+  worker.use(...companiesApi([{ ...acme }]).handlers);
+  worker.use(
+    getNavHandler(nav(t)),
+    renameCompanyHandler(() => HttpResponse.json({ code: "FORBIDDEN", message: "Your role in this Company does not allow this." }, { status: 403 })),
+  );
+  const { screen } = await renderSpa({ path: `/c/${acme.id}`, locale: "pt-BR" });
+
+  await screen.getByRole("button", { name: t.companies.settings.rename.submit }).click();
+
+  await expect.element(screen.getByRole("alert")).toHaveTextContent(t.errors.FORBIDDEN);
+});
+
+test("deleting asks for the Company's name and goes to another Company once it is deleted", async ({ worker }) => {
+  const api = companiesApi([{ ...acme }, { ...globex }]);
+  worker.use(...api.handlers);
+  const { screen, router, t } = await renderSpa({ path: `/c/${acme.id}` });
+
+  const confirmation = screen.getByLabelText(format(t.companies.settings.delete.confirm, { name: acme.name }));
+  const submit = screen.getByRole("button", { name: t.companies.settings.delete.submit });
+  await expect.element(submit).toBeDisabled();
+  await confirmation.fill("Acme");
+  await submit.click();
+
+  await expect.element(screen.getByRole("heading", { level: 1, name: globex.name })).toBeVisible();
+  expect(router.state.location.pathname).toBe(`/c/${globex.id}`);
+  expect(api.deleted).toEqual([{ companyId: acme.id, body: { name: "Acme" } }]);
+  await expect
+    .element(screen.getByRole("combobox", { name: t.companies.switcher.label }).getByRole("option", { name: acme.name }))
+    .not.toBeInTheDocument();
+});
+
+test("deleting the last Company leads to the screen without a Company", async ({ worker }) => {
+  worker.use(...companiesApi([{ ...acme }]).handlers);
+  const { screen, router, t } = await renderSpa({ path: `/c/${acme.id}` });
+
+  await screen.getByLabelText(format(t.companies.settings.delete.confirm, { name: acme.name })).fill("Acme");
+  await screen.getByRole("button", { name: t.companies.settings.delete.submit }).click();
+
+  await expect.element(screen.getByTestId("no-company")).toHaveTextContent(t.home.noCompany);
+  expect(router.state.location.pathname).toBe("/");
+});
+
+test("a confirmation the API refuses is shown translated, and the Company stays open", async ({ worker }) => {
+  worker.use(...companiesApi([{ ...acme }]).handlers);
+  worker.use(
+    deleteCompanyHandler(() =>
+      deleteCompanyHandlerResponse400({ code: "CONFIRMATION_MISMATCH", message: "The confirmation does not match the Company's name." }),
+    ),
+  );
+  const { screen, router, t } = await renderSpa({ path: `/c/${acme.id}` });
+
+  await screen.getByLabelText(format(t.companies.settings.delete.confirm, { name: acme.name })).fill("Acme");
+  await screen.getByRole("button", { name: t.companies.settings.delete.submit }).click();
+
+  await expect.element(screen.getByRole("alert")).toHaveTextContent(t.errors.CONFIRMATION_MISMATCH);
+  expect(router.state.location.pathname).toBe(`/c/${acme.id}`);
 });

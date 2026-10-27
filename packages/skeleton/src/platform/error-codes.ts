@@ -15,6 +15,7 @@ export const errorMessages = {
   ALREADY_A_MEMBER: "This email already belongs to a Member of the Company.",
   INVITATION_PENDING: "This email already has a pending Invitation to the Company. Resend it instead.",
   EMAIL_UNCHANGED: "This is already the account's email.",
+  CONFIRMATION_MISMATCH: "The confirmation does not match the Company's name.",
 } as const;
 
 export type ErrorCode = keyof typeof errorMessages;

@@ -24,8 +24,8 @@ import { startTestWorker, type TestWorker } from "./support/worker.ts";
 // client does (discovery, registration, consent, code exchange) and uses the
 // tools through the SDK's client. The composition's tools: getMe, getNote,
 // getCompanyNote, listConnections and the Companies' and Invitations' reads (read),
-// createNote, revokeConnection, updateMe, createCompany, the Invitations' writes and
-// inviteFromNotes (write).
+// createNote, revokeConnection, updateMe, createCompany, renameCompany, the
+// Invitations' writes and inviteFromNotes (write); deleteCompany is `x-mcp: false`.
 
 /** A client that publishes its metadata (CIMD) instead of registering. */
 const CIMD_CLIENT_ID = "https://agent.example.com/oauth/client.json";
@@ -189,6 +189,7 @@ test("a `write` Connection sees every tool and its writes reach the route as the
     "listConnections",
     "listInvitations",
     "listMembers",
+    "renameCompany",
     "resendInvitation",
     "revokeConnection",
     "updateMe",
@@ -241,6 +242,44 @@ test("an agent creates and lists Companies as the user, and a Company they are n
     await db.query(`SELECT last_used_at FROM skeleton.members WHERE company_id = '${company.id}'`),
   ).toEqual([{ last_used_at: null }]);
   await client.close();
+});
+
+test("an agent renames a Company for its Owner, an Employee's agent gets a tool error, and no agent can delete it", async () => {
+  const ana = await signedInUser();
+  const bruno = await signedInUser("Bruno Lima");
+  const company = (await (await worker.post("/api/companies", { name: "Acme" }, { cookie: ana.cookie })).json()) as {
+    id: string;
+  };
+  await db.query(`INSERT INTO skeleton.members (company_id, user_id, role) VALUES ('${company.id}', '${bruno.user.id}', 'employee')`);
+  const owners = await connectAgent(ana.cookie, { access: "write" });
+  const employees = await connectAgent(bruno.cookie, { access: "write" });
+
+  const renamed = await owners.client.callTool({ name: "renameCompany", arguments: { companyId: company.id, body: { name: "Acme Corp" } } });
+  expect(renamed.isError).toBeFalsy();
+  expect(renamed.structuredContent).toMatchObject({ id: company.id, name: "Acme Corp", role: "owner" });
+  const refused = await employees.client.callTool({ name: "renameCompany", arguments: { companyId: company.id, body: { name: "Mine" } } });
+  expect(refused.isError).toBe(true);
+  expect(refused.content).toEqual([{ type: "text", text: "FORBIDDEN: Your role in this Company does not allow this." }]);
+  expect(names((await owners.client.listTools()).tools)).not.toContain("deleteCompany");
+  await expect(
+    owners.client.callTool({ name: "deleteCompany", arguments: { companyId: company.id, body: { name: "Acme Corp" } } }),
+  ).rejects.toThrow(/Tool deleteCompany not found/);
+
+  // Deleted in the app, the Company is gone for every former Member's agent on the next call.
+  const deleted = await worker.fetch(`/api/companies/${company.id}`, {
+    method: "DELETE",
+    headers: { cookie: ana.cookie, "content-type": "application/json" },
+    body: JSON.stringify({ name: "Acme Corp" }),
+  });
+  expect(deleted.status).toBe(204);
+  for (const { client } of [owners, employees]) {
+    for (const name of ["getCompany", "listMembers", "getCompanyNote"]) {
+      const result = await client.callTool({ name, arguments: { companyId: company.id } });
+      expect(result.isError, name).toBe(true);
+      expect(result.content).toEqual([{ type: "text", text: "NOT_FOUND: Not found." }]);
+    }
+    await client.close();
+  }
 });
 
 test("an agent invites as the Owner, and an Employee's agent gets a tool error FORBIDDEN", async () => {

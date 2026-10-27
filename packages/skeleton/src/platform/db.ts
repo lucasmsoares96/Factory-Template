@@ -4,6 +4,9 @@ import type { SkeletonEnv } from "./env.ts";
 
 export type Database = ReturnType<typeof createDatabase>;
 
+/** A transaction on a `Database`: the same queries, rolled back together when one throws. */
+export type Transaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
 /** A Drizzle client over `pg`. It connects on the first query, never before. */
 export function createDatabase(databaseUrl: string) {
   return drizzle({

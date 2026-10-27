@@ -1,12 +1,16 @@
-# After a push to the default branch, every in-progress Factory pull request that now conflicts with it is updated.
-#   scan    (push)  `git merge-tree --write-tree` per open Factory PR; dispatches this workflow only for the conflicting ones
-#   claim / image / work / publish  (workflow_dispatch, one issue)  merge the base branch: clean with no agent, a conflict
-#                                   resolved by the agent ("preserve both intents, do not invent new behaviour"); then E2E,
-#                                   and the normal loop if it fails. The PR body is left alone.
-# The agent never sees FACTORY_TOKEN. Off until `pnpm bootstrap factory` sets FACTORY_ENABLED.
+# After a push to the default branch, every open pull request of this repository that is behind it is updated.
+#   scan    (push)  per open PR into the default branch: behind = its head does not contain the default branch's head.
+#                   Dispatches this workflow for each one behind, Factory and people's PRs alike (`issue` for a Factory PR
+#                   in progress, `pr` for any other); a fork's PR gets one comment asking its author to update it.
+#   claim / image / work / publish  (workflow_dispatch, one issue or one PR)  merge the base branch: clean with no agent, a
+#                                   conflict resolved by the agent ("preserve both intents, do not invent new behaviour");
+#                                   then E2E, and the normal loop if it fails. The PR body is left alone. A run keyed by the
+#                                   PR changes no label, opens no PR and comments only on the PR.
+# `publish` pushes with FACTORY_TOKEN, so the PR's CI runs again. The agent never sees FACTORY_TOKEN, and no job runs a
+# fork's code. Off until `pnpm bootstrap factory` sets FACTORY_ENABLED.
 name: Factory update branches
-# `#N` in the run's title is how the automatic Retro finds the runs of an issue.
-run-name: ${{ inputs.issue && format('#{0} update branch', inputs.issue) || 'Factory update branches' }}
+# `#N` in the run's title is how the automatic Retro finds the runs of an issue; a PR-keyed run is `PR #N`.
+run-name: "${{ inputs.issue && format('#{0} update branch', inputs.issue) || inputs.pr && format('PR #{0} update branch', inputs.pr) || 'Factory update branches' }}"
 
 on:
   push:
@@ -14,14 +18,19 @@ on:
   workflow_dispatch:
     inputs:
       issue:
-        description: Issue number
+        description: Issue number (a Factory PR in progress)
         type: string
-        required: true
+        required: false
+      pr:
+        description: Pull request number (any other PR of this repository)
+        type: string
+        required: false
 
 permissions: {}
 
 env:
   ISSUE: ${{ inputs.issue }}
+  PR: ${{ inputs.pr }}
   FACTORY_ADAPTERS: github
 
 jobs:
@@ -32,11 +41,12 @@ jobs:
     concurrency:
       group: factory-update-scan
       cancel-in-progress: true
-    # `actions: write` is how the job dispatches `update-branch`; everything else is read-only.
+    # `actions: write` is how the job dispatches `update-branch`, `pull-requests: write` the one comment on a fork's PR;
+    # everything else is read-only.
     permissions:
       contents: read
       issues: read
-      pull-requests: read
+      pull-requests: write
       actions: write
     defaults:
       run:
@@ -58,7 +68,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
-          git fetch --no-tags origin "+refs/heads/factory/issue-*:refs/remotes/origin/factory/issue-*" || true
+          # Every PR head (forks' too), as data for `git merge-base` only: nothing here checks it out or runs it.
+          git fetch --no-tags origin "+refs/pull/*/head:refs/remotes/origin/pull/*" || true
       - env:
           GITHUB_TOKEN: ${{ github.token }}
         run: pnpm factory update-branch --scan
@@ -96,7 +107,12 @@ jobs:
         id: claim
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: pnpm factory update-branch "$ISSUE"
+        run: |
+          if [ -n "$ISSUE" ]; then
+            pnpm factory update-branch "$ISSUE"
+          else
+            pnpm factory update-branch --pr "$PR"
+          fi
 
   image:
     needs: claim
@@ -116,9 +132,9 @@ jobs:
     env:
       ISSUE: ${{ needs.claim.outputs.issue }}
       PR: ${{ needs.claim.outputs.pr }}
-    # The same group as the issue flow: one run per issue at a time. The guarantee is the lease of `publish`.
+    # The same group as the issue flow: one run per issue (or per PR when keyed by it) at a time. The guarantee is the lease of `publish`.
     concurrency:
-      group: factory-${{ needs.claim.outputs.issue }}
+      group: ${{ needs.claim.outputs.issue && format('factory-{0}', needs.claim.outputs.issue) || format('factory-pr-{0}', needs.claim.outputs.pr) }}
       cancel-in-progress: false
       queue: max
     # `issues: read` is how `work` reads the issue (the job token cannot write anything).
@@ -184,7 +200,8 @@ jobs:
           # An empty secret is no credential: do not hand the agent an empty variable.
           [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] || unset CLAUDE_CODE_OAUTH_TOKEN
           [ -n "$ANTHROPIC_API_KEY" ] || unset ANTHROPIC_API_KEY
-          pnpm factory work "$ISSUE" --flow update-branch --pr "$PR" --out "$RUNNER_TEMP/out"
+          # No issue: the update is keyed by the PR alone.
+          pnpm factory work ${ISSUE:+"$ISSUE"} --flow update-branch --pr "$PR" --out "$RUNNER_TEMP/out"
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -233,4 +250,4 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/out"
           gh --version | head -1
-          pnpm factory publish "$ISSUE" --in "$RUNNER_TEMP/out" --pr "$PR" --start-sha "$START_SHA"
+          pnpm factory publish ${ISSUE:+"$ISSUE"} --in "$RUNNER_TEMP/out" --pr "$PR" --start-sha "$START_SHA"
