@@ -58,7 +58,7 @@ export function costFooter(result: FactoryResult, pricing: FactoryConfig["pricin
 
 /** Job summary: one row per attempt and Stage, then the token/cost line. */
 export function summaryMarkdown(result: FactoryResult, config: FactoryConfig): string {
-  const verdict = result.outcome === "ready" ? "ready" : `escalated (${result.reason})`;
+  const verdict = result.outcome === "escalated" ? `escalated (${result.reason})` : result.outcome === "waiting" ? "waiting on the Skeleton" : "ready";
   const rows = result.attempts.flatMap((a) =>
     a.stages.map((s) =>
       [a.number, STAGE[s.stage], stageOutcome(s), duration(s.durationMs), s.commits ?? "", s.usage ? tokens(s.usage) : ""].join(" | "),
@@ -114,13 +114,29 @@ export interface EscalationReport {
 export interface FollowUpRef {
   number: number;
   title: string;
+  /** The pull request that makes the Skeleton change; null when there was no file to put in one. */
+  pr: { number: number; url: string } | null;
 }
 
-/** Tells the issue (and the PR) that the Skeleton change it needs was split into other tickets. */
+/** Tells the issue (and the PR) that the Skeleton change it needs was split into other tickets and pull requests. */
 export function followUpComment(followUps: FollowUpRef[]): string {
   return [
     "**The Skeleton must grow.** A Product issue never changes `packages/skeleton/`, so the Factory removed that change from this work and opened:",
-    ...followUps.map((f) => `- #${f.number} ${f.title}`),
+    ...followUps.map((f) => `- #${f.number} ${f.title}${f.pr ? `, with pull request #${f.pr.number} ready for review` : ""}`),
+  ].join("\n");
+}
+
+/**
+ * The one comment of a Product issue that waits on its Skeleton issues: it is back in the queue, blocked by them.
+ * `marker` is the guard's "Waiting on" marker, so the run the label starts does not say it again.
+ */
+export function waitingComment(followUps: FollowUpRef[], config: FactoryConfig, marker: string): string {
+  const blockers = followUps.map((f) => `#${f.number}`).join(", ");
+  return [
+    marker,
+    followUpComment(followUps),
+    "",
+    `The acceptance criteria cannot be met without that change, so this issue is now blocked by ${blockers} and back in \`${config.labels.readyForAgent}\`. When ${followUps.length === 1 ? "it is" : "they are"} closed, the Factory starts again from \`${config.baseBranch}\`, which will have the new Skeleton.`,
   ].join("\n");
 }
 

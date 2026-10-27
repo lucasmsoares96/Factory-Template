@@ -66,6 +66,42 @@ describe("GitHubTracker", () => {
     ]);
   });
 
+  it("addBlocker posts the blocker's id, not its number, and skips a dependency that is already there", async () => {
+    const s = new FakeGitHubServer();
+    const posted: unknown[] = [];
+    let blockedBy: object[] = [];
+    s.on("GET", `${R}/issues/7/dependencies/blocked_by`, () => ({ json: blockedBy }));
+    s.on("GET", `${R}/issues/9`, () => ({ json: { ...issue(9), id: 9009 } }));
+    s.on("POST", `${R}/issues/7/dependencies/blocked_by`, ({ body }) => {
+      posted.push(body);
+      blockedBy = [issue(9)];
+      return { status: 201, json: issue(9) };
+    });
+
+    await tracker(s).addBlocker(7, 9);
+    await tracker(s).addBlocker(7, 9);
+
+    expect(posted).toEqual([{ issue_id: 9009 }]);
+  });
+
+  it("addBlocker accepts a 422 when the dependency appeared meanwhile, and fails on one when it did not", async () => {
+    const s = new FakeGitHubServer();
+    let blockedBy: object[] = [];
+    let raced = true;
+    s.on("GET", `${R}/issues/7/dependencies/blocked_by`, () => ({ json: blockedBy }));
+    s.on("GET", `${R}/issues/9`, () => ({ json: { ...issue(9), id: 9009 } }));
+    s.on("POST", `${R}/issues/7/dependencies/blocked_by`, () => {
+      if (raced) blockedBy = [issue(9)];
+      return { status: 422, json: { message: "Validation Failed" } };
+    });
+
+    await tracker(s).addBlocker(7, 9);
+
+    blockedBy = [];
+    raced = false;
+    await expect(tracker(s).addBlocker(7, 9)).rejects.toThrow("422");
+  });
+
   it("lists the open issues a number blocks and the open issues with a label, leaving pull requests out", async () => {
     const s = new FakeGitHubServer();
     s.on("GET", `${R}/issues/7/dependencies/blocking`, () => ({ json: [issue(8), issue(9, { state: "closed" })] }));

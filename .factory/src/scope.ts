@@ -1,12 +1,17 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { FactoryConfig } from "./config.ts";
-import type { Git } from "./git.ts";
+import { Git } from "./git.ts";
+import type { SKELETON_PATCH_FILE } from "./result.ts";
 import type { Issue } from "./seams/tracker.ts";
 
 /**
  * The Skeleton boundary of a Product issue. A Product extends the Skeleton by
  * configuration only, so a Product issue never changes `packages/skeleton/`
  * (the template, `packages/skeleton/template/`, is under it). What the Product
- * needs from the Skeleton goes into a follow-up ticket instead.
+ * needs from the Skeleton goes into a follow-up ticket instead, and a change
+ * the run made there into a pull request of its own.
  */
 export const SKELETON_PATH = "packages/skeleton/";
 
@@ -59,20 +64,64 @@ export interface SkeletonFollowUp {
   title: string;
   body: string;
   files: string[];
+  gaps: string[];
+  patch: typeof SKELETON_PATCH_FILE | null;
+}
+
+/** The `<skeleton-gap>` texts under their heading, for the Skeleton issue and pull request; nothing without gaps. */
+export function gapsSection(gaps: string[]): string[] {
+  return gaps.length > 0 ? ["", "## What the Skeleton must offer", "", ...gaps.map((g) => `<skeleton-gap>\n${g}\n</skeleton-gap>`)] : [];
 }
 
 /** The ticket asking for the Skeleton change; the Tracker adapter adds the link back to the issue. */
-export function followUpTicket(issue: Pick<Issue, "number" | "title">, product: string, files: string[], gaps: string[]): SkeletonFollowUp {
+export function followUpTicket(issue: Pick<Issue, "number" | "title">, product: string, files: string[], gaps: string[], patch: typeof SKELETON_PATCH_FILE | null): SkeletonFollowUp {
   const body = [
     `The Skeleton must grow: Product \`${product}\` needs a change in \`${SKELETON_PATH}\` to finish #${issue.number} (${issue.title}).`,
     "",
-    "A Product extends the Skeleton by configuration only, so the Factory removed this change from the Product pull request.",
-    ...(gaps.length > 0 ? ["", "## What the Skeleton must offer", "", ...gaps.map((g) => `<skeleton-gap>\n${g}\n</skeleton-gap>`)] : []),
+    patch
+      ? "A Product extends the Skeleton by configuration only, so the Factory removed this change from the Product pull request and opened it as a pull request of its own, from the base branch: review and merge it to close this issue."
+      : "A Product extends the Skeleton by configuration only, so the Factory removed this change from the Product pull request.",
+    ...gapsSection(gaps),
     ...(files.length > 0 ? ["", "## Files the Product run changed (removed from its branch)", "", ...files.map((f) => `- \`${f}\``)] : []),
     "",
     "## Acceptance criteria",
     "",
     "- [ ] The Skeleton exposes what the Product needs, through its interface (grown in a separate change).",
   ].join("\n");
-  return { title: `The Skeleton must grow: ${issue.title}`, body, files };
+  return { title: `The Skeleton must grow: ${issue.title}`, body, files, gaps, patch };
+}
+
+/**
+ * The reverted Skeleton change as one patch against `base`. `snapshots` maps each reverted file to the commit it was
+ * reverted from: a file reverted in several attempts keeps its last version, each file diffed against `base`.
+ */
+export async function skeletonPatch(git: Git, base: string, snapshots: Map<string, string>): Promise<string> {
+  const bySnapshot = new Map<string, string[]>();
+  for (const [path, sha] of [...snapshots].sort(([a], [b]) => a.localeCompare(b))) bySnapshot.set(sha, [...(bySnapshot.get(sha) ?? []), path]);
+  let patch = "";
+  for (const [sha, paths] of bySnapshot) patch += await git.run("diff", "--binary", "--no-renames", "--full-index", base, sha, "--", ...paths);
+  return patch;
+}
+
+/**
+ * Applies `patch` on `base` in a throwaway worktree and commits it; returns the commit. Throws when the patch does not
+ * apply, changes nothing, or changes anything outside `packages/skeleton/`: the Skeleton pull request carries only that.
+ */
+export async function skeletonCommit(git: Git, base: string, patch: string, message: string): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "factory-skeleton-"));
+  const tree = new Git(dir);
+  try {
+    await git.run("worktree", "add", "--quiet", "--detach", dir, base);
+    await tree.run("apply", "--index", "--whitespace=nowarn", patch);
+    const names = await tree.run("-c", "core.quotePath=false", "diff", "--cached", "--name-only", "--no-renames", base);
+    const changed = names.split("\n").filter(Boolean);
+    if (changed.length === 0) throw new Error("The Skeleton patch changes nothing.");
+    const outside = changed.filter((p) => !p.startsWith(SKELETON_PATH));
+    if (outside.length > 0) throw new Error(`The Skeleton patch changes files outside ${SKELETON_PATH}: ${outside.join(", ")}`);
+    await tree.run("-c", "user.name=Factory", "-c", "user.email=factory@localhost", "commit", "--quiet", "--no-verify", "-m", message);
+    return await tree.head();
+  } finally {
+    await git.run("worktree", "remove", "--force", dir).catch(() => undefined);
+    await rm(dir, { recursive: true, force: true });
+  }
 }
