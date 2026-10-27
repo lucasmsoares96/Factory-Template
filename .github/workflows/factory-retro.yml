@@ -44,7 +44,7 @@ jobs:
     if: ${{ vars.FACTORY_ENABLED == 'true' && vars.FACTORY_RETRO_ENABLED != 'false' && (github.event_name == 'workflow_dispatch' || (startsWith(github.event.pull_request.head.ref, 'factory/issue-') && github.event.pull_request.head.repo.full_name == github.repository)) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # `actions: read` finds the runs and downloads their artifacts; nothing here can write.
+    # `actions: read` finds the runs and downloads their artifacts; `issues: write` puts factory:working on the origin issue, the one write.
     permissions:
       contents: read
       issues: write

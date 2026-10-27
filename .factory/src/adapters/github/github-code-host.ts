@@ -284,12 +284,14 @@ export class GitHubCodeHost implements CodeHost {
   }
 }
 
-/** What a Factory run title names: `PR #N` a pull request, else `#N` an issue (the `run-name` of each workflow). */
+/**
+ * What a Factory run title names at its start (the `run-name` of each workflow): `PR #N` a pull request, `#N` an
+ * issue, either after `Retro of `. Only the start counts: the rest of an issue flow's title is the issue's own title.
+ */
 export function runTarget(title: string): { issue: number | null; pr: number | null } {
-  const pr = /(?:^|\s)PR #(\d+)(?=\s|:|$)/.exec(title);
-  if (pr) return { issue: null, pr: Number(pr[1]) };
-  const issue = /(?:^|\s)#(\d+)(?=\s|:|$)/.exec(title);
-  return { issue: issue ? Number(issue[1]) : null, pr: null };
+  const match = /^(?:Retro of )?(PR )?#(\d+)(?=\s|:|$)/.exec(title);
+  if (!match) return { issue: null, pr: null };
+  return match[1] ? { issue: null, pr: Number(match[2]) } : { issue: Number(match[2]), pr: null };
 }
 
 function lastLines(text: string, n: number): string {

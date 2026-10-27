@@ -14,6 +14,7 @@ import { unblock } from "./commands/unblock.ts";
 import { startWorking, stopWorking } from "./commands/working.ts";
 import { resolveBase, work, type WorkFlow } from "./commands/work.ts";
 import { Git } from "./git.ts";
+import type { ReactionTarget } from "./seams/code-host.ts";
 import { loadConfig, type FactoryConfig } from "./config.ts";
 import { DockerContainerRunner, type ContainerRunner } from "./local/container.ts";
 import { dockerCli } from "./local/docker.ts";
@@ -194,7 +195,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
       if (deps.env.GITHUB_OUTPUT) {
         const lines = [`claimed=${result.claimed}`, `requester=${requester ?? ""}`];
         // The open PR the claim marked factory:working: `publish` may close it (a retry), the end of the run still clears it.
-        if (result.claimed) lines.push(`start_sha=${result.startSha ?? ""}`, `branch=${result.branch}`, `pr=${(await ctx.codeHost.openPrFor(result.branch))?.number ?? ""}`);
+        if (result.claimed) lines.push(`start_sha=${result.startSha ?? ""}`, `branch=${result.branch}`, `pr=${(await ctx.codeHost.openPrFor(result.branch).catch(() => null))?.number ?? ""}`);
         else lines.push(`reason=${result.reason}`);
         await appendFile(deps.env.GITHUB_OUTPUT, `${lines.join("\n")}\n`);
       }
@@ -301,7 +302,7 @@ function flowOf(values: { flow?: string; pr?: string }): WorkFlow | undefined {
 }
 
 /** The comment or review whose event started a feedback round: the event's name and the id it carries. */
-function feedbackComment(event: string | undefined, id: string | undefined): { kind: "comment" | "review-comment" | "review"; id: number } | undefined {
+function feedbackComment(event: string | undefined, id: string | undefined): Omit<ReactionTarget, "pr"> | undefined {
   const kind = ({ issue_comment: "comment", pull_request_review_comment: "review-comment", pull_request_review: "review" } as const)[event ?? ""];
   const number = Number(id);
   return kind && Number.isInteger(number) && number > 0 ? { kind, id: number } : undefined;
