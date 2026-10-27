@@ -1,7 +1,7 @@
 import { issueBranch } from "../config.ts";
 import type { CommandContext } from "./context.ts";
 import { isMarked } from "../marker.ts";
-import { issueOfBranch, openThreads } from "./pr-threads.ts";
+import { ACTIONS_BOT, issueOfBranch, openThreads } from "./pr-threads.ts";
 
 /** `issue` is null for an update keyed by the pull request alone (one that is not a Factory PR in progress). */
 export type PrClaim =
@@ -90,10 +90,11 @@ export async function scanBranches(
     }
     if (pr.fork) {
       forks.push(pr.number);
-      // Marker plus a writer, as for every Factory text: a stranger's forged copy does not silence it.
+      // Marker plus a trusted author: the scan writes with the job token, so as the Actions bot (not a collaborator,
+      // `canWrite` says no), and a writer's copy counts too. A stranger's forged copy does not silence it.
       let asked = false;
       for (const e of await codeHost.conversation(pr.number)) {
-        if (isMarked(e.body) && e.body.includes(FORK_UPDATE_TAG) && (await ctx.tracker.canWrite(e.author))) asked = true;
+        if (isMarked(e.body) && e.body.includes(FORK_UPDATE_TAG) && (e.author === ACTIONS_BOT || (await ctx.tracker.canWrite(e.author)))) asked = true;
       }
       if (!asked) {
         await codeHost.commentPr(

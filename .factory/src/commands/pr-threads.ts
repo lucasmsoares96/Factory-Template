@@ -4,7 +4,7 @@ import type { CodeHost, ConversationEntry, ReviewThread } from "../seams/code-ho
 import type { Tracker } from "../seams/tracker.ts";
 
 /** The Actions bot (previews, the Merge Gate notice): never a request, whatever the forge says of its access. */
-const ACTIONS_BOT = "github-actions[bot]";
+export const ACTIONS_BOT ="github-actions[bot]";
 
 /**
  * Threads still waiting for the Factory: the last comment has no Factory marker, and every comment in the thread was
