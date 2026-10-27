@@ -323,6 +323,10 @@ describe("GitHubCodeHost", () => {
         run(4, "factory-retro.yml", "Retro of PR #13"),
         run(7, "factory-retro.yml", "Retro of #15"),
         run(5, "factory-triage.yml", "Factory triage"),
+        // Runs that their workflow's own filter skips: they name nothing, and a skipped Triage is no Triage.
+        run(8, "factory-triage.yml", "Factory triage: another label"),
+        run(9, "factory-pr-feedback.yml", "Factory PR feedback: not for the Factory"),
+        run(10, "factory-issue.yml", "Factory issue: another label"),
       ],
       waiting: [run(6, "factory-update-branches.yml", "PR #14 update branch")],
     };
@@ -340,9 +344,11 @@ describe("GitHubCodeHost", () => {
       { id: 4, workflow: "factory-retro.yml", issue: null, pr: 13 },
       { id: 7, workflow: "factory-retro.yml", issue: 15, pr: null },
       { id: 5, workflow: "factory-triage.yml", issue: null, pr: null },
+      { id: 9, workflow: "factory-pr-feedback.yml", issue: null, pr: null },
+      { id: 10, workflow: "factory-issue.yml", issue: null, pr: null },
       { id: 6, workflow: "factory-update-branches.yml", issue: null, pr: 14 },
     ]);
-    expect(active).toHaveLength(106);
+    expect(active).toHaveLength(108);
     const statuses = new Set(s.calls.map((c) => new URLSearchParams(c.path.split("?")[1]).get("status")));
     expect([...statuses].sort()).toEqual(["in_progress", "pending", "queued", "requested", "waiting"]);
   });

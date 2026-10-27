@@ -10,7 +10,9 @@
 # `pull_request_review*` and `issue_comment` events run the default branch's workflow.
 name: Factory PR feedback
 # `PR #N` in the run's title is how a run is matched to its PR (the scan keeps factory:working while one is queued or going).
-run-name: "PR #${{ github.event.pull_request.number || github.event.issue.number }} feedback"
+# An event `wait`'s cheap filter skips (the Factory's own marked texts, which every publish writes) names no PR, or
+# the end of the run that wrote them would keep the label for a run that never takes it off.
+run-name: "${{ (!contains(github.event.comment.body, '<!-- factory -->') && !contains(github.event.review.body, '<!-- factory -->') && (github.event_name == 'issue_comment' && github.event.issue.pull_request || startsWith(github.event.pull_request.head.ref, 'factory/issue-'))) && format('PR #{0} feedback', github.event.pull_request.number || github.event.issue.number) || 'Factory PR feedback: not for the Factory' }}"
 
 on:
   pull_request_review:

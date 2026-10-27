@@ -78,7 +78,8 @@ describe("factory publish", () => {
       ["example", "home.png", join(artifacts, "evidence/example/home.png")],
     ]);
 
-    expect(w.codeHost.writes).toEqual(["push factory/issue-7", "openDraftPr #101", "submitReview #101", "markReady #101"]);
+    // The PR this run opened shows `factory:working` until the run ends.
+    expect(w.codeHost.writes).toEqual(["push factory/issue-7", "openDraftPr #101", "labelPr #101 factory:working", "submitReview #101", "markReady #101", "unlabelPr #101 factory:working"]);
     expect(output).toEqual({ issue: 7, outcome: "ready", pr: 101, url: "https://forge.test/pr/101" });
   });
 
