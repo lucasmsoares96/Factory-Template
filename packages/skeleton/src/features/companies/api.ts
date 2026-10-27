@@ -1,6 +1,6 @@
 import { createRoute, z } from "@hono/zod-openapi";
-import { and, asc, eq, sql } from "drizzle-orm";
-import { companies, members, users } from "../../db/schema.ts";
+import { and, asc, eq, ne, sql } from "drizzle-orm";
+import { companies, memberRoles, members, users } from "../../db/schema.ts";
 import { apiError, createRouter, errorResponse } from "../../platform/errors.ts";
 import { emitCompanyDeleting, emitMemberJoined } from "../../platform/feature.ts";
 import { requireIdentity, unauthenticatedResponse } from "../../platform/identity.ts";
@@ -190,6 +190,86 @@ const deleteCompany = createRoute({
   },
 });
 
+const MemberParams = CompanyParams.extend({
+  userId: z.string().openapi({ description: "The Member's user id.", example: "8yW1kQfV0d3sLx9bTq2nZ" }),
+});
+
+const ChangeMemberRole = z
+  .object({
+    role: z.string().openapi({ description: "The new role: any role of the Product but `owner`.", example: "employee" }),
+  })
+  .openapi("ChangeMemberRole");
+
+const memberNotFound = errorResponse(
+  "No such Company, or the signed-in user is not one of its Members, or the user of the path is not.",
+  "NOT_FOUND",
+);
+
+const ownerMustTransfer = errorResponse(
+  "The Owner cannot leave the Company: they transfer its ownership to another Member first.",
+  "OWNER_MUST_TRANSFER",
+);
+
+const changeMemberRole = createRoute({
+  method: "patch",
+  path: "/companies/{companyId}/members/{userId}",
+  operationId: "changeMemberRole",
+  summary: "Change a Member's role",
+  description:
+    "The Owner gives another Member a new role: any role of the Product but `owner`. Nobody changes their own role (`OWN_ROLE`). Answers the Member with the new role.",
+  middleware: [requireIdentity, requireMember, requireOwner] as const,
+  request: {
+    params: MemberParams,
+    body: { required: true, content: { "application/json": { schema: ChangeMemberRole } } },
+  },
+  responses: {
+    200: { description: "The Member, with the new role.", content: { "application/json": { schema: CompanyMember } } },
+    400: errorResponse("The role is missing, `owner`, or not one of the Product's.", "VALIDATION_FAILED"),
+    401: unauthenticatedResponse,
+    403: errorResponse(
+      "The signed-in user is not the Owner (`FORBIDDEN`), or the Member is the signed-in user (`OWN_ROLE`).",
+      "FORBIDDEN",
+      "OWN_ROLE",
+    ),
+    404: memberNotFound,
+  },
+});
+
+const removeMember = createRoute({
+  method: "delete",
+  path: "/companies/{companyId}/members/{userId}",
+  operationId: "removeMember",
+  summary: "Remove a Member from a Company",
+  description:
+    "The Owner removes another Member from the Company. From the next call on, the removed user gets 404 on every route of the Company, their agents included. The Owner cannot remove themselves (`OWNER_MUST_TRANSFER`).",
+  middleware: [requireIdentity, requireMember, requireOwner] as const,
+  request: { params: MemberParams },
+  responses: {
+    204: { description: "The user is no longer a Member." },
+    401: unauthenticatedResponse,
+    403: forbiddenResponse,
+    404: memberNotFound,
+    409: ownerMustTransfer,
+  },
+});
+
+const leaveCompany = createRoute({
+  method: "post",
+  path: "/companies/{companyId}/leave",
+  operationId: "leaveCompany",
+  summary: "Leave a Company",
+  description:
+    "The signed-in user stops being a Member of the Company. From the next call on, they get 404 on every route of the Company, their agents included. The Owner cannot leave before transferring the ownership (`OWNER_MUST_TRANSFER`).",
+  middleware: [requireIdentity, requireMember] as const,
+  request: { params: CompanyParams },
+  responses: {
+    204: { description: "The signed-in user is no longer a Member." },
+    401: unauthenticatedResponse,
+    404: companyNotFoundResponse,
+    409: ownerMustTransfer,
+  },
+});
+
 /** What a Company row is answered as. */
 const companyColumns = { id: companies.id, name: companies.name, createdAt: companies.createdAt, role: members.role };
 
@@ -300,5 +380,45 @@ export const companiesApi = createRouter()
     });
     if (outcome === "NOT_FOUND") return c.json(apiError("NOT_FOUND"), 404);
     if (outcome === "CONFIRMATION_MISMATCH") return c.json(apiError("CONFIRMATION_MISMATCH"), 400);
+    return c.body(null, 204);
+  })
+  .openapi(changeMemberRole, async (c) => {
+    const { companyId, userId: callerId } = c.var.member;
+    const { userId } = c.req.valid("param");
+    const { role } = c.req.valid("json");
+    if (userId === callerId) return c.json(apiError("OWN_ROLE"), 403);
+    const [known] = await c.var.db.select({ id: memberRoles.id }).from(memberRoles).where(eq(memberRoles.id, role));
+    if (!known || role === "owner") return c.json(apiError("VALIDATION_FAILED"), 400);
+    // The Owner is the caller, so the Member changed is never the Owner.
+    const [changed] = await c.var.db
+      .update(members)
+      .set({ role })
+      .where(and(eq(members.companyId, companyId), eq(members.userId, userId), ne(members.role, "owner")))
+      .returning({ userId: members.userId });
+    if (!changed) return c.json(apiError("NOT_FOUND"), 404);
+    const [member] = await c.var.db.select({ name: users.name, email: users.email }).from(users).where(eq(users.id, userId));
+    return c.json({ userId, name: member!.name, email: member!.email, role }, 200);
+  })
+  .openapi(removeMember, async (c) => {
+    const { companyId, userId: callerId } = c.var.member;
+    const { userId } = c.req.valid("param");
+    if (userId === callerId) return c.json(apiError("OWNER_MUST_TRANSFER"), 409);
+    // No Connection is revoked: `requireMember` refuses the user's agents on their next call.
+    const [removed] = await c.var.db
+      .delete(members)
+      .where(and(eq(members.companyId, companyId), eq(members.userId, userId), ne(members.role, "owner")))
+      .returning({ userId: members.userId });
+    if (!removed) return c.json(apiError("NOT_FOUND"), 404);
+    return c.body(null, 204);
+  })
+  .openapi(leaveCompany, async (c) => {
+    const { companyId, userId, role } = c.var.member;
+    if (role === "owner") return c.json(apiError("OWNER_MUST_TRANSFER"), 409);
+    const [left] = await c.var.db
+      .delete(members)
+      .where(and(eq(members.companyId, companyId), eq(members.userId, userId), ne(members.role, "owner")))
+      .returning({ userId: members.userId });
+    // Removed after `requireMember` found the Member.
+    if (!left) return c.json(apiError("NOT_FOUND"), 404);
     return c.body(null, 204);
   });

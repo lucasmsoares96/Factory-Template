@@ -44,6 +44,96 @@
     }
   },
   {
+    "name": "changeMemberRole",
+    "title": "Change a Member's role",
+    "description": "The Owner gives another Member a new role: any role of the Product but `owner`. Nobody changes their own role (`OWN_ROLE`). Answers the Member with the new role.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "companyId": {
+          "type": "string",
+          "description": "The Company's id.",
+          "example": "2f1c6a0e-8d1b-4a51-9f3e-6b0c1d2e3f40"
+        },
+        "userId": {
+          "type": "string",
+          "description": "The Member's user id.",
+          "example": "8yW1kQfV0d3sLx9bTq2nZ"
+        },
+        "body": {
+          "type": "object",
+          "properties": {
+            "role": {
+              "type": "string",
+              "description": "The new role: any role of the Product but `owner`.",
+              "example": "employee"
+            }
+          },
+          "required": [
+            "role"
+          ]
+        }
+      },
+      "required": [
+        "companyId",
+        "userId",
+        "body"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "The Member's user id.",
+          "example": "8yW1kQfV0d3sLx9bTq2nZ"
+        },
+        "name": {
+          "type": "string",
+          "description": "The Member's name.",
+          "example": "Ana Souza"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "The Member's email.",
+          "example": "ana@example.com"
+        },
+        "role": {
+          "type": "string",
+          "description": "The Member's role: `owner`, `employee`, or a role the Product adds.",
+          "example": "owner"
+        }
+      },
+      "required": [
+        "userId",
+        "name",
+        "email",
+        "role"
+      ]
+    },
+    "annotations": {
+      "title": "Change a Member's role",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "scope": "write",
+    "http": {
+      "method": "PATCH",
+      "path": "/api/companies/{companyId}/members/{userId}",
+      "pathParams": [
+        "companyId",
+        "userId"
+      ],
+      "queryParams": [],
+      "body": true,
+      "output": "object"
+    }
+  },
+  {
     "name": "createCompany",
     "title": "Create a Company",
     "description": "Creates a Company with this name (the spaces around it are removed; names may repeat) and makes the signed-in user its Owner. Answers the new Company.",
@@ -412,6 +502,43 @@
       "queryParams": [],
       "body": false,
       "output": "object"
+    }
+  },
+  {
+    "name": "leaveCompany",
+    "title": "Leave a Company",
+    "description": "The signed-in user stops being a Member of the Company. From the next call on, they get 404 on every route of the Company, their agents included. The Owner cannot leave before transferring the ownership (`OWNER_MUST_TRANSFER`).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "companyId": {
+          "type": "string",
+          "description": "The Company's id.",
+          "example": "2f1c6a0e-8d1b-4a51-9f3e-6b0c1d2e3f40"
+        }
+      },
+      "required": [
+        "companyId"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "title": "Leave a Company",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "scope": "write",
+    "http": {
+      "method": "POST",
+      "path": "/api/companies/{companyId}/leave",
+      "pathParams": [
+        "companyId"
+      ],
+      "queryParams": [],
+      "body": false,
+      "output": "none"
     }
   },
   {
@@ -841,6 +968,50 @@
       ],
       "body": false,
       "output": "object"
+    }
+  },
+  {
+    "name": "removeMember",
+    "title": "Remove a Member from a Company",
+    "description": "The Owner removes another Member from the Company. From the next call on, the removed user gets 404 on every route of the Company, their agents included. The Owner cannot remove themselves (`OWNER_MUST_TRANSFER`).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "companyId": {
+          "type": "string",
+          "description": "The Company's id.",
+          "example": "2f1c6a0e-8d1b-4a51-9f3e-6b0c1d2e3f40"
+        },
+        "userId": {
+          "type": "string",
+          "description": "The Member's user id.",
+          "example": "8yW1kQfV0d3sLx9bTq2nZ"
+        }
+      },
+      "required": [
+        "companyId",
+        "userId"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "title": "Remove a Member from a Company",
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false
+    },
+    "scope": "write",
+    "http": {
+      "method": "DELETE",
+      "path": "/api/companies/{companyId}/members/{userId}",
+      "pathParams": [
+        "companyId",
+        "userId"
+      ],
+      "queryParams": [],
+      "body": false,
+      "output": "none"
     }
   },
   {
