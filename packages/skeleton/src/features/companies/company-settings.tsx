@@ -16,7 +16,7 @@ import { useRenameCompany } from "../../gen/hooks/useRenameCompany.ts";
 import { useTransferOwnership } from "../../gen/hooks/useTransferOwnership.ts";
 import { useErrorMessage, useMessages } from "../../client/i18n.tsx";
 import { format } from "../../i18n/index.ts";
-import { useMembers } from "./members.ts";
+import { useMembers } from "./members.tsx";
 
 type Company = { id: string; name: string };
 
