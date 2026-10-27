@@ -22,7 +22,7 @@ const review: AgentStep = () => ({
 const e2eFails: VerifyStep = { ok: false, failedCommand: "pnpm --filter example test:e2e", output: "x".repeat(6000) + "\nexpected 200, got 500" };
 
 /**
- * claim → work → publish through the CLI, each job on its own checkout.
+ * claim → work → publish → working off through the CLI, each job on its own checkout.
  * `between` runs after work and before publish, to change forge state.
  */
 async function pipeline(
@@ -47,6 +47,8 @@ async function pipeline(
     claimed = lastJson(w.logs) as typeof claimed;
     expect(claimed.claimed).toBe(true);
   }
+  // The claim job hands the open PR it marked to the end of the run.
+  const markedPr = (await w.codeHost.openPrFor("factory/issue-7"))?.number;
   expect(await w.factory("work", "7", "--repo", workCheckout, "--out", artifacts)).toBe(0);
   await options.between?.(w);
   const head = await git(workCheckout, "rev-parse", "HEAD");
@@ -54,8 +56,11 @@ async function pipeline(
     "publish", "7", "--repo", publishCheckout, "--in", artifacts,
     "--start-sha", claimed.startSha ?? "", "--run-url", RUN_URL, ...(options.publishArgs ?? []),
   );
+  const output = lastJson(w.logs);
+  // The last step of the run, as in the workflow: whatever the outcome, factory:working comes off.
+  expect(await w.factory("working", "off", "7", ...(markedPr ? ["--pr", String(markedPr)] : []))).toBe(0);
   const factoryComments = () => w.tracker.commentsOn(7).filter((c) => c.author === OWNER).map((c) => c.body);
-  return { w, exitCode, head, publishCheckout, artifacts, output: lastJson(w.logs), factoryComments };
+  return { w, exitCode, head, publishCheckout, artifacts, output, factoryComments };
 }
 
 describe("factory publish: Escalation", () => {
@@ -154,7 +159,7 @@ describe("factory publish: Escalation", () => {
     await w.factory("publish", "7", "--repo", repo, "--in", await tempDir("factory-empty-"), "--run-url", RUN_URL);
 
     expect(lastJson(w.logs)).toMatchObject({ outcome: "escalated", reason: "infra" });
-    expect(w.tracker.labelsOf(7)).toEqual(["ready-for-human"]);
+    expect(w.tracker.labelsOf(7).filter((l) => l !== "factory:working")).toEqual(["ready-for-human"]);
     expect(w.logs.join("\n")).toContain("The automatic Retro of #7 did not start: dispatch refused");
   });
 
@@ -174,6 +179,7 @@ describe("factory publish: Escalation", () => {
     expect(await w.factory("publish", "7", "--repo", repo, "--in", await tempDir("factory-empty-"), "--run-url", RUN_URL)).toBe(0);
 
     expect(lastJson(w.logs)).toEqual({ issue: 7, outcome: "escalated", reason: "infra", pr: null, url: null });
+    await w.factory("working", "off", "7");
     expect(w.codeHost.writes).toEqual(["dispatch retro"]);
     expect(w.tracker.labelsOf(7)).toEqual(["ready-for-human"]);
     const comment = w.tracker.commentsOn(7).at(-1)!.body;
@@ -207,9 +213,12 @@ describe("factory publish: retry after Escalation", () => {
 
     expect(output).toMatchObject({ outcome: "ready", pr: 101 });
     expect(w.codeHost.pushes).toEqual([{ branch: "factory/issue-7", sha: head, expectedSha: OLD_SHA }]);
-    expect(w.codeHost.writes.slice(0, 3)).toEqual(["push factory/issue-7", "closePr #55", "openDraftPr #101"]);
+    expect(w.codeHost.writes.filter((x) => !x.endsWith("factory:working")).slice(0, 3)).toEqual(["push factory/issue-7", "closePr #55", "openDraftPr #101"]);
     expect(w.codeHost.pr(55).state).toBe("closed");
     expect(w.codeHost.pr(55).comments.join("\n")).toMatch(/superseded/i);
+    // The draft the claim marked was closed by publish: the end of the run still clears it.
+    expect(w.codeHost.pr(55).labels).toEqual([]);
+    expect(w.tracker.labelsOf(7)).toEqual(["in-progress"]);
     expect(await git(publishCheckout, "merge-base", "main", head)).toBe(await git(publishCheckout, "rev-parse", "main"));
     expect(await git(publishCheckout, "log", "--format=%s", `main..${head}`)).toBe("feat: touch src/greet.ts #7");
   });
@@ -227,6 +236,7 @@ describe("factory publish: Run discarded", () => {
 
   it.each(cases)("discards the run when %s, pushing nothing", async (_name, change, message) => {
     let labels: string[] = [];
+    const working = "factory:working";
     const { w, output } = await pipeline({
       ...ready,
       between: async (w) => {
@@ -237,7 +247,9 @@ describe("factory publish: Run discarded", () => {
 
     expect(output).toMatchObject({ issue: 7, outcome: "discarded" });
     expect(w.codeHost.writes).toEqual([]);
-    expect(w.tracker.labelsOf(7)).toEqual(labels);
+    // Untouched by publish; only factory:working came off at the end of the run.
+    expect(labels).toContain(working);
+    expect(w.tracker.labelsOf(7)).toEqual(labels.filter((l) => l !== working));
     expect(w.tracker.commentsOn(7).at(-1)!.body).toMatch(/^Run discarded: /);
     expect(w.tracker.commentsOn(7).at(-1)!.body).toMatch(message);
   });

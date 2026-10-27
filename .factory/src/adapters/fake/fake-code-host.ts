@@ -1,11 +1,13 @@
 import { marked } from "../../marker.ts";
 import type {
+  ActiveRun,
   CodeHost,
   ConversationEntry,
   EvidenceImage,
   FailedCheck,
   PullRequest,
   PushResult,
+  ReactionTarget,
   Review,
   ReviewThread,
   SubmittedReview,
@@ -39,6 +41,10 @@ export class FakeCodeHost implements CodeHost {
   readonly dispatches: { workflow: string; inputs: Record<string, string> }[] = [];
   /** Every write, in order, e.g. `openDraftPr #101`. */
   readonly writes: string[] = [];
+  /** Every reaction the Factory left, in order. */
+  readonly reactions: (ReactionTarget & { reaction: string })[] = [];
+  /** What `activeRuns` returns, as seeded. */
+  readonly runs: ActiveRun[] = [];
   /** The pull requests whose failed checks were read, in order. */
   readonly checkReads: number[] = [];
 
@@ -132,6 +138,14 @@ export class FakeCodeHost implements CodeHost {
     this.writes.push(`labelPr #${pr} ${label}`);
   }
 
+  async unlabelPr(pr: number, label: string): Promise<void> {
+    const target = this.pr(pr);
+    // As on GitHub, removing a label that is not there changes nothing.
+    if (!target.labels.includes(label)) return;
+    target.labels = target.labels.filter((l) => l !== label);
+    this.writes.push(`unlabelPr #${pr} ${label}`);
+  }
+
   async submitReview(pr: number, review: Review): Promise<void> {
     this.pr(pr).reviews.push(structuredClone({ ...review, body: marked(review.body), comments: review.comments.map((c) => ({ ...c, body: marked(c.body) })) }));
     this.pr(pr).conversation.push({ id: `review-f${this.pr(pr).conversation.length + 1}`, kind: "review", author: this.self, body: marked(review.body) });
@@ -169,6 +183,15 @@ export class FakeCodeHost implements CodeHost {
     if (!thread) throw new Error(`FakeCodeHost: no thread ${threadId} on PR #${pr}`);
     thread.replies.push({ author: this.self, body: marked(body) });
     this.writes.push(`replyToThread #${pr} ${threadId}`);
+  }
+
+  async react(target: ReactionTarget, reaction: "eyes"): Promise<void> {
+    this.reactions.push({ ...target, reaction });
+    this.writes.push(`react ${target.kind} ${target.id}`);
+  }
+
+  async activeRuns(): Promise<ActiveRun[]> {
+    return structuredClone(this.runs);
   }
 
   async dispatch(workflow: string, inputs: Record<string, string>): Promise<void> {

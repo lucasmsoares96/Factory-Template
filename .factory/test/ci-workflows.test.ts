@@ -442,7 +442,8 @@ describe.each([[WORKFLOWS_DIR]])("Factory issue workflow in %s", (dir) => {
     expect(claim!["runs-on"]).toBe("ubuntu-latest");
     expect(claim!.container).toBeUndefined();
     // `actions: write` dispatches factory-triage.yml after a missing-seams refusal: the job token's label swap starts none.
-    expect(claim!.permissions).toEqual({ contents: "read", issues: "write", "pull-requests": "read", actions: "write" });
+    // `pull-requests: write` puts factory:working on the issue's open PR.
+    expect(claim!.permissions).toEqual({ contents: "read", issues: "write", "pull-requests": "write", actions: "write" });
     expect(secretsOf(claim!)).toEqual([]);
     expect(textOf(claim!)).not.toContain("FACTORY_TOKEN");
     expect(runs(claim!).join("\n")).toContain("pnpm factory claim");
@@ -455,7 +456,8 @@ describe.each([[WORKFLOWS_DIR]])("Factory issue workflow in %s", (dir) => {
     expect(publish!.if).toContain("always()");
     expect(publish!.if).toContain("needs.claim.outputs.claimed == 'true'");
     expect(secretsOf(publish!)).toEqual(["secrets.FACTORY_TOKEN"]);
-    expect(publish!.permissions).toEqual({ contents: "read" });
+    // The job token only takes factory:working off, in the last step.
+    expect(publish!.permissions).toEqual({ contents: "read", issues: "write", "pull-requests": "write", actions: "read" });
     expect(checkoutOf(publish!)?.with).toMatchObject({ ref: "${{ github.event.repository.default_branch }}", "persist-credentials": false });
     expect(runs(publish!).join("\n")).toContain("pnpm factory publish");
     expect(publish!["timeout-minutes"]!).toBeLessThan(60);
@@ -492,14 +494,13 @@ describe.each([[WORKFLOWS_DIR]])("Factory issue workflow in %s", (dir) => {
     expect(steps(notify).find((step) => step.name === "notify")?.env?.GITHUB_TOKEN).toBe("${{ github.token }}");
     expect(runs(notify).join("\n")).toContain('pnpm factory notify "$ISSUE" --outcome "$OUTCOME" --url "$PR_URL" --to "$REQUESTER"');
     expect(steps(notify).find((step) => step.name === "notify")?.env?.REQUESTER).toBe("${{ needs.claim.outputs.requester }}");
-    expect(publish!.permissions).toEqual({ contents: "read" });
   });
 
   it("every Factory command the YAML runs exists in the CLI", () => {
     const cli = readFileSync(join(repo, ".factory/src/cli.ts"), "utf8");
     const called = new Set<string>();
     for (const job of Object.values(issue.jobs)) for (const script of runs(job)) for (const m of script.matchAll(/pnpm factory (\w+)/g)) called.add(m[1]!);
-    expect([...called].sort()).toEqual(["claim", "notify", "publish", "work"]);
+    expect([...called].sort()).toEqual(["claim", "notify", "publish", "work", "working"]);
     for (const command of called) expect(cli).toContain(`"${command}"`);
   });
 });
@@ -517,9 +518,10 @@ describe.each([[WORKFLOWS_DIR]])("Factory triage and unblock workflows in %s", (
     expect(triage.on.issues).toEqual({ types: ["labeled"] });
     expect(Object.keys(triage.on).sort()).toEqual(["issues", "workflow_dispatch"]);
     expect(triage.permissions).toEqual({});
-    expect(image!.if).toContain("vars.FACTORY_ENABLED == 'true'");
-    expect(image!.if).toContain("agent:explore");
-    expect(Object.keys(triage.jobs)).toEqual(["image", "work", "apply"]);
+    expect(triage.jobs.start!.if).toContain("vars.FACTORY_ENABLED == 'true'");
+    expect(triage.jobs.start!.if).toContain("agent:explore");
+    expect(image!.needs).toBe("start");
+    expect(Object.keys(triage.jobs)).toEqual(["start", "image", "work", "apply", "done"]);
     expect(work!.needs).toBe("image");
     expect(apply!.needs).toBe("work");
     expect(concurrencyOf(triage)).toEqual({ group: "factory-triage", "cancel-in-progress": false });
@@ -584,7 +586,7 @@ describe.each([[WORKFLOWS_DIR]])("Factory triage and unblock workflows in %s", (
         for (const m of script.matchAll(/pnpm factory (\w+)/g)) called.add(m[1]!);
       }
     }
-    expect([...called].sort()).toEqual(["apply", "triage", "unblock"]);
+    expect([...called].sort()).toEqual(["apply", "triage", "unblock", "working"]);
     for (const command of called) expect(cli).toContain(`"${command}"`);
   });
 });
@@ -600,7 +602,7 @@ describe.each([[WORKFLOWS_DIR]])("Factory retro workflow in %s", (dir) => {
     expect(retro.on.pull_request_target).toEqual({ types: ["closed"] });
     expect(Object.keys(retro.on).sort()).toEqual(["pull_request_target", "workflow_dispatch"]);
     expect(retro.permissions).toEqual({});
-    expect(Object.keys(retro.jobs)).toEqual(["collect", "image", "work", "publish"]);
+    expect(Object.keys(retro.jobs)).toEqual(["collect", "image", "work", "publish", "done"]);
     expect(collect!.if).toContain("vars.FACTORY_ENABLED == 'true'");
     expect(collect!.if).toContain("vars.FACTORY_RETRO_ENABLED != 'false'");
   });
@@ -620,8 +622,8 @@ describe.each([[WORKFLOWS_DIR]])("Factory retro workflow in %s", (dir) => {
     expect(image!.with).toEqual({ ref: "${{ github.event.repository.default_branch }}" });
   });
 
-  it("`collect` is read-only and holds no secret; the rest waits for what it collected", () => {
-    expect(collect!.permissions).toEqual({ contents: "read", issues: "read", "pull-requests": "read", actions: "read" });
+  it("`collect` writes only factory:working and holds no secret; the rest waits for what it collected", () => {
+    expect(collect!.permissions).toEqual({ contents: "read", issues: "write", "pull-requests": "read", actions: "read" });
     expect(secretsOf(collect!)).toEqual([]);
     expect(runsOn(collect!)).toBe('"ubuntu-latest"');
     expect(runs(collect!).join("\n")).toContain("pnpm factory retro-collect");
@@ -667,13 +669,13 @@ describe.each([[WORKFLOWS_DIR]])("Factory retro workflow in %s", (dir) => {
         for (const m of script.matchAll(/pnpm factory ([\w-]+)/g)) called.add(m[1]!);
       }
     }
-    expect([...called].sort()).toEqual(["retro", "retro-collect", "retro-publish"]);
+    expect([...called].sort()).toEqual(["retro", "retro-collect", "retro-publish", "working"]);
     for (const command of called) expect(cli).toContain(`"${command}"`);
   });
 
   it("the Factory workflows put `#N` in their run titles, which is how the Retro finds an issue's runs", () => {
     const runName = (file: string) => (workflows[file] as unknown as { "run-name"?: string })["run-name"] ?? "";
-    expect(runName("factory-issue.yml")).toContain("#${{ github.event.issue.number || inputs.issue }}");
+    expect(runName("factory-issue.yml")).toContain("format('#{0} {1}', github.event.issue.number || inputs.issue,");
     expect(runName("factory-update-branches.yml")).toContain("format('#{0} update branch', inputs.issue)");
   });
 });
@@ -779,9 +781,10 @@ describe.each([["factory-pr-feedback.yml", "pr-feedback"], ["factory-update-bran
     expect(concurrencyOf(work!)).toEqual({ group, "cancel-in-progress": false, queue: "max" });
   });
 
-  it("`claim` is read-only on a fresh VM; only `publish` holds FACTORY_TOKEN, and runs even when `work` failed", () => {
+  it("`claim` writes only with the job token, on a fresh VM; only `publish` holds FACTORY_TOKEN, and runs even when `work` failed", () => {
     expect(claim!["runs-on"]).toBe("ubuntu-latest");
-    expect(claim!.permissions).toEqual({ contents: "read", issues: "read", "pull-requests": "read" });
+    // The one write: factory:working on the PR and its issue (and the 👀 of a feedback round).
+    expect(claim!.permissions).toEqual({ contents: "read", issues: "write", "pull-requests": "write" });
     expect(secretsOf(claim!)).toEqual([]);
     expect(publish!["runs-on"]).toBe("ubuntu-latest");
     expect(publish!.container).toBeUndefined();
@@ -809,14 +812,14 @@ describe.each([["factory-pr-feedback.yml", "pr-feedback"], ["factory-update-bran
 describe("Factory PR feedback workflow", () => {
   const feedback = checkWorkflows(WORKFLOWS_DIR).workflows["factory-pr-feedback.yml"]!;
 
-  it("only `work` gains `actions: read` (the failed checks' logs), through the job token in the harness step alone", () => {
+  it("`work` reads the failed checks' logs with `actions: read`, through the job token in the harness step alone; `publish` reads the runs going", () => {
     const permissions = Object.fromEntries(Object.entries(feedback.jobs).map(([id, job]) => [id, job.permissions]));
     expect(permissions).toEqual({
       wait: undefined,
-      claim: { contents: "read", issues: "read", "pull-requests": "read" },
+      claim: { contents: "read", issues: "write", "pull-requests": "write" },
       image: { contents: "read", packages: "write" },
       work: { contents: "read", issues: "read", "pull-requests": "read", packages: "read", actions: "read" },
-      publish: { contents: "read" },
+      publish: { contents: "read", issues: "write", "pull-requests": "write", actions: "read" },
       notify: { contents: "read", issues: "write" },
     });
     const work = feedback.jobs.work!;
@@ -878,9 +881,9 @@ describe("Factory update branches workflow", () => {
     expect(update.jobs.claim!.if).toContain("github.event_name == 'workflow_dispatch'");
   });
 
-  it("`scan` dispatches with the job token and holds no secret; it may write only a fork PR's comment", () => {
+  it("`scan` dispatches with the job token and holds no secret; it may write only a fork PR's comment and factory:working", () => {
     const scan = update.jobs.scan!;
-    expect(scan.permissions).toEqual({ contents: "read", issues: "read", "pull-requests": "write", actions: "write" });
+    expect(scan.permissions).toEqual({ contents: "read", issues: "write", "pull-requests": "write", actions: "write" });
     expect(textOf(scan)).not.toMatch(/secrets\./);
     expect(runs(scan).join("\n")).toContain("pnpm factory update-branch --scan");
   });
@@ -916,5 +919,118 @@ describe("Factory update branches workflow", () => {
     const fetch = steps(update.jobs.work!).find((s) => s.run?.includes("git fetch"))!;
     expect(fetch.env?.BRANCH).toBe("${{ needs.claim.outputs.branch }}");
     expect(fetch.run).toContain('git fetch --no-tags origin "+refs/heads/$BRANCH:refs/heads/$BRANCH"');
+  });
+});
+
+describe("factory:working in the workflows", () => {
+  const { workflows } = checkWorkflows(WORKFLOWS_DIR);
+  /** The workflow, the job and the step that take the label off at the end of each run. */
+  const ends: [string, string][] = [
+    ["factory-issue.yml", "publish"],
+    ["factory-pr-feedback.yml", "publish"],
+    ["factory-update-branches.yml", "publish"],
+    ["factory-triage.yml", "done"],
+    ["factory-retro.yml", "done"],
+  ];
+
+  it.each(ends)("%s takes it off in `%s`, with `if: always()` on the job and the step, through the job token", (file, id) => {
+    const job = workflows[file]!.jobs[id]!;
+    const step = steps(job).find((s) => s.run?.includes("pnpm factory working off"));
+    expect(step, `${file} ${id}`).toBeDefined();
+    expect(job.if).toContain("always()");
+    expect(step!.if).toBe("always()");
+    expect(step!.env?.GITHUB_TOKEN).toBe("${{ github.token }}");
+    expect(JSON.stringify(step)).not.toContain("FACTORY_TOKEN");
+    // The last step: nothing after it can fail first.
+    expect(steps(job).at(-1)).toBe(step);
+    expect(job.permissions).toMatchObject({ issues: "write", "pull-requests": "write", actions: "read" });
+    expect(job["runs-on"]).toBe("ubuntu-latest");
+  });
+
+  it("only the job token ever writes the label: no step that runs `working` or a claim holds FACTORY_TOKEN, and no `work` holds it", () => {
+    for (const [file, workflow] of Object.entries(workflows)) {
+      for (const [id, job] of Object.entries(workflow.jobs)) {
+        if (id === "work") expect(textOf(job), `${file} ${id}`).not.toContain("FACTORY_TOKEN");
+        for (const step of steps(job)) {
+          if (/pnpm factory (working|claim|pr-feedback|update-branch|retro-collect)\b/.test(step.run ?? "")) {
+            expect(JSON.stringify(step), `${file} ${id}`).not.toContain("FACTORY_TOKEN");
+            expect(step.env?.GITHUB_TOKEN, `${file} ${id}`).toBe("${{ github.token }}");
+          }
+        }
+      }
+    }
+  });
+
+  it("the jobs that put it on may write issues and pull requests", () => {
+    expect(workflows["factory-issue.yml"]!.jobs.claim!.permissions).toMatchObject({ issues: "write", "pull-requests": "write" });
+    expect(workflows["factory-pr-feedback.yml"]!.jobs.claim!.permissions).toMatchObject({ issues: "write", "pull-requests": "write" });
+    expect(workflows["factory-update-branches.yml"]!.jobs.claim!.permissions).toMatchObject({ issues: "write", "pull-requests": "write" });
+    expect(workflows["factory-retro.yml"]!.jobs.collect!.permissions).toMatchObject({ issues: "write" });
+    expect(workflows["factory-triage.yml"]!.jobs.start!.permissions).toMatchObject({ issues: "write" });
+  });
+
+  it("the issue flow's publish holds the job token too, to label the PR it opens without starting a workflow", () => {
+    const step = steps(workflows["factory-issue.yml"]!.jobs.publish!).find((s) => s.name === "publish")!;
+    expect(step.env?.GITHUB_TOKEN).toBe("${{ github.token }}");
+    expect(step.env?.FACTORY_TOKEN).toBe("${{ secrets.FACTORY_TOKEN }}");
+  });
+
+  it("the issue flow clears the PR its claim marked, even when publish closed it", () => {
+    const issue = workflows["factory-issue.yml"]!;
+    expect((issue.jobs.claim as unknown as { outputs: Record<string, string> }).outputs.pr).toBe("${{ steps.claim.outputs.pr }}");
+    const step = steps(issue.jobs.publish!).at(-1)!;
+    expect(step.env?.MARKED_PR).toBe("${{ needs.claim.outputs.pr }}");
+    expect(step.run).toBe('pnpm factory working off "$ISSUE" ${MARKED_PR:+--pr "$MARKED_PR"}');
+  });
+
+  it("the Triage marks its batch in `start`, before the image, and hands the list to `done`", () => {
+    const triage = workflows["factory-triage.yml"]!;
+    const { start, image, done } = triage.jobs;
+    expect(start!.if).toContain("vars.FACTORY_ENABLED == 'true'");
+    expect(image!.needs).toBe("start");
+    expect(runs(start!).join("\n")).toContain("pnpm factory working on --triage");
+    expect(done!.needs).toEqual(["start", "apply"]);
+    expect(done!.if).toBe("${{ always() && needs.start.result == 'success' }}");
+    expect(steps(done!).at(-1)!.env?.ISSUES).toBe("${{ needs.start.outputs.issues }}");
+  });
+
+  it("the Retro clears the origin issue that `collect` marked", () => {
+    const retro = workflows["factory-retro.yml"]!;
+    expect((retro.jobs.collect as unknown as { outputs: Record<string, string> }).outputs.issue).toBe("${{ steps.collect.outputs.issue }}");
+    expect(retro.jobs.done!.needs).toEqual(["collect", "publish"]);
+    expect(retro.jobs.done!.if).toBe("${{ always() && needs.collect.outputs.collected == 'true' }}");
+    expect(steps(retro.jobs.done!).at(-1)!.env?.ISSUE).toBe("${{ needs.collect.outputs.issue }}");
+  });
+
+  it("the scan may remove the label from issues, and reads the runs it keeps it for", () => {
+    expect(workflows["factory-update-branches.yml"]!.jobs.scan!.permissions).toEqual({ contents: "read", issues: "write", "pull-requests": "write", actions: "write" });
+  });
+
+  it("every workflow that works on an issue or a PR names it in its run title, which is how a run is matched to them", () => {
+    const runName = (file: string) => (workflows[file] as unknown as { "run-name"?: string })["run-name"] ?? "";
+    expect(runName("factory-issue.yml")).toContain("format('#{0} {1}', github.event.issue.number || inputs.issue,");
+    expect(runName("factory-update-branches.yml")).toContain("format('PR #{0} update branch', inputs.pr)");
+    expect(runName("factory-pr-feedback.yml")).toContain("format('PR #{0} feedback', github.event.pull_request.number || github.event.issue.number)");
+    expect(runName("factory-retro.yml")).toContain("format('#{0}', inputs.issue)");
+  });
+
+  // The end of a run keeps the label while another run is queued or going on the same issue or PR. A run that the
+  // first job's own condition skips (the Factory's own label swaps and marked texts start many) must not count.
+  it.each([
+    ["factory-issue.yml", "claim", "Factory issue: another label"],
+    ["factory-pr-feedback.yml", "wait", "Factory PR feedback: not for the Factory"],
+    ["factory-triage.yml", "start", "Factory triage: another label"],
+  ])("%s names an issue or PR in its run title only when its `%s` condition lets the event through", (file, job, other) => {
+    const runName = (workflows[file] as unknown as { "run-name": string })["run-name"];
+    const gate = workflows[file]!.jobs[job]!.if!.replace(/^\$\{\{ vars\.FACTORY_ENABLED == 'true' && /, "").replace(/ \}\}$/, "");
+    expect([`${"${{"} ${gate} && `, `${"${{"} (${gate}) && `].some((start) => runName.startsWith(start)), `${file}: ${runName}`).toBe(true);
+    expect(runName.endsWith(` || '${other}' }}`)).toBe(true);
+    expect(other).not.toContain("#");
+  });
+
+  it("the feedback claim hands over the comment or review that started the round, for its 👀", () => {
+    const step = steps(workflows["factory-pr-feedback.yml"]!.jobs.claim!).find((s) => s.name === "claim")!;
+    expect(step.env).toMatchObject({ EVENT_NAME: "${{ github.event_name }}", COMMENT_ID: "${{ github.event.comment.id || github.event.review.id }}" });
+    expect(step.run).toBe('pnpm factory pr-feedback --pr "$PR" --actor "$ACTOR" --event "$EVENT_NAME" --comment-id "$COMMENT_ID"');
   });
 });

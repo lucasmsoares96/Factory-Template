@@ -21,7 +21,7 @@ const review: AgentStep = () => {
   return { output: `<review>${JSON.stringify(findings)}</review>` };
 };
 
-/** Runs claim → work → publish through the CLI, each job on its own checkout. */
+/** Runs claim → work → publish → working off through the CLI, each job on its own checkout. */
 async function happyPath(options: { branches?: Record<string, string>; review?: AgentStep } = {}) {
   const workCheckout = await checkout();
   const publishCheckout = await checkout();
@@ -40,15 +40,20 @@ async function happyPath(options: { branches?: Record<string, string>; review?: 
   const exitCode = await w.factory(
     "publish", "7", "--repo", publishCheckout, "--in", artifacts, "--start-sha", claimed.startSha ?? "",
   );
-  return { w, exitCode, head, artifacts, publishCheckout };
+  const output = lastJson(w.logs);
+  // The last step of the run, as in the workflow.
+  expect(await w.factory("working", "off", "7")).toBe(0);
+  return { output, w, exitCode, head, artifacts, publishCheckout };
 }
 
 describe("factory publish", () => {
   it("turns a ready issue into a ready PR with review and evidence", async () => {
-    const { w, exitCode, head, artifacts } = await happyPath();
+    const { w, exitCode, head, artifacts, output } = await happyPath();
 
     expect(exitCode).toBe(0);
+    // `in-progress` holds the issue until the merge; `factory:working` came off with the run.
     expect(w.tracker.labelsOf(7)).toEqual(["in-progress"]);
+    expect(w.codeHost.pr(101).labels).toEqual([]);
     expect(w.codeHost.pushes).toEqual([{ branch: "factory/issue-7", sha: head, expectedSha: null }]);
     expect(w.codeHost.branches.get("factory/issue-7")).toBe(head);
 
@@ -73,8 +78,9 @@ describe("factory publish", () => {
       ["example", "home.png", join(artifacts, "evidence/example/home.png")],
     ]);
 
-    expect(w.codeHost.writes).toEqual(["push factory/issue-7", "openDraftPr #101", "submitReview #101", "markReady #101"]);
-    expect(lastJson(w.logs)).toEqual({ issue: 7, outcome: "ready", pr: 101, url: "https://forge.test/pr/101" });
+    // The PR this run opened shows `factory:working` until the run ends.
+    expect(w.codeHost.writes).toEqual(["push factory/issue-7", "openDraftPr #101", "labelPr #101 factory:working", "submitReview #101", "markReady #101", "unlabelPr #101 factory:working"]);
+    expect(output).toEqual({ issue: 7, outcome: "ready", pr: 101, url: "https://forge.test/pr/101" });
   });
 
   it("posts a COMMENT review without inline comments when the review has none", async () => {

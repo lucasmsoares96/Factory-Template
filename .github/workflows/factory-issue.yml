@@ -1,16 +1,20 @@
 # A ready issue becomes a pull request, written with the repo owner's FACTORY_TOKEN (the Factory marks its texts with a hidden marker).
-#   claim   (job token, issues: write, actions: write)  guard + lock: ready-for-agent -> in-progress; an issue without
-#           seams goes to agent:explore and the job dispatches factory-triage.yml (a job-token label event starts no run)
+#   claim   (job token, issues: write, actions: write)  guard + lock: ready-for-agent -> in-progress, and factory:working
+#           on the issue and its open PR; an issue without seams goes to agent:explore and the job dispatches
+#           factory-triage.yml (a job-token label event starts no run)
 #   image   the published Factory image of the default branch
 #   work    (the image, read-only, Claude's auth only)  Development -> Review -> E2E; branch bundle, result.json, prints
-#   publish (fresh VM, FACTORY_TOKEN, the harness of the default branch)  checks the forge again, pushes, opens the PR
+#   publish (fresh VM, FACTORY_TOKEN, the harness of the default branch)  checks the forge again, pushes, opens the PR;
+#           its last step takes factory:working off with the job token, whatever happened (if: always())
 #   notify  (job token, issues: write)  the Merge Gate notice: a comment from github-actions[bot] that mentions who started the run
 # The jobs meet only through the `work-out` artifact (git bundle + result.json + prints + stream-json). The agent never
 # sees FACTORY_TOKEN. Off until `pnpm bootstrap factory` sets FACTORY_ENABLED; one run per issue at a time. A change to
 # this file takes effect once it is on the default branch (`issues` events run the default branch's workflow).
 name: Factory issue
-# `#N` in the run's title is how the automatic Retro finds the runs of an issue.
-run-name: "#${{ github.event.issue.number || inputs.issue }} ${{ github.event.issue.title || 'Factory issue' }}"
+# `#N` in the run's title is how the automatic Retro finds the runs of an issue, and how the end of another run sees
+# this one is going (it keeps factory:working). A label event that `claim`'s condition skips (the Factory's own swaps
+# included) names no issue, or every Escalation would leave the label behind until the next scan.
+run-name: "${{ (github.event_name == 'workflow_dispatch' || github.event.label.name == (vars.FACTORY_LABELS_READY_FOR_AGENT || 'ready-for-agent')) && format('#{0} {1}', github.event.issue.number || inputs.issue, github.event.issue.title || 'Factory issue') || 'Factory issue: another label' }}"
 
 on:
   issues:
@@ -39,10 +43,11 @@ jobs:
     if: ${{ vars.FACTORY_ENABLED == 'true' && (github.event_name == 'workflow_dispatch' || github.event.label.name == (vars.FACTORY_LABELS_READY_FOR_AGENT || 'ready-for-agent')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # `pull-requests: write` puts factory:working on the issue's open PR.
     permissions:
       contents: read
       issues: write
-      pull-requests: read
+      pull-requests: write
       actions: write
     defaults:
       run:
@@ -51,6 +56,7 @@ jobs:
       claimed: ${{ steps.claim.outputs.claimed }}
       start_sha: ${{ steps.claim.outputs.start_sha }}
       requester: ${{ steps.claim.outputs.requester }}
+      pr: ${{ steps.claim.outputs.pr }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -154,8 +160,12 @@ jobs:
     if: ${{ always() && needs.claim.outputs.claimed == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # The job token writes only factory:working (last step) and reads the runs it is kept for; FACTORY_TOKEN does the rest.
     permissions:
       contents: read
+      issues: write
+      pull-requests: write
+      actions: read
     outputs:
       outcome: ${{ steps.publish.outputs.outcome }}
       url: ${{ steps.publish.outputs.url }}
@@ -182,13 +192,22 @@ jobs:
           path: ${{ runner.temp }}/out
       - name: publish
         id: publish
+        # GITHUB_TOKEN only puts factory:working on the PR this step opens; FACTORY_TOKEN does every other write.
         env:
           FACTORY_TOKEN: ${{ secrets.FACTORY_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
           START_SHA: ${{ needs.claim.outputs.start_sha }}
         run: |
           mkdir -p "$RUNNER_TEMP/out"
           gh --version | head -1
           pnpm factory publish "$ISSUE" --in "$RUNNER_TEMP/out" --start-sha "$START_SHA"
+      # The end of the run, whatever happened: never with FACTORY_TOKEN, whose label events would start workflows.
+      - name: working off
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          MARKED_PR: ${{ needs.claim.outputs.pr }}
+        run: pnpm factory working off "$ISSUE" ${MARKED_PR:+--pr "$MARKED_PR"}
 
   # The Merge Gate notice. The Factory writes as the owner, so GitHub notifies nobody of its comments; this one leaves
   # through the job's own GITHUB_TOKEN (github-actions[bot]), which fires no workflow, so it cannot start a loop.
