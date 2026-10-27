@@ -129,14 +129,14 @@ describe("Skeleton scope of a Product issue", () => {
   it("writes one <skeleton-gap> when Development and the Review report the same gap, and shows the Review that gap", async () => {
     const gapDev: AgentStep = async (call) => {
       await develop(call);
-      return { output: "Done.\n<skeleton-gap>\nThe root layout needs a **footer** slot\n</skeleton-gap>" };
+      return { output: "Done.\n<skeleton-gap>\nthe ROOT  layout\n  needs a **footer** slot\n</skeleton-gap>" };
     };
     const { w } = await run({ labels: { "ready-for-agent": HUMAN, "product:example": HUMAN }, develop: gapDev });
 
     const body = w.tracker.issues.get(8)!.body;
     expect(body.match(/<skeleton-gap>/g)).toHaveLength(1);
-    expect(body).toContain("The root layout needs a **footer** slot");
-    expect(w.agent.calls.find((c) => c.stage === "review")!.prompt).toContain("The root layout needs a **footer** slot");
+    expect(body).toContain("the ROOT  layout\n  needs a **footer** slot");
+    expect(w.agent.calls.find((c) => c.stage === "review")!.prompt).toContain("the ROOT  layout\n  needs a **footer** slot");
   });
 
   it("keeps two different gaps from Development and the Review", async () => {
@@ -149,6 +149,29 @@ describe("Skeleton scope of a Product issue", () => {
     const body = w.tracker.issues.get(8)!.body;
     expect(body.match(/<skeleton-gap>/g)).toHaveLength(2);
     expect(body).toContain("The header needs a logo slot.");
+    expect(body).toContain("The root layout needs a footer slot.");
+  });
+
+  /** Development reports `gap`; the Review reports the default footer gap. Returns the follow-up issue's body. */
+  async function followUpBody(gap: string) {
+    const gapDev: AgentStep = async (call) => {
+      await develop(call);
+      return { output: `Done.\n<skeleton-gap>${gap}</skeleton-gap>` };
+    };
+    const { w } = await run({ labels: { "ready-for-agent": HUMAN, "product:example": HUMAN }, develop: gapDev });
+    return w.tracker.issues.get(8)!.body;
+  }
+
+  it("keeps the longer of two gaps when one contains the other", async () => {
+    const body = await followUpBody("The root layout needs a footer slot, so a Product can add its links.");
+    expect(body.match(/<skeleton-gap>/g)).toHaveLength(1);
+    expect(body).toContain("The root layout needs a footer slot, so a Product can add its links.");
+  });
+
+  it("does not let a short gap swallow a longer one that mentions it", async () => {
+    const body = await followUpBody("Footer slot.");
+    expect(body.match(/<skeleton-gap>/g)).toHaveLength(2);
+    expect(body).toContain("Footer slot.");
     expect(body).toContain("The root layout needs a footer slot.");
   });
 
