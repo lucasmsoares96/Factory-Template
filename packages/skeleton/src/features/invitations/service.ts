@@ -1,8 +1,10 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import type { Context } from "hono";
 import { companies, invitations, memberRoles, members, users } from "../../db/schema.ts";
 import { invitationEmail } from "../../emails/invitation.tsx";
+import type { Database } from "../../platform/db.ts";
 import type { SkeletonEnv } from "../../platform/env.ts";
+import { emitMemberJoined } from "../../platform/feature.ts";
 
 /** How long an Invitation's link works, from its creation or its last resend. */
 export const INVITATION_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
@@ -99,6 +101,116 @@ export async function resendInvitation(c: Context<SkeletonEnv>, invitationId: st
   const inviterName = inviter?.name ?? c.var.identity.user.name;
   await sendInvitationEmail(c, { email: renewed.email, role: renewed.role, inviterName, token });
   return toInvitation({ ...renewed, inviterName: inviter?.name ?? null });
+}
+
+/** An Invitation as its link shows it: what the person is invited to, before they accept. */
+export type InvitationByToken = {
+  companyId: string;
+  companyName: string;
+  email: string;
+  role: string;
+  expiresAt: string;
+  /** Whether the signed-in user is already a Member of the Company; `false` without a session. */
+  alreadyMember: boolean;
+};
+
+/** A Company as `acceptInvitation` answers it: the one the user is now a Member of, with their role. */
+export type JoinedCompany = { id: string; name: string; role: string; createdAt: Date };
+
+/** Why the link refuses: 404 for a token no Invitation has, 410 once it is accepted, canceled or expired, 403 for another address. */
+export type AcceptRefusal = "NOT_FOUND" | "INVITATION_EXPIRED" | "INVITATION_EMAIL_MISMATCH";
+
+/**
+ * What the link of an Invitation shows to whoever opens it, signed in or not:
+ * the Company, the role and the invited address. Refuses an unknown token
+ * (`NOT_FOUND`) and an Invitation no longer open (`INVITATION_EXPIRED`), unless
+ * the signed-in user is already a Member: they go to the Company without an error.
+ */
+export async function invitationByToken(
+  c: Context<SkeletonEnv>,
+  token: string,
+  userId: string | null,
+): Promise<{ invitation: InvitationByToken } | { refused: Exclude<AcceptRefusal, "INVITATION_EMAIL_MISMATCH"> }> {
+  const found = await findByToken(c.var.db, token);
+  if (!found) return { refused: "NOT_FOUND" };
+  const alreadyMember = userId !== null && (await roleIn(c.var.db, found.companyId, userId)) !== null;
+  if (!isOpen(found) && !alreadyMember) return { refused: "INVITATION_EXPIRED" };
+  const { companyId, companyName, email, role, expiresAt } = found;
+  return { invitation: { companyId, companyName, email, role, expiresAt: expiresAt.toISOString(), alreadyMember } };
+}
+
+/**
+ * The signed-in user accepts the Invitation of the link: they become a Member
+ * with its role, the Invitation is marked accepted (it leaves the pending list),
+ * and every feature's `memberJoined` runs. Only the invited address may accept
+ * (`INVITATION_EMAIL_MISMATCH`). A user who is already a Member gets the Company,
+ * and nothing changes.
+ */
+export async function acceptInvitation(
+  c: Context<SkeletonEnv>,
+  token: string,
+): Promise<{ company: JoinedCompany } | { refused: AcceptRefusal }> {
+  const { db } = c.var;
+  const user = c.var.identity.user;
+  const found = await findByToken(db, token);
+  if (!found) return { refused: "NOT_FOUND" };
+  const company = (role: string) => ({ company: { id: found.companyId, name: found.companyName, createdAt: found.companyCreatedAt, role } });
+
+  const current = await roleIn(db, found.companyId, user.id);
+  if (current !== null) return company(current);
+  if (!isOpen(found)) return { refused: "INVITATION_EXPIRED" };
+  if (user.email.toLowerCase() !== found.email) return { refused: "INVITATION_EMAIL_MISMATCH" };
+
+  const joined = await db.transaction(async (tx) => {
+    const [accepted] = await tx
+      .update(invitations)
+      .set({ acceptedAt: new Date() })
+      .where(and(eq(invitations.id, found.id), pending, gt(invitations.expiresAt, new Date())))
+      .returning({ id: invitations.id });
+    if (!accepted) return false;
+    await tx.insert(members).values({ companyId: found.companyId, userId: user.id, role: found.role });
+    return true;
+  });
+  if (!joined) {
+    // Another request accepted it first: the same user clicking twice is a Member by now.
+    const role = await roleIn(db, found.companyId, user.id);
+    return role === null ? { refused: "INVITATION_EXPIRED" } : company(role);
+  }
+  await emitMemberJoined(c.var.features, { db, companyId: found.companyId, userId: user.id });
+  return company(found.role);
+}
+
+async function findByToken(db: Database, token: string) {
+  const [found] = await db
+    .select({
+      id: invitations.id,
+      companyId: invitations.companyId,
+      companyName: companies.name,
+      companyCreatedAt: companies.createdAt,
+      email: invitations.email,
+      role: invitations.role,
+      expiresAt: invitations.expiresAt,
+      acceptedAt: invitations.acceptedAt,
+      canceledAt: invitations.canceledAt,
+    })
+    .from(invitations)
+    .innerJoin(companies, eq(companies.id, invitations.companyId))
+    .where(eq(invitations.tokenHash, await hashToken(token)));
+  return found ?? null;
+}
+
+/** Neither accepted, canceled nor expired: the link still lets the invited address in. */
+function isOpen(invitation: { acceptedAt: Date | null; canceledAt: Date | null; expiresAt: Date }) {
+  return !invitation.acceptedAt && !invitation.canceledAt && invitation.expiresAt.getTime() > Date.now();
+}
+
+/** The user's role in the Company, or `null` when they are not a Member. */
+async function roleIn(db: Database, companyId: string, userId: string): Promise<string | null> {
+  const [member] = await db
+    .select({ role: members.role })
+    .from(members)
+    .where(and(eq(members.companyId, companyId), eq(members.userId, userId)));
+  return member?.role ?? null;
 }
 
 /** Neither accepted nor canceled. An expired Invitation is still pending: resending renews it. */

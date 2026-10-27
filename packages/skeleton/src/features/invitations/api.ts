@@ -2,10 +2,11 @@ import { createRoute, z } from "@hono/zod-openapi";
 import { and, asc, eq } from "drizzle-orm";
 import { invitations, users } from "../../db/schema.ts";
 import { apiError, createRouter, errorResponse } from "../../platform/errors.ts";
-import { requireIdentity, unauthenticatedResponse } from "../../platform/identity.ts";
+import { requireIdentity, resolveIdentity, unauthenticatedResponse } from "../../platform/identity.ts";
 import { CompanyParams, companyNotFoundResponse, forbiddenResponse, requireMember, requireOwner } from "../../platform/member.ts";
 import { PageQuery, afterPosition, cursorPosition, pageOf, toPage } from "../../platform/pagination.ts";
-import { createInvitation, pending, resendInvitation, toInvitation } from "./service.ts";
+import { Company, toCompany } from "../companies/api.ts";
+import { acceptInvitation, createInvitation, invitationByToken, pending, resendInvitation, toInvitation } from "./service.ts";
 
 const Invitation = z
   .object({
@@ -121,6 +122,62 @@ const cancelInvitation = createRoute({
   },
 });
 
+const TokenParams = z.object({
+  token: z.string().openapi({ description: "The secret of the Invitation's link, from its email.", example: "q3Xv0b6n2kT9mWcR1sYfLh8pJzA4dGuE7iNoBxVtKe5" }),
+});
+
+const InvitationByToken = z
+  .object({
+    companyId: z.string().openapi({ description: "The Company the person is invited to.", example: "2f1c6a0e-8d1b-4a51-9f3e-6b0c1d2e3f40" }),
+    companyName: z.string().openapi({ description: "Its name.", example: "Acme" }),
+    email: z.email().openapi({ description: "The invited address: only a user with it may accept.", example: "bruno@example.com" }),
+    role: z.string().openapi({ description: "The role the person will have.", example: "employee" }),
+    expiresAt: z.iso.datetime().openapi({ description: "When the link stops working.", example: "2026-10-31T12:00:00.000Z" }),
+    alreadyMember: z
+      .boolean()
+      .openapi({ description: "Whether the signed-in user is already a Member of the Company (`false` without a session)." }),
+  })
+  .openapi("InvitationByToken");
+
+const invitationGone = errorResponse("The Invitation was accepted, canceled or has expired.", "INVITATION_EXPIRED");
+const unknownToken = errorResponse("No Invitation has this link.", "NOT_FOUND");
+
+const getInvitationByToken = createRoute({
+  method: "get",
+  path: "/invitations/{token}",
+  operationId: "getInvitationByToken",
+  summary: "See the Invitation of a link",
+  description:
+    "Answers what the link of an Invitation email invites to (the Company, the role and the invited address), to anyone who has the link, signed in or not. Answers 410 once the Invitation is accepted, canceled or expired, unless the signed-in user is already a Member of the Company.",
+  // The link is a secret of the invited person's browser, not something an agent acts on.
+  "x-mcp": false,
+  request: { params: TokenParams },
+  responses: {
+    200: { description: "The Invitation.", content: { "application/json": { schema: InvitationByToken } } },
+    404: unknownToken,
+    410: invitationGone,
+  },
+});
+
+const acceptInvitationRoute = createRoute({
+  method: "post",
+  path: "/invitations/{token}/accept",
+  operationId: "acceptInvitation",
+  summary: "Accept an Invitation",
+  description:
+    "The signed-in user, whose email must be the invited address, becomes a Member of the Company with the Invitation's role, and the Invitation leaves the pending list. Answers the Company. A user who is already a Member gets the Company, and nothing changes.",
+  "x-mcp": false,
+  middleware: [requireIdentity] as const,
+  request: { params: TokenParams },
+  responses: {
+    200: { description: "The Company the user is a Member of, with their role.", content: { "application/json": { schema: Company } } },
+    401: unauthenticatedResponse,
+    403: errorResponse("The signed-in user's email is not the invited address.", "INVITATION_EMAIL_MISMATCH"),
+    404: unknownToken,
+    410: invitationGone,
+  },
+});
+
 export const invitationsApi = createRouter()
   .openapi(createInvitationRoute, async (c) => {
     const result = await createInvitation(c, c.req.valid("json"));
@@ -168,4 +225,18 @@ export const invitationsApi = createRouter()
       .returning({ id: invitations.id });
     if (!canceled) return c.json(apiError("NOT_FOUND"), 404);
     return c.body(null, 204);
+  })
+  .openapi(getInvitationByToken, async (c) => {
+    const identity = await resolveIdentity(c);
+    const result = await invitationByToken(c, c.req.valid("param").token, identity?.user.id ?? null);
+    if ("invitation" in result) return c.json(result.invitation, 200);
+    if (result.refused === "NOT_FOUND") return c.json(apiError(result.refused), 404);
+    return c.json(apiError(result.refused), 410);
+  })
+  .openapi(acceptInvitationRoute, async (c) => {
+    const result = await acceptInvitation(c, c.req.valid("param").token);
+    if ("company" in result) return c.json(toCompany(result.company), 200);
+    if (result.refused === "NOT_FOUND") return c.json(apiError(result.refused), 404);
+    if (result.refused === "INVITATION_EMAIL_MISMATCH") return c.json(apiError(result.refused), 403);
+    return c.json(apiError(result.refused), 410);
   });
