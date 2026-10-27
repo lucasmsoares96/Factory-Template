@@ -145,4 +145,13 @@ describe("prompts snapshot", () => {
       snapshotPrompts();
     }
   });
+
+  it("fails loudly when a template is not in the snapshot", async () => {
+    snapshotPrompts(await tempDir("factory-prompts-"));
+    try {
+      expect(() => reviewPrompt({ issue, log: "abc1234 feat: greet #7", since: null, findings: [] })).toThrow(/prompts\/rules\.md is missing/);
+    } finally {
+      snapshotPrompts();
+    }
+  });
 });
