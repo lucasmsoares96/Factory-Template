@@ -2,6 +2,8 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
+import { FORK_UPDATE_TAG } from "../src/commands/pr-claim.ts";
+import { marked } from "../src/marker.ts";
 import { commitFile, git, lastJson, OWNER, unmarked } from "./helpers.ts";
 import { BRANCH, PR, finishRound, prWorld, reviewOk, commits, type MainChange, type PrWorld } from "./pr-flow-helpers.ts";
 
@@ -58,6 +60,22 @@ describe("factory update-branch --scan", () => {
     expect(comments).toHaveLength(1);
     expect(comments[0]).toMatch(/update the branch/i);
     expect(lastJson(p.w.logs)).toEqual({ dispatched: [], upToDate: [PR], forks: [204] });
+  });
+
+  it("counts the scan's own comment, written as the Actions bot, and not a stranger's forged copy", async () => {
+    const p = await prWorld({ main: "clean" });
+    p.w.codeHost.pr(PR).headSha = await git(p.workRepo, "rev-parse", "main");
+    await pullRequestOn(p, 204, "patch-1", "main~1", { fork: true });
+    await pullRequestOn(p, 205, "patch-2", "main~1", { fork: true });
+    const ask = marked(`${FORK_UPDATE_TAG}\nThis branch is behind \`main\`.`);
+    // The job token writes as `github-actions[bot]`, who is no collaborator: `canWrite` says no for it.
+    p.w.codeHost.pr(204).conversation.push({ id: "comment-1", kind: "comment", author: "github-actions[bot]", body: ask });
+    p.w.codeHost.pr(205).conversation.push({ id: "comment-2", kind: "comment", author: "mallory", body: ask });
+
+    expect(await p.w.factory("update-branch", "--scan", "--repo", p.workRepo)).toBe(0);
+
+    expect(p.w.codeHost.pr(204).comments).toEqual([]);
+    expect(p.w.codeHost.pr(205).comments).toHaveLength(1);
   });
 });
 

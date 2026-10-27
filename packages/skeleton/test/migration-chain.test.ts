@@ -65,3 +65,14 @@ test("fails when a snapshot's parent is missing, naming that folder", () => {
   expect(run.output).toMatch(/delete drizzle\/20260301000000_orphan/i);
   expect(run.output).toContain("gone");
 });
+
+test("fails when two first migrations both follow the root, naming the newer folder", () => {
+  // A package with no migrations on the base branch, and two branches that each made its first one.
+  writeSnapshot("20260101000000_from_main", "a", ROOT);
+  writeSnapshot("20260102000000_from_branch", "b", ROOT);
+
+  const run = check();
+
+  expect(run.status).toBe(1);
+  expect(run.output).toMatch(/delete drizzle\/20260102000000_from_branch/i);
+});
