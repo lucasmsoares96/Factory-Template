@@ -2,7 +2,7 @@ import { cp, mkdir, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { issueBranch } from "../config.ts";
 import { Git } from "../git.ts";
-import { developmentPrompt, prFeedbackPrompt, pullRequestPrompt, reviewPrompt, updateBranchPrompt } from "../prompts.ts";
+import { CHECK_LOG_LINES, type ChecksRead, developmentPrompt, prFeedbackPrompt, pullRequestPrompt, reviewPrompt, updateBranchPrompt } from "../prompts.ts";
 import {
   BUNDLE_FILE,
   EVIDENCE_DIR,
@@ -155,11 +155,15 @@ export async function work(ctx: CommandContext, number: number | null, options: 
     // Development
     let started = ctx.now();
     const feedbackRound = flow?.kind === "pr-feedback" && attempt === 1;
-    if (feedbackRound) roundThreads = await openThreads(ctx, config, flow.pr);
+    let checks: ChecksRead = { checks: [] };
+    if (feedbackRound) {
+      roundThreads = await openThreads(ctx, config, flow.pr);
+      checks = await failedChecks(ctx, flow.pr);
+    }
     const dev = await agent.run(
       "development",
       feedbackRound
-        ? prFeedbackPrompt({ issue, pr: flow.pr, log: await git.log(base, "HEAD"), threads: roundThreads })
+        ? prFeedbackPrompt({ issue, pr: flow.pr, log: await git.log(base, "HEAD"), threads: roundThreads, checks })
         : developmentPrompt({ issue, base: config.baseBranch, log: await git.log(base, "HEAD"), feedback }),
       { timeoutMs, model: config.models.development, ...(feedbackRound ? { extract: repliesExtraction } : {}) },
     );
@@ -374,6 +378,15 @@ async function subject(ctx: CommandContext, number: number | null, flow: WorkFlo
   if (!pr) throw new Error(`Pull request #${flow.pr} does not exist.`);
   const issue: Issue = { number: pr.number, title: `Pull request #${pr.number}`, body: PR_SUBJECT_BODY, state: "open", labels: [], parent: null, children: [], comments: [] };
   return { issue, branch: pr.branch };
+}
+
+/** The failed checks of the PR's head for a pr-feedback round. A forge that cannot be read never stops the round: the prompt says why. */
+async function failedChecks(ctx: CommandContext, pr: number): Promise<ChecksRead> {
+  try {
+    return { checks: await ctx.codeHost.failedChecks(pr, CHECK_LOG_LINES) };
+  } catch (error) {
+    return { error: (error as Error).message };
+  }
 }
 
 /** What the run ended with, for the Pull Request Stage: green and when, or why it escalated and the last failing E2E. */

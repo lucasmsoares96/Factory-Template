@@ -33,6 +33,7 @@ const prompts = {
     pr: 101,
     log: "abc1234 feat: greet #7",
     threads: [{ id: "t1", path: "src/greet.ts", author: "alice", body: "Rename this.", replies: [] }],
+    checks: { checks: [] },
   }),
   "pull-request": pullRequestPrompt({
     issue,

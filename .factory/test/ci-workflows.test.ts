@@ -763,7 +763,8 @@ describe.each([["factory-pr-feedback.yml", "pr-feedback"], ["factory-update-bran
     expect(secretsOf(work!)).toEqual(["secrets.ANTHROPIC_API_KEY", "secrets.CLAUDE_CODE_OAUTH_TOKEN"]);
     expect(work!.container?.image).toBe("${{ needs.image.outputs.image }}");
     expect(work!["runs-on"]).toBe("${{ vars.FACTORY_RUNNER || 'ubuntu-latest' }}");
-    expect(work!.permissions).toEqual({ contents: "read", issues: "read", "pull-requests": "read", packages: "read" });
+    // `actions: read` lets pr-feedback's `work` read the failed Actions jobs of the PR's head and their logs.
+    expect(work!.permissions).toEqual({ contents: "read", issues: "read", "pull-requests": "read", packages: "read", ...(flow === "pr-feedback" ? { actions: "read" } : {}) });
     expect(work!["timeout-minutes"]).toBe(350);
     const takers = Object.entries(workflow.jobs).filter(([, job]) => runsOn(job).includes("vars.FACTORY_RUNNER"));
     expect(takers.map(([id]) => id)).toEqual(["work"]);
@@ -807,6 +808,21 @@ describe.each([["factory-pr-feedback.yml", "pr-feedback"], ["factory-update-bran
 
 describe("Factory PR feedback workflow", () => {
   const feedback = checkWorkflows(WORKFLOWS_DIR).workflows["factory-pr-feedback.yml"]!;
+
+  it("only `work` gains `actions: read` (the failed checks' logs), through the job token in the harness step alone", () => {
+    const permissions = Object.fromEntries(Object.entries(feedback.jobs).map(([id, job]) => [id, job.permissions]));
+    expect(permissions).toEqual({
+      wait: undefined,
+      claim: { contents: "read", issues: "read", "pull-requests": "read" },
+      image: { contents: "read", packages: "write" },
+      work: { contents: "read", issues: "read", "pull-requests": "read", packages: "read", actions: "read" },
+      publish: { contents: "read" },
+      notify: { contents: "read", issues: "write" },
+    });
+    const work = feedback.jobs.work!;
+    expect(textOf(work)).not.toContain("FACTORY_TOKEN");
+    expect(steps(work).find((step) => step.name === "work")?.env?.GITHUB_TOKEN).toBe("${{ github.token }}");
+  });
 
   it("listens to submitted reviews, review comments and PR comments", () => {
     expect(feedback.on).toEqual({
