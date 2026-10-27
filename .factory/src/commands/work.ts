@@ -16,7 +16,7 @@ import {
 } from "../result.ts";
 import { fence, summaryMarkdown } from "../report.ts";
 import { parsePullRequestBody, pullRequestExtraction } from "../pull-request-output.ts";
-import { changedSkeletonPaths, followUpTicket, productOf, revertToBase, skeletonGaps, skeletonPatch } from "../scope.ts";
+import { changedSkeletonPaths, followUpTicket, mergeGaps, productOf, revertToBase, skeletonGaps, skeletonPatch } from "../scope.ts";
 import { addedSkippedTests, skippedTestsFeedback } from "../skipped-tests.ts";
 import { parseReviewOutput, reviewExtraction } from "../review-output.ts";
 import { parseReplies, repliesExtraction, type ThreadReply } from "../replies-output.ts";
@@ -80,7 +80,8 @@ export async function work(ctx: CommandContext, number: number | null, options: 
   const product = productOf(issue, config);
   // Each reverted Skeleton file and the commit it was reverted from: the Skeleton pull request is made of them.
   const skeletonFiles = new Map<string, string>();
-  const gaps = new Set<string>();
+  // Every <skeleton-gap> reported, Development first; mergeGaps drops the repeats.
+  const gaps: string[] = [];
   const replies = new Map<string, ThreadReply>();
   let roundThreads: ReviewThread[] = [];
   let bail = false;
@@ -173,7 +174,7 @@ export async function work(ctx: CommandContext, number: number | null, options: 
     for (const r of said ?? []) replies.set(r.threadId, r);
     add(usage.development, dev.usage);
     const devRecord = { stage: "development" as const, durationMs: ctx.now() - started, commits: dev.commits, usage: dev.usage };
-    skeletonGaps(dev.output).forEach((g) => gaps.add(g));
+    gaps.push(...skeletonGaps(dev.output));
     const asked = needsHuman(dev.output);
     if (asked !== null) {
       stages.push({ ...devRecord, outcome: "needs-human" });
@@ -226,12 +227,12 @@ export async function work(ctx: CommandContext, number: number | null, options: 
       started = ctx.now();
       const reviewRun = await agent.run(
         "review",
-        reviewPrompt({ issue, log: await git.log(base, "HEAD"), since: lastReviewed, findings: reviews, round: flow?.kind === "pr-feedback" ? round() : undefined }),
+        reviewPrompt({ issue, log: await git.log(base, "HEAD"), since: lastReviewed, findings: reviews, gaps: mergeGaps(gaps), round: flow?.kind === "pr-feedback" ? round() : undefined }),
         { timeoutMs, model: config.models.review, extract: reviewExtraction },
       );
       add(usage.review, reviewRun.usage);
       const reviewRecord = { stage: "review" as const, durationMs: ctx.now() - started, commits: reviewRun.commits, usage: reviewRun.usage, retries: reviewRun.retries };
-      skeletonGaps(reviewRun.output).forEach((g) => gaps.add(g));
+      gaps.push(...skeletonGaps(reviewRun.output));
       if (product !== null) {
         const left = await changedSkeletonPaths(git, base);
         if (left.length > 0) {
@@ -289,8 +290,8 @@ export async function work(ctx: CommandContext, number: number | null, options: 
   await mkdir(options.out, { recursive: true });
   if (skeletonFiles.size > 0) await writeFile(join(options.out, SKELETON_PATCH_FILE), await skeletonPatch(git, base, skeletonFiles));
   const followUps =
-    product !== null && (skeletonFiles.size > 0 || gaps.size > 0)
-      ? [followUpTicket(issue, product, [...skeletonFiles.keys()].sort(), [...gaps], skeletonFiles.size > 0 ? SKELETON_PATCH_FILE : null)]
+    product !== null && (skeletonFiles.size > 0 || gaps.length > 0)
+      ? [followUpTicket(issue, product, [...skeletonFiles.keys()].sort(), gaps, skeletonFiles.size > 0 ? SKELETON_PATCH_FILE : null)]
       : [];
   if (!ready && reason === "e2e-failures" && skippedFailure !== null) {
     reason = "needs-human";
