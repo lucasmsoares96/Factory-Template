@@ -400,6 +400,15 @@ describe("factory pr-feedback: the failed checks of the PR's head", () => {
     expect(p.w.codeHost.checkReads).toEqual([PR]);
   });
 
+  it("keeps a log verbatim even when it looks like a template placeholder or a replacement pattern, and fences the name's quotes", async () => {
+    const { prompt } = await roundWith((p) => {
+      p.w.codeHost.pr(PR).failedChecks = [{ name: 'lint "strict"', url: "https://forge.test/job/1", log: "echo {{LOG}} {{THREADS}}\r\ncost $& and $'\r\n" }];
+    });
+
+    const block = checksOf(prompt)!;
+    expect(block).toBe(`<check name="lint 'strict'" url="https://forge.test/job/1">\necho {{LOG}} {{THREADS}}\ncost $& and $'\n</check>`);
+  });
+
   it("says so when no check failed", async () => {
     const { prompt } = await roundWith(() => {});
     expect(checksOf(prompt)).toBe("(no failed checks)");
