@@ -188,3 +188,58 @@ describe("CODING_STANDARDS.md", () => {
     for (const file of AGENTS_FILES) expect(read(file), file).not.toContain("CODING_STANDARDS");
   });
 });
+
+describe("docs/forgejo-install-prompt.md", () => {
+  const prompt = () => read("docs/forgejo-install-prompt.md");
+
+  it("exists and opens with a title", () => {
+    expect(prompt()).toMatch(/^# /);
+  });
+
+  it.each([
+    "`Tracker`",
+    "`CodeHost`",
+    "`Verify`",
+    "--ephemeral",
+    "one-job",
+    "block_on_outdated_branch",
+    "status_check_contexts",
+    ".forgejo/workflows/",
+    "pull_request_target",
+    "write:repository",
+    "`WIP:`",
+    "factory-retro.yml",
+    "merge_when_checks_succeed",
+    "agent:explore",
+    "Conversation",
+    "` #`",
+    "end to end",
+  ])("mentions %s", (term) => {
+    expect(prompt()).toContain(term);
+  });
+
+  it("leaves the Skeleton and the Products out", () => {
+    const leaveOut = prompt().split("\n").find((line) => line.startsWith("Leave out:"));
+    expect(leaveOut).toBeDefined();
+    for (const path of ["packages/skeleton/", "apps/", ".factory/src/bootstrap/"]) expect(leaveOut).toContain(path);
+  });
+
+  it("keeps the review events that carry pull request feedback among the Forgejo events", () => {
+    const workflows = prompt().split(/^## /m).find((section) => section.startsWith("2. "));
+    expect(workflows).toBeDefined();
+    for (const event of ["issue_comment", "pull_request_review", "pull_request_review_comment"]) {
+      expect(workflows).toContain(`\`${event}\``);
+    }
+  });
+
+  it("ends by driving a test issue end to end to the Merge Gate", () => {
+    const last = prompt().split(/^## /m).at(-1)!;
+    expect(last).toMatch(/test issue/);
+    expect(last).toContain("Merge Gate");
+  });
+
+  it("is linked from docs/forgejo.md and the docs index", () => {
+    expect(read("docs/forgejo.md")).toContain("(forgejo-install-prompt.md)");
+    expect(read("docs/README.md")).toContain("forgejo-install-prompt.md");
+  });
+});
