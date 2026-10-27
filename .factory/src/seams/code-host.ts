@@ -107,7 +107,7 @@ export interface CodeHost {
   reviews(pr: number): Promise<SubmittedReview[]>;
   /**
    * The checks that ended in `failure` or `timed_out` on the pull request's current head, each with the last `lines`
-   * lines of its job's log. Throws when the forge cannot be read.
+   * lines of its job's log (or why that log could not be read). Throws when the checks cannot be listed.
    */
   failedChecks(pr: number, lines: number): Promise<FailedCheck[]>;
   /** The Conversation tab, oldest first: its comments and the bodies of submitted reviews (empty bodies left out). */

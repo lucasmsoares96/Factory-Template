@@ -306,17 +306,30 @@ describe("GitHubCodeHost", () => {
       expect(s.writes()).toEqual([]);
     });
 
-    it("throws when a log cannot be read, without the token in the message", async () => {
+    it("throws when the runs cannot be listed, without the token in the message", async () => {
       const failing = new FakeGitHubServer();
       failing.on("GET", `${R}/pulls/4`, () => ({ json: pr(4) }));
-      failing.on("GET", `${R}/actions/runs`, () => ({ json: { total_count: 1, workflow_runs: [run(1, "Factory PR", "failure")] } }));
-      failing.on("GET", `${R}/actions/runs/1/jobs`, () => ({ json: { total_count: 1, jobs: [job(12, "preview smoke", "failure")] } }));
-      failing.on("GET", `${R}/actions/jobs/12/logs`, () => ({ status: 403, json: { message: "Resource not accessible by integration" } }));
+      failing.on("GET", `${R}/actions/runs`, () => ({ status: 403, json: { message: "Resource not accessible by integration" } }));
 
       const error = await host(failing).failedChecks(4, 10).catch((e: Error) => e);
 
       expect((error as Error).message).toMatch(/403.*Resource not accessible by integration/);
       expect((error as Error).message).not.toContain("tok-123");
+    });
+
+    it("a log that cannot be read says why in its own check; the other checks keep their logs", async () => {
+      const failing = new FakeGitHubServer();
+      failing.on("GET", `${R}/pulls/4`, () => ({ json: pr(4) }));
+      failing.on("GET", `${R}/actions/runs`, () => ({ json: { total_count: 1, workflow_runs: [run(1, "Factory PR", "failure")] } }));
+      failing.on("GET", `${R}/actions/runs/1/jobs`, () => ({ json: { total_count: 2, jobs: [job(12, "preview smoke", "failure"), job(13, "deploy", "timed_out")] } }));
+      failing.on("GET", `${R}/actions/jobs/12/logs`, () => ({ status: 410, json: { message: "Gone" } }));
+      failing.on("GET", `${R}/actions/jobs/13/logs`, () => ({ text: "deploying\n" }));
+
+      const checks = await host(failing).failedChecks(4, 10);
+
+      expect(checks.map((c) => c.name)).toEqual(["Factory PR / preview smoke", "Factory PR / deploy"]);
+      expect(checks[0]!.log).toMatch(/^\(the log could not be read: GitHub GET .*\/actions\/jobs\/12\/logs failed \(410\)/);
+      expect(checks[1]!.log).toBe("deploying");
     });
   });
 });
