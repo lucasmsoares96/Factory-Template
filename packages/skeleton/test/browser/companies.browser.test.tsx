@@ -292,9 +292,11 @@ test("transferring asks for the Member and the Company's name, then shows the ne
 
   const recipient = screen.getByRole("combobox", { name: t.companies.settings.transfer.recipient });
   // The Owner is not among the Members they can transfer to.
-  await expect.element(recipient.getByRole("option", { name: "Bruno Lima (bruno@example.com)" })).toBeInTheDocument();
-  await expect.element(recipient.getByRole("option", { name: "Carla Dias (carla@example.com)" })).toBeInTheDocument();
-  await expect.element(recipient.getByRole("option", { name: `${ana.name} (${ana.email})` })).not.toBeInTheDocument();
+  const option = ({ name, email }: { name: string; email: string }) =>
+    recipient.getByRole("option", { name: format(t.companies.settings.transfer.member, { name, email }) });
+  await expect.element(option(members.items[1]!)).toBeInTheDocument();
+  await expect.element(option(members.items[2]!)).toBeInTheDocument();
+  await expect.element(option(ana)).not.toBeInTheDocument();
   const submit = screen.getByRole("button", { name: t.companies.settings.transfer.submit });
   await expect.element(submit).toBeDisabled();
   await recipient.selectOptions("user-2");
