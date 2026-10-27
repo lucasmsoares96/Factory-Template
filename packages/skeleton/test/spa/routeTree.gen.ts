@@ -17,6 +17,7 @@ import { Route as ResetPasswordRouteImport } from "./../../src/features/auth/rou
 import { Route as SignInRouteImport } from "./../../src/features/auth/routes/sign-in"
 import { Route as SignUpRouteImport } from "./../../src/features/auth/routes/sign-up"
 import { Route as IndexRouteImport } from "./../../src/features/home/routes/index"
+import { Route as InvitationsTokenRouteImport } from "./../../src/features/invitations/public/$token"
 import { Route as AccountIndexRouteImport } from "./../../src/features/account/routes/index"
 import { Route as AccountConnectionsRouteImport } from "./../../src/features/account/routes/connections"
 import { Route as CNewRouteImport } from "./../../src/features/companies/routes/new"
@@ -62,6 +63,11 @@ const IndexRoute = IndexRouteImport.update({
   path: "/",
   getParentRoute: () => DotDotDotDotSrcClientSignedInRoute,
 } as any)
+const InvitationsTokenRoute = InvitationsTokenRouteImport.update({
+  id: "/invitations/$token",
+  path: "/invitations/$token",
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AccountIndexRoute = AccountIndexRouteImport.update({
   id: "/account/",
   path: "/account/",
@@ -91,6 +97,7 @@ export interface FileRoutesByFullPath {
   "/reset-password": typeof ResetPasswordRoute
   "/sign-in": typeof SignInRoute
   "/sign-up": typeof SignUpRoute
+  "/invitations/$token": typeof InvitationsTokenRoute
   "/account/connections": typeof AccountConnectionsRoute
   "/c/new": typeof CNewRoute
   "/account/": typeof AccountIndexRoute
@@ -103,6 +110,7 @@ export interface FileRoutesByTo {
   "/reset-password": typeof ResetPasswordRoute
   "/sign-in": typeof SignInRoute
   "/sign-up": typeof SignUpRoute
+  "/invitations/$token": typeof InvitationsTokenRoute
   "/": typeof IndexRoute
   "/account/connections": typeof AccountConnectionsRoute
   "/c/new": typeof CNewRoute
@@ -118,6 +126,7 @@ export interface FileRoutesById {
   "/reset-password": typeof ResetPasswordRoute
   "/sign-in": typeof SignInRoute
   "/sign-up": typeof SignUpRoute
+  "/invitations/$token": typeof InvitationsTokenRoute
   "/_signed-in/": typeof IndexRoute
   "/_signed-in/account/connections": typeof AccountConnectionsRoute
   "/_signed-in/c/new": typeof CNewRoute
@@ -134,6 +143,7 @@ export interface FileRouteTypes {
     | "/reset-password"
     | "/sign-in"
     | "/sign-up"
+    | "/invitations/$token"
     | "/account/connections"
     | "/c/new"
     | "/account/"
@@ -146,6 +156,7 @@ export interface FileRouteTypes {
     | "/reset-password"
     | "/sign-in"
     | "/sign-up"
+    | "/invitations/$token"
     | "/"
     | "/account/connections"
     | "/c/new"
@@ -160,6 +171,7 @@ export interface FileRouteTypes {
     | "/reset-password"
     | "/sign-in"
     | "/sign-up"
+    | "/invitations/$token"
     | "/_signed-in/"
     | "/_signed-in/account/connections"
     | "/_signed-in/c/new"
@@ -175,6 +187,7 @@ export interface RootRouteChildren {
   ResetPasswordRoute: typeof ResetPasswordRoute
   SignInRoute: typeof SignInRoute
   SignUpRoute: typeof SignUpRoute
+  InvitationsTokenRoute: typeof InvitationsTokenRoute
 }
 
 declare module "@tanstack/react-router" {
@@ -234,6 +247,13 @@ declare module "@tanstack/react-router" {
       fullPath: "/"
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof DotDotDotDotSrcClientSignedInRoute
+    }
+    "/invitations/$token": {
+      id: "/invitations/$token"
+      path: "/invitations/$token"
+      fullPath: "/invitations/$token"
+      preLoaderRoute: typeof InvitationsTokenRouteImport
+      parentRoute: typeof rootRouteImport
     }
     "/_signed-in/account/": {
       id: "/_signed-in/account/"
@@ -297,6 +317,7 @@ const rootRouteChildren: RootRouteChildren = {
   ResetPasswordRoute: ResetPasswordRoute,
   SignInRoute: SignInRoute,
   SignUpRoute: SignUpRoute,
+  InvitationsTokenRoute: InvitationsTokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
