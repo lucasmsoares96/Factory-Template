@@ -6,7 +6,7 @@ import { signOutHandler } from "../spa/auth-handlers.ts";
 import { renderSpa } from "../spa/render.tsx";
 import { expect, test } from "../spa/test.ts";
 
-const ana = { id: "user-1", name: "Ana Souza", email: "ana@example.com" };
+const ana = { id: "user-1", name: "Ana Souza", email: "ana@example.com", pendingEmail: null };
 /** A user in no Company: the signed-in root stays home. */
 const noCompany = getLastCompanyHandler(() => getLastCompanyHandlerResponse404({ code: "NOT_FOUND", message: "Not found." }));
 const signedOut = getMeHandler(() => getMeHandlerResponse401({ code: "UNAUTHENTICATED", message: "Sign in to continue." }));

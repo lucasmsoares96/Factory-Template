@@ -589,7 +589,7 @@
   {
     "name": "getMe",
     "title": "Get the signed-in user",
-    "description": "Answers the id, name and email of the user the request acts for.",
+    "description": "Answers the id, name and email of the user the request acts for, and the email they asked to change to, if any.",
     "inputSchema": {
       "type": "object",
       "properties": {},
@@ -612,12 +612,22 @@
           "format": "email",
           "description": "The user's verified email.",
           "example": "ana@example.com"
+        },
+        "pendingEmail": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "email",
+          "description": "The address the user asked to change their email to, until they open the link sent there; null when no change is pending.",
+          "example": null
         }
       },
       "required": [
         "id",
         "name",
-        "email"
+        "email",
+        "pendingEmail"
       ]
     },
     "annotations": {
@@ -1555,12 +1565,22 @@
           "format": "email",
           "description": "The user's verified email.",
           "example": "ana@example.com"
+        },
+        "pendingEmail": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "email",
+          "description": "The address the user asked to change their email to, until they open the link sent there; null when no change is pending.",
+          "example": null
         }
       },
       "required": [
         "id",
         "name",
-        "email"
+        "email",
+        "pendingEmail"
       ]
     },
     "annotations": {

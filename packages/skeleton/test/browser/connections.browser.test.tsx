@@ -7,7 +7,7 @@ import { format, messagesFor } from "../../src/i18n/index.ts";
 import { renderSpa } from "../spa/render.tsx";
 import { expect, test } from "../spa/test.ts";
 
-const ana = { id: "user-1", name: "Ana Souza", email: "ana@example.com" };
+const ana = { id: "user-1", name: "Ana Souza", email: "ana@example.com", pendingEmail: null };
 const nav = (t = messagesFor("en")) => ({ entries: [{ label: t.account.nav, to: "/account" }], companyPage: [] });
 
 type Connection = { id: string; appName: string; createdAt: string; access: "read" | "write" };
