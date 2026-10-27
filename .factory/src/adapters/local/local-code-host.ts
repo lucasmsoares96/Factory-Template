@@ -2,7 +2,7 @@ import { cp, mkdir } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { marked } from "../../marker.ts";
 import type { FactoryConfig } from "../../config.ts";
-import type { CodeHost, EvidenceImage, PullRequest, PushResult, Review, ReviewThread, SubmittedReview } from "../../seams/code-host.ts";
+import type { CodeHost, ConversationEntry, EvidenceImage, PullRequest, PushResult, Review, ReviewThread, SubmittedReview } from "../../seams/code-host.ts";
 import { Git } from "../../git.ts";
 import type { MarkdownIssues } from "./markdown-issues.ts";
 
@@ -74,6 +74,11 @@ export class LocalCodeHost implements CodeHost {
     return pr && pr.state === "open" && pr.branch === branch ? this.view(pr) : null;
   }
 
+  /** Local mode runs one ticket at a time: there is no list of pull requests to keep up to date. */
+  async openPullRequests(): Promise<PullRequest[]> {
+    return [];
+  }
+
   async pullRequest(number: number): Promise<PullRequest | null> {
     const pr = await this.read(number);
     return pr ? this.view(pr) : null;
@@ -122,6 +127,11 @@ export class LocalCodeHost implements CodeHost {
 
   /** The local review lives in the ticket's `## Comments`; a local run has no separate reviews to read. */
   async reviews(_pr: number): Promise<SubmittedReview[]> {
+    return [];
+  }
+
+  /** Writers' feedback in local mode is the ticket itself: there is no Conversation to answer. */
+  async conversation(_pr: number): Promise<ConversationEntry[]> {
     return [];
   }
 
@@ -192,6 +202,8 @@ export class LocalCodeHost implements CodeHost {
       headSha: (await this.branchHead(pr.branch)) ?? "",
       state: pr.state,
       draft: pr.draft,
+      base: pr.base,
+      fork: false,
     };
   }
 }
