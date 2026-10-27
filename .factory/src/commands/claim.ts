@@ -1,6 +1,7 @@
 import { issueBranch } from "../config.ts";
 import { guard, isFactoryComment, type GuardDecision, type Refusal } from "../guard.ts";
 import type { CommandContext } from "./context.ts";
+import { startWorking } from "./working.ts";
 
 export type ClaimResult =
   | { claimed: true; issue: number; branch: string; startSha: string | null }
@@ -10,7 +11,7 @@ export const WAITING_MARKER = "<!-- factory:waiting -->";
 
 /**
  * Guard + lock. On success the issue moves from ready-for-agent to
- * in-progress and the run learns the branch head it must lease against.
+ * in-progress, it and its open pull request get `factory:working`, and the run learns the branch head it must lease against.
  * `event` is the forge event that started the run (`labeled`, or none for a
  * dispatch); only `labeled` explains a Blocked Issue.
  */
@@ -27,6 +28,7 @@ export async function claim(ctx: CommandContext, number: number, options: { even
   if (!(await tracker.swapLabel(number, config.labels.readyForAgent, config.labels.inProgress))) {
     return { claimed: false, issue: number, reason: "not-ready" };
   }
+  await startWorking(ctx, { issues: [number], prs: [] });
   return { claimed: true, issue: number, branch, startSha };
 }
 

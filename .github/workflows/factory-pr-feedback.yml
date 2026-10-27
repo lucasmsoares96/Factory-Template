@@ -1,12 +1,18 @@
 # A human's comment on a Factory pull request becomes a round of answers and commits.
 #   wait    debounce: a comment waits 180 s and a newer comment cancels the wait; a submitted review does not wait
-#   claim   (job token, read-only)  filters (writer, factory/issue-N branch, open threads or Conversation requests; the Factory's own texts carry a hidden marker)
+#   claim   (job token)  filters (writer, factory/issue-N branch, open threads or Conversation requests; the Factory's own texts carry a hidden marker);
+#           an accepted round puts factory:working on the PR and the issue, and 👀 on the comment or review that started it
 #   notify  (job token, issues: write)  a comment from github-actions[bot] on the issue that mentions who commented
 #   image / work / publish          as in factory-issue.yml, on the branch of the open PR: merge the base branch first,
-#                                   Address / Decline / Defer / Answer per thread -> Development -> Review -> E2E -> prints
+#                                   Address / Decline / Defer / Answer per thread -> Development -> Review -> E2E -> prints;
+#                                   publish's last step takes factory:working off with the job token (if: always())
 # Never resolves a thread. The agent never sees FACTORY_TOKEN. Off until `pnpm bootstrap factory` sets FACTORY_ENABLED.
 # `pull_request_review*` and `issue_comment` events run the default branch's workflow.
 name: Factory PR feedback
+# `PR #N` in the run's title is how a run is matched to its PR (the scan keeps factory:working while one is queued or going).
+# An event `wait`'s cheap filter skips (the Factory's own marked texts, which every publish writes) names no PR, or
+# the end of the run that wrote them would keep the label for a run that never takes it off.
+run-name: "${{ (!contains(github.event.comment.body, '<!-- factory -->') && !contains(github.event.review.body, '<!-- factory -->') && (github.event_name == 'issue_comment' && github.event.issue.pull_request || startsWith(github.event.pull_request.head.ref, 'factory/issue-'))) && format('PR #{0} feedback', github.event.pull_request.number || github.event.issue.number) || 'Factory PR feedback: not for the Factory' }}"
 
 on:
   pull_request_review:
@@ -39,10 +45,12 @@ jobs:
     needs: wait
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # The writes: factory:working on the issue and the PR, and the 👀 reaction (issues: a Conversation comment;
+    # pull-requests: a review comment or a review).
     permissions:
       contents: read
-      issues: read
-      pull-requests: read
+      issues: write
+      pull-requests: write
     defaults:
       run:
         shell: bash
@@ -69,7 +77,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           ACTOR: ${{ github.actor }}
-        run: pnpm factory pr-feedback --pr "$PR" --actor "$ACTOR"
+          EVENT_NAME: ${{ github.event_name }}
+          COMMENT_ID: ${{ github.event.comment.id || github.event.review.id }}
+        run: pnpm factory pr-feedback --pr "$PR" --actor "$ACTOR" --event "$EVENT_NAME" --comment-id "$COMMENT_ID"
 
   image:
     needs: claim
@@ -177,8 +187,12 @@ jobs:
     env:
       ISSUE: ${{ needs.claim.outputs.issue }}
       PR: ${{ needs.claim.outputs.pr }}
+    # The job token writes only factory:working (last step) and reads the runs it is kept for; FACTORY_TOKEN does the rest.
     permissions:
       contents: read
+      issues: write
+      pull-requests: write
+      actions: read
     outputs:
       outcome: ${{ steps.publish.outputs.outcome }}
       url: ${{ steps.publish.outputs.url }}
@@ -213,6 +227,12 @@ jobs:
           mkdir -p "$RUNNER_TEMP/out"
           gh --version | head -1
           pnpm factory publish "$ISSUE" --in "$RUNNER_TEMP/out" --pr "$PR" --start-sha "$START_SHA"
+      # The end of the run, whatever happened: never with FACTORY_TOKEN, whose label events would start workflows.
+      - name: working off
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: pnpm factory working off "$ISSUE" --pr "$PR"
 
   # The Merge Gate notice. The Factory writes as the owner, so GitHub notifies nobody of its comments; this one leaves
   # through the job's own GITHUB_TOKEN (github-actions[bot]), which fires no workflow, so it cannot start a loop.

@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
 import { FORK_UPDATE_TAG } from "../src/commands/pr-claim.ts";
 import { marked } from "../src/marker.ts";
-import { commitFile, git, lastJson, OWNER, unmarked } from "./helpers.ts";
+import { commitFile, git, HUMAN, lastJson, OWNER, unmarked } from "./helpers.ts";
 import { BRANCH, PR, finishRound, prWorld, reviewOk, commits, type MainChange, type PrWorld } from "./pr-flow-helpers.ts";
 
 /** Resolves the conflict on `src/app.ts` keeping both lines' values, and commits the merge. */
@@ -44,7 +44,55 @@ describe("factory update-branch --scan", () => {
       { workflow: "factory-update-branches.yml", inputs: { pr: "109" } },
       { workflow: "factory-update-branches.yml", inputs: { pr: "202" } },
     ]);
-    expect(lastJson(p.w.logs)).toEqual({ dispatched: [101, 108, 109, 202], upToDate: [203], forks: [] });
+    expect(lastJson(p.w.logs)).toEqual({ dispatched: [101, 108, 109, 202], upToDate: [203], forks: [], released: { issues: [], prs: [] } });
+  });
+
+  it("takes factory:working off what no Factory run is queued or going on, and keeps it where one is", async () => {
+    const p = await prWorld({ main: "none" });
+    const working = { "factory:working": "github-actions[bot]" };
+    // #7 and its PR #101: a cancelled run left the label. #8: the issue flow is running. #10: the Triage is running and
+    // #10 is still in Triage. #11: left behind by a Triage that ended. #202: a feedback run is queued on it; #203: orphan.
+    p.w.tracker.issues.get(7)!.labels.set("factory:working", "github-actions[bot]");
+    p.w.codeHost.pr(PR).labels.push("factory:working");
+    p.w.tracker.add({ number: 8, labels: { "in-progress": OWNER, ...working } });
+    p.w.tracker.add({ number: 10, labels: { "agent:explore": HUMAN, ...working } });
+    p.w.tracker.add({ number: 11, labels: { "ready-for-agent": OWNER, ...working } });
+    p.w.tracker.add({ number: 12, state: "closed", labels: working });
+    p.w.codeHost.add({ number: 108, branch: "factory/issue-8", headSha: await git(p.workRepo, "rev-parse", "main"), labels: ["factory:working"] });
+    p.w.codeHost.add({ number: 202, branch: "feature/thing", headSha: await git(p.workRepo, "rev-parse", "main"), labels: ["factory:working"] });
+    p.w.codeHost.add({ number: 203, branch: "feature/other", headSha: await git(p.workRepo, "rev-parse", "main"), labels: ["factory:working"] });
+    p.w.codeHost.pr(PR).headSha = await git(p.workRepo, "rev-parse", "main");
+    p.w.codeHost.runs.push(
+      { id: 1, workflow: "factory-issue.yml", issue: 8, pr: null },
+      { id: 2, workflow: "factory-triage.yml", issue: null, pr: null },
+      { id: 3, workflow: "factory-pr-feedback.yml", issue: null, pr: 202 },
+      { id: 4, workflow: "factory-update-branches.yml", issue: null, pr: null },
+    );
+
+    expect(await p.w.factory("update-branch", "--scan", "--repo", p.workRepo)).toBe(0);
+
+    expect(lastJson(p.w.logs)).toMatchObject({ released: { issues: [7, 11], prs: [101, 203] } });
+    expect(p.w.tracker.labelsOf(7)).toEqual(["in-progress"]);
+    expect(p.w.codeHost.pr(PR).labels).toEqual([]);
+    expect(p.w.tracker.labelsOf(8)).toContain("factory:working");
+    expect(p.w.codeHost.pr(108).labels).toEqual(["factory:working"]);
+    expect(p.w.tracker.labelsOf(10)).toContain("factory:working");
+    expect(p.w.tracker.labelsOf(11)).toEqual(["ready-for-agent"]);
+    expect(p.w.codeHost.pr(202).labels).toEqual(["factory:working"]);
+    expect(p.w.codeHost.pr(203).labels).toEqual([]);
+  });
+
+  it("touches no label when the Factory runs cannot be listed", async () => {
+    const p = await prWorld({ main: "none" });
+    p.w.tracker.issues.get(7)!.labels.set("factory:working", "github-actions[bot]");
+    p.w.codeHost.activeRuns = async () => {
+      throw new Error("Resource not accessible by integration");
+    };
+
+    expect(await p.w.factory("update-branch", "--scan", "--repo", p.workRepo)).toBe(0);
+
+    expect(p.w.tracker.labelsOf(7)).toContain("factory:working");
+    expect(p.w.logs.join("\n")).toContain("Resource not accessible by integration");
   });
 
   it("leaves one comment on a fork's PR that is behind, asking its author to update it, and dispatches nothing", async () => {
@@ -59,7 +107,7 @@ describe("factory update-branch --scan", () => {
     const comments = p.w.codeHost.pr(204).comments;
     expect(comments).toHaveLength(1);
     expect(comments[0]).toMatch(/update the branch/i);
-    expect(lastJson(p.w.logs)).toEqual({ dispatched: [], upToDate: [PR], forks: [204] });
+    expect(lastJson(p.w.logs)).toMatchObject({ dispatched: [], upToDate: [PR], forks: [204] });
   });
 
   it("counts the scan's own comment, written as the Actions bot, and not a stranger's forged copy", async () => {
@@ -93,7 +141,7 @@ async function pullRequestOn(p: PrWorld, number: number, branch: string, from: s
 
 const HUMAN_PR = 202;
 
-/** claim → work → publish of the update of a person's PR, keyed by the PR alone. */
+/** claim → work → publish → working off of the update of a person's PR, keyed by the PR alone. */
 async function humanRound(main: MainChange, options: Pick<Parameters<typeof prWorld>[0], "agent" | "verify"> = {}, beforePublish?: (p: PrWorld) => void, branch = "feature/thing") {
   const p = await prWorld({ main, ...options });
   if (branch === "feature/clash") {
@@ -115,7 +163,9 @@ async function humanRound(main: MainChange, options: Pick<Parameters<typeof prWo
   expect(await p.w.factory("work", "--flow", "update-branch", "--pr", String(HUMAN_PR), "--out", p.out, "--repo", p.workRepo)).toBe(0);
   beforePublish?.(p);
   expect(await p.w.factory("publish", "--pr", String(HUMAN_PR), "--in", p.out, "--repo", p.publishRepo, "--start-sha", claim.startSha)).toBe(0);
-  return { p, branch, publish: lastJson(p.w.logs) as { outcome: string }, untouched: () => expect(labels()).toEqual(before) };
+  const publish = lastJson(p.w.logs) as { outcome: string };
+  expect(await p.w.factory("working", "off", "--pr", String(HUMAN_PR))).toBe(0);
+  return { p, branch, publish, untouched: () => expect(labels()).toEqual(before) };
 }
 
 describe("factory update-branch: the failed checks are a pr-feedback matter", () => {
@@ -143,7 +193,7 @@ describe("factory update-branch --pr: a person's pull request", () => {
     const pr = p.w.codeHost.pr(HUMAN_PR);
     expect(pr.comments).toHaveLength(1);
     expect(unmarked(pr.comments[0]!)).toMatch(/Merged `main`/);
-    expect(p.w.codeHost.writes).toEqual([`push ${branch}`, `commentPr #${HUMAN_PR}`]);
+    expect(p.w.codeHost.writes).toEqual([`labelPr #${HUMAN_PR} factory:working`, `push ${branch}`, `commentPr #${HUMAN_PR}`, `unlabelPr #${HUMAN_PR} factory:working`]);
     untouched();
   });
 
@@ -266,6 +316,19 @@ describe("factory update-branch", () => {
 
     expect(q.w.codeHost.pushes).toEqual([]);
     expect(q.w.tracker.issues.get(7)!.comments.at(-1)!.body).toContain("Run discarded");
+  });
+
+  it("marks the issue and its PR factory:working while the update runs, and the end of the run clears both", async () => {
+    const p = await prWorld({ main: "clean", verify: [{ ok: true }] });
+
+    expect(await p.w.factory("update-branch", "7")).toBe(0);
+    const claim = lastJson(p.w.logs) as { startSha: string };
+    expect(p.w.tracker.labelsOf(7)).toEqual(["in-progress", "factory:working"]);
+    expect(p.w.codeHost.pr(PR).labels).toEqual(["factory:working"]);
+
+    await finishRound(p, ["--flow", "update-branch"], claim.startSha);
+    expect(p.w.tracker.labelsOf(7)).toEqual(["in-progress"]);
+    expect(p.w.codeHost.pr(PR).labels).toEqual([]);
   });
 
   it("refuses an issue that is not in-progress or has no open PR", async () => {

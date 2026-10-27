@@ -424,3 +424,44 @@ describe("factory triage + apply", () => {
     expect(s.w.tracker.labelsOf(5)).toEqual(["agent:explore"]);
   });
 });
+
+describe("factory working: the Triage", () => {
+  it("marks each issue of the batch, hands the list to the end of the run, and the end clears them whatever the verdict", async () => {
+    const s = await setup({
+      issues: [
+        { number: 5, title: "Greet", body: ISSUE_BODY, labels: explore },
+        { number: 6, title: "Wave", body: ISSUE_BODY, labels: explore },
+        { number: 8, title: "Untrusted", body: ISSUE_BODY, labels: { "agent:explore": "mallory" } },
+      ],
+      triage: [says(verdict(5), verdict(6, { tag: "blocked" }))],
+    });
+    const output = join(await tempDir("factory-output-"), "out");
+    s.w.env.GITHUB_OUTPUT = output;
+
+    expect(await s.w.factory("working", "on", "--triage")).toBe(0);
+    expect(lastJson(s.w.logs)).toMatchObject({ working: "on", issues: [5, 6] });
+    expect(await readFile(output, "utf8")).toBe("issues=5 6\n");
+    expect(s.w.tracker.labelsOf(5)).toEqual(["agent:explore", "factory:working"]);
+    expect(s.w.tracker.labelsOf(8)).toEqual(["agent:explore"]);
+
+    await triage(s);
+    await apply(s);
+    expect(await s.w.factory("working", "off", "5", "6")).toBe(0);
+
+    expect(s.w.tracker.labelsOf(5)).toEqual(["ready-for-agent"]);
+    expect(s.w.tracker.labelsOf(6)).toEqual(["needs-info"]);
+  });
+
+  it("the end of the Triage keeps the label on an issue whose own run already started", async () => {
+    const s = await setup({ triage: [says(verdict(5))] });
+    await s.w.factory("working", "on", "--triage");
+    await triage(s);
+    await apply(s);
+    // `ready-for-agent` from apply started the issue flow, which is queued.
+    s.w.codeHost.runs.push({ id: 7, workflow: "factory-issue.yml", issue: 5, pr: null });
+
+    await s.w.factory("working", "off", "5");
+
+    expect(s.w.tracker.labelsOf(5)).toContain("factory:working");
+  });
+});

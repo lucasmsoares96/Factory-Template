@@ -142,7 +142,20 @@ describe("factory retro-collect", () => {
 
     expect(result).toMatchObject({ collected: false, issue: 7, pr: 101 });
     expect(s.runLogs.asked).toEqual([]);
+    expect(s.w.tracker.labelsOf(7)).not.toContain("factory:working");
     await expect(readFile(join(out, "sources.json"), "utf8")).rejects.toThrow();
+  });
+
+  it("marks the origin issue factory:working while the Retro runs, not its PR, and the end of the run clears it", async () => {
+    const s = await setup({ agent: { retro: [says([candidate()])] } });
+
+    const { result } = await collect(s, "--issue", "7", "--trigger", "dispatch");
+    expect(result).toMatchObject({ collected: true });
+    expect(s.w.tracker.labelsOf(7)).toEqual(["ready-for-human", "factory:working"]);
+    expect(s.w.codeHost.pr(101).labels).toEqual([]);
+
+    expect(await s.factory("working", "off", "7")).toBe(0);
+    expect(s.w.tracker.labelsOf(7)).toEqual(["ready-for-human"]);
   });
 
   it("stops on a closed PR whose only comments come from someone without write access", async () => {

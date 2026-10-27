@@ -17,12 +17,12 @@ import { SandcastleAgent } from "./sandcastle/agent.ts";
  *   `pnpm factory:verify`. `pnpm factory local` sets these in the container.
  * - `github`: the GitHub Tracker and CodeHost (REST) with the same Sandcastle Agent and `factory:verify`. The token is
  *   `FACTORY_TOKEN` (the `publish` job) or else `GITHUB_TOKEN` (`claim`, and the read-only `work`); the repo is
- *   `GITHUB_REPOSITORY`.
+ *   `GITHUB_REPOSITORY`. `jobToken` takes `GITHUB_TOKEN` even next to `FACTORY_TOKEN`: `publish` labels with it.
  * Tests inject the fakes instead.
  */
 export function adaptersFromEnv(
   env: Record<string, string | undefined>,
-  input: { config: FactoryConfig; repo: string },
+  input: { config: FactoryConfig; repo: string; jobToken?: boolean },
 ): Adapters {
   const kind = env.FACTORY_ADAPTERS;
   if (kind === "local") return localAdapters(env, input);
@@ -47,10 +47,10 @@ function localAdapters(env: Record<string, string | undefined>, { config, repo }
   };
 }
 
-function githubAdapters(env: Record<string, string | undefined>, { config, repo }: { config: FactoryConfig; repo: string }): Adapters {
+function githubAdapters(env: Record<string, string | undefined>, { config, repo, jobToken }: { config: FactoryConfig; repo: string; jobToken?: boolean }): Adapters {
   const slug = env.GITHUB_REPOSITORY;
   if (!slug) throw new Error("FACTORY_ADAPTERS=github needs GITHUB_REPOSITORY (owner/name), which GitHub Actions sets.");
-  const token = env.FACTORY_TOKEN || env.GITHUB_TOKEN;
+  const token = jobToken ? env.GITHUB_TOKEN : env.FACTORY_TOKEN || env.GITHUB_TOKEN;
   if (!token) throw new Error("FACTORY_ADAPTERS=github needs FACTORY_TOKEN (publish) or GITHUB_TOKEN (claim, work).");
   const api = { repo: slug, token, ...(env.GITHUB_API_URL ? { apiUrl: env.GITHUB_API_URL } : {}) };
   return {

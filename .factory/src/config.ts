@@ -71,6 +71,8 @@ export const defaultConfig = {
     readyForHuman: "ready-for-human",
     wontfix: "wontfix",
     inProgress: "in-progress",
+    /** On an issue or pull request only while a Factory run works on it; `in-progress` is the lock, held until merge. */
+    working: "factory:working",
     agentExplore: "agent:explore",
     harnessChange: "harness-change",
     preview: "preview",
@@ -104,6 +106,7 @@ const configSchema = z.object({
     readyForHuman: nonEmpty,
     wontfix: nonEmpty,
     inProgress: nonEmpty,
+    working: nonEmpty,
     agentExplore: nonEmpty,
     harnessChange: nonEmpty,
     preview: nonEmpty,

@@ -26,6 +26,11 @@ export interface PublishOptions {
   runUrl: string | null;
   /** The open pull request this run continues (PR flows); null in the issue flow. */
   pr: number | null;
+  /**
+   * Puts `factory:working` on the pull request this run opens, with the job token: a label written with the forge
+   * token would start `pull_request_target: labeled` workflows. Best effort; the run's last step takes it off.
+   */
+  markWorking?: (pr: number) => Promise<void>;
 }
 
 /**
@@ -66,7 +71,7 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
   const sensitivePaths = changed.filter(isSensitivePath);
   const harnessPaths = changed.filter((path) => isHarnessPath(path) && !isSensitivePath(path));
   const escalated = result.outcome === "escalated" ? (result.reason ?? "infra") : null;
-  const pr = await pullRequest(ctx, issue, { branch, openPr, continues: options.pr !== null, sensitivePaths, harnessPaths, escalated, followUps, text: result.pullRequestBody, images: evidenceImages(result, options.in) });
+  const pr = await pullRequest(ctx, issue, { branch, openPr, continues: options.pr !== null, sensitivePaths, harnessPaths, escalated, followUps, text: result.pullRequestBody, images: evidenceImages(result, options.in), markWorking: options.markWorking });
   if (!escalated || result.review.summary !== "") {
     // A PR round without a Review (update-branch, a round that only answers) leaves no empty review behind.
     if (options.pr === null || result.review.summary !== "") await submitReview(ctx, pr.number, result, lines);
@@ -190,7 +195,7 @@ async function changedFiles(git: Git, base: string, head: string): Promise<strin
 async function pullRequest(
   ctx: CommandContext,
   issue: Issue,
-  input: { branch: string; openPr: PullRequest | null; continues: boolean; sensitivePaths: string[]; harnessPaths: string[]; escalated: EscalationReason | null; followUps: FollowUpRef[]; text: string | null; images: EvidenceImage[] },
+  input: { branch: string; openPr: PullRequest | null; continues: boolean; sensitivePaths: string[]; harnessPaths: string[]; escalated: EscalationReason | null; followUps: FollowUpRef[]; text: string | null; images: EvidenceImage[]; markWorking?: PublishOptions["markWorking"] },
 ): Promise<PullRequest> {
   const { codeHost, config } = ctx;
   let pr: PullRequest;
@@ -212,6 +217,8 @@ async function pullRequest(
       body: prBody(issue, input),
       images: input.images,
     });
+    // A continued PR got `factory:working` at the claim; this one exists only now.
+    await input.markWorking?.(pr.number).catch((error: Error) => ctx.log(`${config.labels.working} on PR #${pr.number} could not be put on: ${error.message}`));
   }
   if (input.sensitivePaths.length + input.harnessPaths.length > 0) await codeHost.labelPr(pr.number, config.labels.harnessChange);
   return pr;
