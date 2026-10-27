@@ -19,6 +19,21 @@ import { format } from "../../i18n/index.ts";
 import { useRoleLabel } from "./role-label.ts";
 
 /**
+ * The Company's Members, page by page, as the Company page loads them: one
+ * cache shared by the Members table and the transfer's list of Members, so a
+ * change to either reloads both.
+ */
+export function useMembers(companyId: string) {
+  const path = { companyId };
+  return useInfiniteQuery({
+    queryKey: [...listMembersQueryKey({ path }), "pages"],
+    queryFn: ({ pageParam }) => listMembers({ path, query: pageParam ? { cursor: pageParam } : {} }),
+    initialPageParam: "",
+    getNextPageParam: (page) => page.nextCursor ?? undefined,
+  });
+}
+
+/**
  * The Company's Members, a page of `GET /api/companies/{companyId}/members` at
  * a time. The Owner (`isOwner`) also gets, on every other Member's row, the
  * choice of their role and Remove; nobody gets them on their own row. The API
@@ -32,12 +47,7 @@ export function Members({ companyId, isOwner }: { companyId: string; isOwner: bo
   const queryClient = useQueryClient();
   const { data: me } = useGetMe();
   const path = { companyId };
-  const members = useInfiniteQuery({
-    queryKey: [...listMembersQueryKey({ path }), "pages"],
-    queryFn: ({ pageParam }) => listMembers({ path, query: pageParam ? { cursor: pageParam } : {} }),
-    initialPageParam: "",
-    getNextPageParam: (page) => page.nextCursor ?? undefined,
-  });
+  const members = useMembers(companyId);
   const [done, setDone] = useState<string | null>(null);
   const refresh = { onSettled: () => queryClient.invalidateQueries({ queryKey: listMembersQueryKey({ path }) }) };
   const changeRole = useChangeMemberRole({ mutation: refresh });

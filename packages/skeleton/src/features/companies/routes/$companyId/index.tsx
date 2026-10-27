@@ -17,7 +17,7 @@ export const Route = createFileRoute("/_signed-in/c/$companyId/")({ component: C
 /**
  * The Company page: its name and the user's role, the features' `companyPage`
  * sections (`GET /api/nav`), the Members (with the Owner's actions on them), for
- * the Owner only the Invitations and the settings (rename, delete), and Leave.
+ * the Owner only the Invitations and the settings (rename, delete, transfer), and Leave.
  * Opening it makes it the Company the user lands on next time (the API records
  * it on `GET /api/companies/{companyId}`).
  */

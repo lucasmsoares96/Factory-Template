@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { createTestHarness } from "wrangler";
 import { builtWorkerConfig } from "../src/node/built-worker.ts";
@@ -22,7 +22,10 @@ export default async function setup() {
   mkdirSync(mailbox, { recursive: true });
   process.env[MAILBOX_DIR_ENV] = mailbox;
   const resend = mockResend((email) => {
-    writeFileSync(join(mailbox, `${Date.now()}-${randomUUID()}.json`), JSON.stringify(email));
+    // Written aside, then renamed: the mailbox never reads a half-written email.
+    const file = join(mailbox, `${Date.now()}-${randomUUID()}.json`);
+    writeFileSync(`${file}.part`, JSON.stringify(email));
+    renameSync(`${file}.part`, file);
   });
 
   const postgres = ensurePostgres({ purpose: `e2e-${basename(dir)}`, cwd: dir });
