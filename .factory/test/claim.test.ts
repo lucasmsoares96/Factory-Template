@@ -152,6 +152,35 @@ describe("factory claim", () => {
     expect(w.tracker.labelsOf(7)).toEqual(["agent:explore"]);
   });
 
+  it("starts the Triage after sending an issue there, with no issue list, so a queued run reads it too", async () => {
+    const w = world({ issues: readyIssue({ parent: null }) });
+
+    await w.factory("claim", "7");
+
+    expect(w.codeHost.dispatches).toEqual([{ workflow: "triage", inputs: {} }]);
+  });
+
+  it("other refusals start no Triage", async () => {
+    const w = world({ issues: readyIssue({ body: "No criteria here." }) });
+
+    await w.factory("claim", "7");
+
+    expect(lastJson(w.logs)).toMatchObject({ claimed: false, reason: "missing-acceptance-criteria" });
+    expect(w.codeHost.dispatches).toEqual([]);
+  });
+
+  it("a Triage that cannot be started is logged and the issue stays in Triage", async () => {
+    const w = world({ issues: readyIssue({ parent: null }) });
+    w.codeHost.dispatch = async () => {
+      throw new Error("dispatch refused");
+    };
+
+    expect(await w.factory("claim", "7")).toBe(0);
+
+    expect(w.tracker.labelsOf(7)).toEqual(["agent:explore"]);
+    expect(w.logs.join("\n")).toContain("dispatch refused");
+  });
+
   it("does not take seams from a Triage comment written by someone else", async () => {
     const w = world({
       issues: readyIssue({ parent: null, comments: [{ author: HUMAN, body: "<!-- factory:triage -->\nSeams: CLI." }] }),

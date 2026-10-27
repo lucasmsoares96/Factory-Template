@@ -63,4 +63,16 @@ export interface Tracker {
   canWrite(login: string): Promise<boolean>;
   /** Who last applied `label` to the issue, or null if it is not there. */
   labelActor(number: number, label: string): Promise<string | null>;
+  /** How `label` came to be on the issue, or null if it is not there. */
+  labelOrigin(number: number, label: string): Promise<LabelOrigin | null>;
+}
+
+export interface LabelOrigin {
+  /** Who last applied the label. */
+  actor: string;
+  /**
+   * When the same actor had just removed another label (a swap, as `swapLabel` makes it): that label and who had
+   * applied it. Null for a label applied on its own.
+   */
+  replaced: { label: string; actor: string | null } | null;
 }

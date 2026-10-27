@@ -1,5 +1,5 @@
 import { marked } from "../../marker.ts";
-import type { Blocker, Issue, IssueComment, NewIssue, Tracker } from "../../seams/tracker.ts";
+import type { Blocker, Issue, IssueComment, LabelOrigin, NewIssue, Tracker } from "../../seams/tracker.ts";
 
 export interface FakeIssueInput {
   number: number;
@@ -8,6 +8,8 @@ export interface FakeIssueInput {
   state?: "open" | "closed";
   /** Labels with the login that applied each one. */
   labels?: Record<string, string>;
+  /** Labels put by a swap: the label it replaced and who had put that one. The swap's actor is the label's. */
+  swapped?: Record<string, { from: string; by: string | null }>;
   parent?: number | null;
   comments?: { author: string; body: string }[];
   blockedBy?: number[];
@@ -21,6 +23,7 @@ interface FakeIssue {
   body: string;
   state: "open" | "closed";
   labels: Map<string, string>;
+  swapped: Map<string, { from: string; by: string | null }>;
   parent: number | null;
   comments: IssueComment[];
   blockedBy: number[];
@@ -32,8 +35,8 @@ interface FakeIssue {
 export class FakeTracker implements Tracker {
   readonly issues = new Map<number, FakeIssue>();
   readonly writers = new Set<string>();
-  /** Login the Factory writes as: author of its comments and actor of its label changes. */
-  readonly self: string;
+  /** Login the Factory writes as: author of its comments and actor of its label changes (`actAs` changes it). */
+  self: string;
   private nextCommentId = 1;
 
   constructor(seed: { issues?: FakeIssueInput[]; writers?: string[]; self?: string } = {}) {
@@ -49,12 +52,18 @@ export class FakeTracker implements Tracker {
       body: input.body ?? "",
       state: input.state ?? "open",
       labels: new Map(Object.entries(input.labels ?? {})),
+      swapped: new Map(Object.entries(input.swapped ?? {})),
       parent: input.parent ?? null,
       comments: (input.comments ?? []).map((c) => ({ id: `c${this.nextCommentId++}`, ...c })),
       blockedBy: input.blockedBy ?? [],
       done: input.done ?? false,
       relatedTo: null,
     });
+  }
+
+  /** Who the next writes come from, like a job that holds another token. */
+  actAs(login: string): void {
+    this.self = login;
   }
 
   /** Labels currently on the issue. */
@@ -100,8 +109,13 @@ export class FakeTracker implements Tracker {
   async swapLabel(number: number, from: string, to: string): Promise<boolean> {
     const issue = this.get(number);
     if (!issue.labels.has(from)) return false;
+    const by = issue.labels.get(from) ?? null;
     issue.labels.delete(from);
+    issue.swapped.delete(from);
+    // As on GitHub: adding a label already there makes no event, so it keeps whoever had put it.
+    if (issue.labels.has(to)) return true;
     issue.labels.set(to, this.self);
+    issue.swapped.set(to, { from, by });
     return true;
   }
 
@@ -112,6 +126,7 @@ export class FakeTracker implements Tracker {
 
   async removeLabel(number: number, label: string): Promise<void> {
     this.get(number).labels.delete(label);
+    this.get(number).swapped.delete(label);
   }
 
   async comment(number: number, body: string): Promise<void> {
@@ -135,6 +150,14 @@ export class FakeTracker implements Tracker {
 
   async labelActor(number: number, label: string): Promise<string | null> {
     return this.get(number).labels.get(label) ?? null;
+  }
+
+  async labelOrigin(number: number, label: string): Promise<LabelOrigin | null> {
+    const issue = this.get(number);
+    const actor = issue.labels.get(label);
+    if (actor === undefined) return null;
+    const swap = issue.swapped.get(label);
+    return { actor, replaced: swap ? { label: swap.from, actor: swap.by } : null };
   }
 
   private get(number: number): FakeIssue {
