@@ -98,7 +98,8 @@ export async function publishPrUpdate(ctx: CommandContext, number: number, optio
   const pr = await codeHost.pullRequest(number);
   if (!pr || pr.state !== "open" || pr.fork) return { pr: number, outcome: "discarded", reason: `pull request #${number} is no longer open on this repository` };
   const moved = `branch ${pr.branch} moved since the run started`;
-  if ((await codeHost.branchHead(pr.branch)) !== options.startSha) return stop("discarded", moved, `Run discarded: ${moved}. Nothing was pushed.`);
+  const discarded = () => stop("discarded", moved, `Run discarded: ${moved}. Nothing was pushed.`);
+  if ((await codeHost.branchHead(pr.branch)) !== options.startSha) return discarded();
 
   let result: FactoryResult;
   try {
@@ -113,7 +114,7 @@ export async function publishPrUpdate(ctx: CommandContext, number: number, optio
   if (result.head === null || result.head === options.startSha) return { pr: number, outcome: "up-to-date", reason: `already contains ${config.baseBranch}` };
 
   const push = await codeHost.push({ branch: pr.branch, sha: result.head, expectedSha: options.startSha });
-  if (!push.ok) return stop("discarded", moved, `Run discarded: ${moved}. Nothing was pushed.`);
+  if (!push.ok) return discarded();
   const fixes = result.attempts.length > 1 ? ` The merge broke \`verify\`; the Factory fixed it on this branch:\n\n${result.attempts.map((a) => `- ${attemptLine(a)}`).join("\n")}` : " `verify` passed.";
   await codeHost.commentPr(number, `Merged \`${config.baseBranch}\` (\`${result.base.slice(0, 7)}\`) into this branch and pushed \`${result.head.slice(0, 7)}\`.${fixes}${runLine(options.runUrl)}`);
   return { pr: number, outcome: "updated", url: pr.url };
