@@ -1,0 +1,82 @@
+# The locked skills follow their upstream with no one looking (ADR 0013).
+#   fetch    (no secret, read-only)  restores the skills from skills-lock.json on the default branch; when upstream
+#                                    changed them, uploads a patch that touches only `.agents/skills/` and the lock
+#   publish  (FACTORY_TOKEN, the default branch's harness)  applies the patch on `skills/update`, opens or reuses its
+#                                    pull request and turns on auto-merge: GitHub merges it once `verify` is green
+# The third-party CLI runs only in `fetch`, which holds no secret; `publish` refuses a patch outside the skills.
+# Off until `pnpm bootstrap factory` sets FACTORY_ENABLED (and turns on the repo's auto-merge).
+name: Factory skills update
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: factory-skills-update
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  fetch:
+    if: ${{ vars.FACTORY_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      changed: ${{ steps.patch.outputs.changed }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: npx --yes skills@1.7.2 experimental_install
+      - name: .claude/skills links
+        run: node .factory/src/ci/skills.ts links
+      - id: patch
+        name: patch
+        run: node .factory/src/ci/skills.ts patch --out "$RUNNER_TEMP/skills"
+      - if: ${{ steps.patch.outputs.changed == 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: skills-patch
+          path: ${{ runner.temp }}/skills
+          retention-days: 7
+
+  publish:
+    needs: fetch
+    if: ${{ needs.fetch.outputs.changed == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: skills-patch
+          path: ${{ runner.temp }}/skills
+      - name: publish
+        env:
+          FACTORY_TOKEN: ${{ secrets.FACTORY_TOKEN }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+        run: node .factory/src/ci/skills.ts publish --in "$RUNNER_TEMP/skills"
