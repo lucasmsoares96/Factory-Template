@@ -2,7 +2,7 @@
 
 One prompt. Give everything below the line to an agent working in a clone of an **existing** repository hosted on Forgejo, with its own stack. It installs the Factory's harness there, with the same flow as this template on GitHub: a ready issue becomes a reviewed pull request with evidence, waiting at the Merge Gate.
 
-Nothing in it has run on a Forgejo yet. The portability notes it relies on are in [forgejo.md](forgejo.md); the decisions are in `docs/adr/` (0002, 0005, 0006, 0012, 0013, 0014).
+Nothing in it has run on a Forgejo yet. The portability notes it relies on are in [forgejo.md](forgejo.md); the decisions are in `docs/adr/`.
 
 ---
 
@@ -21,7 +21,7 @@ Read first: `TEMPLATE/AGENTS.md`, `TEMPLATE/GLOSSARY.md`, `TEMPLATE/.factory/AGE
 Copy from `TEMPLATE`:
 
 - `.factory/` (CLI, commands, adapters, prompts, tests, `image/Dockerfile` and `image/setup.sh`).
-- The workflows, moved from `.github/workflows/` to `.forgejo/workflows/`: `factory-image.yml`, `factory-issue.yml`, `factory-triage.yml`, `factory-unblock.yml`, `factory-pr-feedback.yml`, `factory-update-branches.yml`, `factory-retro.yml`, `factory-skills-update.yml`, and from `factory-pr.yml` only the jobs `build`, `skills-check` and `verify`.
+- The workflows, moved from `.github/workflows/` to `.forgejo/workflows/`: `factory-image.yml`, `factory-issue.yml`, `factory-triage.yml`, `factory-unblock.yml`, `factory-pr-feedback.yml`, `factory-update-branches.yml`, `factory-retro.yml`, `factory-skills-update.yml`, and from `factory-pr.yml` the jobs `image`, `build` (with the `Verify` command of step 4, not the per-Product matrix of `plan`), `skills-check` and `verify` (the aggregate check: it fails when any job it `needs` failed; drop `plan` and `ci-probe` from its `needs`).
 - `AGENTS.md` (rewrite the Map, Commands and "Building a product" sections for this repository; keep the Rules), `GLOSSARY.md`, `CODING_STANDARDS.md`, `docs/agents/`, `docs/adr/`.
 - `.agents/skills/` with `skills-lock.json`, and the `.claude/skills/<name>` symlinks to them. Leave out the `skeleton-*` skills and `workers-best-practices` unless this stack uses them.
 - `.claude/settings.json` as it is (it only denies `pnpm bootstrap destroy`).
@@ -32,9 +32,9 @@ Leave out: `packages/skeleton/`, `apps/`, `pnpm new-product`, `.factory/src/boot
 
 - Forgejo reads `.forgejo/workflows/` when it exists and GitHub ignores it. Keep the events Forgejo has: `push`, `issues`, `issue_comment`, `pull_request`, `pull_request_target`, `schedule`, `workflow_call`, `workflow_dispatch`. There is no `workflow_run`, no `concurrency.queue: max`, no `gh`, no `claude-code-action`: replace `gh` calls with the CLI's own commands or `curl` against the REST API.
 - Every `runs-on:` names a label of this repository's own runner (step 5), never a hosted one.
-- Keep `#N` in each `run-name` (`"#${{ ... }} ..."`, `"#N update branch"`, `"PR #N update branch"`, `"Retro of #N"`): the Retro finds an issue's runs by that title. Port `GitHubRunLogs` (`.factory/src/adapters/github/run-logs.ts`) to the Forgejo Actions API and artifacts.
+- Keep `#N` in each `run-name` (`"#N <title>"`, `"#N update branch"`, `"PR #N update branch"`, `"Retro of #N"`, `"Retro of PR #N"`): the Retro finds an issue's runs by that title. Port `GitHubRunLogs` (`.factory/src/adapters/github/run-logs.ts`) to the Forgejo Actions API and artifacts.
 - Quote every YAML value that contains ` #` (`run-name: "#${{ inputs.issue }} ..."`, or any `name:` or `if:` with ` #` in it). Unquoted, the rest of the line is a comment and the workflow does not load, with no run to show it. Load every workflow once after you change it.
-- Swap `GITHUB_TOKEN` for the job's automatic token (`${{ secrets.GITHUB_TOKEN }}` / `${{ forgejo.token }}`, check which this version exposes) and keep `FACTORY_TOKEN` only in `claim`, `publish`, `apply` and the Retro's `publish`, as on GitHub. `work` never holds it.
+- Swap `GITHUB_TOKEN` for the job's automatic token (`${{ secrets.GITHUB_TOKEN }}` / `${{ forgejo.token }}`, check which this version exposes) and keep `FACTORY_TOKEN` only where the template has it: the `publish` jobs (issue, PR feedback, update branches, skills update, Retro) and the Triage's `apply`. `claim`, `notify`, the scans and every `work` job use the automatic token, never `FACTORY_TOKEN`.
 
 ### `pull_request_target` takes the YAML of any base branch
 
@@ -57,7 +57,7 @@ Test them like the GitHub adapters: the commands' behaviour is already covered t
 
 ## 4. `Verify`
 
-The `Verify` seam runs one command in the working copy (`pnpm factory:verify` in the template). Build that command from what this repository already has: its typecheck, lint, tests, end-to-end tests and screenshots, in that order, failing on the first error. Wire the same command into the `verify` job of the pull request workflow, so the status check `verify` (step 6) is what the Factory ran. Where something is missing (no typecheck, no tests, no E2E, so no prints), keep a minimal implementation, and write in the installed `AGENTS.md` and in the pull request where it is minimal and what would complete it.
+The `Verify` seam runs one command in the working copy (`pnpm factory:verify` in the template). Build that command from what this repository already has: its typecheck, lint, tests, end-to-end tests and screenshots, in that order, failing on the first error. Run the same command in the `build` job of the pull request workflow, so the status check `verify` (step 6, the aggregate job) covers what the Factory ran. Where something is missing (no typecheck, no tests, no E2E, so no prints), keep a minimal implementation, and write in the installed `AGENTS.md` and in the pull request where it is minimal and what would complete it.
 
 ## 5. Runner and image
 
@@ -80,7 +80,7 @@ Check each of these on Forgejo and adapt the workflow or adapter until it holds:
 - **Sensitive paths are flagged, not refused** (ADR 0012). Add `.forgejo/workflows/` to the sensitive paths in `.factory/src/paths.ts`. A Factory pull request that touches one gets `harness-change` and a warning naming the files; nothing blocks it.
 - **Every open pull request is kept up to date with `main`** (ADR 0014). With `block_on_outdated_branch`, `factory-update-branches.yml` runs on each push to `main` and, for every open pull request that is behind, merges `main` in the Factory's own checkout (the agent only on a conflict), runs `Verify`, then pushes with a lease. Never use the forge's "Update branch" button or API: it skips `Verify`. A fork's pull request or an AGit pull request is never pushed to: it gets one comment asking its author to update the branch.
 - **Skills follow upstream with an automatic merge** (ADR 0013). `factory-skills-update.yml` opens or reuses the `skills/update` pull request; instead of `gh pr merge --auto`, schedule the merge for when the checks pass (`POST /repos/{owner}/{repo}/pulls/{index}/merge` with `"Do": "merge"` and `merge_when_checks_succeed: true`). If this version or the protection refuses it, leave the merge manual and say so in `AGENTS.md`: then a person merges `skills/update`.
-- **Automatic Retro**: `factory-retro.yml` runs after every Escalation (dispatched by `publish`) and on a closed Factory pull request, finds the runs through `#N` in their titles, and opens or edits `Retro: #N <title>` with `needs-triage` + `retro`.
+- **Automatic Retro**: `factory-retro.yml` runs after every Escalation (dispatched by `publish`) and on a closed Factory pull request (it goes on only when a writer left an unmarked thread or review), finds the runs through `#N` in their titles, and opens or edits `Retro: #N <title>` with `needs-triage` + `retro`.
 - **The Triage starts on its own**: when the guard refuses an issue for missing seams, `claim` swaps `ready-for-agent` → `agent:explore` and dispatches `factory-triage.yml` itself (`workflow_dispatch` through the API), because a label event made with the job's token starts no workflow. The Triage trusts that `agent:explore` because the same actor had just removed a `ready-for-agent` put by a writer; a stranger's `agent:explore` stays untrusted.
 - **Comments in the Conversation tab trigger pull request feedback**, not only line comments: `factory-pr-feedback.yml` listens to `issue_comment` on pull requests as well as `pull_request_review` and `pull_request_review_comment`, and a writer's comment or review body after the last Factory-marked one is a request of the round.
 - **The Factory marker** (`<!-- factory -->`) is how the Factory knows its own texts, since it writes as the owner (ADR 0002). Keep it in every text the adapters write.

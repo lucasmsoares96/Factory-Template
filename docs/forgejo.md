@@ -46,4 +46,4 @@ To install the Factory on an existing Forgejo repository, give an agent the [ins
 
 ## Not done
 
-Hardening of the preview CI on Forgejo (automatic write token in `build`, `pull_request_target` with any base branch, no `workflow` scope) is left for the install, which is meant for a private repository with its own runner. The defects found in Forgejo (the base-branch YAML, the token documentation, `environment:` ignored without a warning) are for the owner to report.
+Hardening of the preview CI on Forgejo (automatic write token in `build`, `pull_request_target` with any base branch, no `workflow` scope) is left out: the [install prompt](forgejo-install-prompt.md) installs no previews, and is meant for a private repository with its own runner. The defects found in Forgejo (the base-branch YAML, the token documentation, `environment:` ignored without a warning) are for the owner to report.

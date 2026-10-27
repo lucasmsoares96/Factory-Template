@@ -193,7 +193,6 @@ describe("docs/forgejo-install-prompt.md", () => {
   const prompt = () => read("docs/forgejo-install-prompt.md");
 
   it("exists as the one prompt that installs the Factory on a Forgejo repo", () => {
-    expect(existsSync(join(repo, "docs/forgejo-install-prompt.md"))).toBe(true);
     expect(prompt()).toMatch(/^# /);
   });
 
@@ -220,8 +219,15 @@ describe("docs/forgejo-install-prompt.md", () => {
   });
 
   it("leaves the Skeleton and the Products out", () => {
-    expect(prompt()).toMatch(/packages\/skeleton\//);
-    expect(prompt()).toMatch(/apps\//);
+    const leaveOut = prompt().split("\n").find((line) => line.startsWith("Leave out:"));
+    expect(leaveOut).toBeDefined();
+    for (const path of ["packages/skeleton/", "apps/", ".factory/src/bootstrap/"]) expect(leaveOut).toContain(path);
+  });
+
+  it("ends by driving a test issue end to end to the Merge Gate", () => {
+    const last = prompt().split(/^## /m).at(-1)!;
+    expect(last).toMatch(/test issue/);
+    expect(last).toContain("Merge Gate");
   });
 
   it("is linked from docs/forgejo.md and the docs index", () => {
