@@ -86,7 +86,7 @@ export interface ReviewContext extends Omit<StageContext, "feedback"> {
   /** What the earlier Reviews of this run reported. */
   findings: ReviewOutput[];
   /** The `<skeleton-gap>`s reported so far in this run, without repeats. */
-  gaps?: string[];
+  gaps: string[];
   /** A pr-feedback run: the threads of the round and what the Factory decided on them. */
   round?: FeedbackRound;
 }
@@ -131,7 +131,7 @@ export function reviewPrompt(ctx: ReviewContext): string {
       ? `Review only what changed since ${ctx.since} (\`git diff ${ctx.since}..HEAD\`), and check that the previous findings are dealt with. Do not start a second broad review.`
       : "Review the whole branch.",
     FINDINGS: findings.length > 0 ? `\nPrevious findings:\n${findings.join("\n")}` : "",
-    GAPS: ctx.gaps?.map((g) => `<skeleton-gap>${g}</skeleton-gap>`).join("\n") || "(none)",
+    GAPS: ctx.gaps.map((g) => `<skeleton-gap>${g}</skeleton-gap>`).join("\n") || "(none)",
     ROUND: roundBlock(ctx.round, REVIEW_ROUND_RULE),
     ISSUE: issueBlock(ctx.issue),
     LOG: ctx.log || "(none)",

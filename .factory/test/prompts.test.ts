@@ -29,7 +29,7 @@ const issue: Issue = {
 
 const prompts = {
   development: developmentPrompt({ issue, log: "abc1234 feat: greet #7", feedback: "E2E failed running `pnpm factory:verify`." }),
-  review: reviewPrompt({ issue, log: "abc1234 feat: greet #7", since: null, findings: [] }),
+  review: reviewPrompt({ issue, log: "abc1234 feat: greet #7", since: null, findings: [], gaps: [] }),
   triage: triagePrompt({ issues: [issue] }),
   "pr-feedback": prFeedbackPrompt({
     issue,
@@ -150,7 +150,7 @@ describe("prompts snapshot", () => {
     snapshotPrompts(dir);
     try {
       for (const file of await readdir(dir)) await writeFile(join(dir, file), "Rewritten by the agent: {{GAPS}}\n");
-      expect(reviewPrompt({ issue, log: "abc1234 feat: greet #7", since: null, findings: [] })).toBe(prompts.review);
+      expect(reviewPrompt({ issue, log: "abc1234 feat: greet #7", since: null, findings: [], gaps: [] })).toBe(prompts.review);
       expect(developmentPrompt({ issue, log: "abc1234 feat: greet #7", feedback: "E2E failed running `pnpm factory:verify`." })).toBe(prompts.development);
       expect(triagePrompt({ issues: [issue] })).toBe(prompts.triage);
     } finally {
@@ -161,7 +161,7 @@ describe("prompts snapshot", () => {
   it("fails loudly when a template is not in the snapshot", async () => {
     snapshotPrompts(await tempDir("factory-prompts-"));
     try {
-      expect(() => reviewPrompt({ issue, log: "abc1234 feat: greet #7", since: null, findings: [] })).toThrow(/prompts\/rules\.md is missing/);
+      expect(() => reviewPrompt({ issue, log: "abc1234 feat: greet #7", since: null, findings: [], gaps: [] })).toThrow(/prompts\/rules\.md is missing/);
     } finally {
       snapshotPrompts();
     }

@@ -60,17 +60,28 @@ function gapKey(gap: string): string {
   return ` ${gap.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim()} `;
 }
 
+/** A shorter gap only matches an equal one: "footer slot" must not swallow every gap that mentions a footer slot. */
+const MIN_CONTAINED_WORDS = 4;
+
+/** Whether two `gapKey`s name the same gap: equal, or the longer holds the shorter and the shorter is specific enough. */
+function sameGap(a: string, b: string): boolean {
+  if (a === b) return true;
+  const [short, long] = a.length < b.length ? [a, b] : [b, a];
+  return long.includes(short) && short.trim().split(" ").length >= MIN_CONTAINED_WORDS;
+}
+
 /**
  * The gaps without repeats, in first-reported order (Development before Review).
- * Two gaps are the same when, folded by `gapKey`, one equals or contains the
- * other (as whole words); the longer text is kept, in the place of the first.
+ * Two gaps are the same when, folded by `gapKey`, they are equal or one contains
+ * the other as whole words (see `sameGap`); the longer text is kept, so no word
+ * of the ask is lost, in the place of the first.
  */
 export function mergeGaps(gaps: Iterable<string>): string[] {
   const kept: { gap: string; key: string }[] = [];
   for (const gap of gaps) {
     const key = gapKey(gap);
     if (key.trim() === "") continue;
-    const same = kept.find((k) => k.key.includes(key) || key.includes(k.key));
+    const same = kept.find((k) => sameGap(k.key, key));
     if (!same) kept.push({ gap, key });
     else if (key.length > same.key.length) Object.assign(same, { gap, key });
   }
@@ -84,8 +95,8 @@ export interface SkeletonFollowUp {
 }
 
 /** The ticket asking for the Skeleton change; the Tracker adapter adds the link back to the issue. */
-export function followUpTicket(issue: Pick<Issue, "number" | "title">, product: string, files: string[], reported: string[]): SkeletonFollowUp {
-  const gaps = mergeGaps(reported);
+export function followUpTicket(issue: Pick<Issue, "number" | "title">, product: string, files: string[], reportedGaps: string[]): SkeletonFollowUp {
+  const gaps = mergeGaps(reportedGaps);
   const body = [
     `The Skeleton must grow: Product \`${product}\` needs a change in \`${SKELETON_PATH}\` to finish #${issue.number} (${issue.title}).`,
     "",
