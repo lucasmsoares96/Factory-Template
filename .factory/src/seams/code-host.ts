@@ -63,6 +63,14 @@ export interface EvidenceImage {
   path: string;
 }
 
+/** A check that ended in `failure` or `timed_out` on a pull request's head, with the end of its job's log. */
+export interface FailedCheck {
+  name: string;
+  url: string;
+  /** The last lines of the job's log. */
+  log: string;
+}
+
 export type PushResult = { ok: true } | { ok: false; reason: "branch-moved" };
 
 export interface CodeHost {
@@ -97,6 +105,11 @@ export interface CodeHost {
   threads(pr: number): Promise<ReviewThread[]>;
   /** The reviews submitted on the pull request, oldest first. */
   reviews(pr: number): Promise<SubmittedReview[]>;
+  /**
+   * The checks that ended in `failure` or `timed_out` on the pull request's current head, each with the last `lines`
+   * lines of its job's log (or why that log could not be read). Throws when the checks cannot be listed.
+   */
+  failedChecks(pr: number, lines: number): Promise<FailedCheck[]>;
   /** The Conversation tab, oldest first: its comments and the bodies of submitted reviews (empty bodies left out). */
   conversation(pr: number): Promise<ConversationEntry[]>;
   replyToThread(pr: number, threadId: string, body: string): Promise<void>;

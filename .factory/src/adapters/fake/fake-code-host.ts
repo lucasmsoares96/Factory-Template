@@ -3,6 +3,7 @@ import type {
   CodeHost,
   ConversationEntry,
   EvidenceImage,
+  FailedCheck,
   PullRequest,
   PushResult,
   Review,
@@ -24,6 +25,10 @@ export interface FakePullRequest extends PullRequest {
   comments: string[];
   /** The Conversation tab in order: seeded entries, then what the Factory writes there (comments and review bodies). */
   conversation: ConversationEntry[];
+  /** What `failedChecks` returns, as seeded (the caller cuts the logs). */
+  failedChecks: FailedCheck[];
+  /** When set, `failedChecks` throws with this message. */
+  failedChecksError?: string;
 }
 
 /** In-memory CodeHost. Tests seed branches and read PRs and pushes back. */
@@ -34,6 +39,8 @@ export class FakeCodeHost implements CodeHost {
   readonly dispatches: { workflow: string; inputs: Record<string, string> }[] = [];
   /** Every write, in order, e.g. `openDraftPr #101`. */
   readonly writes: string[] = [];
+  /** The pull requests whose failed checks were read, in order. */
+  readonly checkReads: number[] = [];
 
   /** Login the Factory writes as: author of its replies. */
   readonly self: string;
@@ -139,6 +146,13 @@ export class FakeCodeHost implements CodeHost {
     return this.pr(pr).reviews.map((r) => ({ author: r.author ?? this.self, body: r.body }));
   }
 
+  async failedChecks(pr: number, _lines: number): Promise<FailedCheck[]> {
+    this.checkReads.push(pr);
+    const target = this.pr(pr);
+    if (target.failedChecksError) throw new Error(target.failedChecksError);
+    return structuredClone(target.failedChecks);
+  }
+
   async conversation(pr: number): Promise<ConversationEntry[]> {
     return structuredClone(this.pr(pr).conversation.filter((e) => e.body.trim() !== ""));
   }
@@ -186,6 +200,7 @@ function fakePr(seed: FakePullRequestSeed): FakePullRequest {
     labels: [],
     comments: [],
     conversation: [],
+    failedChecks: [],
     ...seed,
   };
 }

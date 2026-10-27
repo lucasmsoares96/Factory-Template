@@ -38,9 +38,8 @@ export class GitHubApi {
     return `/repos/${this.repo}${path}`;
   }
 
-  /** One request. 404 returns null when `allow404` is set; any other failure throws a `GitHubError`. */
-  async request<T>(method: string, path: string, schema: z.ZodType<T>, options: { body?: unknown; allow404?: boolean } = {}): Promise<T | null> {
-    const response = await this.doFetch(`${this.apiUrl}${path}`, {
+  private call(method: string, path: string, body?: unknown): Promise<Response> {
+    return this.doFetch(`${this.apiUrl}${path}`, {
       method,
       headers: {
         Accept: "application/vnd.github+json",
@@ -48,10 +47,19 @@ export class GitHubApi {
         "Content-Type": "application/json",
         "X-GitHub-Api-Version": "2022-11-28",
       },
-      ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
+  }
+
+  private async failure(method: string, path: string, response: Response): Promise<GitHubError> {
+    return new GitHubError(`GitHub ${method} ${path} failed (${response.status}): ${(await response.text()).slice(0, 300)}`, response.status);
+  }
+
+  /** One request. 404 returns null when `allow404` is set; any other failure throws a `GitHubError`. */
+  async request<T>(method: string, path: string, schema: z.ZodType<T>, options: { body?: unknown; allow404?: boolean } = {}): Promise<T | null> {
+    const response = await this.call(method, path, options.body);
     if (response.status === 404 && options.allow404) return null;
-    if (!response.ok) throw new GitHubError(`GitHub ${method} ${path} failed (${response.status}): ${(await response.text()).slice(0, 300)}`, response.status);
+    if (!response.ok) throw await this.failure(method, path, response);
     const text = await response.text();
     const parsed = schema.safeParse(text === "" ? null : JSON.parse(text));
     if (!parsed.success) throw new Error(`Unexpected GitHub response for ${method} ${path}: ${z.prettifyError(parsed.error)}`);
@@ -74,6 +82,24 @@ export class GitHubApi {
       all.push(...rows);
       if (rows.length < 100) return all;
     }
+  }
+
+  /** Every page of a list endpoint that wraps its rows in an object (`{ total_count, <field>: [...] }`), 100 per page. */
+  async listIn<T>(path: string, field: string, item: z.ZodType<T>): Promise<T[]> {
+    const all: T[] = [];
+    for (let page = 1; ; page++) {
+      const body = await this.get(`${path}${path.includes("?") ? "&" : "?"}per_page=100&page=${page}`, z.object({ [field]: z.array(item) }));
+      const rows = body[field] as T[];
+      all.push(...rows);
+      if (rows.length < 100) return all;
+    }
+  }
+
+  /** A plain-text GET. `fetch` follows a redirect (a log download answers 302 to its storage) and drops the token on another origin. */
+  async text(path: string): Promise<string> {
+    const response = await this.call("GET", path);
+    if (!response.ok) throw await this.failure("GET", path, response);
+    return response.text();
   }
 
   async send(method: string, path: string, body?: unknown): Promise<void> {

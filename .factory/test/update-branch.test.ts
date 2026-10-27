@@ -118,6 +118,19 @@ async function humanRound(main: MainChange, options: Pick<Parameters<typeof prWo
   return { p, branch, publish: lastJson(p.w.logs) as { outcome: string }, untouched: () => expect(labels()).toEqual(before) };
 }
 
+describe("factory update-branch: the failed checks are a pr-feedback matter", () => {
+  it("a failing Verify after the merge reads no failed checks and gives the Development no `<checks>` block", async () => {
+    const p = await updateRound("clean", {
+      agent: { development: [commits()], review: [reviewOk] },
+      verify: [{ ok: false, failedCommand: "pnpm test", output: "merge broke it" }, { ok: true }],
+    });
+
+    expect(p.w.agent.calls[0]!.prompt).toContain("merge broke it");
+    expect(p.w.agent.calls[0]!.prompt).not.toContain("<checks>");
+    expect(p.w.codeHost.checkReads).toEqual([]);
+  });
+});
+
 describe("factory update-branch --pr: a person's pull request", () => {
   it("merges main with no agent, runs Verify, pushes and says what it merged, only on the PR", async () => {
     const { p, branch, publish, untouched } = await humanRound("clean", { verify: [{ ok: true }] });
