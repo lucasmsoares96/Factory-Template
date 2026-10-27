@@ -179,6 +179,21 @@ describe("factory triage + apply", () => {
       expect(s.w.tracker.commentsOn(5)).toEqual([]);
     });
 
+    it("the swap does not launder an agent:explore a non-writer had already put on the issue", async () => {
+      const s = await setup({
+        issues: [{ number: 5, body: ISSUE_BODY, labels: { "ready-for-agent": HUMAN, "agent:explore": "mallory" } }],
+        triage: [],
+      });
+      s.w.tracker.actAs(BOT);
+      await s.w.factory("claim", "5");
+      s.w.tracker.actAs(OWNER);
+
+      await triage(s);
+
+      expect(s.w.agent.calls).toEqual([]);
+      expect(lastJson(s.w.logs)).toMatchObject({ skipped: [5] });
+    });
+
     it("a non-writer's agent:explore is still skipped, swap or not", async () => {
       const s = await setup({
         issues: [

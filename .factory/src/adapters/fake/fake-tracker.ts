@@ -112,6 +112,8 @@ export class FakeTracker implements Tracker {
     const by = issue.labels.get(from) ?? null;
     issue.labels.delete(from);
     issue.swapped.delete(from);
+    // As on GitHub: adding a label already there makes no event, so it keeps whoever had put it.
+    if (issue.labels.has(to)) return true;
     issue.labels.set(to, this.self);
     issue.swapped.set(to, { from, by });
     return true;
