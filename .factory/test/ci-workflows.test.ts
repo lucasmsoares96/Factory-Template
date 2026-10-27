@@ -456,8 +456,8 @@ describe.each([[WORKFLOWS_DIR]])("Factory issue workflow in %s", (dir) => {
     expect(publish!.if).toContain("always()");
     expect(publish!.if).toContain("needs.claim.outputs.claimed == 'true'");
     expect(secretsOf(publish!)).toEqual(["secrets.FACTORY_TOKEN"]);
-    // The job token only takes factory:working off, in the last step.
-    expect(publish!.permissions).toEqual({ contents: "read", issues: "write", "pull-requests": "write", actions: "read" });
+    // The job token takes factory:working off in the last step and dispatches the Retro of an Escalation (`actions: write`).
+    expect(publish!.permissions).toEqual({ contents: "read", issues: "write", "pull-requests": "write", actions: "write" });
     expect(checkoutOf(publish!)?.with).toMatchObject({ ref: "${{ github.event.repository.default_branch }}", "persist-credentials": false });
     expect(runs(publish!).join("\n")).toContain("pnpm factory publish");
     expect(publish!["timeout-minutes"]!).toBeLessThan(60);
@@ -474,9 +474,9 @@ describe.each([[WORKFLOWS_DIR]])("Factory issue workflow in %s", (dir) => {
     expect(runs(publish!).join("\n")).toMatch(/--in /);
   });
 
-  it("only `claim` may dispatch a workflow", () => {
+  it("only `claim` (Triage) and `publish` (the Retro of an Escalation) may dispatch a workflow", () => {
     const dispatchers = Object.entries(issue.jobs).filter(([, job]) => (job.permissions as Record<string, string> | undefined)?.actions === "write");
-    expect(dispatchers.map(([id]) => id)).toEqual(["claim"]);
+    expect(dispatchers.map(([id]) => id)).toEqual(["claim", "publish"]);
   });
 
   it("the issue number and the actor never reach a script by interpolation", () => {
@@ -795,6 +795,15 @@ describe.each([["factory-pr-feedback.yml", "pr-feedback"], ["factory-update-bran
     expect(runs(work!).join("\n")).toMatch(new RegExp(String.raw`pnpm factory work ${issueArg} --flow ${flow} --pr "\$PR"`));
   });
 
+  it("`publish` dispatches the Retro of an Escalation with the job token: `actions: write` and GITHUB_TOKEN next to FACTORY_TOKEN", () => {
+    expect(publish!.permissions).toEqual({ contents: "read", issues: "write", "pull-requests": "write", actions: "write" });
+    const step = steps(publish!).find((s) => s.run?.includes("pnpm factory publish"))!;
+    expect(step.env?.GITHUB_TOKEN).toBe("${{ github.token }}");
+    expect(step.env?.FACTORY_TOKEN).toBe("${{ secrets.FACTORY_TOKEN }}");
+    const dispatchers = Object.entries(workflow.jobs).filter(([, job]) => (job.permissions as Record<string, string> | undefined)?.actions === "write");
+    expect(dispatchers.map(([id]) => id)).toEqual(flow === "update-branch" ? ["scan", "publish"] : ["publish"]);
+  });
+
   it("is off until FACTORY_ENABLED and never interpolates event data into a script", () => {
     expect(workflow.permissions).toEqual({});
     expect(JSON.stringify(workflow.jobs)).toContain("vars.FACTORY_ENABLED == 'true'");
@@ -819,7 +828,7 @@ describe("Factory PR feedback workflow", () => {
       claim: { contents: "read", issues: "write", "pull-requests": "write" },
       image: { contents: "read", packages: "write" },
       work: { contents: "read", issues: "read", "pull-requests": "read", packages: "read", actions: "read" },
-      publish: { contents: "read", issues: "write", "pull-requests": "write", actions: "read" },
+      publish: { contents: "read", issues: "write", "pull-requests": "write", actions: "write" },
       notify: { contents: "read", issues: "write" },
     });
     const work = feedback.jobs.work!;
@@ -943,7 +952,8 @@ describe("factory:working in the workflows", () => {
     expect(JSON.stringify(step)).not.toContain("FACTORY_TOKEN");
     // The last step: nothing after it can fail first.
     expect(steps(job).at(-1)).toBe(step);
-    expect(job.permissions).toMatchObject({ issues: "write", "pull-requests": "write", actions: "read" });
+    // A `publish` also dispatches the Retro of an Escalation.
+    expect(job.permissions).toMatchObject({ issues: "write", "pull-requests": "write", actions: id === "publish" ? "write" : "read" });
     expect(job["runs-on"]).toBe("ubuntu-latest");
   });
 
@@ -969,7 +979,7 @@ describe("factory:working in the workflows", () => {
     expect(workflows["factory-triage.yml"]!.jobs.start!.permissions).toMatchObject({ issues: "write" });
   });
 
-  it("the issue flow's publish holds the job token too, to label the PR it opens without starting a workflow", () => {
+  it("the issue flow's publish holds the job token too, to label the PR it opens without starting a workflow (and dispatch the Retro)", () => {
     const step = steps(workflows["factory-issue.yml"]!.jobs.publish!).find((s) => s.name === "publish")!;
     expect(step.env?.GITHUB_TOKEN).toBe("${{ github.token }}");
     expect(step.env?.FACTORY_TOKEN).toBe("${{ secrets.FACTORY_TOKEN }}");
