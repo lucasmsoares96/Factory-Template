@@ -2,6 +2,8 @@
 
 The Factory is built for GitHub; only the adapters are designed to fit Forgejo. Forge calls sit behind the `Tracker` and `CodeHost` seams (about 20 REST operations), and the Agent seam does not care. Nothing here has been run on a Forgejo. It was researched against Forgejo v17.0.0 (2026-10-15), v16.0.x and the v15 LTS (supported until 2027-07-15), and Forgejo Runner v13.2.0. v17.0.0 carried an upstream warning against upgrading at release time, and Authorized Integrations need v16 or later, so aim at v16.0.x or the LTS.
 
+To install the Factory on an existing Forgejo repository, give an agent the [install prompt](forgejo-install-prompt.md).
+
 ## What exists only on GitHub
 
 - `gh` and `claude-code-action` (the Factory uses neither on the Forgejo path), `state_reason` (use `done` = `closed`), `concurrency.queue: max`, the lock by `git/refs`, the draft state (Forgejo shows a draft when the title starts with `WIP:`; `fj` has no `--draft`), and `workflow_run` (not available; feature request open).
@@ -11,7 +13,7 @@ The Factory is built for GitHub; only the adapters are designed to fit Forgejo. 
 
 ## Tokens
 
-- **No `workflow` scope exists.** A token with `write:repository` can change `.forgejo/workflows/`. The Factory does not refuse workflow changes on either forge (ADR 0012): the defence is the human review of the flagged pull request, plus keeping the token out of the `work` job. State this in the install prompt.
+- **No `workflow` scope exists.** A token with `write:repository` can change `.forgejo/workflows/`. The Factory does not refuse workflow changes on either forge (ADR 0012): the defence is the human review of the flagged pull request, plus keeping the token out of the `work` job. The [install prompt](forgejo-install-prompt.md) states this.
 - Since v15 tokens can be restricted to specific repositories, with only `read/write:repository` and `read/write:issue`. There is no GitHub App equivalent, and the Factory already writes as the owner and recognizes its texts by a marker (ADR 0002), which works there too.
 - The Merge Gate notice must come from the job's automatic token (the Forgejo equivalent of `GITHUB_TOKEN`), because nobody is notified of what the Factory's own token does.
 - The automatic token has write access to the repository in same-repository PRs; PRs from forks and AGit PRs get read-only, even under `pull_request_target`. The documentation of v17 still says the `pull_request` token has no write permission, which contradicts the code.
@@ -44,4 +46,4 @@ The Factory is built for GitHub; only the adapters are designed to fit Forgejo. 
 
 ## Not done
 
-Hardening of the preview CI on Forgejo (automatic write token in `build`, `pull_request_target` with any base branch, no `workflow` scope) is left for the install, which is meant for a private repository with its own runner. The defects found in Forgejo (the base-branch YAML, the token documentation, `environment:` ignored without a warning) are for the owner to report.
+Hardening of the preview CI on Forgejo (automatic write token in `build`, `pull_request_target` with any base branch, no `workflow` scope) is left out: the [install prompt](forgejo-install-prompt.md) installs no previews, and is meant for a private repository with its own runner. The defects found in Forgejo (the base-branch YAML, the token documentation, `environment:` ignored without a warning) are for the owner to report.
