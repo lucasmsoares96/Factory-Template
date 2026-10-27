@@ -1,7 +1,8 @@
-import { readFile, readdir } from "node:fs/promises";
+import { cp, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
+import { PROMPTS_DIR, snapshotPrompts } from "../src/prompts.ts";
 import { checkout, commitFile, git, tempDir, world, type WorldOptions } from "./helpers.ts";
 
 const develop: AgentStep = async ({ cwd }) => {
@@ -133,6 +134,31 @@ describe("factory work", () => {
     expect(w.agent.calls.map((c) => c.stage)).toEqual(["development", "development", "review", "pull-request"]);
     expect(w.agent.calls[1]!.prompt).toContain("made no commits");
     expect(w.verify.runs).toBe(1);
+  });
+});
+
+describe("factory work: the prompts snapshot", () => {
+  it("renders the Review from the prompts read before Development, even when Development rewrites review.md", async () => {
+    const prompts = await tempDir("factory-prompts-");
+    await cp(PROMPTS_DIR, prompts, { recursive: true });
+    const original = await readFile(join(prompts, "review.md"), "utf8");
+    snapshotPrompts(prompts);
+    try {
+      const rewriteReview: AgentStep = async (call) => {
+        await writeFile(join(prompts, "review.md"), `Agent-written review prompt.\n\n{{GAPS}}\n${original}`);
+        return develop(call);
+      };
+      const { repo, out, w, readResult } = await setup({ development: [rewriteReview], review: [reviewWithFix] }, [{ ok: true }]);
+
+      expect(await w.factory("work", "7", "--out", out, "--repo", repo)).toBe(0);
+
+      expect((await readResult()).outcome).toBe("ready");
+      const review = w.agent.calls.find((c) => c.stage === "review")!;
+      expect(review.prompt).not.toContain("Agent-written review prompt.");
+      expect(review.prompt).toContain("`code-review` skill");
+    } finally {
+      snapshotPrompts();
+    }
   });
 });
 
