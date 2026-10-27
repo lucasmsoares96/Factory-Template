@@ -2,6 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
+import { FakeCodeHost } from "../src/adapters/fake/fake-code-host.ts";
 import type { VerifyStep } from "../src/adapters/fake/fake-verify.ts";
 import { checkout, commitFile, commitFiles, git, lastJson, OWNER, tempDir, world, type WorldOptions } from "./helpers.ts";
 
@@ -21,12 +22,15 @@ const review: AgentStep = () => ({
 });
 const e2eFails: VerifyStep = { ok: false, failedCommand: "pnpm --filter example test:e2e", output: "x".repeat(6000) + "\nexpected 200, got 500" };
 
+/** The code host of the job token (`GITHUB_TOKEN`), apart from the forge token's one. */
+const jobHost = () => new FakeCodeHost({ branches: {}, prs: [], self: OWNER });
+
 /**
  * claim → work → publish → working off through the CLI, each job on its own checkout.
  * `between` runs after work and before publish, to change forge state.
  */
 async function pipeline(
-  options: Pick<WorldOptions, "agent" | "verify" | "branches" | "prs" | "env"> & {
+  options: Pick<WorldOptions, "agent" | "verify" | "branches" | "prs" | "env" | "jobCodeHost"> & {
     between?: (w: ReturnType<typeof world>) => void | Promise<void>;
     publishArgs?: string[];
     /** PR flows do not run the issue claim: they take the lock on an issue whose PR is open. */
@@ -138,14 +142,59 @@ describe("factory publish: Escalation", () => {
     expect(w.codeHost.dispatches).toEqual([{ workflow: "retro", inputs: { issue: "7", pr: "101" } }]);
   });
 
+  it("dispatches the Retro with the job token, not the forge token", async () => {
+    const jobCodeHost = jobHost();
+    const asks: AgentStep = async (call) => ({ ...(await develop(call)), output: "<needs-human>Which copy?</needs-human>" });
+    const { w } = await pipeline({ agent: { development: [asks] }, jobCodeHost });
+
+    expect(jobCodeHost.dispatches).toEqual([{ workflow: "retro", inputs: { issue: "7", pr: "101" } }]);
+    expect(w.codeHost.dispatches).toEqual([]);
+  });
+
+  it("dispatches the Retro of a continued pull request's Escalation with the job token", async () => {
+    const jobCodeHost = jobHost();
+    const asks: AgentStep = async (call) => ({ ...(await develop(call)), output: "<needs-human>Which copy?</needs-human>" });
+    const { w, output } = await pipeline({
+      agent: { development: [asks] },
+      branches: { "factory/issue-7": OLD_SHA },
+      prs: [{ number: 55, branch: "factory/issue-7", draft: false, headSha: OLD_SHA }],
+      publishArgs: ["--pr", "55"],
+      skipClaim: true,
+      jobCodeHost,
+    });
+
+    expect(output).toMatchObject({ outcome: "escalated", reason: "needs-human", pr: 55 });
+    expect(jobCodeHost.dispatches).toEqual([{ workflow: "retro", inputs: { issue: "7", pr: "55" } }]);
+    expect(w.codeHost.dispatches).toEqual([]);
+  });
+
+  it("an Escalation still lands when the job token may not dispatch the Retro", async () => {
+    const jobCodeHost = jobHost();
+    jobCodeHost.dispatch = async () => {
+      throw new Error("403 Resource not accessible");
+    };
+    const repo = await checkout();
+    const w = world({ repo, jobCodeHost });
+    await w.factory("claim", "7");
+
+    await w.factory("publish", "7", "--repo", repo, "--in", await tempDir("factory-empty-"), "--run-url", RUN_URL);
+
+    expect(lastJson(w.logs)).toMatchObject({ outcome: "escalated", reason: "infra" });
+    expect(w.codeHost.dispatches).toEqual([]);
+    expect(w.logs.join("\n")).toContain("The automatic Retro of #7 did not start: 403 Resource not accessible");
+  });
+
   it("starts no Retro when FACTORY_RETRO_ENABLED is false", async () => {
+    const jobCodeHost = jobHost();
     const { w, output } = await pipeline({
       agent: { development: [() => ({ output: "<needs-human>Which locale?</needs-human>" })] },
       env: { FACTORY_RETRO_ENABLED: "false" },
+      jobCodeHost,
     });
 
     expect(output).toMatchObject({ outcome: "escalated" });
     expect(w.codeHost.dispatches).toEqual([]);
+    expect(jobCodeHost.dispatches).toEqual([]);
   });
 
   it("an Escalation still lands when the Retro cannot be started", async () => {
