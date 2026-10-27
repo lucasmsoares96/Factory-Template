@@ -11,8 +11,10 @@
 # sees FACTORY_TOKEN. Off until `pnpm bootstrap factory` sets FACTORY_ENABLED; one run per issue at a time. A change to
 # this file takes effect once it is on the default branch (`issues` events run the default branch's workflow).
 name: Factory issue
-# `#N` in the run's title is how the automatic Retro finds the runs of an issue.
-run-name: "#${{ github.event.issue.number || inputs.issue }} ${{ github.event.issue.title || 'Factory issue' }}"
+# `#N` in the run's title is how the automatic Retro finds the runs of an issue, and how the end of another run sees
+# this one is going (it keeps factory:working). A label event that `claim`'s condition skips (the Factory's own swaps
+# included) names no issue, or every Escalation would leave the label behind until the next scan.
+run-name: "${{ (github.event_name == 'workflow_dispatch' || github.event.label.name == (vars.FACTORY_LABELS_READY_FOR_AGENT || 'ready-for-agent')) && format('#{0} {1}', github.event.issue.number || inputs.issue, github.event.issue.title || 'Factory issue') || 'Factory issue: another label' }}"
 
 on:
   issues:
@@ -190,8 +192,10 @@ jobs:
           path: ${{ runner.temp }}/out
       - name: publish
         id: publish
+        # GITHUB_TOKEN only puts factory:working on the PR this step opens; FACTORY_TOKEN does every other write.
         env:
           FACTORY_TOKEN: ${{ secrets.FACTORY_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
           START_SHA: ${{ needs.claim.outputs.start_sha }}
         run: |
           mkdir -p "$RUNNER_TEMP/out"

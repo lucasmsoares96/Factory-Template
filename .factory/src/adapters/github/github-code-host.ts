@@ -56,6 +56,8 @@ const activeRunRow = z.object({ id: z.number(), path: z.string(), display_title:
 const ACTIVE_STATUSES = ["queued", "in_progress", "waiting", "pending", "requested"];
 /** The workflows whose runs work on an issue or a pull request. */
 const FACTORY_WORKFLOWS = new Set(["factory-issue.yml", "factory-pr-feedback.yml", "factory-update-branches.yml", "factory-triage.yml", "factory-retro.yml"]);
+/** The `run-name` of a Triage run that works on the batch; any other label event names itself otherwise and ends at once. */
+const TRIAGE_RUN = "Factory triage";
 const jobRow = z.object({ id: z.number(), name: z.string(), conclusion: z.string().nullable(), html_url: z.string().nullable() });
 /** A run that ended like this has no failed job to read. */
 const CLEAN_RUN = new Set(["success", "skipped", "neutral"]);
@@ -262,13 +264,14 @@ export class GitHubCodeHost implements CodeHost {
     if (response?.errors?.length) throw new Error(`GitHub could not react to review ${target.id}: ${response.errors.map((e) => e.message).join("; ")}`);
   }
 
-  /** The repository's runs in each status that has not ended, kept when their workflow is a Factory one. */
+  /** The repository's runs in each status that has not ended, kept when their workflow is a Factory one (a Triage run only when it triages). */
   async activeRuns(): Promise<ActiveRun[]> {
     const found: ActiveRun[] = [];
     for (const status of ACTIVE_STATUSES) {
       for (const run of await this.api.listIn(this.api.repoPath(`/actions/runs?status=${status}`), "workflow_runs", activeRunRow)) {
         const workflow = run.path.split("/").at(-1)!.split("@")[0]!;
-        if (FACTORY_WORKFLOWS.has(workflow)) found.push({ id: run.id, workflow, ...runTarget(run.display_title) });
+        if (!FACTORY_WORKFLOWS.has(workflow) || (workflow === "factory-triage.yml" && run.display_title !== TRIAGE_RUN)) continue;
+        found.push({ id: run.id, workflow, ...runTarget(run.display_title) });
       }
     }
     return found;

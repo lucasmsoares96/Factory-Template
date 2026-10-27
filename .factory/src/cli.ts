@@ -22,8 +22,11 @@ import { dockerCli } from "./local/docker.ts";
 export interface FactoryDeps {
   env: Record<string, string | undefined>;
   log: (line: string) => void;
-  /** Built only when a command needs them; `repo` is the checkout the command works in. */
-  adapters: (input: { config: FactoryConfig; repo: string }) => Adapters;
+  /**
+   * Built only when a command needs them; `repo` is the checkout the command works in. `jobToken`: write with the
+   * job's GITHUB_TOKEN even where FACTORY_TOKEN is set (a job-token write starts no workflow).
+   */
+  adapters: (input: { config: FactoryConfig; repo: string; jobToken?: boolean }) => Adapters;
   /** Clock in milliseconds; defaults to `Date.now`. */
   now?: () => number;
   /** Where `local` runs the work job; defaults to a Docker container. */
@@ -283,6 +286,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
         startSha: values["start-sha"] || null,
         runUrl: values["run-url"] || runUrlFromEnv(deps.env),
         pr: values.pr ? parseIssue(values.pr) : null,
+        markWorking: async (pr) => await deps.adapters({ config, repo: values.repo, jobToken: true }).codeHost.labelPr(pr, config.labels.working),
       });
       deps.log(JSON.stringify(result));
       if (deps.env.GITHUB_OUTPUT) {

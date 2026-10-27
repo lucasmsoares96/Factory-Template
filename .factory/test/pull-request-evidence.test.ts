@@ -89,7 +89,7 @@ describe("evidence in the pull request body", () => {
     const { w, pr } = await issueRun({ stage: writes("## Summary\n\nGreets.") });
 
     expect(pr.comments).toEqual([]);
-    expect(w.codeHost.writes).toEqual(["push factory/issue-7", "openDraftPr #101", "submitReview #101", "markReady #101"]);
+    expect(w.codeHost.writes).toEqual(["push factory/issue-7", "openDraftPr #101", "labelPr #101 factory:working", "submitReview #101", "markReady #101"]);
   });
 });
 

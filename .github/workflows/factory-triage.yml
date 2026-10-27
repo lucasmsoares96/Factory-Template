@@ -10,6 +10,9 @@
 # every issue still in Triage, so nothing is lost. Off until `pnpm bootstrap factory` sets FACTORY_ENABLED. A change to
 # this file takes effect once it is on the default branch.
 name: Factory triage
+# Only a run `start`'s condition lets through is `Factory triage`: while one is queued or going, the issues still in
+# Triage keep factory:working. Any other label event would keep them for a run that ends at once.
+run-name: "${{ (github.event_name == 'workflow_dispatch' || github.event.label.name == (vars.FACTORY_LABELS_AGENT_EXPLORE || 'agent:explore')) && 'Factory triage' || 'Factory triage: another label' }}"
 
 on:
   issues:

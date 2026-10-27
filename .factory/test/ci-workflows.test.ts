@@ -675,7 +675,7 @@ describe.each([[WORKFLOWS_DIR]])("Factory retro workflow in %s", (dir) => {
 
   it("the Factory workflows put `#N` in their run titles, which is how the Retro finds an issue's runs", () => {
     const runName = (file: string) => (workflows[file] as unknown as { "run-name"?: string })["run-name"] ?? "";
-    expect(runName("factory-issue.yml")).toContain("#${{ github.event.issue.number || inputs.issue }}");
+    expect(runName("factory-issue.yml")).toContain("format('#{0} {1}', github.event.issue.number || inputs.issue,");
     expect(runName("factory-update-branches.yml")).toContain("format('#{0} update branch', inputs.issue)");
   });
 });
@@ -969,6 +969,12 @@ describe("factory:working in the workflows", () => {
     expect(workflows["factory-triage.yml"]!.jobs.start!.permissions).toMatchObject({ issues: "write" });
   });
 
+  it("the issue flow's publish holds the job token too, to label the PR it opens without starting a workflow", () => {
+    const step = steps(workflows["factory-issue.yml"]!.jobs.publish!).find((s) => s.name === "publish")!;
+    expect(step.env?.GITHUB_TOKEN).toBe("${{ github.token }}");
+    expect(step.env?.FACTORY_TOKEN).toBe("${{ secrets.FACTORY_TOKEN }}");
+  });
+
   it("the issue flow clears the PR its claim marked, even when publish closed it", () => {
     const issue = workflows["factory-issue.yml"]!;
     expect((issue.jobs.claim as unknown as { outputs: Record<string, string> }).outputs.pr).toBe("${{ steps.claim.outputs.pr }}");
@@ -1002,10 +1008,24 @@ describe("factory:working in the workflows", () => {
 
   it("every workflow that works on an issue or a PR names it in its run title, which is how a run is matched to them", () => {
     const runName = (file: string) => (workflows[file] as unknown as { "run-name"?: string })["run-name"] ?? "";
-    expect(runName("factory-issue.yml")).toContain("#${{ github.event.issue.number || inputs.issue }}");
+    expect(runName("factory-issue.yml")).toContain("format('#{0} {1}', github.event.issue.number || inputs.issue,");
     expect(runName("factory-update-branches.yml")).toContain("format('PR #{0} update branch', inputs.pr)");
-    expect(runName("factory-pr-feedback.yml")).toBe("PR #${{ github.event.pull_request.number || github.event.issue.number }} feedback");
+    expect(runName("factory-pr-feedback.yml")).toContain("format('PR #{0} feedback', github.event.pull_request.number || github.event.issue.number)");
     expect(runName("factory-retro.yml")).toContain("format('#{0}', inputs.issue)");
+  });
+
+  // The end of a run keeps the label while another run is queued or going on the same issue or PR. A run that the
+  // first job's own condition skips (the Factory's own label swaps and marked texts start many) must not count.
+  it.each([
+    ["factory-issue.yml", "claim", "Factory issue: another label"],
+    ["factory-pr-feedback.yml", "wait", "Factory PR feedback: not for the Factory"],
+    ["factory-triage.yml", "start", "Factory triage: another label"],
+  ])("%s names an issue or PR in its run title only when its `%s` condition lets the event through", (file, job, other) => {
+    const runName = (workflows[file] as unknown as { "run-name": string })["run-name"];
+    const gate = workflows[file]!.jobs[job]!.if!.replace(/^\$\{\{ vars\.FACTORY_ENABLED == 'true' && /, "").replace(/ \}\}$/, "");
+    expect([`${"${{"} ${gate} && `, `${"${{"} (${gate}) && `].some((start) => runName.startsWith(start)), `${file}: ${runName}`).toBe(true);
+    expect(runName.endsWith(` || '${other}' }}`)).toBe(true);
+    expect(other).not.toContain("#");
   });
 
   it("the feedback claim hands over the comment or review that started the round, for its 👀", () => {
