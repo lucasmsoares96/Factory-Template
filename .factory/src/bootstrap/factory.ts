@@ -103,5 +103,20 @@ export const claudeAuth: Step = {
   },
 };
 
-/** The Factory module: labels, the Factory token and Claude's auth. FACTORY_ENABLED is set after the doctor. */
-export const factorySteps: Step[] = [labels, factoryToken, claudeAuth];
+/**
+ * The repo lets a pull request merge itself once `verify` is green: the skills update (`factory-skills-update.yml`,
+ * ADR 0013) relies on it to take upstream skills with no one looking. The Factory's own pull requests never turn it on.
+ */
+export const autoMerge: Step = {
+  id: "auto-merge",
+  title: "Auto-merge allowed (for the skills update)",
+  async check(ctx) {
+    return { done: await ctx.github.autoMergeAllowed() };
+  },
+  async run(ctx) {
+    await ctx.github.allowAutoMerge();
+  },
+};
+
+/** The Factory module: labels, the Factory token, Claude's auth and auto-merge. FACTORY_ENABLED is set after the doctor. */
+export const factorySteps: Step[] = [labels, factoryToken, claudeAuth, autoMerge];
