@@ -38,7 +38,7 @@ test("GET /api/me answers the signed-in user from the session cookie", async () 
   const response = await worker.fetch("/api/me", { headers: { cookie } });
 
   expect(response.status).toBe(200);
-  expect(await response.json()).toEqual({ id: user.id, name: "Ana Souza", email: user.email });
+  expect(await response.json()).toEqual({ id: user.id, name: "Ana Souza", email: user.email, pendingEmail: null });
 });
 
 test("GET /api/me answers 401 UNAUTHENTICATED without a session", async () => {
