@@ -165,13 +165,16 @@ describe("factory publish: Escalation", () => {
   });
 
   it("starts no Retro when FACTORY_RETRO_ENABLED is false", async () => {
+    const jobCodeHost = new FakeCodeHost({ branches: {}, prs: [], self: OWNER });
     const { w, output } = await pipeline({
       agent: { development: [() => ({ output: "<needs-human>Which locale?</needs-human>" })] },
       env: { FACTORY_RETRO_ENABLED: "false" },
+      jobCodeHost,
     });
 
     expect(output).toMatchObject({ outcome: "escalated" });
     expect(w.codeHost.dispatches).toEqual([]);
+    expect(jobCodeHost.dispatches).toEqual([]);
   });
 
   it("an Escalation still lands when the Retro cannot be started", async () => {
