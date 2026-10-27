@@ -192,7 +192,7 @@ describe("CODING_STANDARDS.md", () => {
 describe("docs/forgejo-install-prompt.md", () => {
   const prompt = () => read("docs/forgejo-install-prompt.md");
 
-  it("exists as the one prompt that installs the Factory on a Forgejo repo", () => {
+  it("exists and opens with a title", () => {
     expect(prompt()).toMatch(/^# /);
   });
 
@@ -222,6 +222,14 @@ describe("docs/forgejo-install-prompt.md", () => {
     const leaveOut = prompt().split("\n").find((line) => line.startsWith("Leave out:"));
     expect(leaveOut).toBeDefined();
     for (const path of ["packages/skeleton/", "apps/", ".factory/src/bootstrap/"]) expect(leaveOut).toContain(path);
+  });
+
+  it("keeps the review events that carry pull request feedback among the Forgejo events", () => {
+    const workflows = prompt().split(/^## /m).find((section) => section.startsWith("2. "));
+    expect(workflows).toBeDefined();
+    for (const event of ["issue_comment", "pull_request_review", "pull_request_review_comment"]) {
+      expect(workflows).toContain(`\`${event}\``);
+    }
   });
 
   it("ends by driving a test issue end to end to the Merge Gate", () => {
