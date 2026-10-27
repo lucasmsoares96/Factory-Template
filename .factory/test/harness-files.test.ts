@@ -188,3 +188,44 @@ describe("CODING_STANDARDS.md", () => {
     for (const file of AGENTS_FILES) expect(read(file), file).not.toContain("CODING_STANDARDS");
   });
 });
+
+describe("docs/forgejo-install-prompt.md", () => {
+  const prompt = () => read("docs/forgejo-install-prompt.md");
+
+  it("exists as the one prompt that installs the Factory on a Forgejo repo", () => {
+    expect(existsSync(join(repo, "docs/forgejo-install-prompt.md"))).toBe(true);
+    expect(prompt()).toMatch(/^# /);
+  });
+
+  it.each([
+    "`Tracker`",
+    "`CodeHost`",
+    "`Verify`",
+    "--ephemeral",
+    "one-job",
+    "block_on_outdated_branch",
+    "status_check_contexts",
+    ".forgejo/workflows/",
+    "pull_request_target",
+    "write:repository",
+    "`WIP:`",
+    "factory-retro.yml",
+    "merge_when_checks_succeed",
+    "agent:explore",
+    "Conversation",
+    "` #`",
+    "end to end",
+  ])("mentions %s", (term) => {
+    expect(prompt()).toContain(term);
+  });
+
+  it("leaves the Skeleton and the Products out", () => {
+    expect(prompt()).toMatch(/packages\/skeleton\//);
+    expect(prompt()).toMatch(/apps\//);
+  });
+
+  it("is linked from docs/forgejo.md and the docs index", () => {
+    expect(read("docs/forgejo.md")).toContain("(forgejo-install-prompt.md)");
+    expect(read("docs/README.md")).toContain("forgejo-install-prompt.md");
+  });
+});
