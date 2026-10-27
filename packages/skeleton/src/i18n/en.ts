@@ -100,6 +100,17 @@ export const en = {
         submit: "Delete Company",
         submitting: "Deleting…",
       },
+      transfer: {
+        title: "Transfer ownership",
+        description:
+          "The Member you choose becomes the Owner right away, without having to accept, and you become an Employee. Only the new Owner can give it back.",
+        recipient: "New Owner",
+        choose: "Choose a Member",
+        member: "{name} ({email})",
+        confirm: "To confirm the transfer, type {name}",
+        submit: "Transfer ownership",
+        submitting: "Transferring…",
+      },
     },
   },
   invitations: {

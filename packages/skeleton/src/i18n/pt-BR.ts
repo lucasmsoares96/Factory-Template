@@ -95,6 +95,17 @@ export const ptBR: Messages = {
         submit: "Apagar Company",
         submitting: "Apagando…",
       },
+      transfer: {
+        title: "Transferir a posse",
+        description:
+          "O Member escolhido vira o Owner na hora, sem precisar aceitar, e você vira Employee. Só o novo Owner pode devolvê-la.",
+        recipient: "Novo Owner",
+        choose: "Escolha um Member",
+        member: "{name} ({email})",
+        confirm: "Para confirmar a transferência, digite {name}",
+        submit: "Transferir a posse",
+        submitting: "Transferindo…",
+      },
     },
   },
   invitations: {

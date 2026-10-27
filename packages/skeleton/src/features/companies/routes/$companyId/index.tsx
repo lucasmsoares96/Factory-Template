@@ -1,15 +1,13 @@
-import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Alert, AlertDescription } from "#ui/alert";
 import { Button, buttonVariants } from "#ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "#ui/card";
-import { listMembers } from "../../../../gen/clients/listMembers.ts";
 import { useGetCompany } from "../../../../gen/hooks/useGetCompany.ts";
 import { useGetNav } from "../../../../gen/hooks/useGetNav.ts";
-import { listMembersQueryKey } from "../../../../gen/hooks/useListMembers.ts";
 import { useErrorMessage, useMessages } from "../../../../client/i18n.tsx";
 import { format } from "../../../../i18n/index.ts";
 import { CompanySettings } from "../../company-settings.tsx";
+import { useMembers } from "../../members.ts";
 import { InvitationsSection } from "../../../invitations/invitations-section.tsx";
 import { useRoleLabel } from "../../role-label.ts";
 
@@ -19,7 +17,7 @@ export const Route = createFileRoute("/_signed-in/c/$companyId/")({ component: C
 /**
  * The Company page: its name and the user's role, the features' `companyPage`
  * sections (`GET /api/nav`), the Members and, for the Owner only, the Invitations
- * and the settings (rename, delete). Opening it makes it the Company the user
+ * and the settings (rename, delete, transfer). Opening it makes it the Company the user
  * lands on next time (the API records it on `GET /api/companies/{companyId}`).
  */
 function CompanyPage() {
@@ -77,13 +75,7 @@ function Members({ companyId }: { companyId: string }) {
   const t = useMessages();
   const errorMessage = useErrorMessage();
   const roleLabel = useRoleLabel();
-  const path = { companyId };
-  const members = useInfiniteQuery({
-    queryKey: [...listMembersQueryKey({ path }), "pages"],
-    queryFn: ({ pageParam }) => listMembers({ path, query: pageParam ? { cursor: pageParam } : {} }),
-    initialPageParam: "",
-    getNextPageParam: (page) => page.nextCursor ?? undefined,
-  });
+  const members = useMembers(companyId);
 
   return (
     <Card>
