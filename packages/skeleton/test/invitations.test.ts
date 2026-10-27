@@ -30,10 +30,8 @@ afterAll(async () => {
 
 const DAY = 24 * 60 * 60 * 1000;
 
-async function signedInUser(name = "Ana Souza") {
-  const user = await testAuth.saveUser(
-    testAuth.createUser({ name, email: `user-${randomUUID()}@example.com`, emailVerified: true }),
-  );
+async function signedInUser(name = "Ana Souza", email = `user-${randomUUID()}@example.com`) {
+  const user = await testAuth.saveUser(testAuth.createUser({ name, email, emailVerified: true }));
   const headers = await testAuth.getAuthHeaders({ userId: user.id });
   return { user, cookie: headers.get("cookie")! };
 }
@@ -52,7 +50,7 @@ async function createCompany(cookie: string, name = "Acme") {
   return (await response.json()) as { id: string; name: string };
 }
 
-/** Makes a user a Member of a Company (accepting an Invitation comes later: the test writes the row itself). */
+/** Makes a user a Member of a Company without an Invitation: the test writes the row itself. */
 function join(companyId: string, userId: string, role = "employee") {
   return db.query(`INSERT INTO skeleton.members (company_id, user_id, role) VALUES ('${companyId}', '${userId}', '${role}')`);
 }
@@ -265,7 +263,6 @@ test("the pending list leaves out canceled and accepted Invitations, and those o
   );
   await invite(other.id, ana.cookie, { email: newAddress(), role: "employee" });
   await api(`/api/companies/${company.id}/invitations/${canceled!.id}`, { cookie: ana.cookie, method: "DELETE" });
-  // Accepting comes later: the test marks the row itself.
   await db.query(`UPDATE skeleton.invitations SET accepted_at = now() WHERE id = '${accepted!.id}'`);
 
   const page = await pendingOf(company.id, ana.cookie);
@@ -411,6 +408,167 @@ test("every Invitation route is described in the OpenAPI document", async () => 
       ["listInvitations", "/api/companies/{companyId}/invitations", ["200", "400", "401", "403", "404"]],
       ["resendInvitation", "/api/companies/{companyId}/invitations/{invitationId}/resend", ["200", "401", "403", "404"]],
       ["cancelInvitation", "/api/companies/{companyId}/invitations/{invitationId}", ["204", "401", "403", "404"]],
+      ["getInvitationByToken", "/api/invitations/{token}", ["200", "404", "410"]],
+      ["acceptInvitation", "/api/invitations/{token}/accept", ["200", "401", "403", "404", "410"]],
     ]),
   );
+});
+
+/** The Owner of a new Company invites `address`; answers the Company and the link's token. */
+async function invitedTo(address: string, { role = "employee", name = "Acme" } = {}) {
+  const owner = await signedInUser("Ana Souza");
+  const company = await createCompany(owner.cookie, name);
+  const response = await invite(company.id, owner.cookie, { email: address, role });
+  expect(response.status).toBe(201);
+  const invitation = (await response.json()) as Invitation;
+  return { owner, company, invitation, token: tokenIn(emailsTo(address).at(-1)!) };
+}
+
+const accept = (token: string, cookie?: string) => api(`/api/invitations/${token}/accept`, { cookie, method: "POST" });
+
+test("the link answers the Company's name, the role and the invited address, to a visitor without a session", async () => {
+  const address = newAddress();
+  const { company, invitation, token } = await invitedTo(address, { name: "Acme" });
+
+  const response = await api(`/api/invitations/${token}`);
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({
+    companyId: company.id,
+    companyName: "Acme",
+    email: address,
+    role: "employee",
+    expiresAt: invitation.expiresAt,
+    alreadyMember: false,
+  });
+});
+
+test("accepting with the invited email makes a Member with the Invitation's role, marks it accepted and runs memberJoined", async () => {
+  await db.query(`INSERT INTO skeleton.member_roles (id) VALUES ('manager') ON CONFLICT DO NOTHING`);
+  const address = newAddress();
+  const { owner, company, invitation, token } = await invitedTo(address, { role: "manager", name: "Acme" });
+  const bruno = await signedInUser("Bruno Lima", address);
+
+  const response = await accept(token, bruno.cookie);
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ id: company.id, name: "Acme", role: "manager", createdAt: expect.any(String) });
+  expect(await db.query(`SELECT role FROM skeleton.members WHERE company_id = '${company.id}' AND user_id = '${bruno.user.id}'`)).toEqual([
+    { role: "manager" },
+  ]);
+  const [row] = await db.query<{ accepted_at: Date | null }>(`SELECT accepted_at FROM skeleton.invitations WHERE id = '${invitation.id}'`);
+  expect(row!.accepted_at).toBeInstanceOf(Date);
+  expect((await pendingOf(company.id, owner.cookie)).items).toEqual([]);
+  // The test composition's `notes` feature records each event in `public.joined_members`.
+  expect(await db.query(`SELECT user_id FROM public.joined_members WHERE company_id = '${company.id}' AND user_id = '${bruno.user.id}'`)).toEqual([
+    { user_id: bruno.user.id },
+  ]);
+  // The new Member sees the Company among theirs.
+  const companies = (await (await api("/api/companies", { cookie: bruno.cookie })).json()) as { items: { id: string }[] };
+  expect(companies.items.map(({ id }) => id)).toEqual([company.id]);
+});
+
+test("accepting signed in with another email answers 403 INVITATION_EMAIL_MISMATCH and leaves the Invitation pending", async () => {
+  const address = newAddress();
+  const { owner, company, token } = await invitedTo(address);
+  const mallory = await signedInUser("Mallory");
+
+  const response = await accept(token, mallory.cookie);
+
+  expect(response.status).toBe(403);
+  expect(await response.json()).toEqual({
+    code: "INVITATION_EMAIL_MISMATCH",
+    message: "This Invitation is for another email address. Sign in with that address to accept it.",
+  });
+  expect(await db.query(`SELECT 1 FROM skeleton.members WHERE company_id = '${company.id}' AND user_id = '${mallory.user.id}'`)).toEqual([]);
+  expect((await pendingOf(company.id, owner.cookie)).items.map(({ email }) => email)).toEqual([address]);
+});
+
+test("an expired, a canceled or an accepted Invitation answers 410 INVITATION_EXPIRED; an unknown token 404 NOT_FOUND", async () => {
+  const expired = newAddress();
+  const canceled = newAddress();
+  const accepted = newAddress();
+  const a = await invitedTo(expired);
+  const b = await invitedTo(canceled);
+  const c = await invitedTo(accepted);
+  await db.query(`UPDATE skeleton.invitations SET expires_at = now() - interval '1 second' WHERE id = '${a.invitation.id}'`);
+  await api(`/api/companies/${b.company.id}/invitations/${b.invitation.id}`, { cookie: b.owner.cookie, method: "DELETE" });
+  // Accepted, then the Member left: the link does not let them back in.
+  await db.query(`UPDATE skeleton.invitations SET accepted_at = now() WHERE id = '${c.invitation.id}'`);
+
+  for (const [address, token] of [[expired, a.token], [canceled, b.token], [accepted, c.token]] as const) {
+    const user = await signedInUser("Bruno Lima", address);
+    for (const response of [await api(`/api/invitations/${token}`), await api(`/api/invitations/${token}`, { cookie: user.cookie }), await accept(token, user.cookie)]) {
+      expect(response.status, address).toBe(410);
+      expect(await response.json()).toEqual({ code: "INVITATION_EXPIRED", message: "This Invitation expired or was canceled. Ask for a new one." });
+    }
+    expect(await db.query(`SELECT 1 FROM skeleton.members WHERE user_id = '${user.user.id}'`)).toEqual([]);
+  }
+
+  const someone = await signedInUser();
+  for (const response of [await api("/api/invitations/unknown-token"), await accept("unknown-token", someone.cookie)]) {
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ code: "NOT_FOUND", message: "Not found." });
+  }
+});
+
+test("a Member who opens the link goes to the Company without an error, and joins nothing twice", async () => {
+  const address = newAddress();
+  const { owner, company, token } = await invitedTo(address);
+  const bruno = await signedInUser("Bruno Lima", address);
+  expect((await accept(token, bruno.cookie)).status).toBe(200);
+
+  // The invited person opens the link again, and the Owner opens it too.
+  for (const [user, role] of [[bruno, "employee"], [owner, "owner"]] as const) {
+    const preview = await api(`/api/invitations/${token}`, { cookie: user.cookie });
+    expect(preview.status).toBe(200);
+    expect(await preview.json()).toMatchObject({ companyId: company.id, alreadyMember: true });
+    const again = await accept(token, user.cookie);
+    expect(again.status).toBe(200);
+    expect(await again.json()).toMatchObject({ id: company.id, role });
+  }
+  expect(await db.query(`SELECT user_id FROM public.joined_members WHERE company_id = '${company.id}' AND user_id = '${bruno.user.id}'`)).toHaveLength(1);
+  expect(await db.query(`SELECT role FROM skeleton.members WHERE company_id = '${company.id}' ORDER BY role`)).toEqual([
+    { role: "employee" },
+    { role: "owner" },
+  ]);
+});
+
+test("accepting needs a signed-in user: without a session it answers 401", async () => {
+  const address = newAddress();
+  const { token } = await invitedTo(address);
+
+  const response = await accept(token);
+
+  expect(response.status).toBe(401);
+  expect(await response.json()).toMatchObject({ code: "UNAUTHENTICATED" });
+});
+
+test("the invited address matches whatever its case: an Invitation to BRUNO@ is accepted by Bruno@", async () => {
+  const local = `guest-${randomUUID()}`;
+  const owner = await signedInUser("Ana Souza");
+  const company = await createCompany(owner.cookie);
+  expect((await invite(company.id, owner.cookie, { email: `${local.toUpperCase()}@EXAMPLE.COM`, role: "employee" })).status).toBe(201);
+  const token = tokenIn(emailsTo(`${local}@example.com`).at(-1)!);
+  const bruno = await signedInUser("Bruno Lima", `${local[0]!.toUpperCase()}${local.slice(1)}@Example.com`);
+
+  const response = await accept(token, bruno.cookie);
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ id: company.id, role: "employee" });
+});
+
+test("two accepts of the same link at once make one Member, and memberJoined runs once", async () => {
+  const address = newAddress();
+  const { company, token } = await invitedTo(address);
+  const bruno = await signedInUser("Bruno Lima", address);
+
+  const responses = await Promise.all([accept(token, bruno.cookie), accept(token, bruno.cookie)]);
+
+  for (const response of responses) {
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ id: company.id, role: "employee" });
+  }
+  expect(await db.query(`SELECT 1 FROM skeleton.members WHERE company_id = '${company.id}' AND user_id = '${bruno.user.id}'`)).toHaveLength(1);
+  expect(await db.query(`SELECT 1 FROM public.joined_members WHERE company_id = '${company.id}' AND user_id = '${bruno.user.id}'`)).toHaveLength(1);
 });

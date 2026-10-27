@@ -5,28 +5,39 @@ import { Alert, AlertDescription } from "#ui/alert";
 import { Button, buttonVariants } from "#ui/button";
 import { Input } from "#ui/input";
 import { Label } from "#ui/label";
-import { EMAIL_VERIFIED_PATH, authClient, orThrow } from "../../../client/auth.ts";
+import { authClient, emailVerifiedURL, orThrow } from "../../../client/auth.ts";
 import { AuthCard } from "../../../client/components/auth-card.tsx";
 import { useErrorMessage, useMessages } from "../../../client/i18n.tsx";
 
-export const Route = createFileRoute("/sign-up")({ component: SignUp });
+type SignUpSearch = {
+  /** Where to go once the email is verified and the user signed in (an Invitation link, say). */
+  redirect?: string;
+};
+
+export const Route = createFileRoute("/sign-up")({
+  validateSearch: (search: Record<string, unknown>): SignUpSearch => ({
+    redirect: typeof search.redirect === "string" ? search.redirect : undefined,
+  }),
+  component: SignUp,
+});
 
 function SignUp() {
   const t = useMessages().auth.signUp;
   const errorMessage = useErrorMessage();
   const navigate = useNavigate();
+  const { redirect } = Route.useSearch();
   const [error, setError] = useState<unknown>();
   const form = useForm({
     defaultValues: { name: "", email: "", password: "" },
     onSubmit: async ({ value }) => {
       setError(undefined);
       try {
-        await orThrow(authClient.signUp.email({ ...value, callbackURL: EMAIL_VERIFIED_PATH }));
+        await orThrow(authClient.signUp.email({ ...value, callbackURL: emailVerifiedURL(redirect) }));
       } catch (failure) {
         setError(failure);
         return;
       }
-      await navigate({ to: "/check-email", search: { email: value.email } });
+      await navigate({ to: "/check-email", search: { email: value.email, redirect } });
     },
   });
 
@@ -105,7 +116,7 @@ function SignUp() {
       </form>
       <p className="text-muted-foreground text-sm">
         {t.haveAccount}{" "}
-        <Link to="/sign-in" className={buttonVariants({ variant: "link", size: "sm" })}>
+        <Link to="/sign-in" search={{ redirect }} className={buttonVariants({ variant: "link", size: "sm" })}>
           {t.signIn}
         </Link>
       </p>
