@@ -22,6 +22,9 @@ const review: AgentStep = () => ({
 });
 const e2eFails: VerifyStep = { ok: false, failedCommand: "pnpm --filter example test:e2e", output: "x".repeat(6000) + "\nexpected 200, got 500" };
 
+/** The code host of the job token (`GITHUB_TOKEN`), apart from the forge token's one. */
+const jobHost = () => new FakeCodeHost({ branches: {}, prs: [], self: OWNER });
+
 /**
  * claim → work → publish → working off through the CLI, each job on its own checkout.
  * `between` runs after work and before publish, to change forge state.
@@ -140,7 +143,7 @@ describe("factory publish: Escalation", () => {
   });
 
   it("dispatches the Retro with the job token, not the forge token", async () => {
-    const jobCodeHost = new FakeCodeHost({ branches: {}, prs: [], self: OWNER });
+    const jobCodeHost = jobHost();
     const asks: AgentStep = async (call) => ({ ...(await develop(call)), output: "<needs-human>Which copy?</needs-human>" });
     const { w } = await pipeline({ agent: { development: [asks] }, jobCodeHost });
 
@@ -148,8 +151,25 @@ describe("factory publish: Escalation", () => {
     expect(w.codeHost.dispatches).toEqual([]);
   });
 
+  it("dispatches the Retro of a continued pull request's Escalation with the job token", async () => {
+    const jobCodeHost = jobHost();
+    const asks: AgentStep = async (call) => ({ ...(await develop(call)), output: "<needs-human>Which copy?</needs-human>" });
+    const { w, output } = await pipeline({
+      agent: { development: [asks] },
+      branches: { "factory/issue-7": OLD_SHA },
+      prs: [{ number: 55, branch: "factory/issue-7", draft: false, headSha: OLD_SHA }],
+      publishArgs: ["--pr", "55"],
+      skipClaim: true,
+      jobCodeHost,
+    });
+
+    expect(output).toMatchObject({ outcome: "escalated", reason: "needs-human", pr: 55 });
+    expect(jobCodeHost.dispatches).toEqual([{ workflow: "retro", inputs: { issue: "7", pr: "55" } }]);
+    expect(w.codeHost.dispatches).toEqual([]);
+  });
+
   it("an Escalation still lands when the job token may not dispatch the Retro", async () => {
-    const jobCodeHost = new FakeCodeHost({ branches: {}, prs: [], self: OWNER });
+    const jobCodeHost = jobHost();
     jobCodeHost.dispatch = async () => {
       throw new Error("403 Resource not accessible");
     };
@@ -165,7 +185,7 @@ describe("factory publish: Escalation", () => {
   });
 
   it("starts no Retro when FACTORY_RETRO_ENABLED is false", async () => {
-    const jobCodeHost = new FakeCodeHost({ branches: {}, prs: [], self: OWNER });
+    const jobCodeHost = jobHost();
     const { w, output } = await pipeline({
       agent: { development: [() => ({ output: "<needs-human>Which locale?</needs-human>" })] },
       env: { FACTORY_RETRO_ENABLED: "false" },
