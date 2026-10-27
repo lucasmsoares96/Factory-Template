@@ -50,6 +50,14 @@ describe("pnpm bootstrap factory: Factory module", () => {
     expect(output).toMatch(/cannot tell whether the token has the Workflows permission/);
   });
 
+  it("allows auto-merge on the repo, which the skills update needs, and leaves it on a rerun", async () => {
+    const w = factoryWorld({}, { CLAUDE_CODE_OAUTH_TOKEN: "x" });
+
+    await w.run("factory");
+
+    expect(w.github.autoMerge).toBe(true);
+  });
+
   it("makes the labels the Factory uses", async () => {
     const w = factoryWorld({}, { CLAUDE_CODE_OAUTH_TOKEN: "x" });
 

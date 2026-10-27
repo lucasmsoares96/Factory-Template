@@ -43,6 +43,10 @@ export interface GitHubClient {
   listRulesets(): Promise<RulesetInfo[]>;
   /** `refused` as for environments. */
   createRuleset(spec: RulesetSpec): Promise<"created" | "refused">;
+  /** Whether the repo lets a pull request merge itself once its checks pass (`allow_auto_merge`). */
+  autoMergeAllowed(): Promise<boolean>;
+  /** Turns `allow_auto_merge` on: the skills update (ADR 0013) merges with no one looking. */
+  allowAutoMerge(): Promise<void>;
   /** Turns on "require branches to be up to date before merging" in ruleset `id`, leaving its other rules as they are. `refused` as for environments. */
   requireUpToDate(id: number): Promise<"updated" | "refused">;
   /** Deletes a secret of the repo or of one environment (only `destroy` calls the delete methods). */

@@ -63,7 +63,7 @@ Options:
                          for the product command: neon-project, github-environment, database-secrets, auth-secret,
                          default-account (asks again, resets the password and the secret), the four domain steps, main-ruleset, deploy-products;
                          for the previews command: preview-environment, preview-neon-project, preview-neon-key, preview-kv, preview-products;
-                         for the factory command: labels, factory-token (asks for the token again), claude-auth.
+                         for the factory command: labels, factory-token (asks for the token again), claude-auth, auto-merge.
 
 The wizard ends by running the doctor with the credentials it already holds, so one run is enough.
 Run \`pnpm bootstrap doctor [<id>]\` on its own whenever something looks off; it checks Cloudflare with
