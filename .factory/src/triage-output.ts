@@ -121,9 +121,18 @@ export function fallbackVerdict(number: number, why: "timeout" | "invalid", last
   };
 }
 
+/** Whether `text` holds `symbol` as a whole name: `line` is not found in `line7`, nor `/api/note` in `/api/notes`. */
+function holdsName(text: string, symbol: string): boolean {
+  const name = symbol.trim();
+  if (!name) return false;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![\\w$])${escaped}(?![\\w$])`).test(text);
+}
+
 /**
  * Marks each reference `checked` when the file of its `foundAt` (without a `:line` suffix) is inside `repo`
- * and its text contains `symbol`. A reference that fails stays in the verdict, marked unchecked.
+ * and its text holds `symbol` as a whole name (`holdsName`; the line itself is not checked). A reference that
+ * fails stays in the verdict, marked unchecked.
  */
 export async function checkReferences(verdict: Verdict, repo: string): Promise<Verdict> {
   const root = await realpath(repo);
@@ -133,7 +142,7 @@ export async function checkReferences(verdict: Verdict, repo: string): Promise<V
       const file = await realpath(resolve(root, path)).catch(() => null);
       const inside = file !== null && !isAbsolute(path) && !relative(root, file).startsWith("..") && file !== root;
       const text = inside ? await readFile(file, "utf8").catch(() => "") : "";
-      return { symbol, foundAt, checked: text.includes(symbol) };
+      return { symbol, foundAt, checked: holdsName(text, symbol) };
     }),
   );
   return { ...verdict, references };

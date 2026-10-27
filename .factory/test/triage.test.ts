@@ -318,6 +318,21 @@ describe("factory triage + apply", () => {
       expect(comment!.body).toContain("`root` at `../../../../../../etc/passwd`");
     });
 
+    it("a symbol that only appears inside a longer name, or is blank, is unchecked", async () => {
+      // src/app.ts holds `line1` … `line30`: neither `line` nor `ine7` is a name there.
+      const s = await setup({
+        triage: [says(cites({ symbol: "line", foundAt: "src/app.ts" }, { symbol: "ine7", foundAt: "src/app.ts:7" }, { symbol: "  ", foundAt: "src/app.ts" }))],
+      });
+
+      await triage(s);
+      await apply(s);
+
+      const [comment] = triageComments(s.w, 5);
+      expect(comment!.body).not.toContain("**References checked**");
+      expect(comment!.body).toContain("`line` at `src/app.ts`");
+      expect(comment!.body).toContain("`ine7` at `src/app.ts:7`");
+    });
+
     it("the agent cannot mark its own reference checked", async () => {
       const s = await setup({ triage: [says(cites({ symbol: "PASSWORD_MIN_LENGTH", foundAt: "src/app.ts", checked: true }))] });
 
