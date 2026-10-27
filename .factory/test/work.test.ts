@@ -147,4 +147,11 @@ describe("factory work: a normal issue run", () => {
       expect(prompt).not.toMatch(/supersedes the issue/i);
     }
   });
+
+  it("reads no failed checks and gives the Development no `<checks>` block", async () => {
+    const { repo, out, w } = await setup({ development: [develop], review: [reviewWithFix] }, [{ ok: true }]);
+    expect(await w.factory("work", "7", "--out", out, "--repo", repo)).toBe(0);
+    expect(w.agent.calls.find((c) => c.stage === "development")!.prompt).not.toContain("<checks>");
+    expect(w.codeHost.checkReads).toEqual([]);
+  });
 });

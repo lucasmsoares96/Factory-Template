@@ -95,11 +95,13 @@ jobs:
       cancel-in-progress: false
       queue: max
     # `issues: read` is how `work` reads the issue (the job token cannot write anything).
+    # `actions: read` lets it read the failed jobs of the PR's head and their logs for the Development prompt.
     permissions:
       contents: read
       issues: read
       pull-requests: read
       packages: read
+      actions: read
     container:
       image: ${{ needs.image.outputs.image }}
       credentials:

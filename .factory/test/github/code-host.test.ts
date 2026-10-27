@@ -273,6 +273,52 @@ describe("GitHubCodeHost", () => {
 
     expect(s.calls[0]!.body).toEqual({ ref: "main", inputs: { issue: "7" } });
   });
+
+  describe("failedChecks", () => {
+    const head = "a".repeat(40);
+    const run = (id: number, name: string, conclusion: string | null, status = "completed") => ({ id, name, status, conclusion, head_sha: head, html_url: `https://github.com/o/r/actions/runs/${id}` });
+    const job = (id: number, name: string, conclusion: string | null) => ({ id, name, conclusion, html_url: `https://github.com/o/r/actions/runs/1/job/${id}` });
+    const server = () => {
+      const s = new FakeGitHubServer();
+      s.on("GET", `${R}/pulls/4`, () => ({ json: pr(4) }));
+      s.on("GET", `${R}/actions/runs`, ({ query }) =>
+        query.get("head_sha") === head ? { json: { total_count: 3, workflow_runs: [run(1, "Factory PR", "failure"), run(2, "CI", "success"), run(3, "Factory PR feedback", null, "in_progress")] } } : { json: { total_count: 0, workflow_runs: [] } },
+      );
+      s.on("GET", `${R}/actions/runs/1/jobs`, () => ({ json: { total_count: 4, jobs: [job(11, "build", "success"), job(12, "preview smoke", "failure"), job(13, "deploy", "timed_out"), job(14, "lint", "cancelled")] } }));
+      s.on("GET", `${R}/actions/runs/3/jobs`, () => ({ json: { total_count: 1, jobs: [job(31, "wait", null)] } }));
+      s.on("GET", `${R}/actions/jobs/12/logs`, () => ({ text: Array.from({ length: 50 }, (_, i) => `smoke ${i + 1}`).join("\n") + "\nGET /api/me failed with status 500\n" }));
+      s.on("GET", `${R}/actions/jobs/13/logs`, () => ({ text: "deploying\nThe job has exceeded the maximum execution time\n" }));
+      return s;
+    };
+
+    it("lists the Actions runs of the PR's head, keeps the jobs that failed or timed out and reads the end of each log", async () => {
+      const s = server();
+
+      const checks = await host(s).failedChecks(4, 10);
+
+      expect(checks).toEqual([
+        { name: "Factory PR / preview smoke", url: "https://github.com/o/r/actions/runs/1/job/12", log: [...Array.from({ length: 9 }, (_, i) => `smoke ${i + 42}`), "GET /api/me failed with status 500"].join("\n") },
+        { name: "Factory PR / deploy", url: "https://github.com/o/r/actions/runs/1/job/13", log: "deploying\nThe job has exceeded the maximum execution time" },
+      ]);
+      expect(s.calls.map((c) => c.path.split("?")[0])).not.toContain(`${R}/actions/runs/2/jobs`);
+      expect(s.calls.find((c) => c.path.startsWith(`${R}/actions/runs?`))!.path).toContain(`head_sha=${head}`);
+      expect(s.calls.every((c) => c.headers.get("authorization") === "Bearer tok-123")).toBe(true);
+      expect(s.writes()).toEqual([]);
+    });
+
+    it("throws when a log cannot be read, without the token in the message", async () => {
+      const failing = new FakeGitHubServer();
+      failing.on("GET", `${R}/pulls/4`, () => ({ json: pr(4) }));
+      failing.on("GET", `${R}/actions/runs`, () => ({ json: { total_count: 1, workflow_runs: [run(1, "Factory PR", "failure")] } }));
+      failing.on("GET", `${R}/actions/runs/1/jobs`, () => ({ json: { total_count: 1, jobs: [job(12, "preview smoke", "failure")] } }));
+      failing.on("GET", `${R}/actions/jobs/12/logs`, () => ({ status: 403, json: { message: "Resource not accessible by integration" } }));
+
+      const error = await host(failing).failedChecks(4, 10).catch((e: Error) => e);
+
+      expect((error as Error).message).toMatch(/403.*Resource not accessible by integration/);
+      expect((error as Error).message).not.toContain("tok-123");
+    });
+  });
 });
 
 describe("GitHubCodeHost.push with the real git", () => {

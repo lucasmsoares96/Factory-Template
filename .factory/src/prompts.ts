@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { ThreadReply } from "./replies-output.ts";
 import type { ReviewOutput } from "./result.ts";
-import type { ReviewThread } from "./seams/code-host.ts";
+import type { FailedCheck, ReviewThread } from "./seams/code-host.ts";
 import type { Issue } from "./seams/tracker.ts";
 import type { RetroSources } from "./commands/retro.ts";
 
@@ -152,14 +152,45 @@ export function triagePrompt(ctx: { issues: Issue[] }): string {
   });
 }
 
+/** The failed checks of the PR's head, or why they could not be read. */
+export type ChecksRead = { checks: FailedCheck[] } | { error: string };
+
+/** The end of each failed job's log the prompt keeps, and of all of them together. */
+export const CHECK_LOG_LINES = 200;
+export const CHECK_LOG_TOTAL = 1000;
+
+/** The failed checks, fenced as untrusted content: each log cut to its last lines, the earliest lines dropped first past the total. */
+function checksBlock(read: ChecksRead): string {
+  if ("error" in read) return `The logs of the failed checks could not be read: ${read.error}`;
+  if (read.checks.length === 0) return "(no failed checks)";
+  let left = CHECK_LOG_TOTAL;
+  const kept = read.checks
+    .map((c) => c.log.trimEnd().split(/\r?\n/))
+    .reverse()
+    .map((lines) => {
+      const keep = Math.min(lines.length, CHECK_LOG_LINES, left);
+      left -= keep;
+      return { cut: lines.length - keep, lines: keep === 0 ? [] : lines.slice(-keep) };
+    })
+    .reverse();
+  const attr = (text: string) => text.replaceAll('"', "'");
+  return read.checks
+    .map((c, i) => {
+      const { cut, lines } = kept[i]!;
+      return [`<check name="${attr(c.name)}" url="${attr(c.url)}">`, ...(cut > 0 ? [`[${cut} earlier lines cut]`] : []), ...lines, "</check>"].join("\n");
+    })
+    .join("\n");
+}
+
 /** Review comments on a Factory pull request (ticket 18 runs it). */
-export function prFeedbackPrompt(ctx: { issue: Issue; pr: number; log: string; threads: ReviewThread[] }): string {
+export function prFeedbackPrompt(ctx: { issue: Issue; pr: number; log: string; threads: ReviewThread[]; checks: ChecksRead }): string {
   const threads = ctx.threads.map(threadBlock);
   return renderTemplate("pr-feedback", {
     NUMBER: String(ctx.issue.number),
     PR: String(ctx.pr),
     ISSUE: issueBlock(ctx.issue),
     THREADS: threads.join("\n\n") || "(no open threads)",
+    CHECKS: checksBlock(ctx.checks),
     LOG: ctx.log || "(none)",
   });
 }
