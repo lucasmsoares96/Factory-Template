@@ -105,36 +105,40 @@ export function Members({ companyId, isOwner }: { companyId: string; isOwner: bo
           <tbody>
             {members.data?.pages
               .flatMap((page) => page.items)
-              .map((member) => (
-                <tr key={member.userId} className="border-t">
-                  <td className="py-2">{member.name}</td>
-                  <td className="py-2">{member.email}</td>
-                  <td className="py-2">
-                    {isOwner && me && member.userId !== me.id ? (
-                      <RoleChoice member={member} disabled={busy} onChange={(role) => void onChangeRole(member, role)} />
-                    ) : (
-                      roleLabel(member.role)
-                    )}
-                  </td>
-                  {isOwner ? (
+              .map((member) => {
+                // Nobody changes or removes themselves: the Owner tries Leave instead, and is refused.
+                const manageable = isOwner && me !== undefined && member.userId !== me.id;
+                return (
+                  <tr key={member.userId} className="border-t">
+                    <td className="py-2">{member.name}</td>
+                    <td className="py-2">{member.email}</td>
                     <td className="py-2">
-                      {me && member.userId !== me.id ? (
-                        <div className="flex justify-end">
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            disabled={busy}
-                            aria-label={format(m.remove, { name: member.name })}
-                            onClick={() => void onRemove(member)}
-                          >
-                            {m.removeButton}
-                          </Button>
-                        </div>
-                      ) : null}
+                      {manageable ? (
+                        <RoleChoice member={member} disabled={busy} onChange={(role) => void onChangeRole(member, role)} />
+                      ) : (
+                        roleLabel(member.role)
+                      )}
                     </td>
-                  ) : null}
-                </tr>
-              ))}
+                    {isOwner ? (
+                      <td className="py-2">
+                        {manageable ? (
+                          <div className="flex justify-end">
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              disabled={busy}
+                              aria-label={format(m.remove, { name: member.name })}
+                              onClick={() => void onRemove(member)}
+                            >
+                              {m.removeButton}
+                            </Button>
+                          </div>
+                        ) : null}
+                      </td>
+                    ) : null}
+                  </tr>
+                );
+              })}
           </tbody>
         </table>
         {members.hasNextPage ? (

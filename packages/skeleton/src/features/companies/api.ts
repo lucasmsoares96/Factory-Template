@@ -270,6 +270,10 @@ const leaveCompany = createRoute({
   },
 });
 
+/** The Member `userId` of the Company, unless they are its Owner: the one Member nobody removes or changes. */
+const notTheOwner = (companyId: string, userId: string) =>
+  and(eq(members.companyId, companyId), eq(members.userId, userId), ne(members.role, "owner"));
+
 /** What a Company row is answered as. */
 const companyColumns = { id: companies.id, name: companies.name, createdAt: companies.createdAt, role: members.role };
 
@@ -393,7 +397,7 @@ export const companiesApi = createRouter()
     const [changed] = await c.var.db
       .update(members)
       .set({ role })
-      .where(and(eq(members.companyId, companyId), eq(members.userId, userId), ne(members.role, "owner")))
+      .where(notTheOwner(companyId, userId))
       .returning({ userId: members.userId });
     if (!changed) return c.json(apiError("NOT_FOUND"), 404);
     const [member] = await c.var.db.select({ name: users.name, email: users.email }).from(users).where(eq(users.id, userId));
@@ -406,7 +410,7 @@ export const companiesApi = createRouter()
     // No Connection is revoked: `requireMember` refuses the user's agents on their next call.
     const [removed] = await c.var.db
       .delete(members)
-      .where(and(eq(members.companyId, companyId), eq(members.userId, userId), ne(members.role, "owner")))
+      .where(notTheOwner(companyId, userId))
       .returning({ userId: members.userId });
     if (!removed) return c.json(apiError("NOT_FOUND"), 404);
     return c.body(null, 204);
@@ -416,7 +420,7 @@ export const companiesApi = createRouter()
     if (role === "owner") return c.json(apiError("OWNER_MUST_TRANSFER"), 409);
     const [left] = await c.var.db
       .delete(members)
-      .where(and(eq(members.companyId, companyId), eq(members.userId, userId), ne(members.role, "owner")))
+      .where(notTheOwner(companyId, userId))
       .returning({ userId: members.userId });
     // Removed after `requireMember` found the Member.
     if (!left) return c.json(apiError("NOT_FOUND"), 404);
