@@ -69,6 +69,11 @@ export function resetPasswordHandler(answer: Answer = ok({ status: true })) {
 /** Better Auth's 429, as the Worker answers it (`TOO_MANY_REQUESTS`). */
 export const tooManyRequests = authError(429, "TOO_MANY_REQUESTS", "Too many requests. Try again later.");
 
+/** `POST /api/auth/change-email`: the verification email goes to the new address; the email stays until it is opened. */
+export function changeEmailHandler(answer: Answer = ok({ status: true })) {
+  return handler("/change-email", answer);
+}
+
 /** `POST /api/auth/change-password`: the Worker always ends the other sessions, so a new token comes back. */
 export function changePasswordHandler(answer?: Answer) {
   return handler("/change-password", answer ?? ok({ token: "new-session-token", user: { ...user("ana@example.com"), emailVerified: true } }));

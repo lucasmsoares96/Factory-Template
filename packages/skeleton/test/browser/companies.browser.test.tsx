@@ -16,7 +16,7 @@ import { expect, test } from "../spa/test.ts";
 
 // Seam 2: the Company screens over the generated MSW handlers.
 
-const ana = { id: "user-1", name: "Ana Souza", email: "ana@example.com" };
+const ana = { id: "user-1", name: "Ana Souza", email: "ana@example.com", pendingEmail: null };
 const acme = { id: "company-acme", name: "Acme", role: "owner", createdAt: "2026-10-24T12:00:00.000Z" };
 const globex = { id: "company-globex", name: "Globex", role: "employee", createdAt: "2026-10-24T13:00:00.000Z" };
 const nav = (t = messagesFor("en")) => ({
