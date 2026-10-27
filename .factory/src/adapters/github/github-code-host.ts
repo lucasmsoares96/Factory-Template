@@ -207,8 +207,12 @@ export class GitHubCodeHost implements CodeHost {
     for (const run of runs.filter((r) => !CLEAN_RUN.has(r.conclusion ?? ""))) {
       const jobs = await this.api.listIn(this.api.repoPath(`/actions/runs/${run.id}/jobs`), "jobs", jobRow);
       for (const job of jobs.filter((j) => FAILED_JOB.has(j.conclusion ?? ""))) {
-        const log = await this.api.text(this.api.repoPath(`/actions/jobs/${job.id}/logs`));
-        checks.push({ name: run.name ? `${run.name} / ${job.name}` : job.name, url: job.html_url ?? run.html_url, log: lastLines(log, lines) });
+        // One log that cannot be read (expired, refused) leaves the other checks theirs.
+        const log = await this.api.text(this.api.repoPath(`/actions/jobs/${job.id}/logs`)).then(
+          (text) => lastLines(text, lines),
+          (error: Error) => `(the log could not be read: ${error.message})`,
+        );
+        checks.push({ name: run.name ? `${run.name} / ${job.name}` : job.name, url: job.html_url ?? run.html_url, log });
       }
     }
     return checks;
