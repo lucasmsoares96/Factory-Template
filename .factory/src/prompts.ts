@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ThreadReply } from "./replies-output.ts";
 import type { ReviewOutput } from "./result.ts";
@@ -18,13 +19,27 @@ export const PROMPTS_DIR = fileURLToPath(new URL("../prompts/", import.meta.url)
 
 export type Template = "development" | "review" | "triage" | "pull-request" | "pr-feedback" | "update-branch" | "retro";
 
-const cache = new Map<string, string>();
+/**
+ * Every `*.md` in `dir`, read in one go. The run's checkout is the tree the
+ * agent edits, so the harness renders only from this snapshot, taken when the
+ * module loads (before any agent session): an edit to a prompt during a run
+ * reaches the next run, never this one.
+ */
+function readPrompts(dir: string): Map<string, string> {
+  const files = readdirSync(dir).filter((f) => f.endsWith(".md"));
+  return new Map(files.map((f) => [f.slice(0, -".md".length), readFileSync(join(dir, f), "utf8")]));
+}
+
+let snapshot = readPrompts(PROMPTS_DIR);
+
+/** Retakes the snapshot from `dir` (a test's copy of the prompts); no argument goes back to `.factory/prompts/`. */
+export function snapshotPrompts(dir = PROMPTS_DIR): void {
+  snapshot = readPrompts(dir);
+}
+
 function load(name: string): string {
-  let text = cache.get(name);
-  if (text === undefined) {
-    text = readFileSync(`${PROMPTS_DIR}${name}.md`, "utf8");
-    cache.set(name, text);
-  }
+  const text = snapshot.get(name);
+  if (text === undefined) throw new Error(`.factory/prompts/${name}.md is missing`);
   return text;
 }
 

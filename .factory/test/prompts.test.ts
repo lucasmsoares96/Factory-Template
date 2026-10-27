@@ -1,4 +1,5 @@
-import { readdir } from "node:fs/promises";
+import { cp, readdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   developmentPrompt,
@@ -8,10 +9,12 @@ import {
   renderTemplate,
   retroPrompt,
   reviewPrompt,
+  snapshotPrompts,
   triagePrompt,
   updateBranchPrompt,
 } from "../src/prompts.ts";
 import type { Issue } from "../src/seams/tracker.ts";
+import { tempDir } from "./helpers.ts";
 
 const issue: Issue = {
   number: 7,
@@ -125,5 +128,21 @@ describe("prompt templates", () => {
 
   it("refuses a template variable it was not given", () => {
     expect(() => renderTemplate("update-branch", { NUMBER: "7", TARGET: "issue #7" })).toThrow(/update-branch\.md needs \{\{BASE\}\}/);
+  });
+});
+
+describe("prompts snapshot", () => {
+  it("renders every template from the text read before the files on disk changed", async () => {
+    const dir = await tempDir("factory-prompts-");
+    await cp(PROMPTS_DIR, dir, { recursive: true });
+    snapshotPrompts(dir);
+    try {
+      for (const file of await readdir(dir)) await writeFile(join(dir, file), "Rewritten by the agent: {{GAPS}}\n");
+      expect(reviewPrompt({ issue, log: "abc1234 feat: greet #7", since: null, findings: [] })).toBe(prompts.review);
+      expect(developmentPrompt({ issue, log: "abc1234 feat: greet #7", feedback: "E2E failed running `pnpm factory:verify`." })).toBe(prompts.development);
+      expect(triagePrompt({ issues: [issue] })).toBe(prompts.triage);
+    } finally {
+      snapshotPrompts();
+    }
   });
 });

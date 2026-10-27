@@ -11,7 +11,7 @@ The code that turns a ready issue into a reviewed pull request with evidence. A 
 - `src/config.ts`: every setting and the label vocabulary. Any leaf is overridden by a `FACTORY_*` repo variable.
 - `src/skipped-tests.ts`: after Development, a line added to a test file (`*.spec|test.ts(x)`, `e2e/`) that uses `test.fixme|skip|only`, `it|describe.skip|only`, `xit(`, `xdescribe(` fails the attempt (feedback names file:line; out of attempts = Escalation `needs-human`). Strings and comments are cut away; accepted false positives: a marker in a multi-line template literal or block comment, and a conditional `test.skip(cond)` in a test body.
 - `src/guard.ts`: the deterministic guard before the lock. `src/paths.ts`: sensitive and harness paths. `src/result.ts`: the Zod schema of `result.json`.
-- `src/report.ts`: PR, review, evidence and Escalation text. `src/prompts.ts` renders `prompts/*.md`.
+- `src/report.ts`: PR, review, evidence and Escalation text. `src/prompts.ts` renders `prompts/*.md` from a snapshot read when it loads, before any agent session: an agent edit to a prompt never reaches the same run.
 - `prompts/`: the Stage prompts (`development`, `review`, `triage`, `pr-feedback`, `update-branch`, `retro`) plus `rules.md`, included in every one. `update-branch` also says how to fix a forked migration chain (the branch's unpublished migration is deleted and generated again on top of the base branch's newest; `skeleton migrations check-chain`, in every package's `lint`, catches the fork).
 - `image/`: `Dockerfile` and `setup.sh` of the execution image. `src/local/`: the local container runner.
 - `test/`: Vitest, driven through the CLI with fake adapters.
