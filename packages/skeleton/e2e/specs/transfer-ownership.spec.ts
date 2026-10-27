@@ -43,7 +43,7 @@ test(
     await expect(page.getByRole("heading", { level: 1, name: "Acme" })).toBeVisible();
     await expect(page.getByTestId("company-role")).toHaveText(format(t.companies.page.role, { role: t.companies.roles.owner }));
     await expect(page.getByRole("heading", { name: t.companies.settings.transfer.title })).toBeVisible();
-    await page.getByLabel(t.companies.settings.transfer.recipient).selectOption({ label: `Bruno Lima (${guest})` });
+    await page.getByLabel(t.companies.settings.transfer.recipient).selectOption({ label: format(t.companies.settings.transfer.member, { name: "Bruno Lima", email: guest }) });
     await page.getByLabel(format(t.companies.settings.transfer.confirm, { name: "Acme" })).fill("Acme");
     await evidence("transfer-form");
     await page.getByRole("button", { name: t.companies.settings.transfer.submit }).click();
