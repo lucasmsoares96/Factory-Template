@@ -44,14 +44,24 @@ export const inlineCommentSchema = z.object({
   body: z.string().min(1),
 });
 
+/** The Review's verdict on one acceptance criterion of the issue. */
+export const criterionVerdictSchema = z.object({
+  /** The criterion, as the issue words it. */
+  criterion: z.string().min(1),
+  met: z.boolean(),
+  /** The test or the `@evidence` print that proves it; why not, when it is not met. */
+  proof: z.string().min(1),
+});
+
 export const reviewSchema = z.object({
   summary: z.string(),
   inline: z.array(inlineCommentSchema),
   /**
-   * Product run with a "The Skeleton must grow" follow-up: the Review says every acceptance criterion is met without
-   * the Skeleton change. Only this makes the run `ready`. `.default(false)`: old results stay valid.
+   * One verdict per acceptance criterion. A criterion that is not met keeps the run from `ready`; a Product run with a
+   * "The Skeleton must grow" follow-up is `ready` only when every criterion is met without the Skeleton change.
+   * `.default([])`: old results stay valid.
    */
-  criteriaMetWithoutSkeleton: z.boolean().default(false),
+  criteria: z.array(criterionVerdictSchema).default([]),
 });
 
 export const evidenceSchema = z.object({
@@ -113,6 +123,7 @@ export type FactoryResult = z.infer<typeof resultSchema>;
 export type PullRequestStageRecord = z.infer<typeof pullRequestStageSchema>;
 export type StageRecord = z.infer<typeof stageRecordSchema>;
 export type ReviewOutput = z.infer<typeof reviewSchema>;
+export type CriterionVerdict = z.infer<typeof criterionVerdictSchema>;
 
 export const RESULT_FILE = "result.json";
 export const BUNDLE_FILE = "branch.bundle";

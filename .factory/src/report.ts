@@ -1,5 +1,5 @@
 import type { FactoryConfig } from "./config.ts";
-import type { FactoryResult, StageRecord } from "./result.ts";
+import type { CriterionVerdict, FactoryResult, StageRecord } from "./result.ts";
 import { messages, type Language } from "./messages.ts";
 import type { Usage } from "./seams/agent.ts";
 
@@ -147,6 +147,26 @@ export function waitingComment(followUps: FollowUpRef[], config: FactoryConfig, 
   ].join("\n");
 }
 
+/** The verdicts the final Review gave, for the pull request: each criterion checked when met, with its proof. Empty without verdicts. */
+export function verdictsSection(criteria: CriterionVerdict[], language: Language): string[] {
+  if (criteria.length === 0) return [];
+  return [messages(language).verdictsHeading(), "", ...criteria.map((v) => `- [${v.met ? "x" : " "}] ${verdictText(v)}`)];
+}
+
+/** The criteria the final Review found not met. */
+export function unmetCriteria(result: FactoryResult | null): CriterionVerdict[] {
+  return result?.review.criteria.filter((v) => !v.met) ?? [];
+}
+
+/** `criterion — proof` on one line, so a verdict cannot break the list it is in. */
+function verdictText(v: CriterionVerdict): string {
+  return `${oneLine(v.criterion)} — ${oneLine(v.proof)}`;
+}
+
+function oneLine(text: string): string {
+  return text.replace(/\s*\n\s*/g, " ").trim();
+}
+
 /** The comment an Escalation leaves on the issue. */
 export function escalationComment(report: EscalationReport, config: FactoryConfig): string {
   const { result } = report;
@@ -154,6 +174,8 @@ export function escalationComment(report: EscalationReport, config: FactoryConfi
   const m = messages(language);
   const lines = [ESCALATION_MARKER, m.escalationTitle(report.reason, headline(report, config))];
   if (result?.question) lines.push("", m.question(result.question));
+  const unmet = unmetCriteria(result);
+  if (unmet.length > 0) lines.push("", m.criteriaUnmet(), ...unmet.map((v) => `- ${verdictText(v)}`));
   if (report.followUps?.length) lines.push("", followUpComment(report.followUps, language));
   if (report.detail) lines.push("", fence(report.detail, "text"));
   if (result && result.attempts.length > 0) {
@@ -179,7 +201,8 @@ function headline(report: EscalationReport, config: FactoryConfig): string {
     case "time":
       return m.headlineTime(config.timeouts.total);
     case "needs-human":
-      return m.headlineNeedsHuman();
+      // No question from a Stage: the run stopped on the Review's verdicts.
+      return !report.result?.question && unmetCriteria(report.result).length > 0 ? m.headlineCriteriaUnmet() : m.headlineNeedsHuman();
     case "infra":
       return m.headlineInfra();
   }
