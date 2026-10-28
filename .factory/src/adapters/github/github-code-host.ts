@@ -5,14 +5,14 @@ import { join } from "node:path";
 import { z } from "zod";
 import type { ActiveRun, CodeHost, ConversationEntry, EvidenceImage, FailedCheck, PullRequest, PushResult, ReactionTarget, Review, ReviewThread, SubmittedReview } from "../../seams/code-host.ts";
 import { marked } from "../../marker.ts";
-import { BASE_ENV, pick } from "../../env.ts";
 import { GitHubApi, type GitHubApiOptions } from "./api.ts";
+import { childEnv, runGh, type GhRunner } from "./gh.ts";
+
+export { childEnv, type GhRunner };
 
 
 /** Runs `git <args>` in `cwd` with `env` added to the environment. */
 export type GitRunner = (args: string[], options: { cwd: string; env: Record<string, string> }) => Promise<{ code: number; stderr: string }>;
-/** Runs `gh <args>` with `env` added to the environment; throws on failure. */
-export type GhRunner = (args: string[], env: Record<string, string>) => Promise<void>;
 
 export interface GitHubCodeHostOptions extends GitHubApiOptions {
   baseBranch: string;
@@ -143,7 +143,7 @@ export class GitHubCodeHost implements CodeHost {
       const bodyFile = join(dir, "body.md");
       await writeFile(bodyFile, body);
       const attach = images.flatMap((i) => ["--attach", i.path]);
-      await this.gh(["pr", "edit", String(pr), "--repo", this.options.repo, "--body-file", bodyFile, ...attach], { GH_TOKEN: this.options.token });
+      await this.gh(["pr", "edit", String(pr), "--repo", this.options.repo, "--body-file", bodyFile, ...attach], { env: childEnv(process.env, { GH_TOKEN: this.options.token }) });
     } catch (error) {
       const reason = this.scrub((error as Error).message).slice(0, 300);
       let text = body;
@@ -311,22 +311,9 @@ function toPr(row: z.infer<typeof prRow>, repo: string): PullRequest {
   return { number: row.number, url: row.html_url, branch: row.head.ref, headSha: row.head.sha, state: row.state, draft: row.draft, base: row.base.ref, fork, labels: row.labels.map((l) => l.name) };
 }
 
-/** What git and gh get: the base variables every tool needs, plus `extra` (the token they authenticate with). Never the parent's secrets. */
-export function childEnv(parent: Record<string, string | undefined>, extra: Record<string, string>): Record<string, string> {
-  return { ...pick(parent, BASE_ENV), ...extra };
-}
-
 const runGit: GitRunner = (args, { cwd, env }) =>
   new Promise((resolve) => {
     execFile("git", args, { cwd, env: childEnv(process.env, env), maxBuffer: 16 * 1024 * 1024 }, (error, _stdout, stderr) => {
       resolve({ code: error ? ((error as { code?: unknown }).code as number) || 1 : 0, stderr });
-    });
-  });
-
-const runGh: GhRunner = (args, env) =>
-  new Promise((resolve, reject) => {
-    execFile("gh", args, { env: childEnv(process.env, env), maxBuffer: 16 * 1024 * 1024 }, (error, _stdout, stderr) => {
-      if (error) reject(new Error(stderr.trim() || error.message));
-      else resolve();
     });
   });

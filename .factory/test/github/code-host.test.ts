@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { GitHubCodeHost, childEnv, type GitRunner } from "../../src/adapters/github/github-code-host.ts";
+import { GitHubCodeHost, childEnv, type GhRunner, type GitRunner } from "../../src/adapters/github/github-code-host.ts";
 import { marked } from "../../src/marker.ts";
 import { FakeGitHubServer } from "./fake-github.ts";
 // Imported statically: helpers.ts registers the afterEach that removes temp dirs, which a dynamic import inside a test misses.
@@ -12,11 +12,11 @@ const pr = (n: number, extra: Record<string, unknown> = {}) => ({
   head: { ref: "factory/issue-7", sha: "a".repeat(40), repo: { full_name: "o/r" } }, base: { ref: "main" }, ...extra,
 });
 
-function host(server: FakeGitHubServer, extra: { git?: GitRunner; gh?: (args: string[], env: Record<string, string>) => Promise<void> } = {}) {
+function host(server: FakeGitHubServer, extra: { git?: GitRunner; gh?: GhRunner } = {}) {
   return new GitHubCodeHost({
     repo: "o/r", token: "tok-123", fetch: server.fetch, baseBranch: "main", cwd: "/work",
     git: extra.git ?? (async () => ({ code: 0, stderr: "" })),
-    gh: extra.gh ?? (async () => {}),
+    gh: extra.gh ?? (async () => ""),
   });
 }
 
@@ -209,9 +209,10 @@ describe("GitHubCodeHost", () => {
     /** A gh runner that records the args, the env and the body file as gh would read it. */
     const recorder = (fail?: Error) => {
       const calls: { args: string[]; env: Record<string, string>; file: string }[] = [];
-      const gh = async (args: string[], env: Record<string, string>) => {
+      const gh: GhRunner = async (args, { env }) => {
         calls.push({ args, env, file: await readFile(args[args.indexOf("--body-file") + 1]!, "utf8") });
         if (fail) throw fail;
+        return "";
       };
       return { calls, gh };
     };

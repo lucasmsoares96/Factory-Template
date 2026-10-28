@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { labelSpecs } from "../../src/bootstrap/labels.ts";
 import { world } from "./helpers.ts";
+import { FakeGitHubServer } from "../github/fake-github.ts";
 
 // Seam 8 for the Factory module: `pnpm bootstrap factory` against the fake GitHub and the fake token of the owner.
 const PAT = "github_pat_owner_token";
@@ -235,5 +236,24 @@ describe("the real adapters of the Factory module", () => {
     const unauthorized = await new GitHubTokenApi("secret-pat", { fetch: status(401) }).repoAccess("o/r").catch((e: Error) => e);
     expect((unauthorized as Error).message).toContain("rejected");
     expect((unauthorized as Error).message).not.toContain("secret-pat");
+  });
+
+  it("GitHubTokenApi talks to GitHub as GitHubApi does, and any other failure keeps the token out of its message", async () => {
+    const { GitHubTokenApi } = await import("../../src/bootstrap/token.ts");
+    const s = new FakeGitHubServer();
+    s.on("GET", "/repos/o/r", () => ({ json: { permissions: { push: true } } }));
+    s.on("GET", "/repos/o/read-only", () => ({ json: { permissions: { push: false } } }));
+    s.on("GET", "/repos/o/broken", () => ({ status: 500, json: { message: "boom" } }));
+    const api = new GitHubTokenApi("secret-pat", { fetch: s.fetch });
+
+    expect(await api.repoAccess("o/r")).toEqual({ push: true });
+    expect(await api.repoAccess("o/read-only")).toEqual({ push: false });
+    const broken = await api.repoAccess("o/broken").catch((e: Error) => e);
+    expect((broken as Error).message).toContain("(500)");
+    expect((broken as Error).message).not.toContain("secret-pat");
+    const missing = await api.repoAccess("o/gone").catch((e: Error) => e);
+    expect((missing as Error).message).toContain("cannot see o/gone");
+    expect(s.calls[0]!.headers.get("authorization")).toBe("Bearer secret-pat");
+    expect(s.calls[0]!.headers.get("x-github-api-version")).toBe("2022-11-28");
   });
 });

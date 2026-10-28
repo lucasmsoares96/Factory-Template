@@ -27,7 +27,7 @@ describe("the Factory marker", () => {
     s.on("POST", `${R}/pulls/5/comments/3/replies`, () => ({ json: {} }));
     const api = { repo: "o/r", token: "tok", fetch: s.fetch };
     const tracker = new GitHubTracker(api);
-    const host = new GitHubCodeHost({ ...api, baseBranch: "main", cwd: "/work", gh: async () => {} });
+    const host = new GitHubCodeHost({ ...api, baseBranch: "main", cwd: "/work", gh: async () => "" });
 
     await tracker.comment(7, "triage said so");
     await tracker.createIssue({ title: "T", body: "follow-up" });
@@ -55,7 +55,7 @@ describe("the Factory marker", () => {
     const { readFile } = await import("node:fs/promises");
     const host = new GitHubCodeHost({
       repo: "o/r", token: "tok", fetch: s.fetch, baseBranch: "main", cwd: "/work",
-      gh: async (args) => void (written = await readFile(args[args.indexOf("--body-file") + 1]!, "utf8")),
+      gh: async (args) => ((written = await readFile(args[args.indexOf("--body-file") + 1]!, "utf8")), ""),
     });
     await host.updatePrBody(5, "body ![a](/tmp/a.png)", [{ product: "web", name: "a", path: "/tmp/a.png" }]);
     expect(written).toContain(FACTORY_MARKER);
