@@ -188,9 +188,10 @@ describe("CODING_STANDARDS.md", () => {
   });
 
   it("holds the whole-token matching rule under Architecture", () => {
-    const architecture = read("CODING_STANDARDS.md").split(/^## /m).find((s) => s.startsWith("Architecture\n")) ?? "";
+    const architecture = read("CODING_STANDARDS.md").split(/^## /m).find((s) => s.startsWith("Architecture\n"));
+    expect(architecture, "## Architecture").toBeDefined();
     for (const fragment of ["agent", "whole token", "substring", "blank", "near-miss", "`line` vs `line7`", "`/api/note` vs `/api/notes`"]) {
-      expect(architecture, fragment).toContain(fragment);
+      expect(architecture!, fragment).toContain(fragment);
     }
   });
 

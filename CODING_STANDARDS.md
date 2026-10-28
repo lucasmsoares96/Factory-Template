@@ -13,4 +13,4 @@
 
 - When harness code checks text supplied by an agent (symbols, paths, labels), it matches the whole token, never a raw
   substring, and rejects blank input. An automated test covers a near-miss:
-  `line` vs `line7`, `/api/note` vs `/api/notes`. `holdsName` in `.factory/src/triage-output.ts` does this.
+  `line` vs `line7`, `/api/note` vs `/api/notes`. `holdsName` in `.factory/src/triage-output.ts` does this for symbols.
