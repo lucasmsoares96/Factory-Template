@@ -40,7 +40,7 @@ A repository of Products plus the harness that builds them. A Product is an appl
 
 1. `pnpm new-product <id>` creates `apps/<id>/` (identity and texts in `product.config.ts`, theme in `src/client/styles.css`).
 2. Add behaviour as a feature in `apps/<id>/src/features/<feature>/` and list it in `src/features/index.ts`. The `skeleton-add-feature` skill has the recipe.
-3. A feature brings `schema.ts` (tables, picked up by glob), `routes/` (signed-in screens) and `public/` (visitor screens), `messages.ts` (spread into `product.config.ts`), and an `api(app)` that adds Hono + OpenAPI routes. Every operation becomes an MCP tool unless it sets `x-mcp: false`.
+3. A feature brings `schema.ts` (tables, picked up by glob), `routes/` (signed-in screens) and `public/` (visitor screens), `messages.ts` (spread into `product.config.ts`), and an `api(app)` that adds Hono + OpenAPI routes. Every operation becomes an MCP tool unless it sets `x-mcp: false`. `authPlugins(c)` adds Better Auth plugins to the Skeleton's auth config (their routes answer under `/api/auth/*` and are never MCP tools).
 4. Database changes only add: `skeleton-add-migration`. Endpoints: `skeleton-add-endpoint`. Browser evidence: `skeleton-evidence-test`.
 5. Imports are restricted by lint (`no-restricted-imports`): a Product imports the Skeleton only through its package exports.
 
