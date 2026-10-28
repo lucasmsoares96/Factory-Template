@@ -1,3 +1,5 @@
+import type { HttpMethod } from "../../src/adapters/github/api.ts";
+
 /**
  * A tiny in-memory GitHub REST server behind a `fetch`: just the endpoints the adapters call, with GitHub's
  * semantics where they differ from the fakes (404 on a missing label, pagination, `state_reason`).
@@ -14,9 +16,9 @@ type Handler = (call: { params: string[]; query: URLSearchParams; body: any; met
 
 export class FakeGitHubServer {
   readonly calls: Call[] = [];
-  private readonly routes: { method: string; pattern: RegExp; handler: Handler }[] = [];
+  private readonly routes: { method: HttpMethod; pattern: RegExp; handler: Handler }[] = [];
 
-  on(method: string, pattern: string, handler: Handler): void {
+  on(method: HttpMethod, pattern: string, handler: Handler): void {
     this.routes.push({ method, pattern: new RegExp(`^${pattern}$`), handler });
   }
 
