@@ -55,11 +55,13 @@ Commands:
                                          behind it (Factory and people's PRs); a fork's PR gets one comment instead.
   update-branch --scan --pr <n> [--repo <dir>]
                                          When PR <n> is opened or reopened: the same scan, for that PR alone.
-  publish <issue> --in <dir> [--repo <dir>] [--start-sha <sha>] [--run-url <url>] [--pr <n>]
+  publish <issue> --in <dir> [--repo <dir>] [--start-sha <sha>] [--run-url <url>] [--pr <n>] [--flow update-branch]
                                          Re-check the forge, validate result.json, push with a lease, then open the
                                          PR with review and evidence, or escalate. --pr: the run continues PR <n>.
+                                         --flow update-branch: a run discarded because the branch moved only logs it.
   publish --pr <n> --in <dir> [--repo <dir>] --start-sha <sha> [--run-url <url>]
-                                         Publish an update keyed by PR <n> alone: push with a lease and comment on the PR only.
+                                         Publish an update keyed by PR <n> alone: push with a lease and comment on the PR only
+                                         (a run discarded because the branch moved only logs it).
   local <issue> [--issues <dir>] [--repo <dir>]
                                          The issue flow on this machine for a Markdown ticket
                                          (.scratch/<feature>/issues/NN-*.md): claim and publish here, work in a
@@ -286,6 +288,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
       return result.failed.length > 0 ? 1 : 0;
     }
     default: {
+      const flow = publishFlow(values.flow);
       if (positionals[0] === undefined && values.pr) {
         const result = await publishPrUpdate(ctx, parseIssue(values.pr), {
           repo: values.repo,
@@ -306,6 +309,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
         startSha: values["start-sha"] || null,
         runUrl: values["run-url"] || runUrlFromEnv(deps.env),
         pr: values.pr ? parseIssue(values.pr) : null,
+        ...(flow ? { flow } : {}),
         markWorking: async (pr) => await jobCodeHost().labelPr(pr, config.labels.working),
         dispatchRetro: async (inputs) => await jobCodeHost().dispatch("retro", inputs),
       });
@@ -322,8 +326,19 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
 /** `--flow pr-feedback|update-branch` with the PR it continues; undefined for the issue flow. */
 function flowOf(values: { flow?: string; pr?: string }): WorkFlow | undefined {
   if (values.flow === undefined) return undefined;
-  if (values.flow !== "pr-feedback" && values.flow !== "update-branch") throw new Error(`Unknown --flow: ${values.flow}. Known: pr-feedback, update-branch.`);
-  return { kind: values.flow, pr: parseIssue(values.pr) };
+  return { kind: flowKind(values.flow), pr: parseIssue(values.pr) };
+}
+
+function flowKind(flow: string): WorkFlow["kind"] {
+  if (flow !== "pr-feedback" && flow !== "update-branch") throw new Error(`Unknown --flow: ${flow}. Known: pr-feedback, update-branch.`);
+  return flow;
+}
+
+/** `publish --flow update-branch`: the one flow `publish` needs told; pr-feedback is accepted and changes nothing. */
+function publishFlow(flow: string | undefined): "update-branch" | undefined {
+  if (flow === undefined) return undefined;
+  const kind = flowKind(flow);
+  return kind === "update-branch" ? kind : undefined;
 }
 
 /** The comment or review whose event started a feedback round: the event's name and the id it carries. */
