@@ -59,10 +59,9 @@ const FACTORY_WORKFLOWS = new Set(["factory-issue.yml", "factory-pr-feedback.yml
 /** The `run-name` of a Triage run that works on the batch; any other label event names itself otherwise and ends at once. */
 const TRIAGE_RUN = "Factory triage";
 const jobRow = z.object({ id: z.number(), name: z.string(), conclusion: z.string().nullable(), html_url: z.string().nullable() });
-/** A run that ended like this has no failed job to read. */
 /**
- * Nor does a cancelled run: a newer run of the same head superseded it (`cancel-in-progress`), or someone stopped it.
- * A job that hits its `timeout-minutes` may end `cancelled` while its run ends `failure`, so it is still read.
+ * A run that ended like this has no failed job to read. Nor does a cancelled run: a newer run of the same head
+ * superseded it (`cancel-in-progress`), or someone stopped it. A job that hits its `timeout-minutes` may end `cancelled` while its run ends `failure`, so it is still read.
  */
 const CLEAN_RUN = new Set(["success", "skipped", "neutral", "cancelled"]);
 const FAILED_JOB = new Set(["failure", "timed_out", "cancelled"]);
