@@ -130,6 +130,31 @@ describe("factory pr-feedback: a round", () => {
     expect(p.w.codeHost.writes.some((w) => /resolve/i.test(w))).toBe(false);
   });
 
+  it("posts nothing for a thread id the code host does not know, and still answers the known one", async () => {
+    const p = await prWorld({
+      main: "none",
+      threads: [thread("t1", "Use a class here.")],
+      agent: {
+        development: [
+          () => ({
+            output: replies(
+              { threadId: "t9", decision: "decline", body: "No such thread." },
+              { threadId: "t1", decision: "decline", body: "A function is what the issue asks for." },
+            ),
+          }),
+        ],
+        review: [],
+      },
+      verify: [{ ok: true }],
+    });
+
+    await feedbackRound(p);
+
+    const [t1] = p.w.codeHost.pr(PR).threads;
+    // FakeCodeHost.replyToThread throws on an unknown thread, so a reply to t9 would fail publish inside the round.
+    expect(t1!.replies.map((r) => unmarked(r.body))).toEqual(["Decline: A function is what the issue asks for."]);
+  });
+
   it("declines, defers and answers a question without a commit, each in its own thread", async () => {
     const p = await prWorld({
       main: "none",
