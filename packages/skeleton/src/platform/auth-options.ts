@@ -1,5 +1,5 @@
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import type { BetterAuthOptions } from "better-auth";
+import type { BetterAuthOptions, BetterAuthPlugin } from "better-auth";
 import { APIError, createAuthMiddleware, getSessionFromCtx, isAPIError } from "better-auth/api";
 import { and, asc, eq } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -43,6 +43,8 @@ export type AuthOptionsInput = {
   revokeAccess?: (user: { id: string }) => Promise<void>;
   /** Runs work (emails) after the response, so a new and an existing email answer alike. */
   defer?: (task: Promise<unknown>) => void;
+  /** The features' Better Auth plugins (`Feature.authPlugins`), added to the Skeleton's options. */
+  plugins?: BetterAuthPlugin[];
 };
 
 /** Better Auth's own code (and message) for an address taken at sign-up. */
@@ -113,6 +115,7 @@ export function authOptions({
   rateLimit,
   revokeAccess,
   defer,
+  plugins = [],
 }: AuthOptionsInput) {
   return {
     appName: t.app.title,
@@ -255,6 +258,7 @@ export function authOptions({
       ...(defer ? { backgroundTasks: { handler: defer } } : {}),
     },
     telemetry: { enabled: false },
+    plugins,
   } satisfies BetterAuthOptions;
 }
 
