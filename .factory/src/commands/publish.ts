@@ -32,6 +32,11 @@ export interface PublishOptions {
   /** The open pull request this run continues (PR flows); null in the issue flow. */
   pr: number | null;
   /**
+   * The update of a branch: a run discarded because the branch moved says so in the log only, for the newer update
+   * that moved it (or cancelled it) is on its way. Any other discard, and the other flows, comment on the issue.
+   */
+  flow?: "update-branch";
+  /**
    * Puts `factory:working` on the pull request this run opens, with the job token: a label written with the forge
    * token would start `pull_request_target: labeled` workflows. Best effort; the run's last step takes it off.
    */
@@ -57,8 +62,9 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
   const branch = issueBranch(config, number);
   const git = new Git(options.repo);
 
+  const quietMoved = options.flow === "update-branch";
   const state = await recheck(ctx, number, branch, options);
-  if (!state.ok) return discard(ctx, number, state.reason);
+  if (!state.ok) return discard(ctx, number, state.reason, quietMoved && state.moved);
   const { issue, openPr } = state;
 
   let result: FactoryResult;
@@ -84,7 +90,7 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
   }
 
   const push = await ctx.codeHost.push({ branch, sha: head, expectedSha: options.startSha });
-  if (!push.ok) return discard(ctx, number, (m) => m.branchMoved(branch));
+  if (!push.ok) return discard(ctx, number, (m) => m.branchMoved(branch), quietMoved);
 
   const followUps = await openFollowUps(ctx, issue, result, skeletonSha);
   const lines = await diffLines(git, result.base, head);
@@ -111,20 +117,24 @@ export type PrUpdateResult =
 /**
  * `publish` of an update keyed by the pull request alone (`publish --pr N` without an issue): it never runs as an
  * issue flow. It changes no label, opens no PR and comments only on this one: what was merged, or why it stopped.
- * The push leases against the head of the claim; a run that did not pass Verify pushes nothing.
+ * The push leases against the head of the claim; a run that did not pass Verify pushes nothing. A run discarded
+ * because the branch moved only logs it: a newer update of the PR is on its way.
  */
 export async function publishPrUpdate(ctx: CommandContext, number: number, options: Omit<PublishOptions, "pr">): Promise<PrUpdateResult> {
   const { codeHost, config } = ctx;
   const m = messages(config.language);
   const git = new Git(options.repo);
-  const stop = async (outcome: "stopped" | "discarded", reason: string, comment: string): Promise<PrUpdateResult> => {
+  const stop = async (reason: string, comment: string): Promise<PrUpdateResult> => {
     await codeHost.commentPr(number, comment);
-    return { pr: number, outcome, reason };
+    return { pr: number, outcome: "stopped", reason };
   };
   const pr = await codeHost.pullRequest(number);
   if (!pr || pr.state !== "open" || pr.fork) return { pr: number, outcome: "discarded", reason: `pull request #${number} is no longer open on this repository` };
   const moved = messages("en").branchMoved(pr.branch);
-  const discarded = () => stop("discarded", moved, m.discarded(m.branchMoved(pr.branch)));
+  const discarded = (): PrUpdateResult => {
+    ctx.log(messages("en").discarded(moved));
+    return { pr: number, outcome: "discarded", reason: moved };
+  };
   if ((await codeHost.branchHead(pr.branch)) !== options.startSha) return discarded();
 
   let result: FactoryResult;
@@ -132,10 +142,10 @@ export async function publishPrUpdate(ctx: CommandContext, number: number, optio
     result = forForge(await loadArtifacts(git, number, pr.branch, options.in));
   } catch (error) {
     const detail = (error as Error).message;
-    return stop("stopped", "infra", m.updateNoResult(config.baseBranch, detail) + runLine(options.runUrl, config.language));
+    return stop("infra", m.updateNoResult(config.baseBranch, detail) + runLine(options.runUrl, config.language));
   }
   if (result.outcome === "escalated") {
-    return stop("stopped", result.reason ?? "infra", prUpdateStopped(result, config.baseBranch, options.runUrl, config.language));
+    return stop(result.reason ?? "infra", prUpdateStopped(result, config.baseBranch, options.runUrl, config.language));
   }
   if (result.head === null || result.head === options.startSha) return { pr: number, outcome: "up-to-date", reason: `already contains ${config.baseBranch}` };
 
@@ -166,7 +176,7 @@ function runLine(runUrl: string | null, language: Language): string {
 /** Why a run is discarded, in any language: the result keeps the English one, the comment the configured one. */
 type DiscardReason = (m: Messages) => string;
 
-type Recheck = { ok: true; issue: Issue; openPr: PullRequest | null } | { ok: false; reason: DiscardReason };
+type Recheck = { ok: true; issue: Issue; openPr: PullRequest | null } | { ok: false; reason: DiscardReason; moved?: true };
 
 /** Forge state must still match the claim: issue open and locked, PR as expected, branch where it was. */
 async function recheck(ctx: CommandContext, number: number, branch: string, options: PublishOptions): Promise<Recheck> {
@@ -185,14 +195,16 @@ async function recheck(ctx: CommandContext, number: number, branch: string, opti
     return { ok: false, reason: (m) => m.pullRequestOpen(openPr.number) };
   }
   if ((await codeHost.branchHead(branch)) !== options.startSha) {
-    return { ok: false, reason: (m) => m.branchMoved(branch) };
+    return { ok: false, reason: (m) => m.branchMoved(branch), moved: true };
   }
   return { ok: true, issue, openPr };
 }
 
-async function discard(ctx: CommandContext, number: number, reason: DiscardReason): Promise<PublishResult> {
+/** Comments why the run was discarded on the issue; a quiet discard writes it to the log alone. */
+async function discard(ctx: CommandContext, number: number, reason: DiscardReason, quiet = false): Promise<PublishResult> {
   const m = messages(ctx.config.language);
-  await ctx.tracker.comment(number, m.discarded(reason(m)));
+  if (quiet) ctx.log(messages("en").discarded(reason(messages("en"))));
+  else await ctx.tracker.comment(number, m.discarded(reason(m)));
   return { issue: number, outcome: "discarded", reason: reason(messages("en")) };
 }
 
