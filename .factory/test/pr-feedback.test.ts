@@ -246,6 +246,25 @@ describe("factory pr-feedback: a round", () => {
     expect(unmarked(pr.body).trimEnd().endsWith("Closes #7")).toBe(true);
   });
 
+  it("escalates a round whose Review finds a criterion not met, and lists the unchecked verdict in the PR body", async () => {
+    const unmet = { criterion: "`greet()` returns a greeting.", met: false, proof: "The round removed the greeting test." };
+    const p = await prWorld({
+      main: "none",
+      threads: [thread("t1", "drop the test")],
+      agent: {
+        development: [commits(replies({ threadId: "t1", decision: "address", body: "Dropped." }))],
+        review: [() => ({ output: `<review>${JSON.stringify({ summary: "Fine.", inline: [], criteria: [unmet] })}</review>` })],
+        "pull-request": [() => ({ output: "<pull-request>## Summary\n\nDropped.</pull-request>" })],
+      },
+      verify: [{ ok: true }],
+    });
+
+    await feedbackRound(p);
+
+    expect(p.w.tracker.labelsOf(7)).toEqual(["ready-for-human"]);
+    expect(unmarked(p.w.codeHost.pr(PR).body)).toContain(`- [ ] ${unmet.criterion} — ${unmet.proof}`);
+  });
+
   it("discards the run when the branch moved since the claim", async () => {
     const p = await prWorld({
       main: "none",

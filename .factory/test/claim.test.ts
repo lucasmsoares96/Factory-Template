@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { childBody, parentBody } from "../src/bootstrap/example.ts";
 import { FACTORY_MARKER } from "../src/marker.ts";
+import { LANGUAGES } from "../src/messages.ts";
 import { HUMAN, OWNER, SPEC_BODY, lastJson, readyIssue, world } from "./helpers.ts";
 
 describe("factory claim", () => {
@@ -13,6 +15,15 @@ describe("factory claim", () => {
     const seams = world({ issues: readyIssue({ parent: null }), env: { FACTORY_LANGUAGE: "pt-BR" } });
     await seams.factory("claim", "7");
     expect(seams.tracker.commentsOn(7).at(-1)!.body).toContain("Sem seams combinados: a spec pai não tem `## Testing Decisions`");
+  });
+
+  it.each(LANGUAGES)("claims the example issue of `pnpm bootstrap factory` written in %s", async (language) => {
+    const product = { id: "example", title: "Example", emailFrom: "", domain: "" };
+    const w = world({ issues: [{ number: 1, title: "Spec", body: parentBody(product, language) }, ...readyIssue({ body: childBody(product, 1, language) }).slice(1)] });
+
+    expect(await w.factory("claim", "7")).toBe(0);
+
+    expect(lastJson(w.logs)).toMatchObject({ claimed: true, issue: 7 });
   });
 
   it("takes the lock: ready-for-agent becomes in-progress, and the run is marked factory:working", async () => {

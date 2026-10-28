@@ -283,7 +283,7 @@ describe("the one PR comment", () => {
   const deployed = { id: "example", status: "deployed" as const, url: "https://pr-3-example.bytewer.workers.dev", smoke: "passed" as const };
 
   it("lists each Product with its URL and smoke", () => {
-    const text = renderComment({ trusted: true, why: "", products: ["example", "shop"], results: [deployed, { id: "shop", status: "deployed", url: "https://pr-3-shop.bytewer.workers.dev", smoke: "failed" }], sha: "abcdef1234" });
+    const text = renderComment({ language: "en", trusted: true, previewLabel: "preview", products: ["example", "shop"], results: [deployed, { id: "shop", status: "deployed", url: "https://pr-3-shop.bytewer.workers.dev", smoke: "failed" }], sha: "abcdef1234" });
     expect(text).toContain(COMMENT_MARKER);
     expect(text).toContain("| `example` | https://pr-3-example.bytewer.workers.dev (smoke passed) |");
     expect(text).toContain("| `shop` | https://pr-3-shop.bytewer.workers.dev (smoke failed) |");
@@ -291,23 +291,42 @@ describe("the one PR comment", () => {
   });
 
   it("says `preview skipped: limit reached` and why a PR that changed the bindings has none", () => {
-    const text = renderComment({ trusted: true, why: "", products: ["example", "shop"], results: [{ id: "example", status: "limit-reached" }, { id: "shop", status: "bindings-changed" }] });
+    const text = renderComment({ language: "en", trusted: true, previewLabel: "preview", products: ["example", "shop"], results: [{ id: "example", status: "limit-reached" }, { id: "shop", status: "bindings-changed" }] });
     expect(text).toContain("preview skipped: limit reached");
     expect(text).toContain("preview skipped: the Worker bindings changed");
   });
 
   it("says a Product has no preview when its build or deploy never wrote a result", () => {
-    expect(renderComment({ trusted: true, why: "", products: ["example"], results: [] })).toContain("preview not deployed");
+    expect(renderComment({ language: "en", trusted: true, previewLabel: "preview", products: ["example"], results: [] })).toContain("preview not deployed");
   });
 
   it("asks for the label when the author is not trusted", () => {
-    const text = renderComment({ trusted: false, why: "someone with write access must add the `preview` label", products: ["example"], results: [] });
-    expect(text).toContain("Preview not deployed: someone with write access must add the `preview` label");
+    const text = renderComment({ language: "en", trusted: false, previewLabel: "preview", products: ["example"], results: [] });
+    expect(text).toContain("Preview not deployed: the author has no write access: someone with write access must add the `preview` label.");
     expect(text).not.toContain("| Product |");
   });
 
+  it("is in Portuguese in every case with pt-BR, under the same marker", () => {
+    const ready = renderComment({ language: "pt-BR", trusted: true, previewLabel: "preview", products: ["example", "shop"], results: [deployed, { id: "shop", status: "deployed", url: "https://pr-3-shop.bytewer.workers.dev", smoke: "failed" }], sha: "abcdef1234" });
+    expect(ready.startsWith(COMMENT_MARKER)).toBe(true);
+    expect(ready).toContain("| `example` | https://pr-3-example.bytewer.workers.dev (smoke passou) |");
+    expect(ready).toContain("| `shop` | https://pr-3-shop.bytewer.workers.dev (smoke falhou) |");
+    expect(ready).toContain("Commit abcdef1. O preview e o banco de dados dele são apagados quando o PR fecha.");
+
+    const skipped = renderComment({ language: "pt-BR", trusted: true, previewLabel: "preview", products: ["example", "shop", "blog", "docs"], results: [{ id: "example", status: "limit-reached" }, { id: "shop", status: "bindings-changed" }, { id: "blog", status: "failed" }] });
+    expect(skipped).toContain("| `example` | preview pulado: limite atingido |");
+    expect(skipped).toContain("preview pulado: os bindings do Worker mudaram");
+    expect(skipped).toContain("| `blog` | o preview falhou (veja a execução) |");
+    expect(skipped).toContain("| `docs` | preview não publicado");
+
+    const untrusted = renderComment({ language: "pt-BR", trusted: false, previewLabel: "preview", products: ["example"], results: [] });
+    expect(untrusted).toContain("Preview não publicado: quem abriu o PR não tem acesso de escrita; alguém com acesso de escrita precisa adicionar o label `preview`.");
+
+    for (const text of [ready, skipped, untrusted]) expect(text).not.toMatch(/smoke passed|smoke failed|skipped|not deployed|see the run|deleted when/);
+  });
+
   it("never puts a URL outside workers.dev in the comment", () => {
-    const text = renderComment({ trusted: true, why: "", products: ["example"], results: [{ ...deployed, url: "https://evil.example/phish" }] });
+    const text = renderComment({ language: "en", trusted: true, previewLabel: "preview", products: ["example"], results: [{ ...deployed, url: "https://evil.example/phish" }] });
     expect(text).not.toContain("evil.example");
   });
 

@@ -38,7 +38,7 @@ _Avoid_: Exploration, explore
 The point where a human reviews and merges the factory's pull request; the factory never merges its own work. When a pull request is ready or escalated, the Merge Gate notice, a comment from `github-actions[bot]`, mentions whoever started the run, since nobody is notified of what the factory itself writes.
 
 **Escalation**:
-What the factory does when it cannot finish an issue: it explains why on the issue, swaps `in-progress` for `ready-for-human`, and opens a draft pull request with its progress when there are commits. The reason is one of `e2e-failures` (five attempts failed), `time` (the global limit ran out), `needs-human` (a question for a person, or the criteria cannot be met without changing the Skeleton) or `infra` (the run left no result).
+What the factory does when it cannot finish an issue: it explains why on the issue, swaps `in-progress` for `ready-for-human`, and opens a draft pull request with its progress when there are commits. The reason is one of `e2e-failures` (five attempts failed), `time` (the global limit ran out), `needs-human` (a question for a person, an acceptance criterion the Review found not met, or the criteria cannot be met without changing the Skeleton) or `infra` (the run left no result).
 _Avoid_: Failure, abort
 
 **Lock**:
