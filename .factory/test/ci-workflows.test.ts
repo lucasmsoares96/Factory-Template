@@ -811,7 +811,7 @@ describe.each([["factory-pr-feedback.yml", "pr-feedback"], ["factory-update-bran
     expect(step.env?.GITHUB_TOKEN).toBe("${{ github.token }}");
     expect(step.env?.FACTORY_TOKEN).toBe("${{ secrets.FACTORY_TOKEN }}");
     const dispatchers = Object.entries(workflow.jobs).filter(([, job]) => (job.permissions as Record<string, string> | undefined)?.actions === "write");
-    expect(dispatchers.map(([id]) => id)).toEqual(flow === "update-branch" ? ["scan", "publish"] : ["publish"]);
+    expect(dispatchers.map(([id]) => id)).toEqual(flow === "update-branch" ? ["scan", "scan-pr", "publish"] : ["publish"]);
   });
 
   it("is off until FACTORY_ENABLED and never interpolates event data into a script", () => {
@@ -892,12 +892,47 @@ describe("Factory PR feedback workflow", () => {
 describe("Factory update branches workflow", () => {
   const update = checkWorkflows(WORKFLOWS_DIR).workflows["factory-update-branches.yml"]!;
 
-  it("scans on a push to main and works on one dispatched issue", () => {
-    expect(Object.keys(update.on).sort()).toEqual(["push", "workflow_dispatch"]);
+  it("scans on a push to main, scans one PR when it is opened or reopened into main, and works on one dispatched issue", () => {
+    expect(Object.keys(update.on).sort()).toEqual(["pull_request_target", "push", "workflow_dispatch"]);
     expect(update.on.push).toEqual({ branches: ["main"] });
-    expect(Object.keys(update.jobs)).toEqual(["scan", "claim", "image", "work", "publish"]);
+    expect(update.on.pull_request_target).toEqual({ types: ["opened", "reopened"], branches: ["main"] });
+    expect(Object.keys(update.jobs)).toEqual(["scan", "scan-pr", "claim", "image", "work", "publish"]);
     expect(update.jobs.scan!.if).toContain("github.event_name == 'push'");
+    expect(update.jobs["scan-pr"]!.if).toBe("${{ vars.FACTORY_ENABLED == 'true' && github.event_name == 'pull_request_target' }}");
     expect(update.jobs.claim!.if).toContain("github.event_name == 'workflow_dispatch'");
+  });
+
+  it("`scan-pr` runs the scan for the opened PR alone, with no permission beyond the scan's and no secret", () => {
+    const job = update.jobs["scan-pr"]!;
+    const scan = update.jobs.scan!;
+    for (const [scope, level] of Object.entries(job.permissions ?? {})) {
+      expect(scan.permissions?.[scope], scope).toBeDefined();
+      if (level === "write") expect(scan.permissions?.[scope], scope).toBe("write");
+    }
+    expect(textOf(job)).not.toMatch(/secrets\./);
+    expect(job.env?.PR).toBe("${{ github.event.pull_request.number }}");
+    const step = steps(job).find((s) => s.run?.includes("pnpm factory update-branch"))!;
+    expect(step.run).toBe('pnpm factory update-branch --scan --pr "$PR"');
+    expect(step.env?.GITHUB_TOKEN).toBe("${{ github.token }}");
+  });
+
+  it("`scan-pr` runs main's code and fetches only the opened PR's head, as data, never checking it out", () => {
+    const job = update.jobs["scan-pr"]!;
+    const checkouts = steps(job).filter((s) => s.uses?.startsWith("actions/checkout@"));
+    expect(checkouts.map((s) => s.with)).toEqual([expect.objectContaining({ ref: "${{ github.event.repository.default_branch }}", "persist-credentials": false })]);
+    expect(textOf(job)).not.toMatch(/head\.repo|head\.sha|head\.ref|refs\/pull\/\*/);
+    const scripts = runs(job);
+    const install = scripts.findIndex((s) => s.includes("pnpm install"));
+    const fetch = scripts.findIndex((s) => s.includes("git fetch"));
+    expect(scripts[install]).toContain("--ignore-scripts");
+    expect(fetch).toBeGreaterThan(install);
+    expect(scripts[fetch]).toContain('git fetch --no-tags origin "+refs/pull/$PR/head:refs/remotes/origin/pull/$PR"');
+  });
+
+  it("`scan-pr` has a group per PR, so an opened PR never cancels the push scan", () => {
+    const concurrencyOf = (job: Job) => (job as unknown as { concurrency?: { group: string; "cancel-in-progress": boolean } }).concurrency;
+    expect(concurrencyOf(update.jobs.scan!)).toEqual({ group: "factory-update-scan", "cancel-in-progress": true });
+    expect(concurrencyOf(update.jobs["scan-pr"]!)).toEqual({ group: "factory-update-open-${{ github.event.pull_request.number }}", "cancel-in-progress": true });
   });
 
   it("`scan` dispatches with the job token and holds no secret; it may write only a fork PR's comment and factory:working", () => {

@@ -139,6 +139,7 @@ What `publish` does:
 `.github/workflows/factory-update-branches.yml` (`push` on the base branch; the scan's group cancels the previous scan, so only the latest push counts).
 
 - It runs `pnpm factory update-branch --scan` with the job token (`actions: write`, `pull-requests: write` for the fork comment, `issues: write` with it for the orphan `factory:working`).
+- A PR opened or reopened into the base branch (`pull_request_target`, job `scan-pr`, group `factory-update-open-<N>`, apart from the push scan's) runs `pnpm factory update-branch --scan --pr <N>`: the same rules for that PR alone, so one born behind is updated at once. It checks out the base branch, fetches only `refs/pull/<N>/head` as data, holds no secret, needs no `issues: write` (no `factory:working` cleanup) and does nothing for a PR that is up to date.
 - Every open PR into the base branch whose head does not contain the base head (`git merge-base --is-ancestor`, the PR heads fetched as `refs/pull/*/head` and never run) is dispatched, clean or conflicting, drafts included, no cap.
   - A Factory PR whose issue is `in-progress` goes in the issue's flow (`issue`, run `#N update branch`, group `factory-<N>`).
   - Any other PR, a person's or a Factory PR whose issue is not `in-progress`, is keyed by the PR (`pr`, `update-branch --pr`, `work --flow update-branch --pr`, `publish --pr` with no issue; run `PR #N update branch`, group `factory-pr-<N>`).
