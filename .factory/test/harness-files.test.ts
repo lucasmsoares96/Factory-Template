@@ -176,7 +176,7 @@ describe(".claude/settings.json", () => {
 });
 
 describe("CODING_STANDARDS.md", () => {
-  it("exists at the root with the header comment and the three empty sections", () => {
+  it("exists at the root with the header comment and the three sections", () => {
     const text = read("CODING_STANDARDS.md");
     expect(text).toMatch(/^# Coding Standards\n/);
     expect(text).toMatch(/Review/);
@@ -184,8 +184,14 @@ describe("CODING_STANDARDS.md", () => {
     expect(text).toContain("/retro");
     const sections = text.split(/^## /m).slice(1);
     expect(sections.map((s) => s.split("\n")[0])).toEqual(["Style", "Testing", "Architecture"]);
-    for (const section of sections) expect(section.split("\n").slice(1).join("\n").trim(), section).toBe("");
     expect(text).not.toMatch(/Example/);
+  });
+
+  it("holds the whole-token matching rule under Architecture", () => {
+    const architecture = read("CODING_STANDARDS.md").split(/^## /m).find((s) => s.startsWith("Architecture\n")) ?? "";
+    for (const fragment of ["agent", "whole token", "substring", "blank", "near-miss", "`line` vs `line7`", "`/api/note` vs `/api/notes`"]) {
+      expect(architecture, fragment).toContain(fragment);
+    }
   });
 
   it("is a harness path", () => {
