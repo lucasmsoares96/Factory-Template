@@ -33,7 +33,7 @@ export interface MergeInput {
  * workflow ends. Deterministic, and it takes nothing from the event: in `human` it merges nothing; in `safe` it reads
  * every open Factory pull request and merges each ready one whose diff touches nothing protected, whose `verify` passed,
  * whose preview jobs did not fail, whose acceptance criteria all have a met verdict, while the last deploy of the base
- * branch did not fail. The merge and the comment go with the Factory's token, so the merge starts the deploy.
+ * branch did not fail; `all` does the same without the protected list. The merge and the comment go with the Factory's token, so the merge starts the deploy.
  */
 export async function merge(ctx: CommandContext, input: MergeInput): Promise<MergeOutcome> {
   const { config } = ctx;
@@ -67,19 +67,19 @@ async function decide(ctx: CommandContext, input: MergeInput, pr: PullRequest, d
   const protectedFiles = files.filter(isProtectedPath);
   const previewJobs = checks.filter((c) => PREVIEW_JOB.test(c.name));
   const held: Record<MergeCondition, boolean> = {
-    protected: protectedFiles.length === 0,
+    protected: config.mergeMode === "all" || protectedFiles.length === 0,
     verify: checks.some((c) => c.name === "verify" && c.conclusion === "success"),
     preview: previewJobs.every((c) => c.conclusion !== null && PASSED.has(c.conclusion)),
     criteria: allCriteriaMet(body),
     deploy: deploy === null || !DEPLOY_FAILED.has(deploy),
   };
   const unmet = (Object.keys(held) as MergeCondition[]).filter((c) => !held[c]);
-  if (unmet.length > 0) return { pr: pr.number, merged: false, reason: "conditions", unmet, ...(protectedFiles.length > 0 ? { protected: protectedFiles } : {}) };
+  if (unmet.length > 0) return { pr: pr.number, merged: false, reason: "conditions", unmet, ...(unmet.includes("protected") ? { protected: protectedFiles } : {}) };
 
   const result = await ctx.codeHost.merge(pr.number, pr.headSha);
   if (!result.ok) return { pr: pr.number, merged: false, reason: "refused", detail: result.reason };
   await input.label(pr.number, config.labels.autoMerged);
-  await ctx.codeHost.commentPr(pr.number, messages(config.language).autoMerged(config.mergeMode, config.baseBranch, hadPreview(previewJobs)));
+  await ctx.codeHost.commentPr(pr.number, messages(config.language).autoMerged(config.mergeMode, config.baseBranch, hadPreview(previewJobs), protectedFiles));
   return { pr: pr.number, merged: true };
 }
 

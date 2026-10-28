@@ -124,12 +124,18 @@ export const MERGE_MODE_VARIABLE = variableName(["mergeMode"]);
 const MERGE_MODE_LABELS: Record<MergeMode, string> = {
   human: "human: every Factory pull request waits for you at the Merge Gate (recommended)",
   safe: "safe: the Factory merges a pull request that touches nothing protected, once verify, the preview smoke, every criterion and the last deploy of the default branch are green",
+  all: "all: the Factory merges every pull request once those same checks are green, protected files included (its own workflows, guard, prompts and config.ts): nothing waits for you",
 };
+
+/** What a person types to choose `all`. */
+const ALL_CONFIRMATION = "all";
 
 /**
  * The Merge Mode (ADR 0016): which Factory pull requests `factory-merge.yml` may merge without a person. Asked only while
  * the variable does not exist; `human` is offered first, and is what a run without a terminal sets (or
- * `FACTORY_MERGE_MODE` from the environment). Only this step changes it: the `FACTORY_TOKEN` cannot write a variable.
+ * `FACTORY_MERGE_MODE` from the environment, the only way to `all` without a terminal). Choosing `all` at the prompt
+ * takes a typed confirmation; without it the mode does not change. Only this step changes it: the `FACTORY_TOKEN`
+ * cannot write a variable.
  */
 export const mergeMode: Step = {
   id: "merge-mode",
@@ -141,14 +147,25 @@ export const mergeMode: Step = {
   async run(ctx) {
     const fromEnv = ctx.env[MERGE_MODE_VARIABLE]?.trim();
     if (fromEnv && !(MERGE_MODES as readonly string[]).includes(fromEnv)) throw new Error(`${MERGE_MODE_VARIABLE}=${fromEnv} is not one of ${MERGE_MODES.join(", ")}. Nothing was stored.`);
-    const value = (fromEnv as MergeMode | undefined) ??
-      (ctx.interactive
-        ? await ctx.prompter.select<MergeMode>({
-            id: "merge-mode",
-            message: "Which Factory pull requests may be merged without you? A merge into the default branch deploys to production.",
-            options: MERGE_MODES.map((value) => ({ value, label: MERGE_MODE_LABELS[value] })),
-          })
-        : "human");
+    if (fromEnv) return ctx.github.setVariable(MERGE_MODE_VARIABLE, fromEnv);
+    if (!ctx.interactive) return ctx.github.setVariable(MERGE_MODE_VARIABLE, "human");
+    const value = await ctx.prompter.select<MergeMode>({
+      id: "merge-mode",
+      message: "Which Factory pull requests may be merged without you? A merge into the default branch deploys to production.",
+      options: MERGE_MODES.map((value) => ({ value, label: MERGE_MODE_LABELS[value] })),
+    });
+    if (value === "all") {
+      const typed = (
+        await ctx.prompter.text({
+          id: "merge-mode-confirm",
+          message: `In all, the Factory can merge changes to its own rules (workflows, guard, prompts, config.ts) and nothing requires a human review. Type "${ALL_CONFIRMATION}" to confirm`,
+        })
+      ).trim();
+      if (typed !== ALL_CONFIRMATION) {
+        ctx.log(`"${typed}" is not "${ALL_CONFIRMATION}". The Merge Mode is unchanged.`);
+        return;
+      }
+    }
     await ctx.github.setVariable(MERGE_MODE_VARIABLE, value);
   },
 };

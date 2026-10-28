@@ -16,7 +16,7 @@ function factoryWorld(answers: Record<string, string | boolean | string[]> = {},
 }
 
 /** The credential prompts; the optional example question (answered No by the helper) and the Merge Mode are not ones. */
-const credentialPrompts = (w: { prompter: { asked: string[] } }) => w.prompter.asked.filter((id) => id !== "example-issue" && id !== "merge-mode");
+const credentialPrompts = (w: { prompter: { asked: string[] } }) => w.prompter.asked.filter((id) => id !== "example-issue" && !id.startsWith("merge-mode"));
 
 const shown = (w: ReturnType<typeof factoryWorld>) => JSON.stringify([w.lines, w.prompter.notes, w.prompter.printed]);
 
@@ -70,7 +70,7 @@ describe("pnpm bootstrap factory: Factory module", () => {
 
     await w.run("factory");
 
-    expect(offered).toEqual([["human", "safe"]]);
+    expect(offered).toEqual([["human", "safe", "all"]]);
     expect(w.github.variables.get("FACTORY_MERGE_MODE")).toBe("human");
   });
 
@@ -98,6 +98,41 @@ describe("pnpm bootstrap factory: Factory module", () => {
     expect(code).toBe(0);
     expect(w.prompter.asked).not.toContain("merge-mode");
     expect(w.github.variables.get("FACTORY_MERGE_MODE")).toBe("human");
+  });
+
+  it("sets all only after the confirmation is typed", async () => {
+    const w = factoryWorld({ "merge-mode": "all", "merge-mode-confirm": "all" }, { CLAUDE_CODE_OAUTH_TOKEN: "x" });
+
+    await w.run("factory");
+
+    expect(w.prompter.asked).toContain("merge-mode-confirm");
+    expect(w.github.variables.get("FACTORY_MERGE_MODE")).toBe("all");
+  });
+
+  it("does not change the Merge Mode when the confirmation of all is not typed", async () => {
+    const w = factoryWorld({ "merge-mode": ["safe", "all"], "merge-mode-confirm": "yes" }, { CLAUDE_CODE_OAUTH_TOKEN: "x" });
+    await w.run("factory");
+    expect(w.prompter.asked).not.toContain("merge-mode-confirm");
+
+    const { output } = await w.run("factory", "--redo", "merge-mode");
+
+    expect(w.prompter.asked).toContain("merge-mode-confirm");
+    expect(w.github.variables.get("FACTORY_MERGE_MODE")).toBe("safe");
+    expect(output).toMatch(/not "all".*unchanged/);
+
+    const fresh = factoryWorld({ "merge-mode": "all", "merge-mode-confirm": "" }, { CLAUDE_CODE_OAUTH_TOKEN: "x" });
+    await fresh.run("factory");
+    expect(fresh.github.variables.has("FACTORY_MERGE_MODE")).toBe(false);
+  });
+
+  it("without a terminal, takes all only from FACTORY_MERGE_MODE in the environment", async () => {
+    const w = factoryWorld({ "merge-mode": undefined as never }, { CLAUDE_CODE_OAUTH_TOKEN: "x", FACTORY_MERGE_MODE: "all" });
+    w.deps.interactive = false;
+
+    expect((await w.run("factory")).code).toBe(0);
+
+    expect(w.prompter.asked.filter((id) => id.startsWith("merge-mode"))).toEqual([]);
+    expect(w.github.variables.get("FACTORY_MERGE_MODE")).toBe("all");
   });
 
   it("makes the labels the Factory uses", async () => {
@@ -258,8 +293,11 @@ describe("pnpm bootstrap factory: Factory module", () => {
     w.github.variables.set("FACTORY_MERGE_MODE", "safe");
     expect((await w.run("doctor")).output).toMatch(/ok\s+FACTORY_MERGE_MODE\s+safe/);
 
+    w.github.variables.set("FACTORY_MERGE_MODE", "all");
+    expect((await w.run("doctor")).output).toMatch(/warn\s+FACTORY_MERGE_MODE\s+all: nothing requires a human review/);
+
     w.github.variables.set("FACTORY_MERGE_MODE", "yolo");
-    expect((await w.run("doctor")).output).toMatch(/warn\s+FACTORY_MERGE_MODE\s+yolo is not one of human, safe: every Factory job fails; run `pnpm bootstrap factory --redo merge-mode`/);
+    expect((await w.run("doctor")).output).toMatch(/warn\s+FACTORY_MERGE_MODE\s+yolo is not one of human, safe, all: every Factory job fails; run `pnpm bootstrap factory --redo merge-mode`/);
   });
 });
 
