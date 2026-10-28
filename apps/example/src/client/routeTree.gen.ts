@@ -21,6 +21,7 @@ import { Route as InvitationsTokenRouteImport } from "./../../../../packages/ske
 import { Route as AccountIndexRouteImport } from "./../../../../packages/skeleton/src/features/account/routes/index"
 import { Route as AccountConnectionsRouteImport } from "./../../../../packages/skeleton/src/features/account/routes/connections"
 import { Route as CNewRouteImport } from "./../../../../packages/skeleton/src/features/companies/routes/new"
+import { Route as AccountPlanIndexRouteImport } from "./../../../../packages/skeleton/src/features/billing/routes/index"
 import { Route as CCompanyIdIndexRouteImport } from "./../../../../packages/skeleton/src/features/companies/routes/$companyId/index"
 
 const DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRoute =
@@ -87,6 +88,12 @@ const CNewRoute = CNewRouteImport.update({
   getParentRoute: () =>
     DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRoute,
 } as any)
+const AccountPlanIndexRoute = AccountPlanIndexRouteImport.update({
+  id: "/account/plan/",
+  path: "/account/plan/",
+  getParentRoute: () =>
+    DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRoute,
+} as any)
 const CCompanyIdIndexRoute = CCompanyIdIndexRouteImport.update({
   id: "/c/$companyId/",
   path: "/c/$companyId/",
@@ -106,6 +113,7 @@ export interface FileRoutesByFullPath {
   "/account/connections": typeof AccountConnectionsRoute
   "/c/new": typeof CNewRoute
   "/account/": typeof AccountIndexRoute
+  "/account/plan/": typeof AccountPlanIndexRoute
   "/c/$companyId/": typeof CCompanyIdIndexRoute
 }
 export interface FileRoutesByTo {
@@ -120,6 +128,7 @@ export interface FileRoutesByTo {
   "/account/connections": typeof AccountConnectionsRoute
   "/c/new": typeof CNewRoute
   "/account": typeof AccountIndexRoute
+  "/account/plan": typeof AccountPlanIndexRoute
   "/c/$companyId": typeof CCompanyIdIndexRoute
 }
 export interface FileRoutesById {
@@ -136,6 +145,7 @@ export interface FileRoutesById {
   "/_signed-in/account/connections": typeof AccountConnectionsRoute
   "/_signed-in/c/new": typeof CNewRoute
   "/_signed-in/account/": typeof AccountIndexRoute
+  "/_signed-in/account/plan/": typeof AccountPlanIndexRoute
   "/_signed-in/c/$companyId/": typeof CCompanyIdIndexRoute
 }
 export interface FileRouteTypes {
@@ -152,6 +162,7 @@ export interface FileRouteTypes {
     | "/account/connections"
     | "/c/new"
     | "/account/"
+    | "/account/plan/"
     | "/c/$companyId/"
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -166,6 +177,7 @@ export interface FileRouteTypes {
     | "/account/connections"
     | "/c/new"
     | "/account"
+    | "/account/plan"
     | "/c/$companyId"
   id:
     | "__root__"
@@ -181,6 +193,7 @@ export interface FileRouteTypes {
     | "/_signed-in/account/connections"
     | "/_signed-in/c/new"
     | "/_signed-in/account/"
+    | "/_signed-in/account/plan/"
     | "/_signed-in/c/$companyId/"
   fileRoutesById: FileRoutesById
 }
@@ -281,6 +294,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof CNewRouteImport
       parentRoute: typeof DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRoute
     }
+    "/_signed-in/account/plan/": {
+      id: "/_signed-in/account/plan/"
+      path: "/account/plan"
+      fullPath: "/account/plan/"
+      preLoaderRoute: typeof AccountPlanIndexRouteImport
+      parentRoute: typeof DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRoute
+    }
     "/_signed-in/c/$companyId/": {
       id: "/_signed-in/c/$companyId/"
       path: "/c/$companyId"
@@ -296,6 +316,7 @@ interface DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRouteChildren
   AccountConnectionsRoute: typeof AccountConnectionsRoute
   CNewRoute: typeof CNewRoute
   AccountIndexRoute: typeof AccountIndexRoute
+  AccountPlanIndexRoute: typeof AccountPlanIndexRoute
   CCompanyIdIndexRoute: typeof CCompanyIdIndexRoute
 }
 
@@ -305,6 +326,7 @@ const DotDotDotDotDotDotDotDotPackagesSkeletonSrcClientSignedInRouteChildren: Do
     AccountConnectionsRoute: AccountConnectionsRoute,
     CNewRoute: CNewRoute,
     AccountIndexRoute: AccountIndexRoute,
+    AccountPlanIndexRoute: AccountPlanIndexRoute,
     CCompanyIdIndexRoute: CCompanyIdIndexRoute,
   }
 

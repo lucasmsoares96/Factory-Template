@@ -170,6 +170,9 @@ catalogs:
     '@base-ui/react':
       specifier: 1.9.0
       version: 1.9.0
+    '@better-auth/stripe':
+      specifier: 1.7.14
+      version: 1.7.14
     '@clack/prompts':
       specifier: 1.8.1
       version: 1.8.1
@@ -320,6 +323,9 @@ catalogs:
     shadcn:
       specifier: 4.22.1
       version: 4.22.1
+    stripe:
+      specifier: 23.0.1
+      version: 23.0.1
     tailwindcss:
       specifier: 4.3.3
       version: 4.3.3
@@ -462,6 +468,9 @@ importers:
       '@base-ui/react':
         specifier: 'catalog:'
         version: 1.9.0(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      '@better-auth/stripe':
+        specifier: 'catalog:'
+        version: 1.7.14(@better-auth/core@1.7.14(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-call@1.4.4(zod@4.6.7))(jose@6.2.12)(kysely@0.29.7)(nanostores@1.5.5))(better-auth@1.7.14(drizzle-kit@1.0.0-rc.4)(drizzle-orm@1.0.0-rc.4(@types/pg@8.23.1)(pg@8.23.1)(valibot@1.5.0(typescript@7.0.2))(zod@4.6.7))(pg@8.23.1)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(vitest@5.0.5))(better-call@1.4.4(zod@4.6.7))(stripe@23.0.1(@types/node@24.19.2))
       '@cloudflare/vite-plugin':
         specifier: 'catalog:'
         version: 1.64.0(@types/node@24.19.2)(vite@8.3.4(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))(wrangler@4.151.2(@types/node@24.19.2))
@@ -579,6 +588,9 @@ importers:
       shadcn:
         specifier: 'catalog:'
         version: 4.22.1(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)
+      stripe:
+        specifier: 'catalog:'
+        version: 23.0.1(@types/node@24.19.2)
       tailwindcss:
         specifier: 'catalog:'
         version: 4.3.3
@@ -992,6 +1004,14 @@ packages:
         optional: true
       prisma:
         optional: true
+
+  '@better-auth/stripe@1.7.14':
+    resolution: {integrity: sha512-R5PHMI3+aWhzh57Qso+7wMurjSPDCXd6sfDTKniPViojVmVuqOmWCYBYGX129dGgojFxs9r9q8F99aEvGxRjSA==}
+    peerDependencies:
+      '@better-auth/core': ^1.7.14
+      better-auth: ^1.7.14
+      better-call: 1.4.4
+      stripe: ^18 || ^19 || ^20 || ^21 || ^22 || ^23
 
   '@better-auth/telemetry@1.7.14':
     resolution: {integrity: sha512-PtKFzsH7gje/WJuUPDjckOoNFazsq8NMt3AdiXIPzHl7tZULcNGTKAX8K7+yn0rG6cO/4mtMgpOjhtilElOnmg==}
@@ -5303,6 +5323,15 @@ packages:
     resolution: {integrity: sha512-aulFJcD6YK8V1G7iRB5tigAP4TsHBZZrOV8pjV++zdUwmeV8uzbY7yn6h9MswN62adStNZFuCIx4haBnRuMDaw==}
     engines: {node: '>=18'}
 
+  stripe@23.0.1:
+    resolution: {integrity: sha512-VFLs9IAzSZ8GIm6/vqhjqOL0fbYrSNYCpgZ3LS3YkSi/i5RnyMpu/Hf9YxPTOCYwc3mZKU3IJvuvKffQH2NLMg==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      '@types/node': '>=20'
+    peerDependenciesMeta:
+      '@types/node':
+        optional: true
+
   stubborn-fs@2.0.0:
     resolution: {integrity: sha512-Y0AvSwDw8y+nlSNFXMm2g6L51rBGdAQT20J3YSOqxC53Lo3bjWRtr2BKcfYoAf352WYpsZSTURrA0tqhfgudPA==}
 
@@ -6355,6 +6384,15 @@ snapshots:
     dependencies:
       '@better-auth/core': 1.7.14(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-call@1.4.4(zod@4.6.7))(jose@6.2.12)(kysely@0.29.7)(nanostores@1.5.5)
       '@better-auth/utils': 0.5.1
+
+  '@better-auth/stripe@1.7.14(@better-auth/core@1.7.14(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-call@1.4.4(zod@4.6.7))(jose@6.2.12)(kysely@0.29.7)(nanostores@1.5.5))(better-auth@1.7.14(drizzle-kit@1.0.0-rc.4)(drizzle-orm@1.0.0-rc.4(@types/pg@8.23.1)(pg@8.23.1)(valibot@1.5.0(typescript@7.0.2))(zod@4.6.7))(pg@8.23.1)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(vitest@5.0.5))(better-call@1.4.4(zod@4.6.7))(stripe@23.0.1(@types/node@24.19.2))':
+    dependencies:
+      '@better-auth/core': 1.7.14(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-call@1.4.4(zod@4.6.7))(jose@6.2.12)(kysely@0.29.7)(nanostores@1.5.5)
+      better-auth: 1.7.14(drizzle-kit@1.0.0-rc.4)(drizzle-orm@1.0.0-rc.4(@types/pg@8.23.1)(pg@8.23.1)(valibot@1.5.0(typescript@7.0.2))(zod@4.6.7))(pg@8.23.1)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(vitest@5.0.5)
+      better-call: 1.4.4(zod@4.6.7)
+      defu: 6.1.7
+      stripe: 23.0.1(@types/node@24.19.2)
+      zod: 4.6.7
 
   '@better-auth/telemetry@1.7.14(@better-auth/core@1.7.14(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-call@1.4.4(zod@4.6.7))(jose@6.2.12)(kysely@0.29.7)(nanostores@1.5.5))(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)':
     dependencies:
@@ -10434,6 +10472,10 @@ snapshots:
   strip-final-newline@2.0.0: {}
 
   strip-final-newline@4.0.0: {}
+
+  stripe@23.0.1(@types/node@24.19.2):
+    optionalDependencies:
+      '@types/node': 24.19.2
 
   stubborn-fs@2.0.0:
     dependencies:
