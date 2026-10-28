@@ -44,7 +44,7 @@ describe("Pull Request Stage in the work job", () => {
 
     expect(w.agent.calls.map((c) => c.stage)).toEqual(["development", "review", "pull-request"]);
     const [call] = prCalls(w);
-    expect(call).toMatchObject({ model: "claude-opus-5-5", timeoutMs: 15 * 60_000 });
+    expect(call).toMatchObject({ model: "claude-haiku-5-5", timeoutMs: 15 * 60_000 });
     expect(call!.prompt).toContain("`pr` skill");
     expect(call!.prompt).toContain("Greet the user");
     expect(call!.prompt).toContain("feat: greet the user #7");
