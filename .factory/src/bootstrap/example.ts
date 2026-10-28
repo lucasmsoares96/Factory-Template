@@ -1,4 +1,6 @@
 import type { IssueRef, PullRequestInfo } from "./clients.ts";
+import { LANGUAGES, messages, type Language } from "../messages.ts";
+import { LANGUAGE_VARIABLE } from "./common.ts";
 import { labelSpecs } from "./labels.ts";
 import type { ProductIdentity, StepContext } from "./steps.ts";
 
@@ -19,37 +21,13 @@ interface Leftover {
 }
 
 /** The parent spec of the example: the seams the Factory's Development Stage must test through. */
-export function parentBody(product: ProductIdentity): string {
-  return [
-    `A throwaway example created by \`pnpm bootstrap factory\` to watch the Factory work on the Product \`${product.id}\`. It is deleted at the end of the run.`,
-    "",
-    "## Goal",
-    "",
-    `Show the Factory turning a small, harmless change to ${product.title} into a pull request with evidence.`,
-    "",
-    "## Testing Decisions",
-    "",
-    `- Seam: the Product's own Playwright E2E spec under \`apps/${product.id}/e2e/\`, with an \`@evidence\` screenshot of the changed screen.`,
-    "- Every text goes through the Product's i18n messages (`en` and `pt-BR`), never as a literal in a component.",
-    "- Never change `packages/skeleton`: the Product extends it by configuration only.",
-  ].join("\n");
+export function parentBody(product: ProductIdentity, language: Language): string {
+  return messages(language).exampleParentBody(product.id, product.title);
 }
 
 /** The child issue: a Product-only text override that the Skeleton already renders and the Product's E2E can read. */
-export function childBody(product: ProductIdentity, parent: number): string {
-  return [
-    `Part of #${parent}. A throwaway example; it is deleted at the end.`,
-    "",
-    "## What to build",
-    "",
-    `Override the sign-in screen title in \`apps/${product.id}/product.config.ts\`, in \`messages\` for both locales: \`auth.signIn.title\` becomes "Welcome to ${product.title}" in \`en\` and "Bem-vindo ao ${product.title}" in \`pt-BR\`. The Skeleton already renders this text, so no change outside \`apps/${product.id}/\` is needed.`,
-    "",
-    "## Acceptance criteria",
-    "",
-    `- [ ] \`apps/${product.id}/product.config.ts\` overrides \`auth.signIn.title\` in \`en\` and \`pt-BR\` with the texts above.`,
-    `- [ ] The Product's own E2E spec under \`apps/${product.id}/e2e/\` checks that the sign-in screen shows the new title and prints an \`@evidence\` screenshot.`,
-    "- [ ] Nothing under `packages/skeleton/` changes.",
-  ].join("\n");
+export function childBody(product: ProductIdentity, parent: number, language: Language): string {
+  return messages(language).exampleChildBody(product.id, product.title, parent);
 }
 
 /** Resolves true when `ms` passed, false when Ctrl-C came first. */
@@ -105,9 +83,13 @@ async function runExample(ctx: StepContext, product: ProductIdentity): Promise<n
     }
     for (const run of await github.workflowRuns(ISSUE_WORKFLOW)) knownRuns.add(run.id);
 
-    created.parent = await github.createIssue({ title: `Example: change the ${product.title} sign-in title`, body: parentBody(product), labels: [] });
+    // The issues are public text: the repo's FACTORY_LANGUAGE, the language step's answer, not this shell's env.
+    const variable = (await github.listVariables())[LANGUAGE_VARIABLE];
+    const language = LANGUAGES.find((l) => l === variable) ?? ctx.config.language;
+    const m = messages(language);
+    created.parent = await github.createIssue({ title: m.exampleParentTitle(product.title), body: parentBody(product, language), labels: [] });
     log(`Created the parent spec #${created.parent.number}: ${created.parent.url}`);
-    created.child = await github.createIssue({ title: `Example: welcome text on the ${product.title} sign-in screen`, body: childBody(product, created.parent.number), labels: [] });
+    created.child = await github.createIssue({ title: m.exampleChildTitle(product.title), body: childBody(product, created.parent.number, language), labels: [] });
     await github.addSubIssue(created.parent.number, created.child.number);
     log(`Created the issue #${created.child.number}, a sub-issue of #${created.parent.number}: ${created.child.url}`);
     // The labels go last, once the issue is linked: the label event is what starts the Factory.
