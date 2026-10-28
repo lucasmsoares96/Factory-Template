@@ -125,4 +125,18 @@ describe("one cleaning for all the agent's text that goes to the forge", () => {
     expect(clean.followUps[0]).toMatchObject({ files: [" packages/skeleton/a.ts"], gaps: ["Gap."], patch: "skeleton.patch" });
     expect(clean.evidence).toEqual(result.evidence);
   });
+
+  it("drops a closing reference split over two lines, which a verdict put on one line would turn into a real one", () => {
+    const sha = "a".repeat(40);
+    const result = resultSchema.parse({
+      version: 1, issue: 7, branch: "factory/issue-7", base: sha, head: sha, outcome: "ready", reason: null, question: null, attempts: [],
+      review: { summary: "Fixes\n#12", inline: [], criteria: [{ criterion: "Greets.", met: true, proof: "`a.test.ts` › greets; this fixes\n#12 and\n#13" }] },
+      threadReplies: [],
+      usage: { development: { inputTokens: 0, outputTokens: 0 }, review: { inputTokens: 0, outputTokens: 0 } },
+      evidence: [],
+    });
+    const clean = forForge(result);
+    expect(clean.review.summary).toBe("");
+    expect(clean.review.criteria[0]!.proof).toBe("`a.test.ts` › greets; this [closing reference removed]");
+  });
 });
