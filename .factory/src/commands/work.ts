@@ -310,8 +310,9 @@ export async function work(ctx: CommandContext, number: number | null, options: 
     ready = false;
     reason = "needs-human";
     question = waiting ? null : SKELETON_QUESTION;
-  } else if (ready && unmet.length > 0) {
-    // The Escalation comment names each criterion and why, from the verdicts.
+  } else if (ready && unmet.length > 0 && flow?.kind !== "update-branch") {
+    // The Escalation comment names each criterion and why, from the verdicts. An update-branch round only merges the
+    // base and keeps it green: its Review does not gate the push on the criteria.
     ready = false;
     reason = "needs-human";
   }

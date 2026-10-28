@@ -286,7 +286,8 @@ function prBody(
   if (input.followUps.length > 0) warnings.push("> [!NOTE]", `> ${followUpComment(input.followUps, language).replaceAll("\n", "\n> ")}`, "");
   const text = input.text ? withoutAttribution(withoutClosingKeywords(input.text)) : m.minimalBody();
   const middle = withEvidence(text, input.images, input.appendable);
-  const verdicts = verdictsSection(input.criteria, language);
+  // The verdicts are the agent's words too: no closing keyword in them either.
+  const verdicts = verdictsSection(input.criteria, language).map(withoutClosingKeywords);
   return [...warnings, middle, ...(verdicts.length > 0 ? ["", ...verdicts] : []), "", `Closes #${issue.number}`].join("\n");
 }
 
