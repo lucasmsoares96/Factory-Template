@@ -39,10 +39,10 @@ describe("factory update-branch --scan", () => {
     expect(await p.w.factory("update-branch", "--scan", "--repo", p.workRepo)).toBe(0);
 
     expect(p.w.codeHost.dispatches).toEqual([
-      { workflow: "factory-update-branches.yml", inputs: { issue: "7" } },
-      { workflow: "factory-update-branches.yml", inputs: { issue: "8" } },
-      { workflow: "factory-update-branches.yml", inputs: { pr: "109" } },
-      { workflow: "factory-update-branches.yml", inputs: { pr: "202" } },
+      { workflow: "update-branches", inputs: { issue: "7" } },
+      { workflow: "update-branches", inputs: { issue: "8" } },
+      { workflow: "update-branches", inputs: { pr: "109" } },
+      { workflow: "update-branches", inputs: { pr: "202" } },
     ]);
     expect(lastJson(p.w.logs)).toEqual({ dispatched: [101, 108, 109, 202], upToDate: [203], forks: [], released: { issues: [], prs: [] } });
   });
