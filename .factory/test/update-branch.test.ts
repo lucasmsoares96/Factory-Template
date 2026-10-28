@@ -306,6 +306,23 @@ describe("factory update-branch --pr: a person's pull request", () => {
     untouched();
   });
 
+  it("keeps a lease refused at the push in the log only, when the branch moved after the check", async () => {
+    const { p, publish, untouched } = await humanRound("clean", { verify: [{ ok: true }] }, (q) => {
+      const codeHost = q.w.codeHost;
+      const head = codeHost.branches.get("feature/thing")!;
+      // The check still sees the claim's head; the branch moves before the push.
+      codeHost.branchHead = async () => {
+        codeHost.branches.set("feature/thing", "f".repeat(40));
+        return head;
+      };
+    });
+    expect(p.w.codeHost.pushes).toHaveLength(1);
+    expect(publish).toEqual({ pr: HUMAN_PR, outcome: "discarded", reason: "branch feature/thing moved since the run started" });
+    expect(p.w.codeHost.pr(HUMAN_PR).comments).toEqual([]);
+    expect(p.w.logs.some((line) => line.includes("Run discarded: branch feature/thing moved since the run started"))).toBe(true);
+    untouched();
+  });
+
   it("refuses a fork's PR, a closed PR and one that targets another branch", async () => {
     const p = await prWorld({ main: "clean" });
     await pullRequestOn(p, 204, "patch-1", "main~1", { fork: true });
@@ -391,6 +408,27 @@ describe("factory update-branch", () => {
     await finishRound(q, ["--flow", "update-branch"], claim.startSha, () => void q.w.codeHost.branches.set(BRANCH, "f".repeat(40)));
 
     expect(q.w.codeHost.pushes).toEqual([]);
+    expect(q.w.logs).toContain(JSON.stringify({ issue: 7, outcome: "discarded", reason: `branch ${BRANCH} moved since the run started` }));
+    expect(q.w.logs.some((line) => line.includes(`Run discarded: branch ${BRANCH} moved since the run started`))).toBe(true);
+    expect(q.w.tracker.issues.get(7)!.comments.map((c) => c.body).join("\n")).not.toContain("Run discarded");
+    expect(q.w.codeHost.pr(PR).comments.join("\n")).not.toContain("Run discarded");
+  });
+
+  it("keeps a lease refused at the push in the log too, when the branch moved after the re-check", async () => {
+    const q = await prWorld({ main: "clean", verify: [{ ok: true }] });
+    await q.w.factory("update-branch", "7");
+    const claim = lastJson(q.w.logs) as { startSha: string };
+    await finishRound(q, ["--flow", "update-branch"], claim.startSha, () => {
+      // The re-check still sees the claim's head; the branch moves before the push.
+      const codeHost = q.w.codeHost;
+      codeHost.branchHead = async () => {
+        codeHost.branches.set(BRANCH, "f".repeat(40));
+        return claim.startSha;
+      };
+    });
+
+    expect(q.w.codeHost.pushes).toHaveLength(1);
+    expect(q.w.codeHost.branches.get(BRANCH)).toBe("f".repeat(40));
     expect(q.w.logs).toContain(JSON.stringify({ issue: 7, outcome: "discarded", reason: `branch ${BRANCH} moved since the run started` }));
     expect(q.w.logs.some((line) => line.includes(`Run discarded: branch ${BRANCH} moved since the run started`))).toBe(true);
     expect(q.w.tracker.issues.get(7)!.comments.map((c) => c.body).join("\n")).not.toContain("Run discarded");
