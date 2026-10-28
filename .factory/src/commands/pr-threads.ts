@@ -1,6 +1,6 @@
 import type { FactoryConfig } from "../config.ts";
 import { isMarked } from "../marker.ts";
-import type { CodeHost, ConversationEntry, ReviewThread } from "../seams/code-host.ts";
+import type { CodeHost, ConversationEntry, ReviewThread, ThreadId } from "../seams/code-host.ts";
 import type { Tracker } from "../seams/tracker.ts";
 
 /** The Actions bot (previews, the Merge Gate notice): never a request, whatever the forge says of its access. */
@@ -40,7 +40,7 @@ async function conversationRequests(seams: { tracker: Tracker; codeHost: CodeHos
   const lastFactory = writers.findLastIndex((e) => isMarked(e.body));
   return writers
     .slice(lastFactory + 1)
-    .map((e) => ({ id: e.id, path: null, conversation: true as const, author: e.author, body: e.body, replies: [] }));
+    .map((e) => ({ id: e.id as ThreadId, path: null, conversation: true as const, author: e.author, body: e.body, replies: [] }));
 }
 
 /**

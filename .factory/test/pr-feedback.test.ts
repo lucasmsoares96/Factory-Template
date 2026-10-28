@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FACTORY_MARKER, marked } from "../src/marker.ts";
+import type { ThreadId } from "../src/seams/code-host.ts";
 import { git, HUMAN, lastJson, OWNER, unmarked } from "./helpers.ts";
 import { BRANCH, PR, commits, feedbackRound, finishRound, prWorld, replies, reviewOk, said, thread, type PrWorld } from "./pr-flow-helpers.ts";
 
@@ -17,7 +18,7 @@ describe("factory pr-feedback: who may trigger a round", () => {
 
   it("does not loop on its own words: a reply written by the adapter, as the owner, claims nothing", async () => {
     const p = await prWorld({ main: "none", threads: [thread("t1", "rename this")] });
-    await p.w.codeHost.replyToThread(PR, "t1", "Address: done.");
+    await p.w.codeHost.replyToThread(PR, "t1" as ThreadId, "Address: done.");
     expect(await p.w.factory("pr-feedback", "--pr", String(PR), "--actor", OWNER)).toBe(0);
     expect(lastJson(p.w.logs)).toEqual({ claimed: false, reason: "no-open-threads" });
   });
@@ -127,6 +128,31 @@ describe("factory pr-feedback: a round", () => {
     expect(pr.draft).toBe(false);
     expect(p.w.tracker.labelsOf(7)).toEqual(["in-progress"]);
     expect(p.w.codeHost.writes.some((w) => /resolve/i.test(w))).toBe(false);
+  });
+
+  it("posts nothing for a thread id the code host does not know, and still answers the known one", async () => {
+    const p = await prWorld({
+      main: "none",
+      threads: [thread("t1", "Use a class here.")],
+      agent: {
+        development: [
+          () => ({
+            output: replies(
+              { threadId: "t9", decision: "decline", body: "No such thread." },
+              { threadId: "t1", decision: "decline", body: "A function is what the issue asks for." },
+            ),
+          }),
+        ],
+        review: [],
+      },
+      verify: [{ ok: true }],
+    });
+
+    await feedbackRound(p);
+
+    const [t1] = p.w.codeHost.pr(PR).threads;
+    // FakeCodeHost.replyToThread throws on an unknown thread, so a reply to t9 would fail publish inside the round.
+    expect(t1!.replies.map((r) => unmarked(r.body))).toEqual(["Decline: A function is what the issue asks for."]);
   });
 
   it("declines, defers and answers a question without a commit, each in its own thread", async () => {
