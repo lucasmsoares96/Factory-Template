@@ -1,7 +1,7 @@
 import { issueBranch } from "../config.ts";
 import type { CommandContext } from "./context.ts";
 import { isMarked } from "../marker.ts";
-import type { ReactionTarget } from "../seams/code-host.ts";
+import type { PullRequest, ReactionTarget } from "../seams/code-host.ts";
 import { ACTIONS_BOT, issueOfBranch, openThreads } from "./pr-threads.ts";
 import { releaseOrphans, startWorking, type WorkingChange } from "./working.ts";
 
@@ -70,6 +70,9 @@ export async function claimPrUpdate(ctx: CommandContext, number: number): Promis
 /** Hidden tag of the one comment a fork's PR gets when it is behind. */
 export const FORK_UPDATE_TAG = "<!-- factory:update-fork -->";
 
+type ScanResult = { dispatched: number[]; upToDate: number[]; forks: number[] };
+type IsAncestor = { isAncestor(ancestor: string, commit: string): Promise<boolean> };
+
 /**
  * After a push to the base branch: every open PR into it whose head does not contain the base head is behind and gets
  * `update-branch` dispatched, Factory PRs and people's PRs alike, clean or conflicting. A Factory PR whose issue is
@@ -77,55 +80,68 @@ export const FORK_UPDATE_TAG = "<!-- factory:update-fork -->";
  * pushed to: it gets one comment asking its author to update the branch. Last, `factory:working` comes off every issue
  * and PR with no Factory run queued or going: a cancelled run never reached its own end.
  */
-export async function scanBranches(
-  ctx: CommandContext,
-  git: { isAncestor(ancestor: string, commit: string): Promise<boolean> },
-  base: string,
-): Promise<{ dispatched: number[]; upToDate: number[]; forks: number[]; released: WorkingChange }> {
+export async function scanBranches(ctx: CommandContext, git: IsAncestor, base: string): Promise<ScanResult & { released: WorkingChange }> {
   const { codeHost, config } = ctx;
-  const dispatched: number[] = [];
-  const upToDate: number[] = [];
-  const forks: number[] = [];
+  const result: ScanResult = { dispatched: [], upToDate: [], forks: [] };
   const prs = (await codeHost.openPullRequests()).filter((pr) => pr.base === config.baseBranch).sort((a, b) => a.number - b.number);
-  for (const pr of prs) {
-    let behind: boolean;
-    try {
-      behind = !(await git.isAncestor(base, pr.headSha));
-    } catch (error) {
-      ctx.log(`PR #${pr.number}: could not compare its head with ${config.baseBranch} (${(error as Error).message.split("\n")[0]}); skipped.`);
-      continue;
-    }
-    if (!behind) {
-      upToDate.push(pr.number);
-      continue;
-    }
-    if (pr.fork) {
-      forks.push(pr.number);
-      // Marker plus a trusted author: the scan writes with the job token, so as the Actions bot (not a collaborator,
-      // `canWrite` says no), and a writer's copy counts too. A stranger's forged copy does not silence it.
-      let asked = false;
-      for (const e of await codeHost.conversation(pr.number)) {
-        if (isMarked(e.body) && e.body.includes(FORK_UPDATE_TAG) && (e.author === ACTIONS_BOT || (await ctx.tracker.canWrite(e.author)))) asked = true;
-      }
-      if (!asked) {
-        await codeHost.commentPr(
-          pr.number,
-          `${FORK_UPDATE_TAG}\nThis branch is behind \`${config.baseBranch}\`, which must be merged in before this pull request can merge. The Factory does not push to forks: please update the branch (merge \`${config.baseBranch}\` into it, or use "Update branch") and push.`,
-        );
-      }
-      continue;
-    }
-    const issue = await inProgressIssue(ctx, pr.branch);
-    await codeHost.dispatch("update-branches", issue === null ? { pr: String(pr.number) } : { issue: String(issue) });
-    dispatched.push(pr.number);
-  }
+  for (const pr of prs) await scanOne(ctx, git, base, pr, result);
   let released: WorkingChange = { issues: [], prs: [] };
   try {
     released = (await releaseOrphans(ctx)).released;
   } catch (error) {
     ctx.log(`${config.labels.working} was not cleaned up: ${(error as Error).message}`);
   }
-  return { dispatched, upToDate, forks, released };
+  return { ...result, released };
+}
+
+/**
+ * When PR `number` is opened or reopened: the scan of that one PR, so a PR born behind the base branch does not wait
+ * for the next push to it. A PR that is missing, closed or into another base is skipped. No `factory:working` cleanup.
+ */
+export async function scanBranch(ctx: CommandContext, git: IsAncestor, base: string, number: number): Promise<ScanResult> {
+  const result: ScanResult = { dispatched: [], upToDate: [], forks: [] };
+  const pr = await ctx.codeHost.pullRequest(number);
+  if (!pr || pr.state !== "open" || pr.base !== ctx.config.baseBranch) {
+    ctx.log(`PR #${number}: not an open pull request into ${ctx.config.baseBranch}; skipped.`);
+    return result;
+  }
+  await scanOne(ctx, git, base, pr, result);
+  return result;
+}
+
+/** One open PR of the scan: up to date, a fork's (one comment), or dispatched. */
+async function scanOne(ctx: CommandContext, git: IsAncestor, base: string, pr: PullRequest, result: ScanResult): Promise<void> {
+  const { codeHost, config } = ctx;
+  let behind: boolean;
+  try {
+    behind = !(await git.isAncestor(base, pr.headSha));
+  } catch (error) {
+    ctx.log(`PR #${pr.number}: could not compare its head with ${config.baseBranch} (${(error as Error).message.split("\n")[0]}); skipped.`);
+    return;
+  }
+  if (!behind) {
+    result.upToDate.push(pr.number);
+    return;
+  }
+  if (pr.fork) {
+    result.forks.push(pr.number);
+    // Marker plus a trusted author: the scan writes with the job token, so as the Actions bot (not a collaborator,
+    // `canWrite` says no), and a writer's copy counts too. A stranger's forged copy does not silence it.
+    let asked = false;
+    for (const e of await codeHost.conversation(pr.number)) {
+      if (isMarked(e.body) && e.body.includes(FORK_UPDATE_TAG) && (e.author === ACTIONS_BOT || (await ctx.tracker.canWrite(e.author)))) asked = true;
+    }
+    if (!asked) {
+      await codeHost.commentPr(
+        pr.number,
+        `${FORK_UPDATE_TAG}\nThis branch is behind \`${config.baseBranch}\`, which must be merged in before this pull request can merge. The Factory does not push to forks: please update the branch (merge \`${config.baseBranch}\` into it, or use "Update branch") and push.`,
+      );
+    }
+    return;
+  }
+  const issue = await inProgressIssue(ctx, pr.branch);
+  await codeHost.dispatch("update-branches", issue === null ? { pr: String(pr.number) } : { issue: String(issue) });
+  result.dispatched.push(pr.number);
 }
 
 /** The issue of a Factory branch while it is open and `in-progress`; null for any other branch or state. */

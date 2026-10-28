@@ -1,9 +1,12 @@
-# After a push to the default branch, every open pull request of this repository that is behind it is updated.
+# After a push to the default branch, every open pull request of this repository that is behind it is updated; a pull
+# request opened or reopened into it while already behind is updated at once, without waiting for the next push.
 #   scan    (push)  per open PR into the default branch: behind = its head does not contain the default branch's head.
 #                   Dispatches this workflow for each one behind, Factory and people's PRs alike (`issue` for a Factory PR
 #                   in progress, `pr` for any other); a fork's PR gets one comment asking its author to update it.
 #                   Then takes factory:working off every issue and PR with no Factory run queued or going (a cancelled run
 #                   never reached its own end).
+#   scan-pr (pull_request_target opened/reopened)  the same scan for that PR alone, with no factory:working cleanup. It
+#                   runs the default branch's workflow and code and fetches the PR's head only as data (ADR 0006).
 #   claim / image / work / publish  (workflow_dispatch, one issue or one PR)  merge the base branch: clean with no agent, a
 #                                   conflict resolved by the agent ("preserve both intents, do not invent new behaviour");
 #                                   then E2E, and the normal loop if it fails. The PR body is left alone. A run keyed by the
@@ -17,6 +20,9 @@ run-name: "${{ inputs.issue && format('#{0} update branch', inputs.issue) || inp
 
 on:
   push:
+    branches: [main]
+  pull_request_target:
+    types: [opened, reopened]
     branches: [main]
   workflow_dispatch:
     inputs:
@@ -76,6 +82,48 @@ jobs:
       - env:
           GITHUB_TOKEN: ${{ github.token }}
         run: pnpm factory update-branch --scan
+
+  scan-pr:
+    if: ${{ vars.FACTORY_ENABLED == 'true' && github.event_name == 'pull_request_target' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PR: ${{ github.event.pull_request.number }}
+    # Its own group per PR: the push scan's group cancels in progress, and an opened PR must not cancel a push scan.
+    concurrency:
+      group: factory-update-open-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    # The scan's permissions, for one PR: dispatch `update-branch`, or the one comment on a fork's PR.
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: write
+      actions: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: corepack enable pnpm && pnpm install --frozen-lockfile --ignore-scripts --filter @factory/harness
+      - env:
+          VARS_JSON: ${{ toJSON(vars) }}
+        run: node .factory/src/ci/vars.ts
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          # The opened PR's head (a fork's too), as data for `git merge-base` only: nothing here checks it out or runs it.
+          git fetch --no-tags origin "+refs/pull/$PR/head:refs/remotes/origin/pull/$PR"
+      - env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: pnpm factory update-branch --scan --pr "$PR"
 
   claim:
     if: ${{ vars.FACTORY_ENABLED == 'true' && github.event_name == 'workflow_dispatch' }}
