@@ -61,6 +61,12 @@ export const defaultConfig = {
    * docs and prompts stay in English. `pnpm bootstrap` asks it once and sets `FACTORY_LANGUAGE`.
    */
   language: "en",
+  /**
+   * The Merge Mode: which Factory pull requests `pnpm factory merge` may merge without a human. `human`: none. `safe`:
+   * those whose diff touches no `PROTECTED_PATHS`, once every merge condition holds. `pnpm bootstrap factory` asks it
+   * (step `merge-mode`) and sets `FACTORY_MERGE_MODE`; the `FACTORY_TOKEN` cannot change a variable.
+   */
+  mergeMode: "human",
   /** Attempts of Development → Review → E2E before Escalation. */
   maxAttempts: 5,
   /** Open previews per Product before "preview skipped: limit reached". */
@@ -83,10 +89,64 @@ export const defaultConfig = {
     harnessChange: "harness-change",
     preview: "preview",
     retro: "retro",
+    /** On a pull request the Factory merged on its own (Merge Mode). */
+    autoMerged: "auto-merged",
     /** One `product:<id>` label per Product. */
     productPrefix: "product:",
   },
 };
+
+/** The Merge Modes, the default first. */
+export const MERGE_MODES = ["human", "safe"] as const;
+export type MergeMode = (typeof MERGE_MODES)[number];
+
+/**
+ * What a pull request may not touch to be merged in the `safe` Merge Mode. Not a setting: no repo variable overrides it,
+ * and this file is in the list, so the Factory cannot widen what it may merge itself. An entry ending in `/` matches what
+ * is under it; an entry that starts with `**` and a slash matches the rest (a file, or a folder when it ends in `/`) at any level; any other entry matches
+ * itself or what is under it.
+ */
+export const PROTECTED_PATHS = [
+  // What steers the Factory: the sensitive paths and the harness paths (`paths.ts`, ADR 0012), this file included.
+  ".github/",
+  ".agents/",
+  ".claude/",
+  "skills-lock.json",
+  ".mcp.json",
+  "**/AGENTS.md",
+  "GLOSSARY.md",
+  "CODING_STANDARDS.md",
+  "docs/agents/",
+  "docs/adr/",
+  ".factory/",
+  // The checks that gate the merge.
+  "scripts/",
+  "turbo.json",
+  // Migrations: a published one is a one-way door.
+  "**/drizzle/",
+  "**/drizzle.config.ts",
+  // Dependencies: manifests, the lockfile and the toolchain.
+  "**/package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  ".npmrc",
+  ".node-version",
+  ".prototools",
+  // The Skeleton reaches every Product.
+  "packages/skeleton/",
+] as const;
+
+export function isProtectedPath(path: string): boolean {
+  return PROTECTED_PATHS.some((entry) => {
+    if (entry.startsWith("**/")) {
+      const name = entry.slice(3);
+      if (name.endsWith("/")) return path.startsWith(name) || path.includes(`/${name}`);
+      return path === name || path.endsWith(`/${name}`);
+    }
+    if (entry.endsWith("/")) return path.startsWith(entry);
+    return path === entry || path.startsWith(`${entry}/`);
+  });
+}
 
 const positiveInt = z.coerce.number().int().positive();
 const nonEmpty = z.string().min(1);
@@ -101,6 +161,7 @@ const configSchema = z.object({
   image: z.object({ name: z.string() }),
   retro: z.object({ enabled: flag }),
   language: z.enum(LANGUAGES),
+  mergeMode: z.enum(MERGE_MODES),
   maxAttempts: positiveInt,
   previewLimit: positiveInt,
   baseBranch: nonEmpty,
@@ -118,6 +179,7 @@ const configSchema = z.object({
     harnessChange: nonEmpty,
     preview: nonEmpty,
     retro: nonEmpty,
+    autoMerged: nonEmpty,
     productPrefix: nonEmpty,
   }),
 });

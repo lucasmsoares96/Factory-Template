@@ -20,7 +20,7 @@ export function world(answers: Record<string, string | boolean | string[]> = {},
   const products = new Map<string, ProductIdentity>([
     ["example", { id: "example", title: "Example", emailFrom: "Example <no-reply@example.com>", domain: "example.com" }],
   ]);
-  const prompter = new FakePrompter({ "cloudflare-token": TOKEN, "workers-dev-subdomain": "my-team", "example-issue": false, "factory-language": "en", ...answers });
+  const prompter = new FakePrompter({ "cloudflare-token": TOKEN, "workers-dev-subdomain": "my-team", "example-issue": false, "factory-language": "en", "merge-mode": "human", ...answers });
   const lines: string[] = [];
   const deps: BootstrapDeps = {
     github,
