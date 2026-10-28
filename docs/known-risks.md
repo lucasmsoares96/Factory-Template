@@ -37,7 +37,8 @@ Things the base knowingly lives with. Each says what it is, how likely it bites,
 - **A classic personal access token cannot be limited to one repository.** `repo` is the narrowest useful scope and reaches every repository the owner can. It was the machine-user design; it is gone (ADR 0002). The classic form also had a way to read scopes (`X-OAuth-Scopes`), which the fine-grained one lacks.
 - **A fine-grained token's permissions cannot be read back.** GitHub offers only `X-Accepted-GitHub-Permissions` (what an endpoint needs, not what the token has), and `permissions.push` on `GET /repos/{o}/{r}` shows write access, nothing more. A stray `workflows` permission is therefore undetectable and the wizard can only warn. A pre-filled link cannot choose repositories either (checked 2026-10-21): "Only select repositories" is a manual click.
 - **`FACTORY_TOKEN` has no expiry** (`expires_in=none`) and acts as the owner. The protection is that it never reaches the `work` job and that `publish` runs `main`'s harness.
-- **The Factory cannot approve its own PR, and neither can the owner.** The ruleset asks for 0 approvals; the Merge Gate is a human merge, not a review requirement.
+- **The Factory cannot approve its own PR, and neither can the owner.** The ruleset asks for 0 approvals; the Merge Gate is a merge, not a review requirement.
+- **In the `safe` Merge Mode, Product code reaches production with no person looking** (ADR 0016). The brakes are the Review, `verify`, the preview smoke, the verdicts in the PR body (which a writer can edit) and a failed deploy of `main`; everything in `PROTECTED_PATHS` still waits for a person.
 
 ## Self-hosted runner
 
