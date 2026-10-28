@@ -28,16 +28,20 @@ const issue: Issue = {
   comments: [{ id: "c1", author: "alice", body: "Prefer `hi`." }],
 };
 
+/** The prompts are rendered in the non-default language, so every one is shown to carry it. */
+const language = "pt-BR";
+
 const prompts = {
-  development: developmentPrompt({ issue, log: "abc1234 feat: greet #7", feedback: "E2E failed running `pnpm factory:verify`." }),
-  review: reviewPrompt({ issue, log: "abc1234 feat: greet #7", since: null, findings: [], gaps: [] }),
-  triage: triagePrompt({ issues: [issue] }),
+  development: developmentPrompt({ issue, log: "abc1234 feat: greet #7", feedback: "E2E failed running `pnpm factory:verify`.", language }),
+  review: reviewPrompt({ issue, log: "abc1234 feat: greet #7", since: null, findings: [], gaps: [], language }),
+  triage: triagePrompt({ issues: [issue], language }),
   "pr-feedback": prFeedbackPrompt({
     issue,
     pr: 101,
     log: "abc1234 feat: greet #7",
     threads: [{ id: "t1" as ThreadId, path: "src/greet.ts", author: "alice", body: "Rename this.", replies: [] }],
     checks: { checks: [] },
+    language,
   }),
   "pull-request": pullRequestPrompt({
     issue,
@@ -45,12 +49,14 @@ const prompts = {
     log: "abc1234 feat: greet #7",
     result: "E2E passed on attempt 2.",
     prints: [{ product: "example", path: "test-results/evidence/example/home.png" }],
+    language,
   }),
-  "update-branch": updateBranchPrompt({ issue, base: "main", conflicts: ["src/greet.ts"] }),
+  "update-branch": updateBranchPrompt({ issue, base: "main", conflicts: ["src/greet.ts"], language }),
   retro: retroPrompt({
     sources: { issue: 7, pr: 101, title: "Greet the user", branch: "factory/issue-7", runs: [{ id: 900, url: "https://forge.test/runs/900", workflow: "factory-issue.yml", title: "#7 Greet the user", createdAt: "2026-10-24T10:00:00Z", dir: "runs/900", files: ["sessions/01-development.jsonl"] }] },
     dir: "/tmp/retro-in",
     base: "main",
+    language,
   }),
 };
 
@@ -74,6 +80,17 @@ describe("prompt templates", () => {
       expect(prompt).toContain(rule);
     }
     expect(prompt).toContain("untrusted");
+  });
+
+  it.each(Object.entries(prompts))("%s tells the agent to write public text in the configured language, contract text in English", (_, prompt) => {
+    expect(prompt).toContain(
+      "Write the text the Factory publishes from your output (the pull request body, the Review summary and inline comments, replies to review comments, the Triage comment, Skeleton gaps, questions for a human) in Brazilian Portuguese (pt-BR).",
+    );
+    expect(prompt).toContain("Keep these in English in any language: the headings `## Acceptance criteria`, `## Testing Decisions` and `## Evidence`");
+  });
+
+  it("asks for English public text when the language is English", () => {
+    expect(developmentPrompt({ issue, log: "", feedback: null, language: "en" })).toContain("Skeleton gaps, questions for a human) in English.");
   });
 
   it("calls the skills each Stage follows by name", () => {
@@ -111,7 +128,7 @@ describe("prompt templates", () => {
 
   it("lists the Skeleton gaps reported so far and asks the Review to add only new ones", () => {
     expect(prompts.review).toMatch(/Skeleton gaps already reported[^\n]*\n\(none\)/);
-    const listed = reviewPrompt({ issue, log: "", since: null, findings: [], gaps: ["The layout needs a footer slot."] });
+    const listed = reviewPrompt({ issue, log: "", since: null, findings: [], gaps: ["The layout needs a footer slot."], language });
     expect(listed).toContain("<skeleton-gap>The layout needs a footer slot.</skeleton-gap>");
     expect(listed).toContain("only for a change not already listed");
   });
@@ -140,7 +157,7 @@ describe("prompt templates", () => {
   });
 
   it("refuses a template variable it was not given", () => {
-    expect(() => renderTemplate("update-branch", { NUMBER: "7", TARGET: "issue #7" })).toThrow(/update-branch\.md needs \{\{BASE\}\}/);
+    expect(() => renderTemplate("update-branch", { NUMBER: "7", TARGET: "issue #7", LANGUAGE: "English" })).toThrow(/update-branch\.md needs \{\{BASE\}\}/);
   });
 });
 
@@ -151,9 +168,9 @@ describe("prompts snapshot", () => {
     snapshotPrompts(dir);
     try {
       for (const file of await readdir(dir)) await writeFile(join(dir, file), "Rewritten by the agent: {{GAPS}}\n");
-      expect(reviewPrompt({ issue, log: "abc1234 feat: greet #7", since: null, findings: [], gaps: [] })).toBe(prompts.review);
-      expect(developmentPrompt({ issue, log: "abc1234 feat: greet #7", feedback: "E2E failed running `pnpm factory:verify`." })).toBe(prompts.development);
-      expect(triagePrompt({ issues: [issue] })).toBe(prompts.triage);
+      expect(reviewPrompt({ issue, log: "abc1234 feat: greet #7", since: null, findings: [], gaps: [], language })).toBe(prompts.review);
+      expect(developmentPrompt({ issue, log: "abc1234 feat: greet #7", feedback: "E2E failed running `pnpm factory:verify`.", language })).toBe(prompts.development);
+      expect(triagePrompt({ issues: [issue], language })).toBe(prompts.triage);
     } finally {
       snapshotPrompts();
     }
@@ -162,7 +179,7 @@ describe("prompts snapshot", () => {
   it("fails loudly when a template is not in the snapshot", async () => {
     snapshotPrompts(await tempDir("factory-prompts-"));
     try {
-      expect(() => reviewPrompt({ issue, log: "abc1234 feat: greet #7", since: null, findings: [], gaps: [] })).toThrow(/prompts\/rules\.md is missing/);
+      expect(() => reviewPrompt({ issue, log: "abc1234 feat: greet #7", since: null, findings: [], gaps: [], language })).toThrow(/prompts\/rules\.md is missing/);
     } finally {
       snapshotPrompts();
     }

@@ -27,6 +27,21 @@ describe("pnpm bootstrap doctor", () => {
     expect(output).toMatch(/off\s+FACTORY_ENABLED/);
   });
 
+  it("shows the language of the Factory's public text, and that it is unset", async () => {
+    const w = world({ "factory-language": "pt-BR" });
+    expect((await w.run("doctor")).output).toMatch(/ok\s+FACTORY_LANGUAGE.*not set: the Factory writes in en; `pnpm bootstrap` asks it/);
+
+    await w.run();
+
+    expect((await w.run("doctor")).output).toMatch(/ok\s+FACTORY_LANGUAGE.*pt-BR/);
+  });
+
+  it("warns about a language the Factory does not know", async () => {
+    const w = world();
+    w.github.variables.set("FACTORY_LANGUAGE", "pt");
+    expect((await w.run("doctor")).output).toMatch(/warn\s+FACTORY_LANGUAGE.*pt is not one of en, pt-BR: every Factory job fails; run `pnpm bootstrap --redo language`/);
+  });
+
   it("shows a module as on when its variable is true", async () => {
     const w = world();
     await w.run();

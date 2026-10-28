@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { LANGUAGES } from "./messages.ts";
 
 /**
  * Factory settings. Every leaf can be overridden by a repo variable named
@@ -55,6 +56,11 @@ export const defaultConfig = {
   retro: {
     enabled: true,
   },
+  /**
+   * The language of the text the Factory publishes (comments, pull requests, issues): `en` or `pt-BR`. Code, commits,
+   * docs and prompts stay in English. `pnpm bootstrap` asks it once and sets `FACTORY_LANGUAGE`.
+   */
+  language: "en",
   /** Attempts of Development → Review → E2E before Escalation. */
   maxAttempts: 5,
   /** Open previews per Product before "preview skipped: limit reached". */
@@ -94,6 +100,7 @@ const configSchema = z.object({
   claudeCode: z.object({ version: z.string().regex(/^\d+\.\d+\.\d+$/) }),
   image: z.object({ name: z.string() }),
   retro: z.object({ enabled: flag }),
+  language: z.enum(LANGUAGES),
   maxAttempts: positiveInt,
   previewLimit: positiveInt,
   baseBranch: nonEmpty,

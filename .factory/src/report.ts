@@ -1,5 +1,6 @@
 import type { FactoryConfig } from "./config.ts";
 import type { FactoryResult, StageRecord } from "./result.ts";
+import { messages, type Language } from "./messages.ts";
 import type { Usage } from "./seams/agent.ts";
 
 /**
@@ -9,26 +10,28 @@ import type { Usage } from "./seams/agent.ts";
 
 const STAGE: Record<StageRecord["stage"], string> = { development: "Development", review: "Review", e2e: "E2E" };
 
-export function stageOutcome(stage: StageRecord): string {
+export function stageOutcome(stage: StageRecord, language: Language): string {
+  const m = messages(language);
   switch (stage.outcome) {
     case "failed":
-      return `failed: \`${stage.failedCommand ?? "factory:verify"}\``;
+      return m.outcomeFailed(stage.failedCommand ?? "factory:verify");
     case "no-commits":
-      return "no commits";
+      return m.outcomeNoCommits();
     case "needs-human":
-      return "needs a human";
+      return m.outcomeNeedsHuman();
     default:
       return stage.outcome;
   }
 }
 
 /** `Attempt 2: Development ok (1 commit) → Review ok → E2E failed: \`cmd\`` */
-export function attemptLine(attempt: FactoryResult["attempts"][number]): string {
+export function attemptLine(attempt: FactoryResult["attempts"][number], language: Language): string {
+  const m = messages(language);
   const stages = attempt.stages.map((s) => {
-    const commits = s.stage === "development" && s.commits ? ` (${s.commits} ${s.commits === 1 ? "commit" : "commits"})` : "";
-    return `${STAGE[s.stage]} ${stageOutcome(s)}${commits}`;
+    const commits = s.stage === "development" && s.commits ? ` (${m.commits(s.commits)})` : "";
+    return `${STAGE[s.stage]} ${stageOutcome(s, language)}${commits}`;
   });
-  return `Attempt ${attempt.number}: ${stages.join(" → ")}`;
+  return m.attemptLine(attempt.number, stages.join(" → "));
 }
 
 /** The last failed Stage that has output, for the "truncated output" of an Escalation. */
@@ -38,30 +41,31 @@ export function lastFailure(result: FactoryResult): StageRecord | null {
 }
 
 /** `Tokens: 30,000 in / 3,000 out. Estimated cost: $0.18.` */
-export function usageLine(usage: FactoryResult["usage"], pricing: FactoryConfig["pricing"]): string {
+export function usageLine(usage: FactoryResult["usage"], pricing: FactoryConfig["pricing"], language: Language): string {
   const stages = [usage.development, usage.review, usage.pullRequest];
   const input = stages.reduce((sum, u) => sum + u.inputTokens, 0);
   const output = stages.reduce((sum, u) => sum + u.outputTokens, 0);
   const cost = (input * pricing.inputPerMTok + output * pricing.outputPerMTok) / 1_000_000;
-  return `Tokens: ${count(input)} in / ${count(output)} out. Estimated cost: $${cost.toFixed(2)}.`;
+  return messages(language).usage(count(input), count(output), cost.toFixed(2));
 }
 
 /**
  * The usage line, plus why the Pull Request Stage left the PR with the
  * minimal body when it did not write one.
  */
-export function costFooter(result: FactoryResult, pricing: FactoryConfig["pricing"]): string {
+export function costFooter(result: FactoryResult, pricing: FactoryConfig["pricing"], language: Language): string {
+  const m = messages(language);
   const stage = result.pullRequestStage;
-  const note = stage && stage.outcome !== "ok" ? ` The Pull Request Stage ${stage.outcome === "skipped" ? "did not run" : stage.outcome === "timeout" ? "timed out" : "failed"}: ${stage.reason ?? "no reason recorded"}; the pull request has the minimal body.` : "";
-  return usageLine(result.usage, pricing) + note;
+  const note = stage && stage.outcome !== "ok" ? m.pullRequestStageNote(stage.outcome, stage.reason ?? m.noReason()) : "";
+  return usageLine(result.usage, pricing, language) + note;
 }
 
-/** Job summary: one row per attempt and Stage, then the token/cost line. */
+/** Job summary: one row per attempt and Stage, then the token/cost line. It is the run's page, not public text: always English. */
 export function summaryMarkdown(result: FactoryResult, config: FactoryConfig): string {
   const verdict = result.outcome === "escalated" ? `escalated (${result.reason})` : result.outcome === "waiting" ? "waiting on the Skeleton" : "ready";
   const rows = result.attempts.flatMap((a) =>
     a.stages.map((s) =>
-      [a.number, STAGE[s.stage], stageOutcome(s), duration(s.durationMs), s.commits ?? "", s.usage ? tokens(s.usage) : ""].join(" | "),
+      [a.number, STAGE[s.stage], stageOutcome(s, "en"), duration(s.durationMs), s.commits ?? "", s.usage ? tokens(s.usage) : ""].join(" | "),
     ),
   );
   return [
@@ -72,7 +76,7 @@ export function summaryMarkdown(result: FactoryResult, config: FactoryConfig): s
     ...rows.map((r) => `| ${r} |`),
     ...(result.pullRequestStage ? [`| – | Pull Request | ${pullRequestOutcome(result.pullRequestStage)} | ${duration(result.pullRequestStage.durationMs)} | | ${tokens(result.pullRequestStage.usage)} |`] : []),
     "",
-    costFooter(result, config.pricing),
+    costFooter(result, config.pricing, "en"),
     "",
   ].join("\n");
 }
@@ -119,11 +123,9 @@ export interface FollowUpRef {
 }
 
 /** Tells the issue (and the PR) that the Skeleton change it needs was split into other tickets and pull requests. */
-export function followUpComment(followUps: FollowUpRef[]): string {
-  return [
-    "**The Skeleton must grow.** A Product issue never changes `packages/skeleton/`, so the Factory removed that change from this work and opened:",
-    ...followUps.map((f) => `- #${f.number} ${f.title}${f.pr ? `, with pull request #${f.pr.number} ready for review` : ""}`),
-  ].join("\n");
+export function followUpComment(followUps: FollowUpRef[], language: Language): string {
+  const m = messages(language);
+  return [m.followUpIntro(), ...followUps.map((f) => m.followUpItem(f.number, f.title, f.pr?.number ?? null))].join("\n");
 }
 
 /**
@@ -134,50 +136,47 @@ export function waitingComment(followUps: FollowUpRef[], config: FactoryConfig, 
   const blockers = followUps.map((f) => `#${f.number}`).join(", ");
   return [
     marker,
-    followUpComment(followUps),
+    followUpComment(followUps, config.language),
     "",
-    `The acceptance criteria cannot be met without that change, so this issue is now blocked by ${blockers} and back in \`${config.labels.readyForAgent}\`. When ${followUps.length === 1 ? "it is" : "they are"} closed, the Factory starts again from \`${config.baseBranch}\`, which will have the new Skeleton.`,
+    messages(config.language).waitingOnSkeleton(blockers, config.labels.readyForAgent, config.baseBranch, followUps.length === 1),
   ].join("\n");
 }
 
 /** The comment an Escalation leaves on the issue. */
 export function escalationComment(report: EscalationReport, config: FactoryConfig): string {
   const { result } = report;
-  const lines = [ESCALATION_MARKER, `**Factory escalation (\`${report.reason}\`):** ${headline(report, config)}`];
-  if (result?.question) lines.push("", `**Question:** ${result.question}`);
-  if (report.followUps?.length) lines.push("", followUpComment(report.followUps));
+  const { language } = config;
+  const m = messages(language);
+  const lines = [ESCALATION_MARKER, m.escalationTitle(report.reason, headline(report, config))];
+  if (result?.question) lines.push("", m.question(result.question));
+  if (report.followUps?.length) lines.push("", followUpComment(report.followUps, language));
   if (report.detail) lines.push("", fence(report.detail, "text"));
   if (result && result.attempts.length > 0) {
-    lines.push("", "**Attempts**", ...result.attempts.map((a) => `- ${attemptLine(a)}`));
-    if (result.pullRequestStage) lines.push(`- Pull Request Stage (not an attempt): ${pullRequestOutcome(result.pullRequestStage)}`);
+    lines.push("", m.attempts(), ...result.attempts.map((a) => `- ${attemptLine(a, language)}`));
+    if (result.pullRequestStage) lines.push(m.pullRequestStageLine(pullRequestOutcome(result.pullRequestStage)));
     const failure = lastFailure(result);
-    if (failure?.output) {
-      const label = failure.failedCommand ? ` (\`${failure.failedCommand}\`)` : "";
-      lines.push("", `**Last output**${label}, truncated:`, fence(failure.output, "text"));
-    }
+    if (failure?.output) lines.push("", m.lastOutput(failure.failedCommand ?? null), fence(failure.output, "text"));
   }
   lines.push("");
-  if (report.pr) lines.push(`**Pull request:** #${report.pr.number} (draft)`);
-  else lines.push("**Pull request:** No pull request: the run made no commits.");
-  if (report.runUrl) lines.push(`**Workflow run:** ${report.runUrl}`);
-  lines.push(
-    "",
-    `To try again, re-add the \`${config.labels.readyForAgent}\` label: the Factory closes the draft pull request and starts over from \`${config.baseBranch}\`.`,
-  );
-  if (result) lines.push("", costFooter(result, config.pricing));
+  if (report.pr) lines.push(m.draftPullRequest(report.pr.number));
+  else lines.push(m.noPullRequest());
+  if (report.runUrl) lines.push(m.workflowRun(report.runUrl));
+  lines.push("", m.retry(config.labels.readyForAgent, config.baseBranch));
+  if (result) lines.push("", costFooter(result, config.pricing, language));
   return lines.join("\n");
 }
 
 function headline(report: EscalationReport, config: FactoryConfig): string {
+  const m = messages(config.language);
   switch (report.reason) {
     case "e2e-failures":
-      return attemptsHeadline(report.result);
+      return attemptsHeadline(report.result, config.language);
     case "time":
-      return `The run hit the global time limit of ${config.timeouts.total} min.`;
+      return m.headlineTime(config.timeouts.total);
     case "needs-human":
-      return "Development needs a human decision.";
+      return m.headlineNeedsHuman();
     case "infra":
-      return "The work job left no valid result (infrastructure failure).";
+      return m.headlineInfra();
   }
 }
 
@@ -186,12 +185,12 @@ function headline(report: EscalationReport, config: FactoryConfig): string {
  * (Stage timeouts and the "made commits" gate included), so the headline names
  * where the last attempt stopped instead of always blaming E2E.
  */
-function attemptsHeadline(result: FactoryResult | null): string {
+function attemptsHeadline(result: FactoryResult | null, language: Language): string {
+  const m = messages(language);
   const count = result?.attempts.length ?? 0;
   const last = result?.attempts.at(-1)?.stages.at(-1);
-  if (!last || last.stage === "e2e") return `E2E did not pass in ${count} attempts.`;
-  const what = last.outcome === "no-commits" ? "made no commits" : `ended with ${last.outcome}`;
-  return `The attempt limit was reached after ${count} attempts without a passing E2E; the last one stopped at ${last.stage === "development" ? "Development" : "Review"}, which ${what}.`;
+  if (!last || last.stage === "e2e") return m.headlineE2e(count);
+  return m.headlineAttempts(count, STAGE[last.stage], last.outcome === "no-commits", last.outcome === "timeout" ? m.outcomeTimeout() : last.outcome);
 }
 
 /** A fenced code block that the content cannot close. */

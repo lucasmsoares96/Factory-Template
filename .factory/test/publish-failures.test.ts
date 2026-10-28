@@ -68,6 +68,25 @@ async function pipeline(
 }
 
 describe("factory publish: Escalation", () => {
+  it("writes the Escalation in FACTORY_LANGUAGE, keeping its marker", async () => {
+    const { factoryComments } = await pipeline({
+      agent: { development: [() => ({ output: "<needs-human>Which locale?</needs-human>" })] },
+      env: { FACTORY_LANGUAGE: "pt-BR" },
+    });
+
+    const [comment] = factoryComments();
+    expect(comment).toContain("<!-- factory:escalation -->");
+    expect(comment).toContain("**Escalation da Factory (`needs-human`):** O Development precisa de uma decisão humana.");
+    expect(comment).toContain("**Pergunta:** Which locale?");
+    expect(comment).toContain("**Tentativas**");
+    expect(comment).toContain("- Tentativa 1: Development precisa de uma pessoa");
+    expect(comment).toContain("**Pull request:** Nenhum pull request: a execução não fez commits.");
+    expect(comment).toContain(`**Execução do workflow:** ${RUN_URL}`);
+    expect(comment).toContain("Para tentar de novo, coloque o label `ready-for-agent` outra vez");
+    expect(comment).toMatch(/Custo estimado: US\$ \d/);
+    expect(comment).not.toContain("Attempt");
+  });
+
   it("escalates repeated E2E failures with a draft PR and a full report on the issue", async () => {
     const { w, exitCode, head, output, factoryComments } = await pipeline({
       env: { FACTORY_MAX_ATTEMPTS: "2" },
@@ -334,6 +353,19 @@ describe("factory publish: Run discarded", () => {
 });
 
 describe("factory publish: sensitive and harness paths", () => {
+  it("writes the sensitive-files warning in FACTORY_LANGUAGE", async () => {
+    const touches: AgentStep = async (call) => {
+      await develop(call);
+      await commitFiles(call.cwd, { ".github/workflows/ci.yml": "change\n" }, "ci: touch a workflow #7");
+    };
+    const { w } = await pipeline({ agent: { development: [touches], review: [review] }, verify: [{ ok: true }], env: { FACTORY_LANGUAGE: "pt-BR" } });
+
+    const [warning] = w.codeHost.pr(101).body.split("\n\n");
+    expect(warning).toBe(
+      "> [!WARNING]\n> Este pull request altera arquivos sensíveis: `.github/workflows/ci.yml`. Um workflow roda com os secrets do repositório, e as skills, `.claude/` e `.mcp.json` guiam todo agente: leia-os linha a linha antes do merge.",
+    );
+  });
+
   it("opens the PR for a diff in a sensitive path, labelled harness-change, with a warning that names the files", async () => {
     const paths = [".github/workflows/ci.yml", ".agents/skills/tdd/SKILL.md", ".claude/skills/tdd/SKILL.md", ".claude/settings.json", "skills-lock.json", ".mcp.json"];
     const touchesAll: AgentStep = async (call) => {

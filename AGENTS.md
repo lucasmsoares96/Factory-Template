@@ -25,7 +25,7 @@ A repository of Products plus the harness that builds them. A Product is an appl
 
 ## Rules
 
-- Write code, comments, commits, docs and PRs in English.
+- Write public text (issue comments, pull requests, reviews, replies) in the language of the `FACTORY_LANGUAGE` variable (`en` or `pt-BR`, default `en`). Write code, comments, commits, docs and prompts in English.
 - Use Conventional Commits that reference the issue: `feat: add notes list #42`.
 - Never create a `CLAUDE.md`. `AGENTS.md` files are the agent instructions.
 - Change `.github/workflows/`, `.agents/skills/`, `.claude/`, `skills-lock.json` or `.mcp.json` only when the task needs it: a workflow runs with the repository's secrets, and the Factory flags such a pull request for a careful human review (ADR 0012).
