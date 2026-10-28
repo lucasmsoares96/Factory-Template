@@ -145,6 +145,33 @@ describe("bootstrap factory: the optional example issue", () => {
     expect(snapshot!.events).toEqual([{ issue: childId, labels: ["product:example", "ready-for-agent"] }]);
   });
 
+  it("writes the issues in FACTORY_LANGUAGE, with the contract headings in English", async () => {
+    const w = exampleWorld(true);
+    w.github.variables.set("FACTORY_LANGUAGE", "pt-BR");
+    let issues: { title: string; body: string }[] = [];
+    w.github.onPoll = (poll, github) => {
+      if (poll === 1) {
+        issues = [...github.issues.values()].map((i) => ({ title: i.title, body: i.body }));
+        github.issues.get([...github.subIssues][0]!.child)!.labels.push("ready-for-human");
+      }
+    };
+
+    await w.run("factory");
+
+    const [parent, child] = issues;
+    expect(parent!.title).toBe("Exemplo: mudar o título de login de Example");
+    expect(parent!.body).toMatch(/^## Testing Decisions$/m);
+    expect(parent!.body).toContain("Um exemplo descartável criado por `pnpm bootstrap factory`");
+    expect(parent!.body).toMatch(/Nunca altere `packages\/skeleton`/);
+    expect(child!.title).toBe("Exemplo: texto de boas-vindas na tela de login de Example");
+    expect(child!.body).toMatch(/^## Acceptance criteria$/m);
+    expect(child!.body).toContain("## O que construir");
+    expect(child!.body).toMatch(/Nada em `packages\/skeleton\/` muda/);
+    // The texts the issue asks for stay the same in every language: they are the Product's own messages.
+    expect(child!.body).toContain('"Welcome to Example" em `en` e "Bem-vindo ao Example" em `pt-BR`');
+    for (const { title, body } of issues) expect(`${title}\n${body}`).not.toMatch(/throwaway|Override|sign-in|What to build|## Goal/);
+  });
+
   it("creates the product label when it is missing and uses the existing one otherwise", async () => {
     const w = exampleWorld(true);
     for (const l of labelSpecs(w.deps.config)) w.github.labels.set(l.name, l);

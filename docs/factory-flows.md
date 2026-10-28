@@ -160,7 +160,7 @@ What `publish` does:
    - Migrations, the Skeleton's and the Product's, both from the artifact: `bundle` copies `packages/skeleton/drizzle` to `migrations/skeleton`; an artifact without it fails `migrate`, push again to rebuild it. The deploy of `main` and `previews.ts base` read them the same way.
    - `wrangler preview --name pr-N --worker-name <id> --config <preview config> --secrets-file --ignore-base-config`.
 4. `smoke`: no secrets. Real sign-up, the email read at `GET /api/preview/outbox?to=`, sign-in, `/api/me`, `/mcp` 401.
-5. `preview-comment`: one comment, edited.
+5. `preview-comment`: one comment, edited (found by `<!-- factory-previews -->`), in `FACTORY_LANGUAGE`.
 
 - `factory-pr-cleanup.yml` on `closed` deletes the Worker Preview and the Neon branch.
 - The deploy of `main` migrates `base` (`preview-base`) and recreates it when missing.
