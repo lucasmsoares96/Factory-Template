@@ -6,7 +6,7 @@ import { isHarnessPath, isSensitivePath } from "../paths.ts";
 import { attemptLine, costFooter, escalationComment, fence, followUpComment, lastFailure, waitingComment, type EscalationReason, type FollowUpRef } from "../report.ts";
 import { BUNDLE_FILE, EVIDENCE_DIR, RESULT_FILE, readResult, type FactoryResult } from "../result.ts";
 import { gapsSection, SKELETON_PATH, skeletonCommit } from "../scope.ts";
-import { withEvidence } from "../pull-request-evidence.ts";
+import { fromTouchedSpecs, isSpecPath, shownIn, withEvidence } from "../pull-request-evidence.ts";
 import type { EvidenceImage, PullRequest } from "../seams/code-host.ts";
 import type { Issue } from "../seams/tracker.ts";
 import { WAITING_MARKER } from "./claim.ts";
@@ -89,7 +89,7 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
   const sensitivePaths = changed.filter(isSensitivePath);
   const harnessPaths = changed.filter((path) => isHarnessPath(path) && !isSensitivePath(path));
   const escalated = result.outcome === "ready" ? null : escalationReason(result);
-  const pr = await pullRequest(ctx, issue, { branch, openPr, continues: options.pr !== null, sensitivePaths, harnessPaths, escalated, followUps, text: result.pullRequestBody, images: evidenceImages(result, options.in), markWorking: options.markWorking });
+  const pr = await pullRequest(ctx, issue, { branch, openPr, continues: options.pr !== null, sensitivePaths, harnessPaths, escalated, followUps, text: result.pullRequestBody, images: evidenceImages(result, options.in), appendable: fromTouchedSpecs(await touchedSpecs(git, head, changed)), markWorking: options.markWorking });
   if (!escalated || result.review.summary !== "") {
     // A PR round without a Review (update-branch, a round that only answers) leaves no empty review behind.
     if (options.pr === null || result.review.summary !== "") await submitReview(ctx, pr.number, result, lines);
@@ -206,6 +206,16 @@ async function changedFiles(git: Git, base: string, head: string): Promise<strin
   return names.split("\n").filter(Boolean);
 }
 
+/** The spec files the change touched, with their content at `head` (a deleted one has none and is left out). */
+async function touchedSpecs(git: Git, head: string, changed: string[]): Promise<{ path: string; content: string }[]> {
+  const specs: { path: string; content: string }[] = [];
+  for (const path of changed.filter(isSpecPath)) {
+    const content = await git.run("show", `${head}:${path}`).catch(() => null);
+    if (content !== null) specs.push({ path, content });
+  }
+  return specs;
+}
+
 /**
  * The pull request the run lands on. Issue flow: a stale Escalation draft is
  * closed and a new draft opened. PR flow: the open pull request it continues.
@@ -213,14 +223,17 @@ async function changedFiles(git: Git, base: string, head: string): Promise<strin
 async function pullRequest(
   ctx: CommandContext,
   issue: Issue,
-  input: { branch: string; openPr: PullRequest | null; continues: boolean; sensitivePaths: string[]; harnessPaths: string[]; escalated: EscalationReason | null; followUps: FollowUpRef[]; text: string | null; images: EvidenceImage[]; markWorking?: PublishOptions["markWorking"] },
+  input: { branch: string; openPr: PullRequest | null; continues: boolean; sensitivePaths: string[]; harnessPaths: string[]; escalated: EscalationReason | null; followUps: FollowUpRef[]; text: string | null; images: EvidenceImage[]; appendable: (image: EvidenceImage) => boolean; markWorking?: PublishOptions["markWorking"] },
 ): Promise<PullRequest> {
   const { codeHost, config } = ctx;
   let pr: PullRequest;
   if (input.continues && input.openPr) {
     pr = input.openPr;
     // The run may have changed the PR: its body is written again.
-    if (input.text !== null) await codeHost.updatePrBody(pr.number, prBody(issue, input), input.images);
+    if (input.text !== null) {
+      const body = prBody(issue, input);
+      await codeHost.updatePrBody(pr.number, body, shownIn(body, input.images));
+    }
   } else {
     if (input.openPr) {
       await codeHost.closePr(
@@ -228,12 +241,13 @@ async function pullRequest(
         `Superseded by a new Factory run for #${issue.number}, which starts over from \`${config.baseBranch}\`.`,
       );
     }
+    const body = prBody(issue, input);
     pr = await codeHost.openDraftPr({
       branch: input.branch,
       base: config.baseBranch,
       title: `Fix #${issue.number}: ${issue.title}`,
-      body: prBody(issue, input),
-      images: input.images,
+      body,
+      images: shownIn(body, input.images),
     });
     // A continued PR got `factory:working` at the claim; this one exists only now.
     await input.markWorking?.(pr.number).catch((error: Error) => ctx.log(`${config.labels.working} on PR #${pr.number} could not be put on: ${error.message}`));
@@ -249,7 +263,7 @@ async function pullRequest(
  */
 function prBody(
   issue: Issue,
-  input: { continues: boolean; sensitivePaths: string[]; harnessPaths: string[]; escalated: EscalationReason | null; followUps: FollowUpRef[]; text: string | null; images: EvidenceImage[] },
+  input: { continues: boolean; sensitivePaths: string[]; harnessPaths: string[]; escalated: EscalationReason | null; followUps: FollowUpRef[]; text: string | null; images: EvidenceImage[]; appendable: (image: EvidenceImage) => boolean },
 ): string {
   const warnings: string[] = [];
   // A round on a ready PR leaves it as it is (the comment on the PR and the issue say so): only a draft "holds progress".
@@ -276,7 +290,7 @@ function prBody(
   }
   if (input.followUps.length > 0) warnings.push("> [!NOTE]", `> ${followUpComment(input.followUps).replaceAll("\n", "\n> ")}`, "");
   const text = input.text ? withoutAttribution(withoutClosingKeywords(input.text)) : "Implemented by the Factory.";
-  const middle = withEvidence(text, input.images);
+  const middle = withEvidence(text, input.images, input.appendable);
   return [...warnings, middle, "", `Closes #${issue.number}`].join("\n");
 }
 
