@@ -1098,17 +1098,17 @@ describe("Factory merge workflow (Merge Mode)", () => {
   const job = workflow.jobs.merge!;
   const step = steps(job).find((s) => s.name === "merge")!;
 
-  it("runs when the PR workflow of a Factory branch ends: `workflow_run` runs the default branch's file", () => {
+  it("runs whenever the PR workflow ends: `workflow_run` runs the default branch's file, one decision at a time", () => {
     expect(Object.keys(workflow.on)).toEqual(["workflow_run"]);
-    expect(workflow.on.workflow_run).toEqual({ workflows: [workflows["factory-pr.yml"]!.name], types: ["completed"], branches: ["factory/issue-*"] });
-    expect(workflow.concurrency?.["cancel-in-progress"]).toBe(false);
+    expect(workflow.on.workflow_run).toEqual({ workflows: [workflows["factory-pr.yml"]!.name], types: ["completed"] });
+    expect(workflow.concurrency).toEqual({ group: "factory-merge", "cancel-in-progress": false });
   });
 
   it("runs the code of the default branch, never the pull request's", () => {
     const checkouts = steps(job).filter((s) => s.uses?.startsWith("actions/checkout@"));
     expect(checkouts).toHaveLength(1);
     expect(checkouts[0]!.with).toMatchObject({ ref: "${{ github.event.repository.default_branch }}", "persist-credentials": false });
-    expect(textOf(job)).not.toMatch(/head_sha|pull_request\.head|download-artifact/);
+    expect(textOf(job)).not.toMatch(/workflow_run\.head|pull_request\.head|download-artifact/);
   });
 
   it("is off with FACTORY_ENABLED off and in the human Merge Mode, and decides only after a pull request's checks", () => {
@@ -1118,15 +1118,10 @@ describe("Factory merge workflow (Merge Mode)", () => {
     expect(job.if).toContain("github.event.workflow_run.event == 'pull_request_target'");
   });
 
-  it("reads with the read-only job token and merges with FACTORY_TOKEN, the branch its only input from the event", () => {
-    expect(job.permissions).toEqual({ contents: "read", "pull-requests": "read", actions: "read" });
-    expect(step.run).toBe('pnpm factory merge --branch "$BRANCH"');
-    expect(step.env).toEqual({
-      FACTORY_ADAPTERS: "github",
-      GITHUB_TOKEN: "${{ github.token }}",
-      FACTORY_TOKEN: "${{ secrets.FACTORY_TOKEN }}",
-      BRANCH: "${{ github.event.workflow_run.head_branch }}",
-    });
+  it("reads and labels with the job token and merges with FACTORY_TOKEN, taking nothing from the event", () => {
+    expect(job.permissions).toEqual({ contents: "read", "pull-requests": "write", actions: "read" });
+    expect(step.run).toBe("pnpm factory merge");
+    expect(step.env).toEqual({ FACTORY_ADAPTERS: "github", GITHUB_TOKEN: "${{ github.token }}", FACTORY_TOKEN: "${{ secrets.FACTORY_TOKEN }}" });
     expect(steps(job).filter((s) => JSON.stringify(s).includes("secrets."))).toEqual([step]);
   });
 
@@ -1139,7 +1134,7 @@ describe("Factory merge workflow (Merge Mode)", () => {
     );
     expect(mergers).toEqual([
       'factory-skills-update.yml publish node .factory/src/ci/skills.ts publish --in "$RUNNER_TEMP/skills"',
-      'factory-merge.yml merge pnpm factory merge --branch "$BRANCH"',
+      "factory-merge.yml merge pnpm factory merge",
     ]);
     const runners = allJobs.filter(({ job }) => runs(job).some((r) => /pnpm factory merge\b/.test(r))).map(({ file }) => file);
     expect(runners).toEqual(["factory-merge.yml"]);

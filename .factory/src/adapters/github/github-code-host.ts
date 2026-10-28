@@ -65,7 +65,8 @@ const jobRow = z.object({ id: z.number(), name: z.string(), conclusion: z.string
  */
 const CLEAN_RUN = new Set(["success", "skipped", "neutral", "cancelled"]);
 const FAILED_JOB = new Set(["failure", "timed_out", "cancelled"]);
-const bodyRow = z.object({ body: z.string().nullable().optional(), changed_files: z.number().int() });
+const bodyRow = z.object({ body: z.string().nullable().optional() });
+const changedCountRow = z.object({ changed_files: z.number().int() });
 const fileRow = z.object({ filename: z.string(), previous_filename: z.string().optional() });
 const workflowRunRow = z.object({ id: z.number(), created_at: z.string(), conclusion: z.string().nullable(), status: z.string().nullable() });
 const prJobRow = z.object({ name: z.string(), status: z.string().nullable(), conclusion: z.string().nullable() });
@@ -282,7 +283,7 @@ export class GitHubCodeHost implements CodeHost {
 
   /** The files endpoint lists 3000 files at most: a longer diff throws rather than hide a path. */
   async changedFiles(pr: number): Promise<string[]> {
-    const { changed_files: count } = await this.api.get(this.api.repoPath(`/pulls/${pr}`), bodyRow);
+    const { changed_files: count } = await this.api.get(this.api.repoPath(`/pulls/${pr}`), changedCountRow);
     const rows = await this.api.list(this.api.repoPath(`/pulls/${pr}/files`), fileRow);
     if (rows.length < count) throw new Error(`GitHub listed ${rows.length} of the ${count} files of #${pr}.`);
     return [...new Set(rows.flatMap((r) => (r.previous_filename ? [r.filename, r.previous_filename] : [r.filename])))];
@@ -301,6 +302,12 @@ export class GitHubCodeHost implements CodeHost {
     const path = this.api.repoPath(`/actions/workflows/${DEPLOY_WORKFLOW}/runs?branch=${encodeURIComponent(this.options.baseBranch)}&status=completed&per_page=20`);
     const { workflow_runs: runs } = await this.api.get(path, z.object({ workflow_runs: z.array(workflowRunRow) }));
     return newestFirst(runs)[0]?.conclusion ?? null;
+  }
+
+  /** `GET /compare/{base}...{sha}`: `behind_by` counts the base's commits the head lacks. */
+  async behindBase(sha: string): Promise<boolean> {
+    const path = this.api.repoPath(`/compare/${encodeURIComponent(this.options.baseBranch)}...${sha}`);
+    return (await this.api.get(path, z.object({ behind_by: z.number().int() }))).behind_by > 0;
   }
 
   /** `PUT /pulls/{n}/merge` with `sha`: 405 (not mergeable), 409 (the head moved) and 422 (refused) are refusals. */

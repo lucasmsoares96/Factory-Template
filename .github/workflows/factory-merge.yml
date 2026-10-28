@@ -1,20 +1,20 @@
-# The Merge Mode (ADR 0016): when the PR workflow of a Factory branch ends, `pnpm factory merge` decides whether the
-# Factory merges that pull request on its own. `workflow_run` runs this file and the checkout of the default branch,
-# never the pull request's: a pull request cannot change the rule that decides its own merge. The command reads the
-# forge itself (the branch is the only thing taken from the event) with the job token, read-only, and merges, labels
-# `auto-merged` and comments with FACTORY_TOKEN, so the merge starts the deploy of the default branch as a person's
-# merge would. Skipped in `human`, the default; off until `pnpm bootstrap factory` sets FACTORY_ENABLED.
+# The Merge Mode (ADR 0016): whenever the PR workflow ends, `pnpm factory merge` decides whether the Factory merges
+# its open pull requests on its own. `workflow_run` runs this file and the checkout of the default branch, never a pull
+# request's: a pull request cannot change the rule that decides its own merge. The command takes nothing from the
+# event; it reads every open Factory pull request from the forge with the job token, which also adds `auto-merged` (a
+# job-token label starts no PR workflow), and merges and comments with FACTORY_TOKEN, so the merge starts the deploy of
+# the default branch as a person's merge would. Skipped in `human`, the default; off until `pnpm bootstrap factory`
+# sets FACTORY_ENABLED.
 name: Factory merge
 
 on:
   workflow_run:
     workflows: [PR]
     types: [completed]
-    branches: ["factory/issue-*"]
 
-# One decision per branch at a time; a newer run of the checks decides again on the newer head.
+# One decision at a time; every run decides again on the heads it reads.
 concurrency:
-  group: factory-merge-${{ github.event.workflow_run.head_branch }}
+  group: factory-merge
   cancel-in-progress: false
 
 permissions: {}
@@ -26,7 +26,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-      pull-requests: read
+      pull-requests: write
       actions: read
     defaults:
       run:
@@ -48,5 +48,4 @@ jobs:
           FACTORY_ADAPTERS: github
           GITHUB_TOKEN: ${{ github.token }}
           FACTORY_TOKEN: ${{ secrets.FACTORY_TOKEN }}
-          BRANCH: ${{ github.event.workflow_run.head_branch }}
-        run: pnpm factory merge --branch "$BRANCH"
+        run: pnpm factory merge

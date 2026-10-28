@@ -514,6 +514,15 @@ describe("GitHubCodeHost.push with the real git", () => {
       expect(await host(s).lastDeploy()).toBeNull();
     });
 
+    it("compares the head with the base branch: behind when the head lacks a commit of it", async () => {
+      const s = new FakeGitHubServer();
+      s.on("GET", `${R}/compare/main...${head}`, () => ({ json: { behind_by: 2, ahead_by: 1 } }));
+      s.on("GET", `${R}/compare/main...${"b".repeat(40)}`, () => ({ json: { behind_by: 0, ahead_by: 3 } }));
+
+      expect(await host(s).behindBase(head)).toBe(true);
+      expect(await host(s).behindBase("b".repeat(40))).toBe(false);
+    });
+
     it("merges with a merge commit pinned to the head, and a refusal is a result, not a throw", async () => {
       const s = new FakeGitHubServer();
       s.on("PUT", `${R}/pulls/4/merge`, ({ body }) => (body.sha === head ? { json: { merged: true } } : { status: 409, json: { message: "Head branch was modified" } }));

@@ -83,10 +83,11 @@ Commands:
   notify <issue> --outcome ready|escalated [--updated] [--url <url>] [--to <login>]
                                          The Merge Gate notice: a short comment on the issue that mentions <login> and
                                          links the PR. Run with the job's GITHUB_TOKEN, not FACTORY_TOKEN.
-  merge --branch <branch>                The Merge Mode's decision, after the checks of the PR of <branch> end: in safe,
-                                         merge the ready Factory PR when nothing protected changed, verify and the preview
-                                         passed, every criterion is met and the last deploy did not fail; then label it
-                                         auto-merged and comment. Reads with GITHUB_TOKEN, merges with FACTORY_TOKEN.
+  merge                                  The Merge Mode's decision, after a PR workflow run: in safe, merge each ready Factory
+                                         PR, up to date with the base branch, when nothing protected changed, verify and the
+                                         preview passed, every criterion is met and the last deploy did not fail; then label
+                                         it auto-merged and comment. Reads and labels with GITHUB_TOKEN, merges and comments
+                                         with FACTORY_TOKEN.
   working on|off [<issue>...] [--pr <n>] [--triage]
                                          factory:working, run with the job token: on at the start of a run, off at its end
                                          (kept where another Factory run is queued or going). An issue brings its open
@@ -130,7 +131,6 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
       trigger: { type: "string" },
       triage: { type: "boolean" },
       "comment-id": { type: "string" },
-      branch: { type: "string" },
     },
   });
   // Parsed on use: `pr-feedback` and `update-branch --scan` take no issue.
@@ -201,9 +201,9 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
       return 0;
     }
     case "merge": {
-      // The job token reads the checks (`actions: read`, which the Factory's fine-grained token lacks).
-      const reads = deps.adapters({ config, repo: values.repo, jobToken: true }).codeHost;
-      const result = await merge(ctx, { branch: required(values.branch, "--branch"), reads });
+      // The job token reads (`actions: read`, which the Factory's fine-grained token lacks) and labels (no workflow starts).
+      const job = deps.adapters({ config, repo: values.repo, jobToken: true }).codeHost;
+      const result = await merge(ctx, { reads: job, label: (pr, label) => job.labelPr(pr, label) });
       deps.log(JSON.stringify(result));
       return 0;
     }
