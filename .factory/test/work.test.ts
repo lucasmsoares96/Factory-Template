@@ -77,9 +77,9 @@ describe("factory work", () => {
     await w.factory("work", "7", "--out", out, "--repo", repo);
 
     expect(w.agent.calls.map((c) => [c.stage, c.model, c.timeoutMs])).toEqual([
-      ["development", "claude-opus-5-5", 60 * 60_000],
-      ["review", "claude-opus-5-5", 30 * 60_000],
-      ["pull-request", "claude-opus-5-5", 15 * 60_000],
+      ["development", "claude-sonnet-5-5", 60 * 60_000],
+      ["review", "claude-sonnet-5-5", 30 * 60_000],
+      ["pull-request", "claude-haiku-5-5", 15 * 60_000],
     ]);
     const [development, review] = w.agent.calls;
     expect(development!.prompt).toContain("Greet the user");
@@ -90,16 +90,16 @@ describe("factory work", () => {
 
   it("takes models and timeouts from repo variables", async () => {
     const { repo, out, w } = await setup({ development: [develop], review: [reviewWithFix] }, [{ ok: true }], {
-      FACTORY_MODELS_REVIEW: "claude-sonnet-5-5",
+      FACTORY_MODELS_REVIEW: "claude-opus-5-5",
       FACTORY_TIMEOUTS_DEVELOPMENT: "90",
     });
 
     await w.factory("work", "7", "--out", out, "--repo", repo);
 
     expect(w.agent.calls.map((c) => [c.stage, c.model, c.timeoutMs])).toEqual([
-      ["development", "claude-opus-5-5", 90 * 60_000],
-      ["review", "claude-sonnet-5-5", 30 * 60_000],
-      ["pull-request", "claude-opus-5-5", 15 * 60_000],
+      ["development", "claude-sonnet-5-5", 90 * 60_000],
+      ["review", "claude-opus-5-5", 30 * 60_000],
+      ["pull-request", "claude-haiku-5-5", 15 * 60_000],
     ]);
   });
 
