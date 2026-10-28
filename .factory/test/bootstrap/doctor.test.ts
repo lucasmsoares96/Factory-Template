@@ -1,5 +1,26 @@
 import { describe, expect, it } from "vitest";
+import type { z } from "zod";
+import { configSchema, variableName } from "../../src/config.ts";
 import { TOKEN, world } from "./helpers.ts";
+
+/** The values a leaf of the config schema accepts from a repo variable, when they are a closed list. */
+function closedValues(schema: z.ZodType): string[] {
+  const def = schema.def as { type: string; entries?: Record<string, string>; options?: z.ZodType[]; in?: z.ZodType };
+  if (def.type === "enum") return Object.values(def.entries!);
+  if (def.type === "union") return def.options!.flatMap(closedValues);
+  if (def.type === "pipe") return closedValues(def.in!);
+  return [];
+}
+
+/** Every `FACTORY_*` variable whose setting is a closed list of values, read from the schema itself. */
+function closedLeaves(shape: Record<string, z.ZodType>, path: string[] = []): { name: string; values: string[] }[] {
+  return Object.entries(shape).flatMap(([key, schema]) => {
+    const at = [...path, key];
+    if (schema.def.type === "object") return closedLeaves((schema as z.ZodObject).shape, at);
+    const values = closedValues(schema);
+    return values.length > 0 ? [{ name: variableName(at), values }] : [];
+  });
+}
 
 describe("pnpm bootstrap doctor", () => {
   it("fails on an empty repo and lists what is missing, writing nothing", async () => {
@@ -40,6 +61,29 @@ describe("pnpm bootstrap doctor", () => {
     const w = world();
     w.github.variables.set("FACTORY_LANGUAGE", "pt");
     expect((await w.run("doctor")).output).toMatch(/warn\s+FACTORY_LANGUAGE.*pt is not one of en, pt-BR: every Factory job fails; run `pnpm bootstrap --redo language`/);
+  });
+
+  it("warns about a value outside the closed list of every such setting, with the accepted values", async () => {
+    const leaves = closedLeaves(configSchema.shape);
+    expect(leaves.map((l) => l.name)).toEqual(expect.arrayContaining(["FACTORY_LANGUAGE", "FACTORY_MERGE_MODE", "FACTORY_RETRO_ENABLED"]));
+
+    for (const { name, values } of leaves) {
+      const w = world();
+      w.github.variables.set(name, "not-a-value");
+
+      const { output } = await w.run("doctor");
+
+      expect(output).toMatch(new RegExp(`warn\\s+${name}\\s+not-a-value is not one of ${values.join(", ")}: every Factory job fails`));
+    }
+  });
+
+  it("shows a closed setting that is unset or valid as ok", async () => {
+    const w = world();
+    expect((await w.run("doctor")).output).toMatch(/ok\s+FACTORY_RETRO_ENABLED\s+not set: true/);
+
+    w.github.variables.set("FACTORY_RETRO_ENABLED", "false");
+
+    expect((await w.run("doctor")).output).toMatch(/ok\s+FACTORY_RETRO_ENABLED\s+false/);
   });
 
   it("shows a module as on when its variable is true", async () => {
