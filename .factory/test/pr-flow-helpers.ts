@@ -86,7 +86,9 @@ export async function finishRound(p: PrWorld, flow: string[], startSha: string, 
   const { w } = p;
   expect(await w.factory("work", "7", ...flow, "--pr", String(PR), "--out", p.out, "--repo", p.workRepo)).toBe(0);
   beforePublish?.();
-  expect(await w.factory("publish", "7", "--pr", String(PR), "--in", p.out, "--repo", p.publishRepo, "--start-sha", startSha)).toBe(0);
+  // As in the workflows: only the update of a branch tells `publish` its flow.
+  const publishFlow = flow.includes("update-branch") ? ["--flow", "update-branch"] : [];
+  expect(await w.factory("publish", "7", ...publishFlow, "--pr", String(PR), "--in", p.out, "--repo", p.publishRepo, "--start-sha", startSha)).toBe(0);
   // The last step of the run, as in the workflow.
   expect(await w.factory("working", "off", "7", "--pr", String(PR))).toBe(0);
 }
