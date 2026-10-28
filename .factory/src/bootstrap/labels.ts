@@ -17,6 +17,7 @@ const METADATA: Record<StaticLabelKey, { color: string; description: string }> =
   harnessChange: { color: "b60205", description: "Touches the harness: review with care" },
   preview: { color: "bfdadc", description: "The pull request has a preview deployment" },
   retro: { color: "fef2c0", description: "Proposals from the automatic Retro: pick what becomes work" },
+  autoMerged: { color: "0052cc", description: "The Factory merged this pull request on its own (Merge Mode)" },
 };
 
 /** Every label the common part creates. `product:<id>` is per Product (`bootstrap product`). */

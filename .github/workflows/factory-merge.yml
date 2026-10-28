@@ -1,0 +1,51 @@
+# The Merge Mode (ADR 0016): whenever the PR workflow ends, `pnpm factory merge` decides whether the Factory merges
+# its open pull requests on its own. `workflow_run` runs this file and the checkout of the default branch, never a pull
+# request's: a pull request cannot change the rule that decides its own merge. The command takes nothing from the
+# event; it reads every open Factory pull request from the forge with the job token, which also adds `auto-merged` (a
+# job-token label starts no PR workflow), and merges and comments with FACTORY_TOKEN, so the merge starts the deploy of
+# the default branch as a person's merge would. Skipped in `human`, the default; off until `pnpm bootstrap factory`
+# sets FACTORY_ENABLED.
+name: Factory merge
+
+on:
+  workflow_run:
+    workflows: [PR]
+    types: [completed]
+
+# One decision at a time; every run decides again on the heads it reads.
+concurrency:
+  group: factory-merge
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  merge:
+    if: ${{ vars.FACTORY_ENABLED == 'true' && vars.FACTORY_MERGE_MODE != '' && vars.FACTORY_MERGE_MODE != 'human' && github.event.workflow_run.event == 'pull_request_target' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: corepack enable pnpm && pnpm install --frozen-lockfile --ignore-scripts --filter @factory/harness
+      - env:
+          VARS_JSON: ${{ toJSON(vars) }}
+        run: node .factory/src/ci/vars.ts
+      - name: merge
+        env:
+          FACTORY_ADAPTERS: github
+          GITHUB_TOKEN: ${{ github.token }}
+          FACTORY_TOKEN: ${{ secrets.FACTORY_TOKEN }}
+        run: pnpm factory merge
