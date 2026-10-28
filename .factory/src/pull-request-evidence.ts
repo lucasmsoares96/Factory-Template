@@ -7,14 +7,45 @@ const HEADING = /^(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*$/;
  * Makes the Pull Request Stage text and the evidence agree. A reference to a print is pointed at the image's own
  * `path` (the Stage sees `test-results/evidence/<product>/<name>`), a reference to anything else local is removed
  * (remote images stay), and a print the text never references is appended at the end of the Evidence section,
- * grouped by Product.
+ * grouped by Product, when `appendable` keeps it (the others stay in the run's artifacts only).
  */
-export function withEvidence(text: string, images: EvidenceImage[]): string {
+export function withEvidence(text: string, images: EvidenceImage[], appendable: (image: EvidenceImage) => boolean): string {
   if (images.length === 0) return removeUnknownReferences(text, images);
   const used = new Set<EvidenceImage>();
   const resolved = rewriteReferences(text, images, used);
-  const missing = images.filter((i) => !used.has(i));
+  const missing = images.filter((i) => !used.has(i) && appendable(i));
   return missing.length === 0 ? resolved : appendToEvidence(resolved, missing);
+}
+
+/** A Playwright spec (`*.spec.ts`, `*.test.mjs`, ...) under an `e2e/` folder: the Skeleton's `e2e/specs/`, a Product's `e2e/`. */
+export function isSpecPath(path: string): boolean {
+  return /(?:^|\/)e2e\/(?:.+\/)?[^/]+\.(?:spec|test)\.[cm]?[jt]sx?$/.test(path);
+}
+
+/** A spec file the change touched, with its content at the head. */
+export type TouchedSpec = { path: string; content: string };
+
+/**
+ * Keeps a print taken by `evidence("<name>")` in one of the spec files the change touched (`specs`: path and content
+ * at the head). A spec under `apps/<id>/` takes only that Product's prints; any other (the Skeleton's shared specs)
+ * takes every Product's. A name that is not a string literal is not seen.
+ */
+export function fromTouchedSpecs(specs: TouchedSpec[]): (image: EvidenceImage) => boolean {
+  const named = specs
+    .filter((s) => isSpecPath(s.path))
+    .map((s) => ({
+      product: /^apps\/([^/]+)\//.exec(s.path)?.[1] ?? null,
+      names: new Set([...s.content.matchAll(/\bevidence\(\s*(["'`])([^"'`$]+)\1/g)].map((m) => m[2]!)),
+    }));
+  return (image) => {
+    const name = image.name.replace(/\.(png|jpe?g|webp)$/, "");
+    return named.some((s) => (s.product === null || s.product === image.product) && s.names.has(name));
+  };
+}
+
+/** The prints `body` references, the only ones the CodeHost needs to upload. */
+export function shownIn(body: string, images: EvidenceImage[]): EvidenceImage[] {
+  return images.filter((i) => body.includes(`](${i.path})`));
 }
 
 function removeUnknownReferences(text: string, images: EvidenceImage[]): string {
