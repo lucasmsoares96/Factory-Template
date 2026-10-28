@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { createApp, defineFeature, defineProduct, type McpTool, type Transaction } from "../../src/index.ts";
 import mcpTools from "./mcp-tools.gen.json" with { type: "json" };
 import { createDeletingCompanies, createUndeletableCompanies } from "./events.ts";
+import { greeting } from "./greeting.ts";
 import { notes } from "./notes.ts";
 
 export { PasswordHasher, RateLimiter } from "../../src/durable-objects.ts";
@@ -64,6 +65,12 @@ export default createApp({
           if (rows.length > 0) throw new Error(`The archive refuses to delete ${event.companyId}.`);
         },
       },
+    }),
+    // A feature that brings a Better Auth plugin: its route answers under `/api/auth`.
+    defineFeature({
+      id: "greeting",
+      api() {},
+      authPlugins: () => [greeting()],
     }),
   ],
   mcpTools: mcpTools satisfies McpTool[],

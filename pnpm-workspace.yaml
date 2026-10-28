@@ -47,7 +47,8 @@ catalog:
   hono: 4.13.13
   zod: 4.6.7
   # Auth and email
-  better-auth: 1.7.11
+  # 1.7.13 is the first whose @better-auth/stripe accepts the Stripe SDK v23 (ADR 0015).
+  better-auth: 1.7.14
   # MCP: OAuth authorization server + stateless MCP handler (SDK v2)
   "@cloudflare/workers-oauth-provider": 1.2.3
   "@modelcontextprotocol/client": 2.3.1
@@ -115,14 +116,6 @@ minimumReleaseAgeExclude:
   - kubb@5.11.1
   - shadcn@4.22.1
   - unplugin-kubb@5.11.1
-  - "@better-auth/core@1.7.11"
-  - "@better-auth/drizzle-adapter@1.7.11"
-  - "@better-auth/kysely-adapter@1.7.11"
-  - "@better-auth/memory-adapter@1.7.11"
-  - "@better-auth/mongo-adapter@1.7.11"
-  - "@better-auth/prisma-adapter@1.7.11"
-  - "@better-auth/telemetry@1.7.11"
-  - better-auth@1.7.11
 
 # Dependencies allowed to run install scripts (pnpm fails on any other).
 allowBuilds:
