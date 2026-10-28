@@ -62,7 +62,13 @@ describe("evidence in the pull request body", () => {
   it("leaves out a print the text does not reference whose spec the diff did not touch", async () => {
     const { pr } = await issueRun({
       stage: writes(`## Summary\n\nGreets.\n\n## Evidence\n\nThe home screen now greets:\n\n![home](${print("example", "home.png")})`),
-      specs: { "apps/admin/e2e/about.spec.ts": spec("about"), "apps/example/e2e/notes.ts": spec("users"), "apps/example/e2e/other.spec.ts": spec("other") },
+      specs: {
+        "apps/admin/e2e/about.spec.ts": spec("about"),
+        "apps/example/e2e/notes.ts": spec("users"),
+        "apps/example/e2e/other.spec.ts": spec("other"),
+        // A unit test that only mentions `evidence("…")` takes no print.
+        ".factory/test/shots.test.ts": spec("about", "users"),
+      },
     });
 
     expect(pr.body).toContain(url(101, "example", "home.png"));

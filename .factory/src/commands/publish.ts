@@ -6,7 +6,7 @@ import { isHarnessPath, isSensitivePath } from "../paths.ts";
 import { attemptLine, costFooter, escalationComment, fence, followUpComment, lastFailure, waitingComment, type EscalationReason, type FollowUpRef } from "../report.ts";
 import { BUNDLE_FILE, EVIDENCE_DIR, RESULT_FILE, readResult, type FactoryResult } from "../result.ts";
 import { gapsSection, SKELETON_PATH, skeletonCommit } from "../scope.ts";
-import { fromTouchedSpecs, isSpecPath, shownIn, withEvidence } from "../pull-request-evidence.ts";
+import { fromTouchedSpecs, isSpecPath, shownIn, withEvidence, type TouchedSpec } from "../pull-request-evidence.ts";
 import type { EvidenceImage, PullRequest } from "../seams/code-host.ts";
 import type { Issue } from "../seams/tracker.ts";
 import { WAITING_MARKER } from "./claim.ts";
@@ -207,8 +207,8 @@ async function changedFiles(git: Git, base: string, head: string): Promise<strin
 }
 
 /** The spec files the change touched, with their content at `head` (a deleted one has none and is left out). */
-async function touchedSpecs(git: Git, head: string, changed: string[]): Promise<{ path: string; content: string }[]> {
-  const specs: { path: string; content: string }[] = [];
+async function touchedSpecs(git: Git, head: string, changed: string[]): Promise<TouchedSpec[]> {
+  const specs: TouchedSpec[] = [];
   for (const path of changed.filter(isSpecPath)) {
     const content = await git.run("show", `${head}:${path}`).catch(() => null);
     if (content !== null) specs.push({ path, content });

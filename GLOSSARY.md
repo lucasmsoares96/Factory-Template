@@ -61,7 +61,7 @@ _Avoid_: Postmortem, retrospective
 A ready issue that the factory will not start until every issue blocking it is closed as completed (its pull request merged). The factory answers "Waiting on #N", and starts it when the last blocker closes.
 
 **Evidence**:
-The screenshots of `@evidence` tests, saved in `test-results/evidence/<product>/` and shown inside the pull request body next to the text they support. A print the text does not cite is appended at the end of its Evidence section, grouped by Product, only when a spec the change touched took it; the others stay in the run's artifacts.
+The screenshots of `@evidence` tests, saved in `test-results/evidence/<product>/` and shown inside the pull request body next to the text they support. A print the text does not cite is appended at the end of its Evidence section, grouped by Product, only when an E2E spec file (under an `e2e/` folder) the change touched took it; the others stay in the run's artifacts.
 _Avoid_: Screenshots (as a deliverable), proof
 
 **Preview**:
