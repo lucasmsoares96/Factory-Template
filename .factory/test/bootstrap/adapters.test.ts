@@ -2,6 +2,7 @@ import { WranglerCli } from "../../src/bootstrap/wrangler.ts";
 import { describe, expect, it } from "vitest";
 import { NeonCli } from "../../src/bootstrap/neon.ts";
 import { GhCli } from "../../src/bootstrap/github.ts";
+import { followUpTicket } from "../../src/scope.ts";
 import { CloudflareRefused } from "../../src/bootstrap/clients.ts";
 import { CloudflareApi } from "../../src/bootstrap/cloudflare.ts";
 import { ResendApi } from "../../src/bootstrap/resend.ts";
@@ -561,6 +562,16 @@ describe("GhCli: the example issue (command construction, no gh process)", () =>
     expect(calls.at(-1)!.args).toEqual(["issue", "delete", "7", "--yes"]);
     await expect(gh.deleteBranch("main")).rejects.toThrow(/default branch/);
     await gh.deleteBranch("factory/issue-7");
+    expect(await gh.findSkeletonFollowUps(7)).toEqual([{ number: 9, url: "u9" }]);
+  });
+
+  it("finds a follow-up the Factory wrote in pt-BR: its title stays in English and its body mentions the issue", async () => {
+    const ticket = followUpTicket({ number: 7, title: "Footer" }, "example", [], ["A footer slot."], null, "pt-BR");
+    const gh = new GhCli(async (args) => {
+      if (args.join(" ").startsWith("issue list")) return JSON.stringify([{ number: 9, url: "u9", title: ticket.title, body: ticket.body }]);
+      return "";
+    });
+    expect(ticket.body).toContain("para concluir #7");
     expect(await gh.findSkeletonFollowUps(7)).toEqual([{ number: 9, url: "u9" }]);
   });
 });

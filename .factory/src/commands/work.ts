@@ -104,7 +104,7 @@ export async function work(ctx: CommandContext, number: number | null, options: 
       const timeout = budget(config.timeouts.development);
       let resolved = false;
       if (timeout !== null) {
-        const run = await agent.run("development", updateBranchPrompt({ issue, base: config.baseBranch, conflicts, pr: number === null ? flow.pr : null }), { timeoutMs: timeout, model: config.models.development });
+        const run = await agent.run("development", updateBranchPrompt({ issue, base: config.baseBranch, conflicts, pr: number === null ? flow.pr : null, language: config.language }), { timeoutMs: timeout, model: config.models.development });
         add(usage.development, run.usage);
         resolved = !run.timedOut && !(await mergeInProgress(git));
       }
@@ -166,8 +166,8 @@ export async function work(ctx: CommandContext, number: number | null, options: 
     const dev = await agent.run(
       "development",
       feedbackRound
-        ? prFeedbackPrompt({ issue, pr: flow.pr, log: await git.log(base, "HEAD"), threads: roundThreads, checks })
-        : developmentPrompt({ issue, base: config.baseBranch, log: await git.log(base, "HEAD"), feedback }),
+        ? prFeedbackPrompt({ issue, pr: flow.pr, log: await git.log(base, "HEAD"), threads: roundThreads, checks, language: config.language })
+        : developmentPrompt({ issue, base: config.baseBranch, log: await git.log(base, "HEAD"), feedback, language: config.language }),
       { timeoutMs, model: config.models.development, ...(feedbackRound ? { extract: repliesExtraction } : {}) },
     );
     const said = flow?.kind === "pr-feedback" ? parseReplies(dev.output) : null;
@@ -227,7 +227,7 @@ export async function work(ctx: CommandContext, number: number | null, options: 
       started = ctx.now();
       const reviewRun = await agent.run(
         "review",
-        reviewPrompt({ issue, log: await git.log(base, "HEAD"), since: lastReviewed, findings: reviews, gaps: mergeGaps(gaps), round: flow?.kind === "pr-feedback" ? round() : undefined }),
+        reviewPrompt({ issue, log: await git.log(base, "HEAD"), since: lastReviewed, findings: reviews, gaps: mergeGaps(gaps), round: flow?.kind === "pr-feedback" ? round() : undefined, language: config.language }),
         { timeoutMs, model: config.models.review, extract: reviewExtraction },
       );
       add(usage.review, reviewRun.usage);
@@ -291,7 +291,7 @@ export async function work(ctx: CommandContext, number: number | null, options: 
   if (skeletonFiles.size > 0) await writeFile(join(options.out, SKELETON_PATCH_FILE), await skeletonPatch(git, base, skeletonFiles));
   const followUps =
     product !== null && (skeletonFiles.size > 0 || gaps.length > 0)
-      ? [followUpTicket(issue, product, [...skeletonFiles.keys()].sort(), gaps, skeletonFiles.size > 0 ? SKELETON_PATCH_FILE : null)]
+      ? [followUpTicket(issue, product, [...skeletonFiles.keys()].sort(), gaps, skeletonFiles.size > 0 ? SKELETON_PATCH_FILE : null, config.language)]
       : [];
   if (!ready && reason === "e2e-failures" && skippedFailure !== null) {
     reason = "needs-human";
@@ -333,6 +333,7 @@ export async function work(ctx: CommandContext, number: number | null, options: 
             result: runOutcome({ ready, reason, question, attempts }),
             round: flow?.kind === "pr-feedback" ? round() : undefined,
             prints: evidence.map((e) => ({ product: e.product, path: `${config.evidenceDir}/${e.product}/${e.name}` })),
+            language: config.language,
           }),
           { timeoutMs, model: config.models.pullRequest, extract: pullRequestExtraction },
         );

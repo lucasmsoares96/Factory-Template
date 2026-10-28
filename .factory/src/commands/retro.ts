@@ -114,7 +114,7 @@ export async function retroCollect(ctx: CommandContext, options: CollectOptions)
 export async function retro(ctx: CommandContext, options: { in: string; out: string }): Promise<RetroResult> {
   const { agent, config } = ctx;
   const sources = JSON.parse(await readFile(join(options.in, SOURCES_FILE), "utf8")) as RetroSources;
-  const run = await agent.run("retro", retroPrompt({ sources, dir: options.in, base: config.baseBranch }), {
+  const run = await agent.run("retro", retroPrompt({ sources, dir: options.in, base: config.baseBranch, language: config.language }), {
     timeoutMs: config.timeouts.retro * MINUTE,
     model: config.models.retro,
     extract: retroExtraction,

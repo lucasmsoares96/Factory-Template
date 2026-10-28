@@ -3,6 +3,18 @@ import { FACTORY_MARKER } from "../src/marker.ts";
 import { HUMAN, OWNER, SPEC_BODY, lastJson, readyIssue, world } from "./helpers.ts";
 
 describe("factory claim", () => {
+  it("answers the guard's refusals in FACTORY_LANGUAGE, naming the headings in English", async () => {
+    const criteria = world({ issues: readyIssue({ body: "No criteria here." }), env: { FACTORY_LANGUAGE: "pt-BR" } });
+    await criteria.factory("claim", "7");
+    expect(criteria.tracker.commentsOn(7).at(-1)!.body).toContain(
+      "A Factory precisa de uma seção `## Acceptance criteria` no corpo da issue. Adicione-a e coloque `ready-for-agent` de novo.",
+    );
+
+    const seams = world({ issues: readyIssue({ parent: null }), env: { FACTORY_LANGUAGE: "pt-BR" } });
+    await seams.factory("claim", "7");
+    expect(seams.tracker.commentsOn(7).at(-1)!.body).toContain("Sem seams combinados: a spec pai não tem `## Testing Decisions`");
+  });
+
   it("takes the lock: ready-for-agent becomes in-progress, and the run is marked factory:working", async () => {
     const w = world();
 

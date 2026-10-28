@@ -5,7 +5,7 @@ The detail of `pnpm bootstrap` (`.factory/src/bootstrap/`): its modules, their s
 ## Layout
 
 - `pnpm bootstrap [doctor [<id>]] [domain <id>] [product <id>] [previews <id>] [factory] [--redo <step>]`.
-- Wizard steps live in `common.ts` (the common part), `product.ts` (the Production module of `bootstrap product <id>`) and `domain.ts` (per Product: `resend-domain`, `dns-records`, `restricted-resend-key`, `worker-domain`).
+- Wizard steps live in `common.ts` (the common part: `cloudflare-token`, `workers-dev`, `labels`, `language`), `product.ts` (the Production module of `bootstrap product <id>`) and `domain.ts` (per Product: `resend-domain`, `dns-records`, `restricted-resend-key`, `worker-domain`).
   - `resendSteps(product)` is reused by `bootstrap product`. `domainSteps` adds `worker-domain` for `bootstrap domain` only: the Worker does not exist before the first deploy.
 - The steps run over client interfaces (`clients.ts`: GitHub, Cloudflare, Neon, Resend), real adapters (`cloudflare.ts`, `resend.ts`, Zod-validated; `neon.ts` drives `neonctl`) and `fake/`.
 - `previews.ts` is the Previews module (`previewSteps`). `github.ts` is the only module that calls `gh` (through `runGh`; `gh` gets `BASE_ENV` plus its own sign-in variables, `GH_AUTH_ENV`, and the proxy/CA ones, `GH_NETWORK_ENV`). `token.ts` checks the owner's token through `GitHubApi`.
@@ -14,6 +14,7 @@ The detail of `pnpm bootstrap` (`.factory/src/bootstrap/`): its modules, their s
 ## Common rules
 
 - Resend is optional. Before any key prompt the wizard asks once "Set up real email with Resend now?" (default: skip, keeps the outbox; `RESEND_API_KEY` in the env skips the question; no TTY defers). Setting it up prints `https://resend.com/api-keys` and asks for the key, empty = deferred.
+- `language` asks the language of the Factory's public text (`en` or `pt-BR`, English offered first) only while the `FACTORY_LANGUAGE` variable does not exist; `--redo language` asks again. The doctor shows the value (unset is not a fault: the Factory writes in `en`).
 - A blank credential is never re-asked in the same run (`memory.resendDeferred`, `memory.cloudflareDeclined`).
 - The wizard (common and `domain`) ends by running the doctor with the credentials held in memory (exit code = doctor). Standalone, with a TTY and no `CLOUDFLARE_API_TOKEN`/`RESEND_API_KEY` in the env, the doctor asks once (hidden, not stored); without a TTY it says `skip`.
 - `pnpm bootstrap` and `pnpm bootstrap doctor` set up (ending with the doctor, one run is enough) and check the copied repo. They need `gh` logged in; tests use the fake clients only.

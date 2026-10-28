@@ -231,10 +231,43 @@ describe("pnpm bootstrap (common part)", () => {
     expect(again.github.secrets.get("CLOUDFLARE_API_TOKEN")).toBe("new-token");
   });
 
+  it("asks the language of the Factory's public text once, sets FACTORY_LANGUAGE, and changes it only with --redo language", async () => {
+    const w = world({ "factory-language": ["pt-BR", "en"] });
+
+    await w.run();
+    expect(w.prompter.asked.filter((id) => id === "factory-language")).toHaveLength(1);
+    expect(w.github.variables.get("FACTORY_LANGUAGE")).toBe("pt-BR");
+
+    w.prompter.asked.length = 0;
+    const { output } = await w.run();
+    expect(w.prompter.asked).toEqual([]);
+    expect(w.github.variables.get("FACTORY_LANGUAGE")).toBe("pt-BR");
+    expect(output).toMatch(/FACTORY_LANGUAGE.*pt-BR/);
+
+    await w.run("--redo", "language");
+    expect(w.prompter.asked).toEqual(["factory-language"]);
+    expect(w.github.variables.get("FACTORY_LANGUAGE")).toBe("en");
+  });
+
+  it("offers English first, so it is the default answer", async () => {
+    const w = world();
+    const offered: string[][] = [];
+    const select = w.prompter.select.bind(w.prompter);
+    w.prompter.select = async <T extends string>(input: { id: string; options?: { value: T }[] }) => {
+      if (input.id === "factory-language") offered.push((input.options ?? []).map((o) => o.value));
+      return select(input);
+    };
+
+    await w.run();
+
+    expect(offered).toEqual([["en", "pt-BR"]]);
+    expect(w.github.variables.get("FACTORY_LANGUAGE")).toBe("en");
+  });
+
   it("lists the valid steps when --redo names an unknown one", async () => {
     const w = world();
 
-    await expect(w.run("--redo", "nope")).rejects.toThrow(/cloudflare-token.*workers-dev.*labels/s);
+    await expect(w.run("--redo", "nope")).rejects.toThrow(/cloudflare-token.*workers-dev.*labels.*language/s);
   });
 
   it("the cloudflare-token step prompts only when the CI secret is missing", async () => {
@@ -246,6 +279,7 @@ describe("pnpm bootstrap (common part)", () => {
     const present = world({}, {}, WRANGLER_TOKEN);
     present.github.secrets.set("CLOUDFLARE_API_TOKEN", TOKEN);
     present.cloudflare.subdomains.set("acc-1", "my-team");
+    present.github.variables.set("FACTORY_LANGUAGE", "en");
     const { code } = await present.run();
 
     expect(code).toBe(0);
