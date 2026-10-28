@@ -13,11 +13,24 @@ const tracked = execFileSync("git", ["ls-files", "--cached", "--others", "--excl
   .filter(Boolean)
   .filter((file) => existsSync(join(repo, file)));
 
+const FACTORY_DOCS = ["docs/factory-flows.md", "docs/factory-bootstrap.md"];
 const AGENTS_FILES = ["AGENTS.md", "packages/skeleton/AGENTS.md", "packages/skeleton/template/AGENTS.md", ".factory/AGENTS.md", "apps/example/AGENTS.md"];
 
 describe("AGENTS.md", () => {
   it.each(AGENTS_FILES)("%s is under 200 lines", (file) => {
     expect(read(file).split("\n").length).toBeLessThan(200);
+  });
+
+  it("keeps the Factory's file to short bullets: no line over 600 characters", () => {
+    const long = read(".factory/AGENTS.md").split("\n").map((line, i) => ({ line: i + 1, length: line.length })).filter((l) => l.length > 600);
+    expect(long).toEqual([]);
+  });
+
+  it("points the Factory's file to the docs that hold its detail", () => {
+    for (const doc of FACTORY_DOCS) {
+      expect(read(".factory/AGENTS.md"), doc).toContain(`(../${doc})`);
+      expect(read("docs/README.md"), doc).toContain(`\`${doc.replace("docs/", "")}\``);
+    }
   });
 
   it("exists at every level and nowhere else but in a Product", () => {
@@ -33,7 +46,7 @@ describe("AGENTS.md", () => {
   });
 
   it("names no fixed repository", () => {
-    for (const file of [...AGENTS_FILES, "docs/agents/issue-tracker.md", "docs/agents/triage-labels.md", "docs/agents/domain.md", "docs/agents/mcp.md"]) {
+    for (const file of [...AGENTS_FILES, "docs/agents/issue-tracker.md", "docs/agents/triage-labels.md", "docs/agents/domain.md", "docs/agents/mcp.md", ...FACTORY_DOCS]) {
       expect(read(file), file).not.toMatch(/lucasmsoares96|Factory-Template/);
     }
   });
