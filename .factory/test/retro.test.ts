@@ -7,6 +7,7 @@ import type { RunLogs, RunMatch, RunRef } from "../src/commands/retro.ts";
 import { runFactory } from "../src/cli.ts";
 import { FACTORY_MARKER } from "../src/marker.ts";
 import { retroMarker } from "../src/retro-output.ts";
+import { SessionLimitError } from "../src/seams/agent.ts";
 import type { ThreadId } from "../src/seams/code-host.ts";
 import { HUMAN, OWNER, ISSUE_BODY, checkout, lastJson, tempDir, world, type World, type WorldOptions } from "./helpers.ts";
 
@@ -47,7 +48,7 @@ const block = (candidates: object[], summary = "The preview ran without the PR's
 const says = (candidates: object[]): AgentStep => () => ({ output: block(candidates), usage: { inputTokens: 200_000, outputTokens: 10_000 } });
 
 /** A Retro world: issue #7 escalated or merged, with PR #101 on its branch. */
-async function setup(options: Pick<WorldOptions, "issues" | "prs" | "agent" | "env"> & { runLogs?: FakeRunLogs } = {}) {
+async function setup(options: Pick<WorldOptions, "issues" | "prs" | "agent" | "env" | "now"> & { runLogs?: FakeRunLogs } = {}) {
   const w = world({
     repo: await checkout(),
     issues: options.issues ?? [
@@ -69,7 +70,7 @@ async function setup(options: Pick<WorldOptions, "issues" | "prs" | "agent" | "e
   });
   const runLogs = options.runLogs ?? new FakeRunLogs();
   const factory = (...argv: string[]) =>
-    runFactory(argv, { env: w.env, log: (line) => w.logs.push(line), adapters: () => ({ tracker: w.tracker, codeHost: w.codeHost, agent: w.agent, verify: w.verify }), runLogs: () => runLogs });
+    runFactory(argv, { env: w.env, log: (line) => w.logs.push(line), adapters: () => ({ tracker: w.tracker, codeHost: w.codeHost, agent: w.agent, verify: w.verify }), runLogs: () => runLogs, ...(options.now ? { now: options.now } : {}) });
   return { w, runLogs, factory };
 }
 
@@ -327,6 +328,24 @@ describe("factory retro + retro-publish", () => {
 
     await expect(fullRun(s, "--issue", "7", "--trigger", "dispatch")).rejects.toThrow(/no valid <retro> block/);
     expect(issuesTitled(s.w, "Retro:")).toEqual([]);
+  });
+
+  it("a Retro at the usage limit publishes nothing yet and waits on its origin issue for the reset", async () => {
+    const limitHit: AgentStep = () => {
+      throw new SessionLimitError("Agent session 01-retro failed: claude-code exited with code 1:\nYou've hit your session limit · resets 3:20pm (UTC)", "3:20pm (UTC)");
+    };
+    const s = await setup({ agent: { retro: [limitHit] }, now: () => Date.parse("2026-10-28T14:00:00Z") });
+
+    const run = await fullRun(s, "--issue", "7", "--trigger", "dispatch");
+
+    expect(run.retroCode).toBe(0);
+    expect(run.output).toEqual({ issue: 7, outcome: "paused", reason: "session-limit", resumeAt: "2026-10-28T15:20:00.000Z" });
+    expect(issuesTitled(s.w, "Retro:")).toEqual([]);
+    expect(s.w.tracker.labelsOf(7)).toContain("factory:session-limit");
+    const wait = s.w.tracker.commentsOn(7).at(-1)!.body;
+    expect(wait).toContain('"flow":"retro"');
+    expect(wait).toContain('"pr":101');
+    expect(wait).toContain("The automatic Retro of this issue starts again.");
   });
 
   it("a candidate without evidence is not a valid answer", async () => {

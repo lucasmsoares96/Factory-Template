@@ -56,6 +56,10 @@ export const catalog = {
     en: (): string => "The work job left no valid result (infrastructure failure).",
     "pt-BR": () => "O job work não deixou um resultado válido (falha de infraestrutura).",
   }),
+  headlineSessionFailed: text({
+    en: (stage: string) => `The agent session of the ${stage} failed; its message is below.`,
+    "pt-BR": (stage) => `A sessão do agente no ${stage} falhou; a mensagem dela está abaixo.`,
+  }),
   headlineE2e: text({
     en: (count: number) => `E2E did not pass in ${count} attempts.`,
     "pt-BR": (count) => `O E2E não passou em ${count} tentativas.`,
@@ -90,6 +94,48 @@ export const catalog = {
   retry: text({
     en: (ready: string, base: string) => `To try again, re-add the \`${ready}\` label: the Factory closes the draft pull request and starts over from \`${base}\`.`,
     "pt-BR": (ready, base) => `Para tentar de novo, coloque o label \`${ready}\` outra vez: a Factory fecha o pull request rascunho e recomeça a partir de \`${base}\`.`,
+  }),
+
+  // A run paused at the agent's usage limit (`src/session-limit.ts`).
+  sessionLimitTitle: text({
+    en: (stage: string, resetsAt: string | null, resumeAt: string) =>
+      `**Factory paused (\`session-limit\`):** the ${stage} session hit the agent's usage limit${resetsAt ? `, which resets ${resetsAt}` : " and gave no reset time the Factory could read"}. The Factory starts again on its own after ${resumeAt}.`,
+    "pt-BR": (stage, resetsAt, resumeAt) =>
+      `**A Factory pausou (\`session-limit\`):** a sessão do ${stage} atingiu o limite de uso do agente${resetsAt ? `, que reinicia ${resetsAt}` : " e não informou um horário de reset que a Factory pudesse ler"}. A Factory recomeça sozinha depois de ${resumeAt}.`,
+  }),
+  sessionLimitIssue: text({
+    en: (branch: string | null, base: string) =>
+      branch ? `The commits so far are on \`${branch}\`: the next run continues from them.` : `The run made no commits: the next one starts from \`${base}\`.`,
+    "pt-BR": (branch, base) =>
+      branch ? `Os commits feitos até aqui estão em \`${branch}\`: a próxima execução continua a partir deles.` : `A execução não fez commits: a próxima começa a partir de \`${base}\`.`,
+  }),
+  sessionLimitRound: text({
+    en: (pr: number, pushed: boolean) => `The same round on pull request #${pr} starts again${pushed ? ", from the commits pushed to its branch" : ""}.`,
+    "pt-BR": (pr, pushed) => `A mesma rodada no pull request #${pr} recomeça${pushed ? ", a partir dos commits enviados ao branch dele" : ""}.`,
+  }),
+  sessionLimitUpdate: text({
+    en: (pr: number, base: string) => `The update of pull request #${pr} with \`${base}\` starts again; nothing was pushed.`,
+    "pt-BR": (pr, base) => `A atualização do pull request #${pr} com \`${base}\` recomeça; nada foi enviado.`,
+  }),
+  sessionLimitTriage: text({
+    en: (label: string) => `The Triage of this issue starts again; it stays in \`${label}\`.`,
+    "pt-BR": (label) => `A Triage desta issue recomeça; ela continua em \`${label}\`.`,
+  }),
+  sessionLimitRetro: text({
+    en: (): string => "The automatic Retro of this issue starts again.",
+    "pt-BR": () => "A Retro automática desta issue recomeça.",
+  }),
+  sessionLimitRestartIssue: text({
+    en: (label: string, ready: string) => `While \`${label}\` is on the issue, the Factory does not start it. To start sooner, remove \`${label}\` and re-add \`${ready}\`.`,
+    "pt-BR": (label, ready) => `Enquanto \`${label}\` estiver na issue, a Factory não a começa. Para começar antes, remova \`${label}\` e coloque \`${ready}\` de novo.`,
+  }),
+  sessionLimitCancel: text({
+    en: (label: string) => `Removing \`${label}\` cancels the automatic restart.`,
+    "pt-BR": (label) => `Remover \`${label}\` cancela o recomeço automático.`,
+  }),
+  roundPaused: text({
+    en: (issue: number, resumeAt: string) => `The Factory paused this round at the agent's usage limit (\`session-limit\`) and starts it again after ${resumeAt}. Issue #${issue} has the details.`,
+    "pt-BR": (issue, resumeAt) => `A Factory pausou esta rodada no limite de uso do agente (\`session-limit\`) e a recomeça depois de ${resumeAt}. A issue #${issue} tem os detalhes.`,
   }),
 
   // The attempt lines and the token/cost footer.

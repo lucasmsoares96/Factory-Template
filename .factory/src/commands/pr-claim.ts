@@ -17,11 +17,15 @@ export type PrClaim =
  * nothing to answer. An accepted round marks the PR and the issue `factory:working` and puts 👀 on `comment`, so its
  * author knows the Factory saw it (best effort: a refused reaction is logged).
  */
-export async function claimPrFeedback(ctx: CommandContext, input: { pr: number; actor: string; comment?: Omit<ReactionTarget, "pr"> }): Promise<PrClaim> {
+export async function claimPrFeedback(ctx: CommandContext, input: { pr: number; actor: string; comment?: Omit<ReactionTarget, "pr">; dispatched?: boolean }): Promise<PrClaim> {
   const { tracker, codeHost, config } = ctx;
   const no = (reason: string): PrClaim => ({ claimed: false, reason });
-  if (input.actor === "") return no("no-actor");
-  if (!(await tracker.canWrite(input.actor))) return no("actor-cannot-write");
+  // A dispatched round (`resume`, after the usage limit) has no comment behind it: only a writer or the job token may
+  // dispatch a workflow, and the threads it answers are filtered to writers' below as always.
+  if (!input.dispatched) {
+    if (input.actor === "") return no("no-actor");
+    if (!(await tracker.canWrite(input.actor))) return no("actor-cannot-write");
+  }
   const pr = await codeHost.pullRequest(input.pr);
   if (!pr || pr.state !== "open") return no("pr-not-open");
   const issue = issueOfBranch(config, pr.branch);

@@ -32,7 +32,7 @@ interface Workflow {
 
 /** Reads and parses every workflow in `dir`, relative to the repository root. */
 function load(dir: string): Record<string, Workflow> {
-  const names = ["factory-image.yml", "factory-pr.yml", "factory-deploy.yml", "factory-pr-cleanup.yml", "factory-issue.yml", "factory-unblock.yml", "factory-triage.yml", "factory-pr-feedback.yml", "factory-update-branches.yml", "factory-retro.yml", "factory-skills-update.yml"];
+  const names = ["factory-image.yml", "factory-pr.yml", "factory-deploy.yml", "factory-pr-cleanup.yml", "factory-issue.yml", "factory-unblock.yml", "factory-triage.yml", "factory-pr-feedback.yml", "factory-update-branches.yml", "factory-retro.yml", "factory-skills-update.yml", "factory-resume.yml"];
   return Object.fromEntries(names.map((name) => [name, parse(readFileSync(join(repo, dir, name), "utf8")) as Workflow]));
 }
 
@@ -587,16 +587,35 @@ describe.each([[WORKFLOWS_DIR]])("Factory triage and unblock workflows in %s", (
     expect(step.run).not.toContain("${{");
   });
 
+  it("resume sweeps every 30 minutes and by hand, off until FACTORY_ENABLED, with one group that never cancels", () => {
+    const resume = workflows["factory-resume.yml"]!;
+    expect(resume.on).toEqual({ schedule: [{ cron: "*/30 * * * *" }], workflow_dispatch: null });
+    expect(resume.permissions).toEqual({});
+    expect(concurrencyOf(resume)).toEqual({ group: "factory-resume", "cancel-in-progress": false });
+    const job = resume.jobs.sweep!;
+    expect(job.if).toContain("vars.FACTORY_ENABLED == 'true'");
+    expect(runs(job).join("\n")).toContain("pnpm factory resume");
+  });
+
+  it("resume holds no secret, never takes FACTORY_RUNNER, and takes the label off and dispatches with the job token", () => {
+    const job = workflows["factory-resume.yml"]!.jobs.sweep!;
+    expect(secretsOf(job)).toEqual([]);
+    expect(runsOn(job)).toBe('"ubuntu-latest"');
+    expect(job.container).toBeUndefined();
+    expect(job.permissions).toEqual({ contents: "read", issues: "write", "pull-requests": "write", actions: "write" });
+    expect(steps(job).find((s) => s.name === "resume")?.env).toMatchObject({ FACTORY_ADAPTERS: "github", GITHUB_TOKEN: "${{ github.token }}" });
+  });
+
   it("nothing interpolates an expression into a script, and every command the YAML runs exists in the CLI", () => {
     const cli = readFileSync(join(repo, ".factory/src/cli.ts"), "utf8");
     const called = new Set<string>();
-    for (const job of [...Object.values(triage.jobs), ...Object.values(unblock.jobs)]) {
+    for (const job of [...Object.values(triage.jobs), ...Object.values(unblock.jobs), ...Object.values(workflows["factory-resume.yml"]!.jobs)]) {
       for (const script of runs(job)) {
         expect(script).not.toContain("${{");
         for (const m of script.matchAll(/pnpm factory (\w+)/g)) called.add(m[1]!);
       }
     }
-    expect([...called].sort()).toEqual(["apply", "triage", "unblock", "working"]);
+    expect([...called].sort()).toEqual(["apply", "resume", "triage", "unblock", "working"]);
     for (const command of called) expect(cli).toContain(`"${command}"`);
   });
 });
@@ -846,12 +865,15 @@ describe("Factory PR feedback workflow", () => {
     expect(steps(work).find((step) => step.name === "work")?.env?.GITHUB_TOKEN).toBe("${{ github.token }}");
   });
 
-  it("listens to submitted reviews, review comments and PR comments", () => {
+  it("listens to submitted reviews, review comments and PR comments, and to the dispatch of `resume` after the usage limit", () => {
     expect(feedback.on).toEqual({
       pull_request_review: { types: ["submitted"] },
       pull_request_review_comment: { types: ["created"] },
       issue_comment: { types: ["created"] },
+      workflow_dispatch: { inputs: { pr: { description: "Pull request number (the round `resume` starts again)", type: "string", required: true } } },
     });
+    expect(feedback.jobs.wait!.if).toContain("github.event_name == 'workflow_dispatch'");
+    expect((feedback as unknown as { env: Record<string, string> }).env.PR).toBe("${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}");
     expect(Object.keys(feedback.jobs)).toEqual(["wait", "claim", "image", "work", "publish", "notify"]);
   });
 
@@ -866,14 +888,15 @@ describe("Factory PR feedback workflow", () => {
     expect(runs(notify).join("\n")).toContain("--updated");
   });
 
-  it("debounces: `wait` sleeps 180 s under a cancelling group per PR, a submitted review skips the sleep", () => {
+  it("debounces: `wait` sleeps 180 s under a cancelling group per PR, a submitted review or a dispatch skips the sleep", () => {
     const wait = feedback.jobs.wait!;
     expect((wait as unknown as { concurrency: unknown }).concurrency).toEqual({
-      group: "factory-feedback-${{ github.event.pull_request.number || github.event.issue.number }}",
+      group: "factory-feedback-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}",
       "cancel-in-progress": true,
     });
     const sleep = steps(wait).find((step) => step.run === "sleep 180");
     expect(sleep?.if).toContain("github.event_name != 'pull_request_review'");
+    expect(sleep?.if).toContain("github.event_name != 'workflow_dispatch'");
     expect(feedback.jobs.claim!.needs).toBe("wait");
   });
 
@@ -1065,7 +1088,7 @@ describe("factory:working in the workflows", () => {
     const runName = (file: string) => (workflows[file] as unknown as { "run-name"?: string })["run-name"] ?? "";
     expect(runName("factory-issue.yml")).toContain("format('#{0} {1}', github.event.issue.number || inputs.issue,");
     expect(runName("factory-update-branches.yml")).toContain("format('PR #{0} update branch', inputs.pr)");
-    expect(runName("factory-pr-feedback.yml")).toContain("format('PR #{0} feedback', github.event.pull_request.number || github.event.issue.number)");
+    expect(runName("factory-pr-feedback.yml")).toContain("format('PR #{0} feedback', github.event.pull_request.number || github.event.issue.number || inputs.pr)");
     expect(runName("factory-retro.yml")).toContain("format('#{0}', inputs.issue)");
   });
 

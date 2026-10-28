@@ -10,6 +10,7 @@ import { gapsSection, SKELETON_PATH, skeletonCommit } from "../scope.ts";
 import { fromTouchedSpecs, isSpecPath, shownIn, withEvidence, type TouchedSpec } from "../pull-request-evidence.ts";
 import type { EvidenceImage, PullRequest } from "../seams/code-host.ts";
 import type { Issue } from "../seams/tracker.ts";
+import { sessionLimitComment, utcMinute, type Wait } from "../session-limit.ts";
 import { WAITING_MARKER } from "./claim.ts";
 import type { CommandContext } from "./context.ts";
 
@@ -17,7 +18,8 @@ export type PublishResult =
   | { issue: number; outcome: "ready"; pr: number; url: string }
   | { issue: number; outcome: "escalated"; reason: EscalationReason; pr: number | null; url: string | null }
   | { issue: number; outcome: "discarded"; reason: string }
-  | { issue: number; outcome: "waiting"; blockedBy: number[] };
+  | { issue: number; outcome: "waiting"; blockedBy: number[] }
+  | { issue: number; outcome: "paused"; reason: "session-limit"; resetsAt: string | null; resumeAt: string };
 
 export interface PublishOptions {
   /** Checkout the bundle is fetched into. */
@@ -73,6 +75,7 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
   } catch (error) {
     return escalate(ctx, issue, { reason: "infra", result, detail: (error as Error).message, pr: null, runUrl: options.runUrl }, options.pr, options.dispatchRetro);
   }
+  if (result.outcome === "paused") return pause(ctx, issue, result, options);
   if (result.outcome === "waiting" && options.pr === null) return waitOnSkeleton(ctx, issue, await openFollowUps(ctx, issue, result, skeletonSha));
 
   const head = result.head;
@@ -105,7 +108,7 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
 
 export type PrUpdateResult =
   | { pr: number; outcome: "updated"; url: string }
-  | { pr: number; outcome: "up-to-date" | "stopped" | "discarded"; reason: string };
+  | { pr: number; outcome: "up-to-date" | "stopped" | "discarded" | "paused"; reason: string };
 
 /**
  * `publish` of an update keyed by the pull request alone (`publish --pr N` without an issue): it never runs as an
@@ -132,6 +135,14 @@ export async function publishPrUpdate(ctx: CommandContext, number: number, optio
   } catch (error) {
     const detail = (error as Error).message;
     return stop("stopped", "infra", m.updateNoResult(config.baseBranch, detail) + runLine(options.runUrl, config.language));
+  }
+  if (result.outcome === "paused") {
+    // The wait lives on the PR itself: no issue holds this update. `resume` starts it again after the reset.
+    const failure = result.session!;
+    const wait: Wait = { flow: "update-pr", resumeAt: failure.limit!.resumeAt, head: null, pr: number };
+    await codeHost.labelPr(number, config.labels.sessionLimit);
+    await codeHost.commentPr(number, sessionLimitComment({ wait, failure, next: m.sessionLimitUpdate(number, config.baseBranch), runUrl: options.runUrl }, config));
+    return { pr: number, outcome: "paused", reason: "session-limit" };
   }
   if (result.outcome === "escalated") {
     return stop("stopped", result.reason ?? "infra", prUpdateStopped(result, config.baseBranch, options.runUrl, config.language));
@@ -395,6 +406,39 @@ async function waitOnSkeleton(ctx: CommandContext, issue: Issue, followUps: Foll
   await tracker.comment(issue.number, waitingComment(followUps, config, WAITING_MARKER));
   await tracker.swapLabel(issue.number, config.labels.inProgress, config.labels.readyForAgent);
   return { issue: issue.number, outcome: "waiting", blockedBy: followUps.map((f) => f.number) };
+}
+
+/**
+ * A run that stopped at the agent's usage limit: no Escalation, no Retro. The commits are pushed (never an
+ * update-branch round's: its next round would find the branch up to date and skip Verify), the issue gets
+ * `sessionLimit` before anything else (the guard refuses it while it waits) and the marked comment `resume` reads.
+ * An issue run goes back to `ready-for-agent`; a round on a pull request keeps the lock and leaves a note on the PR.
+ */
+async function pause(ctx: CommandContext, issue: Issue, result: FactoryResult, options: PublishOptions): Promise<PublishResult> {
+  const { tracker, codeHost, config } = ctx;
+  const m = messages(config.language);
+  const failure = result.session!;
+  const limit = failure.limit!;
+  let pushed = false;
+  if (result.head !== null && result.flow !== "update-branch") {
+    const push = await codeHost.push({ branch: result.branch, sha: result.head, expectedSha: options.startSha });
+    if (!push.ok) return discard(ctx, issue.number, (m) => m.branchMoved(result.branch));
+    pushed = true;
+  }
+  const flow = options.pr === null ? "issue" : result.flow === "issue" ? "pr-feedback" : result.flow;
+  const wait: Wait = { flow, resumeAt: limit.resumeAt, head: flow === "issue" && pushed ? result.head : null, pr: options.pr };
+  const next =
+    flow === "issue"
+      ? m.sessionLimitIssue(pushed ? result.branch : null, config.baseBranch)
+      : flow === "update-branch"
+        ? m.sessionLimitUpdate(options.pr!, config.baseBranch)
+        : m.sessionLimitRound(options.pr!, pushed);
+  await tracker.addLabel(issue.number, config.labels.sessionLimit);
+  await tracker.comment(issue.number, sessionLimitComment({ wait, failure, next, runUrl: options.runUrl }, config));
+  if (options.pr === null) await tracker.swapLabel(issue.number, config.labels.inProgress, config.labels.readyForAgent);
+  else await codeHost.commentPr(options.pr, m.roundPaused(issue.number, utcMinute(limit.resumeAt)));
+  ctx.log(`#${issue.number} paused at the agent's usage limit (resets ${limit.resetsAt ?? "at an unknown time"}); it starts again after ${limit.resumeAt}.`);
+  return { issue: issue.number, outcome: "paused", reason: "session-limit", resetsAt: limit.resetsAt, resumeAt: limit.resumeAt };
 }
 
 /**

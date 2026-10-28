@@ -55,7 +55,7 @@ export interface ConversationEntry {
 export type ThreadId = string & { readonly __brand: "ThreadId" };
 
 /** A Factory workflow a run may start: `<name>` is `.github/workflows/factory-<name>.yml`. */
-export type FactoryWorkflow = "issue" | "triage" | "retro" | "update-branches";
+export type FactoryWorkflow = "issue" | "triage" | "retro" | "update-branches" | "pr-feedback";
 
 export interface ReviewThread {
   id: ThreadId;

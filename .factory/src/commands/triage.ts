@@ -15,6 +15,9 @@ import {
 } from "../triage-output.ts";
 import { trustedExplore } from "../guard.ts";
 import type { Issue } from "../seams/tracker.ts";
+import { SessionLimitError, type AgentRun } from "../seams/agent.ts";
+import { messages } from "../messages.ts";
+import { sessionFailure, sessionLimitComment } from "../session-limit.ts";
 import type { CommandContext } from "./context.ts";
 
 const MINUTE = 60_000;
@@ -24,6 +27,8 @@ export interface TriageRun {
   /** Left out: the label is not trusted (`trustedExplore`), or the issue is gone from Triage. */
   skipped: number[];
   fallback: number[];
+  /** The session stopped at the agent's usage limit: no verdict, the batch waits for the reset. */
+  paused: number[];
   retries: number;
 }
 
@@ -43,15 +48,22 @@ export async function triage(ctx: CommandContext, options: { issues: number[]; o
   const batch: Issue[] = [];
   for (const number of chosen.batch) batch.push(await tracker.issue(number));
 
-  const result: TriageResult = { issues: [], usage: { inputTokens: 0, outputTokens: 0 }, retries: 0 };
+  const result: TriageResult = { issues: [], usage: { inputTokens: 0, outputTokens: 0 }, retries: 0, paused: null };
   const fallback: number[] = [];
   if (batch.length > 0) {
     const numbers = batch.map((i) => i.number);
-    const run = await agent.run("triage", triagePrompt({ issues: batch, language: config.language }), {
-      timeoutMs: config.timeouts.triage * MINUTE,
-      model: config.models.triage,
-      extract: triageExtraction(numbers),
-    });
+    let run: AgentRun;
+    try {
+      run = await agent.run("triage", triagePrompt({ issues: batch, language: config.language }), {
+        timeoutMs: config.timeouts.triage * MINUTE,
+        model: config.models.triage,
+        extract: triageExtraction(numbers),
+      });
+    } catch (error) {
+      if (!(error instanceof SessionLimitError)) throw error;
+      result.paused = { issues: numbers, session: sessionFailure("triage", error, ctx.now()) };
+      return finish(result, options.out, skipped, []);
+    }
     result.usage = run.usage;
     result.retries = run.retries;
     const found = run.timedOut ? new Map<number, Verdict>() : parseVerdicts(run.output);
@@ -65,9 +77,13 @@ export async function triage(ctx: CommandContext, options: { issues: number[]; o
       }
     }
   }
-  await mkdir(options.out, { recursive: true });
-  await writeFile(join(options.out, TRIAGE_FILE), `${JSON.stringify(result, null, 2)}\n`);
-  return { triaged: result.issues.map((v) => v.number), skipped, fallback, retries: result.retries };
+  return finish(result, options.out, skipped, fallback);
+}
+
+async function finish(result: TriageResult, out: string, skipped: number[], fallback: number[]): Promise<TriageRun> {
+  await mkdir(out, { recursive: true });
+  await writeFile(join(out, TRIAGE_FILE), `${JSON.stringify(result, null, 2)}\n`);
+  return { triaged: result.issues.map((v) => v.number), skipped, fallback, paused: result.paused?.issues ?? [], retries: result.retries };
 }
 
 /**
@@ -90,6 +106,8 @@ export async function triageBatch(ctx: CommandContext, issues: number[] = []): P
 
 export interface ApplyRun {
   applied: { issue: number; tag: TriageTag; label: string; product: string | null }[];
+  /** Left in Triage, waiting for the agent's usage limit to reset. */
+  paused: number[];
   skipped: { issue: number; reason: string }[];
 }
 
@@ -114,7 +132,24 @@ export async function apply(ctx: CommandContext, options: { in: string; repo: st
   const raw = JSON.parse(await readFile(join(options.in, TRIAGE_FILE), "utf8"));
   const result = triageResultSchema.parse(raw);
   const products = new Set(await readdir(join(options.repo, "apps")).catch(() => [] as string[]));
-  const run: ApplyRun = { applied: [], skipped: [] };
+  const run: ApplyRun = { applied: [], paused: [], skipped: [] };
+
+  if (result.paused) {
+    const { session } = result.paused;
+    const wait = { flow: "triage" as const, resumeAt: session.limit?.resumeAt ?? new Date(ctx.now()).toISOString(), head: null, pr: null };
+    const next = messages(config.language).sessionLimitTriage(labels.agentExplore);
+    for (const number of result.paused.issues) {
+      const issue = await tracker.issue(number);
+      const origin = await tracker.labelOrigin(number, labels.agentExplore);
+      if (issue.state !== "open" || !issue.labels.includes(labels.agentExplore) || origin === null || !(await trustedExplore(tracker, config, origin))) {
+        run.skipped.push({ issue: number, reason: "no longer in Triage" });
+        continue;
+      }
+      await tracker.addLabel(number, labels.sessionLimit);
+      await tracker.comment(number, sessionLimitComment({ wait, failure: session, next, runUrl: null }, config));
+      run.paused.push(number);
+    }
+  }
 
   for (const verdict of result.issues) {
     const number = verdict.number;
