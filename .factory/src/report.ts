@@ -45,6 +45,11 @@ export function usageLine(usage: FactoryResult["usage"], pricing: FactoryConfig[
   const stages = [usage.development, usage.review, usage.pullRequest];
   const input = stages.reduce((sum, u) => sum + u.inputTokens, 0);
   const output = stages.reduce((sum, u) => sum + u.outputTokens, 0);
+  return tokensLine(input, output, pricing, language);
+}
+
+/** The usage line of any session: `Tokens: 200,000 in / 10,000 out. Estimated cost: $1.00.` */
+export function tokensLine(input: number, output: number, pricing: FactoryConfig["pricing"], language: Language): string {
   const cost = (input * pricing.inputPerMTok + output * pricing.outputPerMTok) / 1_000_000;
   return messages(language).usage(count(input), count(output), cost.toFixed(2));
 }
