@@ -21,6 +21,7 @@ import { z } from "zod";
 import { childEnv, runGh } from "../adapters/github/gh.ts";
 import { loadConfig } from "../config.ts";
 import { pick } from "../env.ts";
+import { messages, type Language } from "../messages.ts";
 import { productSecretName } from "../bootstrap/domain.ts";
 import { artifactSkeletonMigrations, builtConfigs, deployConfig, parseList, type DeployEntry } from "./deploy.ts";
 import type { MatrixEntry } from "./matrix.ts";
@@ -213,26 +214,28 @@ export const COMMENT_MARKER = "<!-- factory-previews -->";
 /** Previews live on workers.dev; anything else in a result file is not put in a comment. */
 const PREVIEW_HOST = /^https:\/\/[a-z0-9][a-z0-9.-]*\.workers\.dev(\/\S*)?$/;
 
-/** The text of the one comment. `trusted: false` explains how to get a preview; results fill the table otherwise. */
-export function renderComment(input: { trusted: boolean; why: string; products: string[]; results: PreviewResult[]; sha?: string }): string {
+/** The text of the one comment, in `language`. `trusted: false` explains how to get a preview; results fill the table otherwise. */
+export function renderComment(input: { language: Language; trusted: boolean; previewLabel: string; products: string[]; results: PreviewResult[]; sha?: string }): string {
+  const m = messages(input.language);
+  // The marker stays the same in every language: it is how the next run finds the comment to edit.
   const lines = [COMMENT_MARKER, "### Previews", ""];
   if (!input.trusted) {
-    lines.push(`Preview not deployed: ${input.why}.`);
+    lines.push(m.previewUntrusted(input.previewLabel));
   } else {
     lines.push("| Product | Preview |", "| --- | --- |");
     for (const id of input.products) {
       const result = input.results.find((r) => r.id === id);
       let cell: string;
-      if (!result) cell = "preview not deployed (the build or the deploy did not finish; see the run)";
-      else if (result.status === "limit-reached") cell = "preview skipped: limit reached";
-      else if (result.status === "bindings-changed") cell = "preview skipped: the Worker bindings changed (a preview runs with the bindings of the default branch; merge that change first)";
-      else if (result.status === "failed") cell = "preview failed (see the run)";
-      else if (!result.url || !PREVIEW_HOST.test(result.url)) cell = "preview deployed, but its URL is not a workers.dev address";
-      else cell = `${result.url} (smoke ${result.smoke ?? "not run"})`;
+      if (!result) cell = m.previewMissing();
+      else if (result.status === "limit-reached") cell = m.previewLimitReached();
+      else if (result.status === "bindings-changed") cell = m.previewBindingsChanged();
+      else if (result.status === "failed") cell = m.previewFailed();
+      else if (!result.url || !PREVIEW_HOST.test(result.url)) cell = m.previewBadUrl();
+      else cell = m.previewReady(result.url, result.smoke);
       lines.push(`| \`${id}\` | ${cell} |`);
     }
   }
-  if (input.sha) lines.push("", `Commit ${input.sha.slice(0, 7)}. The preview and its database are deleted when the PR closes.`);
+  if (input.sha) lines.push("", m.previewFooter(input.sha.slice(0, 7)));
   return lines.join("\n");
 }
 
@@ -401,7 +404,7 @@ if (import.meta.main) {
         : [],
     );
     const plan = JSON.parse(process.env.MATRIX ?? '{"include":[]}') as { include: DeployEntry[] };
-    const body = renderComment({ trusted: process.env.TRUSTED === "true", why: process.env.WHY ?? "", products: plan.include.map((e) => e.id), results, sha: process.env.SHA });
+    const body = renderComment({ language: config.language, trusted: process.env.TRUSTED === "true", previewLabel: config.labels.preview, products: plan.include.map((e) => e.id), results, sha: process.env.SHA });
     console.log(`comment ${await upsertComment(forge, prNumber(), body)}`);
   } else if (command === "base") {
     // The deploy of `main`: the preview project's `base` exists and carries the current schema, so previews start from it.
