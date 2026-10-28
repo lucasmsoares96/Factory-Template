@@ -125,7 +125,7 @@
       "source": "cloudflare/skills",
       "sourceType": "github",
       "skillPath": "skills/workers-best-practices/SKILL.md",
-      "computedHash": "e12970301753ed7eaa5ca375d4b98e0e36c9554e8f2809cb4b543c2ea7d9b4b8"
+      "computedHash": "b6252e1aa7c41d1fbec7f064684deb9bd79866c2b6f3e18deee6d7a0c673f3f3"
     },
     "writing-for-agents": {
       "source": "mattpocock/skills",
