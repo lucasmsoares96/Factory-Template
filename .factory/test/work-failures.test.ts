@@ -5,7 +5,7 @@ import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
 import { AgentSessionError, SessionLimitError } from "../src/seams/agent.ts";
 import { FACTORY_MARKER } from "../src/marker.ts";
 import { ESCALATION_MARKER } from "../src/report.ts";
-import { waitMarker } from "../src/session-limit.ts";
+import { continueMarker, waitMarker } from "../src/session-limit.ts";
 import { checkout, commitFile, git, manualClock, OWNER, readyIssue, tempDir, world, type WorldOptions } from "./helpers.ts";
 
 let edits = 0;
@@ -245,6 +245,9 @@ describe("factory work, when an agent session fails", () => {
     expect((await after.run()).session.limit.resumeAt).toBe("2026-10-29T15:20:00.000Z");
     const zoned = await setup({ agent: { development: [limitHit("3pm (America/Sao_Paulo)")] }, now: at("2026-10-28T14:00:00Z") });
     expect((await zoned.run()).session.limit.resumeAt).toBe("2026-10-28T18:00:00.000Z");
+    // A weekly limit names the day.
+    const dated = await setup({ agent: { development: [limitHit("Nov 3, 5pm (UTC)")] }, now: at("2026-10-28T14:00:00Z") });
+    expect((await dated.run()).session.limit.resumeAt).toBe("2026-11-03T17:00:00.000Z");
   });
 
   it("tries again an hour later when the reset time cannot be read", async () => {
@@ -297,6 +300,12 @@ describe("factory work, after a pause at the usage limit", () => {
     expect(result.outcome).toBe("ready");
     expect(log.split("\n")).toEqual([expect.stringMatching(/^feat: greet the user #7/), "feat: start greeting #7"]);
     expect(w.agent.calls[0]!.prompt).toContain("feat: start greeting #7");
+  });
+
+  it("continues from the commits a failed session's Escalation kept, when the retry comes", async () => {
+    const { log } = await resumed((head) => [`${ESCALATION_MARKER}\n${continueMarker(head)}\n**Factory escalation (\`infra\`):** …`]);
+
+    expect(log).toContain("feat: start greeting #7");
   });
 
   it("starts from the base branch when an Escalation came after the pause", async () => {

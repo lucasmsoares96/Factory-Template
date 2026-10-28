@@ -244,7 +244,7 @@ describe("factory publish: Escalation", () => {
     const crash: AgentStep = () => {
       throw new AgentSessionError("Agent session 02-review failed: claude-code exited with code 1:\nAPI Error: 500 Internal Server Error");
     };
-    const { w, output, factoryComments } = await pipeline({ agent: { development: [develop], review: [crash] } });
+    const { w, head, output, factoryComments } = await pipeline({ agent: { development: [develop], review: [crash] } });
 
     expect(output).toMatchObject({ outcome: "escalated", reason: "infra", pr: 101 });
     expect(w.tracker.labelsOf(7)).toEqual(["ready-for-human"]);
@@ -252,6 +252,8 @@ describe("factory publish: Escalation", () => {
     expect(comment).toContain("The agent session of the Review failed; its message is below.");
     expect(comment).toContain("API Error: 500 Internal Server Error");
     expect(comment).not.toContain("Cannot read");
+    expect(comment).toContain(`<!-- factory:continue ${head} -->`);
+    expect(comment).toContain("To try again, re-add the `ready-for-agent` label: the Factory continues from the commits on `factory/issue-7`.");
   });
 
   it("escalates with reason infra when the work job left no result.json", async () => {

@@ -585,6 +585,16 @@ describe("factory pr-feedback: a round paused at the agent's usage limit", () =>
     expect(p.w.codeHost.dispatches).toEqual([]);
   });
 
+  it("starts no round while the issue waits for the reset: the round `resume` starts answers every open thread", async () => {
+    const p = await prWorld({ main: "none", threads: [thread("t1", "rename this")] });
+    await p.w.tracker.addLabel(7, "factory:session-limit");
+
+    expect(await p.w.factory("pr-feedback", "--pr", String(PR), "--actor", HUMAN)).toBe(0);
+    expect(lastJson(p.w.logs)).toEqual({ claimed: false, reason: "session-limit" });
+    expect(await p.w.factory("update-branch", "7")).toBe(0);
+    expect(lastJson(p.w.logs)).toEqual({ claimed: false, reason: "session-limit" });
+  });
+
   it("starts the round again when dispatched, with no writer's comment: only who may dispatch can start it", async () => {
     const p = await prWorld({ main: "none", threads: [thread("t1", "rename this")] });
     expect(await p.w.factory("pr-feedback", "--pr", String(PR), "--actor", "github-actions[bot]", "--event", "workflow_dispatch")).toBe(0);

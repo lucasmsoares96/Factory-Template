@@ -138,6 +138,11 @@ export const catalog = {
     "pt-BR": (issue, resumeAt) => `A Factory pausou esta rodada no limite de uso do agente (\`session-limit\`) e a recomeça depois de ${resumeAt}. A issue #${issue} tem os detalhes.`,
   }),
 
+  retryContinue: text({
+    en: (ready: string, branch: string) => `To try again, re-add the \`${ready}\` label: the Factory continues from the commits on \`${branch}\`.`,
+    "pt-BR": (ready, branch) => `Para tentar de novo, coloque o label \`${ready}\` outra vez: a Factory continua a partir dos commits em \`${branch}\`.`,
+  }),
+
   // The attempt lines and the token/cost footer.
   attemptLine: text({ en: (n: number, stages: string) => `Attempt ${n}: ${stages}`, "pt-BR": (n, stages) => `Tentativa ${n}: ${stages}` }),
   commits: text({ en: (n: number) => `${n} ${n === 1 ? "commit" : "commits"}`, "pt-BR": (n) => `${n} ${n === 1 ? "commit" : "commits"}` }),

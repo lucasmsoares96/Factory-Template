@@ -207,8 +207,19 @@ describe("Sandcastle Agent", () => {
     expect(await git(repo, "log", "-1", "--format=%s")).toBe("feat: greet #7");
   });
 
+  it("reads the limit from Sandcastle's error when the stream has no marked event", async () => {
+    const { agent } = await setup({ result: LIMIT_TEXT, exit: 1 });
+    await expect(agent.run("development", "Implement issue #7.", options)).rejects.toMatchObject({ name: "SessionLimitError", resetsAt: "3:20pm (UTC)" });
+  });
+
   it("does not take a session that only quotes the limit text for a limit", async () => {
-    const { agent } = await setup({ result: "The issue says: You've hit your session limit · resets 3:20pm (UTC)" });
+    const quote = "The issue says: You've hit your session limit · resets 3:20pm (UTC)";
+    const { agent } = await setup({ result: quote });
     await expect(agent.run("development", "Implement issue #7.", options)).resolves.toMatchObject({ timedOut: false });
+    // Failed, with the quote as its last words: an ordinary failure.
+    const failed = await setup({ result: quote, exit: 1 });
+    const error = await failed.agent.run("development", "Implement issue #7.", options).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(AgentSessionError);
+    expect(error).not.toBeInstanceOf(SessionLimitError);
   });
 });

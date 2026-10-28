@@ -124,7 +124,7 @@ export function waitMarker(wait: Wait): string {
 
 /** The wait a comment's marker carries; null when it has none or it does not parse. */
 export function parseWait(body: string): Wait | null {
-  const json = body.match(/<!-- factory:session-limit (\{[^\n]*?\}) -->/)?.[1];
+  const json = body.match(new RegExp(`${SESSION_LIMIT_MARKER} (\\{[^\\n]*?\\}) -->`))?.[1];
   if (json === undefined) return null;
   try {
     const parsed = waitSchema.safeParse(JSON.parse(json));
@@ -153,4 +153,14 @@ const STAGE_NAMES: Record<SessionFailure["stage"], string> = { development: "Dev
 
 export function stageName(stage: SessionFailure["stage"]): string {
   return STAGE_NAMES[stage];
+}
+
+/** The tag an Escalation of a failed session carries: the retry continues from the commits it kept at `head`. */
+export function continueMarker(head: string): string {
+  return `<!-- factory:continue ${head} -->`;
+}
+
+/** The head a `continueMarker` names; null when the text has none. */
+export function continuedHead(body: string): string | null {
+  return body.match(/<!-- factory:continue ([0-9a-f]{40,64}) -->/)?.[1] ?? null;
 }

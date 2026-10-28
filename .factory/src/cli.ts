@@ -72,7 +72,7 @@ Commands:
   apply --in <dir> [--repo <dir>]        Apply triage.json: the marked comment, then agent:explore → ready-for-agent
                                          (easy-call), ready-for-human (needs-a-human) or needs-info (blocked); adds product:<id>.
   unblock [--issue N]                    Drop in-progress from the closed issue N, then sweep the ready-for-agent issues and start the ones whose blockers are all done.
-  resume                                 Start again the work paused at the agent's usage limit (label factory:session-limit) whose
+  resume                                 Start again the work paused at the agent's usage limit (the session-limit label) whose
                                          reset has passed: the issue flow, the round on its PR, the Triage or the Retro.
   retro-collect [--issue N] [--pr N] --trigger closed|dispatch --out <dir>
                                          The automatic Retro, read-only: for a closed PR (closed), only when a writer left a

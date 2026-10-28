@@ -24,7 +24,7 @@ import { addedSkippedTests, skippedTestsFeedback } from "../skipped-tests.ts";
 import { parseReviewOutput, reviewExtraction } from "../review-output.ts";
 import { parseReplies, repliesExtraction, type ThreadReply } from "../replies-output.ts";
 import { AgentSessionError, type AgentRun, type Extraction, type Stage, type Usage } from "../seams/agent.ts";
-import { parseWait, SESSION_LIMIT_MARKER, sessionFailure, type SessionFailure } from "../session-limit.ts";
+import { continuedHead, parseWait, SESSION_LIMIT_MARKER, sessionFailure, type SessionFailure } from "../session-limit.ts";
 import type { ReviewThread } from "../seams/code-host.ts";
 import type { Issue } from "../seams/tracker.ts";
 import type { CommandContext } from "./context.ts";
@@ -68,8 +68,8 @@ export async function work(ctx: CommandContext, number: number | null, options: 
   const flow = options.flow ?? null;
   const { issue, branch } = await subject(ctx, number, flow);
   const base = await resolveBase(git, config.baseBranch);
-  // An issue run starts from the base branch, or from the commits a run paused at the usage limit kept.
-  await git.run("checkout", "--quiet", ...(flow ? [branch] : ["-B", branch, (await pausedHead(ctx, git, issue)) ?? base]));
+  // An issue run starts from the base branch, or from the commits a run whose session failed kept.
+  await git.run("checkout", "--quiet", ...(flow ? [branch] : ["-B", branch, (await keptHead(ctx, git, issue)) ?? base]));
   // A branch that already contains the base branch has nothing to update.
   const upToDate = flow?.kind === "update-branch" && (await git.isAncestor(base, "HEAD"));
 
@@ -435,14 +435,15 @@ async function subject(ctx: CommandContext, number: number | null, flow: WorkFlo
 }
 
 /**
- * The head a paused issue run pushed, when the Factory's last word on the issue is that pause (not a later Escalation
- * or wait on the Skeleton, after which a run starts over) and the checkout has the commit; null otherwise.
+ * The head the last run kept when its session failed: the Factory's last word on the issue is a pause at the usage
+ * limit, or an Escalation of a failed session (`continueMarker`), and the checkout has the commit. Null after any other
+ * Escalation or a wait on the Skeleton, after which a run starts over.
  */
-async function pausedHead(ctx: CommandContext, git: Git, issue: Issue): Promise<string | null> {
+async function keptHead(ctx: CommandContext, git: Git, issue: Issue): Promise<string | null> {
   for (const comment of [...issue.comments].reverse()) {
     const marker = [SESSION_LIMIT_MARKER, ESCALATION_MARKER, WAITING_MARKER].find((m) => comment.body.includes(m));
     if (marker === undefined || !(await isFactoryComment(ctx.tracker, comment, marker))) continue;
-    const head = marker === SESSION_LIMIT_MARKER ? parseWait(comment.body)?.head : null;
+    const head = marker === SESSION_LIMIT_MARKER ? parseWait(comment.body)?.head : marker === ESCALATION_MARKER ? continuedHead(comment.body) : null;
     if (!head) return null;
     return (await git.run("cat-file", "-e", `${head}^{commit}`).then(() => true, () => false)) ? head : null;
   }

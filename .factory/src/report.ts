@@ -2,7 +2,7 @@ import type { FactoryConfig } from "./config.ts";
 import type { CriterionVerdict, FactoryResult, StageRecord } from "./result.ts";
 import { messages, type Language } from "./messages.ts";
 import type { Usage } from "./seams/agent.ts";
-import { stageName } from "./session-limit.ts";
+import { continueMarker, stageName } from "./session-limit.ts";
 
 /**
  * Human-readable reports of a run: the job summary, the attempt lines of an
@@ -181,7 +181,9 @@ export function escalationComment(report: EscalationReport, config: FactoryConfi
   const { result } = report;
   const { language } = config;
   const m = messages(language);
-  const lines = [ESCALATION_MARKER, m.escalationTitle(report.reason, headline(report, config))];
+  // A failed session is no verdict on the work: the retry of an issue run continues from its commits.
+  const kept = result?.session && result.head && result.flow === "issue" ? result.head : null;
+  const lines = [ESCALATION_MARKER, ...(kept ? [continueMarker(kept)] : []), m.escalationTitle(report.reason, headline(report, config))];
   if (result?.question) lines.push("", m.question(result.question));
   const unmet = unmetCriteria(result);
   if (unmet.length > 0) lines.push("", m.criteriaUnmet(), ...unmet.map((v) => `- ${verdictText(v)}`));
@@ -199,7 +201,7 @@ export function escalationComment(report: EscalationReport, config: FactoryConfi
   if (report.pr) lines.push(m.draftPullRequest(report.pr.number));
   else lines.push(m.noPullRequest());
   if (report.runUrl) lines.push(m.workflowRun(report.runUrl));
-  lines.push("", m.retry(config.labels.readyForAgent, config.baseBranch));
+  lines.push("", kept ? m.retryContinue(config.labels.readyForAgent, result!.branch) : m.retry(config.labels.readyForAgent, config.baseBranch));
   if (result) lines.push("", costFooter(result, config.pricing, language));
   return lines.join("\n");
 }
