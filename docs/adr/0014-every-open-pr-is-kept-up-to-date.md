@@ -1,6 +1,6 @@
 # Every open pull request is kept up to date with `main`
 
-The `main` ruleset requires a branch to be up to date before merging (`strict_required_status_checks_policy: true`, set by `pnpm bootstrap product` and checked by `doctor`), so nothing merges with a `verify` that ran against an older `main`. To keep that from stalling work, `factory-update-branches.yml` runs on every push to `main` and updates every open pull request into `main` that is behind, the Factory's and a person's alike:
+The `main` ruleset requires a branch to be up to date before merging (`strict_required_status_checks_policy: true`, set by `pnpm bootstrap product` and checked by `doctor`), so nothing merges with a `verify` that ran against an older `main`. To keep that from stalling work, `factory-update-branches.yml` runs on every push to `main` and updates every open pull request into `main` that is behind, the Factory's and a person's alike. It also runs when a pull request into `main` is opened or reopened behind it, for that pull request alone (`pull_request_target`, `main`'s code, the pull request's head fetched only as data, ADR 0006), so one born behind does not wait for the next push:
 
 - it merges `main` into the branch in its own checkout: no agent when the merge is clean, the agent when there is a conflict ("preserve both intents, do not invent new behaviour"); then `verify`, and the normal loop when it fails;
 - it pushes with `FACTORY_TOKEN` and a lease, so the pull request's CI runs again; a branch that moved during the run is discarded;
