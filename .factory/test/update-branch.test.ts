@@ -400,6 +400,12 @@ describe("factory update-branch", () => {
     expect(p.w.verify.runs).toBe(0);
     expect(p.w.tracker.labelsOf(7)).toEqual(["ready-for-human"]);
     expect(p.w.codeHost.pr(PR).comments).toHaveLength(1);
+    // The round's PR is cited and kept: no "no pull request", no restart from main.
+    const comment = p.w.tracker.commentsOn(7).at(-1)!.body;
+    expect(comment).toContain(`#${PR}`);
+    expect(comment).not.toContain("No pull request");
+    expect(comment).not.toContain("ready-for-agent");
+    expect(p.w.codeHost.pr(PR).state).toBe("open");
   });
 
   it("discards the run when the branch moved since the claim", async () => {
