@@ -48,6 +48,8 @@ async function claimOpenPr(ctx: CommandContext, issue: number, pr: number, branc
   const { tracker, codeHost, config } = ctx;
   const current = await tracker.issue(issue);
   if (current.state !== "open" || !current.labels.includes(config.labels.inProgress)) return { claimed: false, reason: "not-in-progress" };
+  // A round paused at the agent's usage limit: `resume` starts it again after the reset, with every open thread.
+  if (current.labels.includes(config.labels.sessionLimit)) return { claimed: false, reason: "session-limit" };
   if (needThreads && (await openThreads(ctx, config, pr)).length === 0) return { claimed: false, reason: "no-open-threads" };
   const startSha = await codeHost.branchHead(branch);
   if (startSha === null) return { claimed: false, reason: "no-branch" };

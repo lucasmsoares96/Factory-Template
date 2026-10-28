@@ -99,7 +99,8 @@ export class SandcastleAgent implements Agent {
   }
 }
 
-const LIMIT_LINE = /You've hit your [^\n]*limit[^\n]*/;
+// A whole line of Sandcastle's error, never a quote inside one.
+const LIMIT_LINE = /^You've hit your [^\n]*limit[^\n]*$/m;
 const RESETS = /\bresets\s+([^\n"]+?)\s*$/m;
 
 /**
