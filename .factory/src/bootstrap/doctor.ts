@@ -99,6 +99,7 @@ export async function doctor(
   else add("Variables", "warn", LANGUAGE_VARIABLE, `${language} is not one of ${LANGUAGES.join(", ")}: every Factory job fails; run \`pnpm bootstrap --redo language\``);
   const mergeMode = variables[MERGE_MODE_VARIABLE];
   if (mergeMode === undefined) add("Variables", "ok", MERGE_MODE_VARIABLE, "not set: human, every Factory pull request waits for a person; `pnpm bootstrap factory` asks it");
+  else if (mergeMode === "all") add("Variables", "warn", MERGE_MODE_VARIABLE, "all: nothing requires a human review; the Factory merges every pull request once its checks pass, changes to its own rules included");
   else if ((MERGE_MODES as readonly string[]).includes(mergeMode)) add("Variables", "ok", MERGE_MODE_VARIABLE, mergeMode);
   else add("Variables", "warn", MERGE_MODE_VARIABLE, `${mergeMode} is not one of ${MERGE_MODES.join(", ")}: every Factory job fails; run \`pnpm bootstrap factory --redo merge-mode\``);
   if (variables.FACTORY_USE_ENVIRONMENTS === "false") {

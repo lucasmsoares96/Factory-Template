@@ -49,7 +49,8 @@ Commands:
                          repository (the one thing asked, once, hidden; a pre-filled link is printed, and it goes straight
                          to the FACTORY_TOKEN secret), and Claude's auth taken from CLAUDE_CODE_OAUTH_TOKEN or
                          ANTHROPIC_API_KEY in the environment (or an existing secret), and the Merge Mode
-                         (FACTORY_MERGE_MODE: human, the default, or safe; asked once, human without a terminal).
+                         (FACTORY_MERGE_MODE: human, the default, safe, or all behind a typed confirmation; asked
+                         once, human without a terminal unless FACTORY_MERGE_MODE is in the environment).
                          Turns FACTORY_ENABLED on once the doctor passes. A rerun with the secrets in place asks nothing
                          about credentials. At the end, with a terminal, it offers (default no) an example issue that the
                          Factory solves in about 15 minutes, using Claude credits; everything it creates is deleted.

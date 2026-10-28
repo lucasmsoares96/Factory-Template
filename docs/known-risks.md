@@ -39,6 +39,7 @@ Things the base knowingly lives with. Each says what it is, how likely it bites,
 - **`FACTORY_TOKEN` has no expiry** (`expires_in=none`) and acts as the owner. The protection is that it never reaches the `work` job and that `publish` runs `main`'s harness.
 - **The Factory cannot approve its own PR, and neither can the owner.** The ruleset asks for 0 approvals; the Merge Gate is a merge, not a review requirement.
 - **In the `safe` Merge Mode, Product code reaches production with no person looking** (ADR 0016). The brakes are the Review, `verify`, the preview smoke, the verdicts in the PR body (which a writer can edit) and a failed deploy of `main`; everything in `PROTECTED_PATHS` still waits for a person.
+- **In the `all` Merge Mode, nothing waits for a person** (ADR 0016): the Factory may merge changes to its own rules (workflows, the guard, prompts, `config.ts` and its `PROTECTED_PATHS`), so one bad pull request can loosen every later brake. Only `verify`, the preview smoke, the verdicts and the last deploy of `main` stop it. `bootstrap factory` asks for a typed confirmation and the doctor warns while it is on.
 
 ## Self-hosted runner
 
