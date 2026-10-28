@@ -2,7 +2,7 @@ import { cp, mkdir } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { marked } from "../../marker.ts";
 import type { FactoryConfig } from "../../config.ts";
-import type { ActiveRun, CodeHost, ConversationEntry, EvidenceImage, FailedCheck, PullRequest, PushResult, ReactionTarget, Review, ReviewThread, SubmittedReview } from "../../seams/code-host.ts";
+import type { ActiveRun, CodeHost, ConversationEntry, EvidenceImage, FailedCheck, PullRequest, PushResult, ReactionTarget, Review, ReviewThread, SubmittedReview, FactoryWorkflow } from "../../seams/code-host.ts";
 import { Git } from "../../git.ts";
 import type { MarkdownIssues } from "./markdown-issues.ts";
 
@@ -171,7 +171,7 @@ export class LocalCodeHost implements CodeHost {
     return text;
   }
 
-  async dispatch(workflow: string, _inputs: Record<string, string>): Promise<void> {
+  async dispatch(workflow: FactoryWorkflow, _inputs: Record<string, string>): Promise<void> {
     throw new Error(`Dispatching \`${workflow}\` is not available in local mode: run \`pnpm factory local <N>\` for the issue.`);
   }
 

@@ -10,6 +10,8 @@ import type {
   ReactionTarget,
   Review,
   ReviewThread,
+  FactoryWorkflow,
+  ThreadId,
   SubmittedReview,
 } from "../../seams/code-host.ts";
 
@@ -38,7 +40,7 @@ export class FakeCodeHost implements CodeHost {
   readonly branches = new Map<string, string>();
   readonly pushes: { branch: string; sha: string; expectedSha: string | null }[] = [];
   readonly prs: FakePullRequest[] = [];
-  readonly dispatches: { workflow: string; inputs: Record<string, string> }[] = [];
+  readonly dispatches: { workflow: FactoryWorkflow; inputs: Record<string, string> }[] = [];
   /** Every write, in order, e.g. `openDraftPr #101`. */
   readonly writes: string[] = [];
   /** Every reaction the Factory left, in order. */
@@ -178,7 +180,7 @@ export class FakeCodeHost implements CodeHost {
     target.conversation.push({ id: `comment-f${target.conversation.length + 1}`, kind: "comment", author: this.self, body });
   }
 
-  async replyToThread(pr: number, threadId: string, body: string): Promise<void> {
+  async replyToThread(pr: number, threadId: ThreadId, body: string): Promise<void> {
     const thread = this.pr(pr).threads.find((t) => t.id === threadId);
     if (!thread) throw new Error(`FakeCodeHost: no thread ${threadId} on PR #${pr}`);
     thread.replies.push({ author: this.self, body: marked(body) });
@@ -194,7 +196,7 @@ export class FakeCodeHost implements CodeHost {
     return structuredClone(this.runs);
   }
 
-  async dispatch(workflow: string, inputs: Record<string, string>): Promise<void> {
+  async dispatch(workflow: FactoryWorkflow, inputs: Record<string, string>): Promise<void> {
     this.dispatches.push({ workflow, inputs: { ...inputs } });
     this.writes.push(`dispatch ${workflow}`);
   }

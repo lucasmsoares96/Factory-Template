@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { GitHubCodeHost, childEnv, type GhRunner, type GitRunner } from "../../src/adapters/github/github-code-host.ts";
 import { marked } from "../../src/marker.ts";
+import type { ThreadId } from "../../src/seams/code-host.ts";
 import { FakeGitHubServer } from "./fake-github.ts";
 // Imported statically: helpers.ts registers the afterEach that removes temp dirs, which a dynamic import inside a test misses.
 import { git, tempDir } from "../helpers.ts";
@@ -175,7 +176,7 @@ describe("GitHubCodeHost", () => {
     const h = host(s);
 
     expect(await h.threads(4)).toEqual([{ id: "10", path: "a.ts", author: "alice", body: "root", replies: [{ author: "bob", body: "reply" }] }]);
-    await h.replyToThread(4, "10", "done");
+    await h.replyToThread(4, "10" as ThreadId, "done");
     expect(s.calls.at(-1)!.body).toEqual({ body: marked("done") });
   });
 
@@ -361,6 +362,15 @@ describe("GitHubCodeHost", () => {
     await host(s).dispatch("issue", { issue: "7" });
 
     expect(s.calls[0]!.body).toEqual({ ref: "main", inputs: { issue: "7" } });
+  });
+
+  it("dispatches update-branches to factory-update-branches.yml", async () => {
+    const s = new FakeGitHubServer();
+    s.on("POST", `${R}/actions/workflows/factory-update-branches.yml/dispatches`, () => ({ status: 204 }));
+
+    await host(s).dispatch("update-branches", { pr: "14" });
+
+    expect(s.calls[0]!.body).toEqual({ ref: "main", inputs: { pr: "14" } });
   });
 
   describe("failedChecks", () => {

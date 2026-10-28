@@ -12,6 +12,9 @@ export interface GitHubApiOptions {
   apiUrl?: string;
 }
 
+/** The HTTP methods the adapters send to the GitHub REST API. */
+export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+
 export class GitHubError extends Error {
   readonly status: number;
   constructor(message: string, status: number) {
@@ -38,7 +41,7 @@ export class GitHubApi {
     return `/repos/${this.repo}${path}`;
   }
 
-  private call(method: string, path: string, body?: unknown): Promise<Response> {
+  private call(method: HttpMethod, path: string, body?: unknown): Promise<Response> {
     return this.doFetch(`${this.apiUrl}${path}`, {
       method,
       headers: {
@@ -51,12 +54,12 @@ export class GitHubApi {
     });
   }
 
-  private async failure(method: string, path: string, response: Response): Promise<GitHubError> {
+  private async failure(method: HttpMethod, path: string, response: Response): Promise<GitHubError> {
     return new GitHubError(`GitHub ${method} ${path} failed (${response.status}): ${(await response.text()).slice(0, 300)}`, response.status);
   }
 
   /** One request. 404 returns null when `allow404` is set; any other failure throws a `GitHubError`. */
-  async request<T>(method: string, path: string, schema: z.ZodType<T>, options: { body?: unknown; allow404?: boolean } = {}): Promise<T | null> {
+  async request<T>(method: HttpMethod, path: string, schema: z.ZodType<T>, options: { body?: unknown; allow404?: boolean } = {}): Promise<T | null> {
     const response = await this.call(method, path, options.body);
     if (response.status === 404 && options.allow404) return null;
     if (!response.ok) throw await this.failure(method, path, response);
@@ -102,7 +105,7 @@ export class GitHubApi {
     return response.text();
   }
 
-  async send(method: string, path: string, body?: unknown): Promise<void> {
+  async send(method: HttpMethod, path: string, body?: unknown): Promise<void> {
     await this.request(method, path, z.unknown(), { body });
   }
 }

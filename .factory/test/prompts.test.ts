@@ -13,6 +13,7 @@ import {
   triagePrompt,
   updateBranchPrompt,
 } from "../src/prompts.ts";
+import type { ThreadId } from "../src/seams/code-host.ts";
 import type { Issue } from "../src/seams/tracker.ts";
 import { tempDir } from "./helpers.ts";
 
@@ -35,7 +36,7 @@ const prompts = {
     issue,
     pr: 101,
     log: "abc1234 feat: greet #7",
-    threads: [{ id: "t1", path: "src/greet.ts", author: "alice", body: "Rename this.", replies: [] }],
+    threads: [{ id: "t1" as ThreadId, path: "src/greet.ts", author: "alice", body: "Rename this.", replies: [] }],
     checks: { checks: [] },
   }),
   "pull-request": pullRequestPrompt({
