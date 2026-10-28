@@ -1,3 +1,4 @@
+import { MERGE_MODES, variableName, type MergeMode } from "../config.ts";
 import { labels } from "./common.ts";
 import type { Step, StepContext } from "./steps.ts";
 
@@ -118,5 +119,39 @@ export const autoMerge: Step = {
   },
 };
 
-/** The Factory module: labels, the Factory token, Claude's auth and auto-merge. FACTORY_ENABLED is set after the doctor. */
-export const factorySteps: Step[] = [labels, factoryToken, claudeAuth, autoMerge];
+export const MERGE_MODE_VARIABLE = variableName(["mergeMode"]);
+
+const MERGE_MODE_LABELS: Record<MergeMode, string> = {
+  human: "human: every Factory pull request waits for you at the Merge Gate (recommended)",
+  safe: "safe: the Factory merges a pull request that touches nothing protected, once verify, the preview smoke, every criterion and the last deploy of the default branch are green",
+};
+
+/**
+ * The Merge Mode (ADR 0016): which Factory pull requests `factory-merge.yml` may merge without a person. Asked only while
+ * the variable does not exist; `human` is offered first, and is what a run without a terminal sets (or
+ * `FACTORY_MERGE_MODE` from the environment). Only this step changes it: the `FACTORY_TOKEN` cannot write a variable.
+ */
+export const mergeMode: Step = {
+  id: "merge-mode",
+  title: `Merge Mode (${MERGE_MODE_VARIABLE})`,
+  async check(ctx) {
+    const value = (await ctx.github.listVariables())[MERGE_MODE_VARIABLE];
+    return { done: value !== undefined, detail: value };
+  },
+  async run(ctx) {
+    const fromEnv = ctx.env[MERGE_MODE_VARIABLE]?.trim();
+    if (fromEnv && !(MERGE_MODES as readonly string[]).includes(fromEnv)) throw new Error(`${MERGE_MODE_VARIABLE}=${fromEnv} is not one of ${MERGE_MODES.join(", ")}. Nothing was stored.`);
+    const value = (fromEnv as MergeMode | undefined) ??
+      (ctx.interactive
+        ? await ctx.prompter.select<MergeMode>({
+            id: "merge-mode",
+            message: "Which Factory pull requests may be merged without you? A merge into the default branch deploys to production.",
+            options: MERGE_MODES.map((value) => ({ value, label: MERGE_MODE_LABELS[value] })),
+          })
+        : "human");
+    await ctx.github.setVariable(MERGE_MODE_VARIABLE, value);
+  },
+};
+
+/** The Factory module: labels, the Factory token, Claude's auth, auto-merge and the Merge Mode. FACTORY_ENABLED is set after the doctor. */
+export const factorySteps: Step[] = [labels, factoryToken, claudeAuth, autoMerge, mergeMode];

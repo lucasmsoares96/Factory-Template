@@ -26,4 +26,5 @@ The Factory adds these to the five above. Their names live in `.factory/src/conf
 | `harness-change` | the Factory (`publish`) | The pull request touches `AGENTS.md`, `docs/agents/`, `GLOSSARY.md`, `CODING_STANDARDS.md`, `docs/adr/` or `.factory/`. Review it with care. |
 | `preview` | a human with `write`+ access (CI removes it on each push) | Asks CI to deploy a preview of a pull request whose author has no `write` access. It must be re-applied after each push. |
 | `retro` | the Factory (`retro-publish`) | The issue holds the candidates of an automatic Retro (with `needs-triage`). A human picks what becomes work and closes the rest. |
+| `auto-merged` | the Factory (`merge`) | The Factory merged this pull request on its own, as the Merge Mode allowed (`FACTORY_MERGE_MODE`). Its comment names the mode and the conditions that held. Look here first for what to revert, and for the Retro. |
 | `product:<id>` | a human or the Factory | The issue or pull request concerns the Product `<id>`. One label per Product (for example `product:example`). |
