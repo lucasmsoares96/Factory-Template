@@ -1,25 +1,26 @@
 import { describe, expect, it } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
-import { checkout, commitFile, lastJson, tempDir, unmarked, world, type WorldOptions } from "./helpers.ts";
+import { checkout, commitFile, commitFiles, lastJson, tempDir, unmarked, world, type WorldOptions } from "./helpers.ts";
 import { commits, feedbackRound, finishRound, prWorld, PR, replies, reviewOk, thread } from "./pr-flow-helpers.ts";
 
 const url = (pr: number, product: string, name: string) => `https://forge.test/pr/${pr}/images/${product}/${name}`;
 const print = (product: string, name: string) => `test-results/evidence/${product}/${name}`;
 const prints = [{ product: "example", name: "home.png" }, { product: "admin", name: "users.png" }, { product: "example", name: "about.png" }];
 
-const develop: AgentStep = async ({ cwd }) => {
-  await commitFile(cwd, "src/greet.ts", "export {};\n", "feat: greet #7");
+const develop = (specs: Record<string, string> = {}): AgentStep => async ({ cwd }) => {
+  await commitFiles(cwd, { "src/greet.ts": "export {};\n", ...specs }, "feat: greet #7");
 };
+const spec = (...names: string[]) => names.map((n) => `test("${n} @evidence", async ({ evidence }) => { await evidence("${n}"); });`).join("\n");
 const review: AgentStep = () => ({ output: `<review>${JSON.stringify({ summary: "Fine.", inline: [] })}</review>` });
 const writes = (body: string): AgentStep => () => ({ output: `<pull-request>${body}</pull-request>` });
 
-async function issueRun(options: { stage: AgentStep; evidence?: typeof prints }) {
+async function issueRun(options: { stage: AgentStep; evidence?: typeof prints; specs?: Record<string, string> }) {
   const workCheckout = await checkout();
   const publishCheckout = await checkout();
   const artifacts = await tempDir("factory-artifacts-");
   const w = world({
     repo: workCheckout,
-    agent: { development: [develop], review: [review], "pull-request": [options.stage] },
+    agent: { development: [develop(options.specs)], review: [review], "pull-request": [options.stage] },
     verify: [{ ok: true, evidence: options.evidence ?? prints }],
   } satisfies WorldOptions);
   expect(await w.factory("claim", "7")).toBe(0);
@@ -40,12 +41,13 @@ describe("evidence in the pull request body", () => {
     expect(pr.body).toContain(`![home](${url(101, "example", "home.png")})`);
     expect(pr.body).not.toContain("test-results");
     expect(pr.body.indexOf("The home screen now greets")).toBeLessThan(pr.body.indexOf(url(101, "example", "home.png")));
-    expect(pr.images.map((i) => `${i.product}/${i.name}`).sort()).toEqual(["admin/users.png", "example/about.png", "example/home.png"]);
+    expect(pr.images.map((i) => `${i.product}/${i.name}`)).toEqual(["example/home.png"]);
   });
 
-  it("appends a print the text does not reference at the end of the Evidence section, grouped by Product", async () => {
+  it("appends a print the text does not reference, from a spec the diff touched, at the end of the Evidence section, grouped by Product", async () => {
     const { pr } = await issueRun({
       stage: writes(`## Summary\n\nGreets.\n\n## Evidence\n\n![home](${print("example", "home.png")})\n\n## Merge Danger\n\n**Door:** two-way`),
+      specs: { "apps/example/e2e/about.spec.ts": spec("about"), "e2e/shared.spec.ts": spec("users") },
     });
 
     const body = unmarked(pr.body);
@@ -57,15 +59,28 @@ describe("evidence in the pull request body", () => {
     expect(body.trimEnd().endsWith("Closes #7")).toBe(true);
   });
 
+  it("leaves out a print the text does not reference whose spec the diff did not touch", async () => {
+    const { pr } = await issueRun({
+      stage: writes(`## Summary\n\nGreets.\n\n## Evidence\n\nThe home screen now greets:\n\n![home](${print("example", "home.png")})`),
+      specs: { "apps/admin/e2e/about.spec.ts": spec("about"), "apps/example/e2e/notes.ts": spec("users"), "apps/example/e2e/other.spec.ts": spec("other") },
+    });
+
+    expect(pr.body).toContain(url(101, "example", "home.png"));
+    expect(pr.body).not.toContain("about.png");
+    expect(pr.body).not.toContain("users.png");
+    expect(pr.body).not.toContain("### ");
+    expect(pr.images.map((i) => `${i.product}/${i.name}`)).toEqual(["example/home.png"]);
+  });
+
   it("adds an Evidence section when the text has none", async () => {
-    const { pr } = await issueRun({ stage: writes("## Summary\n\nGreets.") });
+    const { pr } = await issueRun({ stage: writes("## Summary\n\nGreets."), specs: { "e2e/all.spec.ts": spec("home", "about", "users") } });
 
     expect(middle(pr.body)).toMatch(/## Summary[\s\S]*## Evidence\n\n### admin\n\n!\[users\.png\]/);
     expect(pr.body.match(/!\[/g)).toHaveLength(3);
   });
 
   it("puts the prints in the minimal body when the Pull Request Stage wrote no text", async () => {
-    const { pr } = await issueRun({ stage: () => ({ output: "no block", resumes: [{ output: "no" }, { output: "no" }] }) });
+    const { pr } = await issueRun({ stage: () => ({ output: "no block", resumes: [{ output: "no" }, { output: "no" }] }), specs: { "e2e/home.spec.ts": spec("home") } });
 
     expect(pr.body).toContain("Implemented by the Factory.");
     expect(pr.body).toContain(`![home.png](${url(101, "example", "home.png")})`);
@@ -99,7 +114,12 @@ describe("evidence in the body on later rounds", () => {
       main: "none",
       threads: [thread("t1", "Show it again.")],
       agent: {
-        development: [commits(replies({ threadId: "t1", decision: "address", body: "Done." }))],
+        development: [
+          async (input) => {
+            await commitFile(input.cwd, "apps/example/e2e/extra.spec.ts", spec("extra"), "test: show extra #7");
+            return commits(replies({ threadId: "t1", decision: "address", body: "Done." }))(input);
+          },
+        ],
         review: [reviewOk],
         "pull-request": [writes(`## Summary\n\nRound two.\n\n## Evidence\n\n![home](${print("example", "home.png")})\n\n## Merge Danger\n\nNone.`)],
       },
