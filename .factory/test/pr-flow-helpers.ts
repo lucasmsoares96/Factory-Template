@@ -2,7 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
-import type { ConversationEntry, ReviewThread } from "../src/seams/code-host.ts";
+import type { ConversationEntry, ReviewThread, ThreadId } from "../src/seams/code-host.ts";
 import { commitFile, derivedCheckout, git, HUMAN, lastJson, OWNER, readyIssue, tempDir, world, type World, type WorldOptions } from "./helpers.ts";
 
 export const BRANCH = "factory/issue-7";
@@ -29,7 +29,7 @@ export function prCheckout(main: MainChange): Promise<string> {
 }
 
 export const thread = (id: string, body: string, extra: Partial<ReviewThread> = {}): ReviewThread => ({
-  id,
+  id: id as ThreadId,
   path: "src/app.ts",
   author: HUMAN,
   body,

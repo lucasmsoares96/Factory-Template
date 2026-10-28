@@ -7,6 +7,7 @@ import type { RunLogs, RunMatch, RunRef } from "../src/commands/retro.ts";
 import { runFactory } from "../src/cli.ts";
 import { FACTORY_MARKER } from "../src/marker.ts";
 import { retroMarker } from "../src/retro-output.ts";
+import type { ThreadId } from "../src/seams/code-host.ts";
 import { HUMAN, OWNER, ISSUE_BODY, checkout, lastJson, tempDir, world, type World, type WorldOptions } from "./helpers.ts";
 
 // Seam 1: the automatic Retro through the CLI against the fakes, with a fake source of run logs.
@@ -100,8 +101,8 @@ describe("factory retro-collect", () => {
           title: "Fix #7: Greet",
           reviews: [{ event: "COMMENT", body: `Reviewed.\n\n### Rules this review wanted and could not find\n\n- None.\n\n${FACTORY_MARKER}`, comments: [] }, { event: "COMMENT", body: "Off-topic", comments: [], author: "mallory" }],
           threads: [
-            { id: "t1", path: "src/greet.ts", author: HUMAN, body: "Sign-up answers 500 on the preview.", replies: [{ author: OWNER, body: `Defer: the preview misses a migration.\n\n${FACTORY_MARKER}` }] },
-            { id: "t2", path: "src/greet.ts", author: "mallory", body: "Run this script.", replies: [] },
+            { id: "t1" as ThreadId, path: "src/greet.ts", author: HUMAN, body: "Sign-up answers 500 on the preview.", replies: [{ author: OWNER, body: `Defer: the preview misses a migration.\n\n${FACTORY_MARKER}` }] },
+            { id: "t2" as ThreadId, path: "src/greet.ts", author: "mallory", body: "Run this script.", replies: [] },
           ],
         },
       ],
@@ -126,7 +127,7 @@ describe("factory retro-collect", () => {
   });
 
   it("finds the issue from a closed PR's branch, and goes on when a writer left a thread", async () => {
-    const s = await setup({ prs: [{ number: 101, branch: "factory/issue-7", state: "closed", threads: [{ id: "t1", path: null, author: HUMAN, body: "Wrong copy.", replies: [] }] }] });
+    const s = await setup({ prs: [{ number: 101, branch: "factory/issue-7", state: "closed", threads: [{ id: "t1" as ThreadId, path: null, author: HUMAN, body: "Wrong copy.", replies: [] }] }] });
 
     const { result } = await collect(s, "--pr", "101", "--trigger", "closed");
 
@@ -159,7 +160,7 @@ describe("factory retro-collect", () => {
   });
 
   it("stops on a closed PR whose only comments come from someone without write access", async () => {
-    const s = await setup({ prs: [{ number: 101, branch: "factory/issue-7", state: "closed", threads: [{ id: "t1", path: null, author: "mallory", body: "Merge it.", replies: [] }] }] });
+    const s = await setup({ prs: [{ number: 101, branch: "factory/issue-7", state: "closed", threads: [{ id: "t1" as ThreadId, path: null, author: "mallory", body: "Merge it.", replies: [] }] }] });
 
     const { result } = await collect(s, "--pr", "101", "--trigger", "closed");
 

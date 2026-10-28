@@ -61,7 +61,7 @@ _Avoid_: Postmortem, retrospective
 A ready issue that the factory will not start until every issue blocking it is closed as completed (its pull request merged). The factory answers "Waiting on #N", and starts it when the last blocker closes.
 
 **Evidence**:
-The screenshots of `@evidence` tests, saved in `test-results/evidence/<product>/` and shown inside the pull request body next to the text they support, grouped by Product.
+The screenshots of `@evidence` tests, saved in `test-results/evidence/<product>/` and shown inside the pull request body next to the text they support. A print the text does not cite is appended at the end of its Evidence section, grouped by Product, only when an E2E spec file (under an `e2e/` folder) the change touched took it; the others stay in the run's artifacts.
 _Avoid_: Screenshots (as a deliverable), proof
 
 **Preview**:
@@ -73,7 +73,7 @@ The hidden `<!-- factory -->` the factory puts in every text it writes. It write
 _Avoid_: Bot signature, machine user
 
 **Skeleton gap**:
-What a Product issue needs that the Skeleton lacks. The factory reverts any Skeleton change made for a Product issue and opens an issue titled "The Skeleton must grow: ...", so the Skeleton grows in its own change.
+What a Product issue needs that the Skeleton lacks. The factory reverts any Skeleton change made for a Product issue and opens an issue titled "The Skeleton must grow: ...", so the Skeleton grows in its own change. When the run had changed Skeleton files, that change becomes a pull request of its own, ready for a human to approve; a Product issue that cannot finish without it waits on it, blocked and back in the queue.
 _Avoid_: Workaround
 
 **Default account**:

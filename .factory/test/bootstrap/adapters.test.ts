@@ -9,12 +9,22 @@ import { ResendApi } from "../../src/bootstrap/resend.ts";
 describe("GhCli (command construction, no gh process)", () => {
   function recorder(replies: Record<string, string> = {}) {
     const calls: { args: string[]; input?: string }[] = [];
-    const gh = new GhCli(async (args, input) => {
+    const gh = new GhCli(async (args, { input }) => {
       calls.push({ args, input });
       return replies[args.slice(0, 2).join(" ")] ?? "";
     });
     return { gh, calls };
   }
+
+  it("gives gh the base variables, its own sign-in ones and the proxy, not the rest of the owner's environment", async () => {
+    const envs: Record<string, string>[] = [];
+    const parent = { PATH: "/bin", HOME: "/home/x", GH_TOKEN: "gh-tok", GH_CONFIG_DIR: "/cfg", HTTPS_PROXY: "http://proxy:3128", NEON_API_KEY: "neon", CLOUDFLARE_API_TOKEN: "cf" };
+    const gh = new GhCli(async (_args, { env }) => (envs.push(env), "x"), parent);
+
+    await gh.user();
+
+    expect(envs).toEqual([{ PATH: "/bin", HOME: "/home/x", GH_TOKEN: "gh-tok", GH_CONFIG_DIR: "/cfg", HTTPS_PROXY: "http://proxy:3128" }]);
+  });
 
   it("sends a secret through stdin, never in the arguments", async () => {
     const { gh, calls } = recorder();
@@ -46,7 +56,7 @@ describe("GhCli (command construction, no gh process)", () => {
 describe("GhCli: environments and rulesets (command construction)", () => {
   it("sets an environment secret with --env and the value on stdin", async () => {
     const calls: { args: string[]; input?: string }[] = [];
-    const gh = new GhCli(async (args, input) => {
+    const gh = new GhCli(async (args, { input }) => {
       calls.push({ args, input });
       return "";
     });
@@ -85,7 +95,7 @@ describe("GhCli: environments and rulesets (command construction)", () => {
 
   it("turns on up-to-date branches by writing back the ruleset's own rules with only that flag changed", async () => {
     const calls: { args: string[]; input?: string }[] = [];
-    const gh = new GhCli(async (args, input) => {
+    const gh = new GhCli(async (args, { input }) => {
       calls.push({ args, input });
       return args.includes("PUT")
         ? ""
@@ -523,7 +533,7 @@ describe("delete methods of the real adapters (fake gh, fetch and neonctl; only 
 describe("GhCli: the example issue (command construction, no gh process)", () => {
   it("builds the commands, never touches the default branch, and tolerates a branch that is already gone", async () => {
     const calls: { args: string[]; input?: string }[] = [];
-    const gh = new GhCli(async (args, input) => {
+    const gh = new GhCli(async (args, { input }) => {
       calls.push({ args, ...(input === undefined ? {} : { input }) });
       const joined = args.join(" ");
       if (joined.startsWith("repo view")) return JSON.stringify({ nameWithOwner: "o/r", visibility: "PUBLIC", viewerPermission: "ADMIN", defaultBranchRef: { name: "main" } });

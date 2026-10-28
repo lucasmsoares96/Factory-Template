@@ -3,16 +3,16 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import type { ActiveRun, CodeHost, ConversationEntry, EvidenceImage, FailedCheck, PullRequest, PushResult, ReactionTarget, Review, ReviewThread, SubmittedReview } from "../../seams/code-host.ts";
+import type { ActiveRun, CodeHost, ConversationEntry, EvidenceImage, FailedCheck, PullRequest, PushResult, ReactionTarget, Review, ReviewThread, SubmittedReview, FactoryWorkflow, ThreadId } from "../../seams/code-host.ts";
 import { marked } from "../../marker.ts";
-import { BASE_ENV, pick } from "../../env.ts";
 import { GitHubApi, type GitHubApiOptions } from "./api.ts";
+import { childEnv, runGh, type GhRunner } from "./gh.ts";
+
+export { childEnv, type GhRunner };
 
 
 /** Runs `git <args>` in `cwd` with `env` added to the environment. */
 export type GitRunner = (args: string[], options: { cwd: string; env: Record<string, string> }) => Promise<{ code: number; stderr: string }>;
-/** Runs `gh <args>` with `env` added to the environment; throws on failure. */
-export type GhRunner = (args: string[], env: Record<string, string>) => Promise<void>;
 
 export interface GitHubCodeHostOptions extends GitHubApiOptions {
   baseBranch: string;
@@ -59,9 +59,12 @@ const FACTORY_WORKFLOWS = new Set(["factory-issue.yml", "factory-pr-feedback.yml
 /** The `run-name` of a Triage run that works on the batch; any other label event names itself otherwise and ends at once. */
 const TRIAGE_RUN = "Factory triage";
 const jobRow = z.object({ id: z.number(), name: z.string(), conclusion: z.string().nullable(), html_url: z.string().nullable() });
-/** A run that ended like this has no failed job to read. */
-const CLEAN_RUN = new Set(["success", "skipped", "neutral"]);
-const FAILED_JOB = new Set(["failure", "timed_out"]);
+/**
+ * A run that ended like this has no failed job to read. Nor does a cancelled run: a newer run of the same head
+ * superseded it (`cancel-in-progress`), or someone stopped it. A job that hits its `timeout-minutes` may end `cancelled` while its run ends `failure`, so it is still read.
+ */
+const CLEAN_RUN = new Set(["success", "skipped", "neutral", "cancelled"]);
+const FAILED_JOB = new Set(["failure", "timed_out", "cancelled"]);
 const graphql = z.object({ data: z.unknown().optional(), errors: z.array(z.object({ message: z.string() })).optional() });
 
 /**
@@ -143,7 +146,7 @@ export class GitHubCodeHost implements CodeHost {
       const bodyFile = join(dir, "body.md");
       await writeFile(bodyFile, body);
       const attach = images.flatMap((i) => ["--attach", i.path]);
-      await this.gh(["pr", "edit", String(pr), "--repo", this.options.repo, "--body-file", bodyFile, ...attach], { GH_TOKEN: this.options.token });
+      await this.gh(["pr", "edit", String(pr), "--repo", this.options.repo, "--body-file", bodyFile, ...attach], { env: childEnv(process.env, { GH_TOKEN: this.options.token }) });
     } catch (error) {
       const reason = this.scrub((error as Error).message).slice(0, 300);
       let text = body;
@@ -194,7 +197,7 @@ export class GitHubCodeHost implements CodeHost {
     return rows
       .filter((r) => r.in_reply_to_id == null)
       .map((root) => ({
-        id: String(root.id),
+        id: String(root.id) as ThreadId,
         path: root.path ?? null,
         author: root.user?.login ?? "ghost",
         body: root.body ?? "",
@@ -209,8 +212,8 @@ export class GitHubCodeHost implements CodeHost {
 
   /**
    * Through the Actions API, which the job token reads with `actions: read` (the check-runs API would need `checks: read`):
-   * the runs of the head, their jobs that failed or timed out, and the end of each job's log. A check posted by an app
-   * other than Actions is not seen.
+   * the runs of the head that did not end clean or cancelled, their jobs that failed, timed out or were cancelled, and
+   * the end of each job's log. A check posted by an app other than Actions is not seen.
    */
   async failedChecks(pr: number, lines: number): Promise<FailedCheck[]> {
     const head = (await this.api.get(this.api.repoPath(`/pulls/${pr}`), prRow)).head.sha;
@@ -246,7 +249,7 @@ export class GitHubCodeHost implements CodeHost {
       .map((e) => e.entry);
   }
 
-  async replyToThread(pr: number, threadId: string, body: string): Promise<void> {
+  async replyToThread(pr: number, threadId: ThreadId, body: string): Promise<void> {
     await this.api.send("POST", this.api.repoPath(`/pulls/${pr}/comments/${threadId}/replies`), { body: marked(body) });
   }
 
@@ -277,8 +280,8 @@ export class GitHubCodeHost implements CodeHost {
     return found;
   }
 
-  async dispatch(workflow: string, inputs: Record<string, string>): Promise<void> {
-    const file = workflow.endsWith(".yml") ? workflow : `factory-${workflow}.yml`;
+  async dispatch(workflow: FactoryWorkflow, inputs: Record<string, string>): Promise<void> {
+    const file = `factory-${workflow}.yml`;
     await this.api.send("POST", this.api.repoPath(`/actions/workflows/${file}/dispatches`), { ref: this.options.baseBranch, inputs });
   }
 
@@ -311,22 +314,9 @@ function toPr(row: z.infer<typeof prRow>, repo: string): PullRequest {
   return { number: row.number, url: row.html_url, branch: row.head.ref, headSha: row.head.sha, state: row.state, draft: row.draft, base: row.base.ref, fork, labels: row.labels.map((l) => l.name) };
 }
 
-/** What git and gh get: the base variables every tool needs, plus `extra` (the token they authenticate with). Never the parent's secrets. */
-export function childEnv(parent: Record<string, string | undefined>, extra: Record<string, string>): Record<string, string> {
-  return { ...pick(parent, BASE_ENV), ...extra };
-}
-
 const runGit: GitRunner = (args, { cwd, env }) =>
   new Promise((resolve) => {
     execFile("git", args, { cwd, env: childEnv(process.env, env), maxBuffer: 16 * 1024 * 1024 }, (error, _stdout, stderr) => {
       resolve({ code: error ? ((error as { code?: unknown }).code as number) || 1 : 0, stderr });
-    });
-  });
-
-const runGh: GhRunner = (args, env) =>
-  new Promise((resolve, reject) => {
-    execFile("gh", args, { env: childEnv(process.env, env), maxBuffer: 16 * 1024 * 1024 }, (error, _stdout, stderr) => {
-      if (error) reject(new Error(stderr.trim() || error.message));
-      else resolve();
     });
   });

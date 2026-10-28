@@ -5,5 +5,7 @@
 - `known-risks.md`: limits the base knowingly lives with.
 - `forgejo.md`: what changes on Forgejo.
 - `forgejo-install-prompt.md`: the one prompt an agent runs to install the Factory on an existing Forgejo repository.
+- `factory-flows.md`: the Factory's workflows in detail (jobs, tokens, labels, the marker, Triage, PR flows, previews, Retro, skills update).
+- `factory-bootstrap.md`: `pnpm bootstrap` in detail (modules, steps, the example issue, `destroy`, the Cloudflare credential).
 - `self-hosted-runner.md`: optional runner of your own for a private repo.
 - `agents/`: agent configuration (issue tracker, labels, domain docs, MCP servers, Retro sources).

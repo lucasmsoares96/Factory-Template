@@ -1,4 +1,4 @@
-import { cp, mkdir, readdir, rm } from "node:fs/promises";
+import { cp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { issueBranch } from "../config.ts";
 import { Git } from "../git.ts";
@@ -7,6 +7,7 @@ import {
   BUNDLE_FILE,
   EVIDENCE_DIR,
   RESULT_FILE,
+  SKELETON_PATCH_FILE,
   writeResult,
   type FactoryResult,
   type PullRequestStageRecord,
@@ -15,7 +16,7 @@ import {
 } from "../result.ts";
 import { fence, summaryMarkdown } from "../report.ts";
 import { parsePullRequestBody, pullRequestExtraction } from "../pull-request-output.ts";
-import { changedSkeletonPaths, followUpTicket, productOf, revertToBase, skeletonGaps } from "../scope.ts";
+import { changedSkeletonPaths, followUpTicket, mergeGaps, productOf, revertToBase, skeletonGaps, skeletonPatch } from "../scope.ts";
 import { addedSkippedTests, skippedTestsFeedback } from "../skipped-tests.ts";
 import { parseReviewOutput, reviewExtraction } from "../review-output.ts";
 import { parseReplies, repliesExtraction, type ThreadReply } from "../replies-output.ts";
@@ -29,7 +30,7 @@ const MINUTE = 60_000;
 const OUTPUT_TAIL = 4000;
 
 const SKELETON_QUESTION =
-  "The acceptance criteria could not be met without a change in the Skeleton, which a Product issue may not make. The follow-up ticket asks for it; decide how to proceed.";
+  "The acceptance criteria could not be met without a change in the Skeleton, which a Product issue may not make. The Skeleton issue asks for it; decide how to proceed.";
 
 type Reason = NonNullable<FactoryResult["reason"]>;
 
@@ -77,8 +78,10 @@ export async function work(ctx: CommandContext, number: number | null, options: 
   let question: string | null = null;
   // A Product issue never changes the Skeleton: see scope.ts.
   const product = productOf(issue, config);
-  const skeletonFiles = new Set<string>();
-  const gaps = new Set<string>();
+  // Each reverted Skeleton file and the commit it was reverted from: the Skeleton pull request is made of them.
+  const skeletonFiles = new Map<string, string>();
+  // Every <skeleton-gap> reported, Development first; mergeGaps drops the repeats.
+  const gaps: string[] = [];
   const replies = new Map<string, ThreadReply>();
   let roundThreads: ReviewThread[] = [];
   let bail = false;
@@ -171,7 +174,7 @@ export async function work(ctx: CommandContext, number: number | null, options: 
     for (const r of said ?? []) replies.set(r.threadId, r);
     add(usage.development, dev.usage);
     const devRecord = { stage: "development" as const, durationMs: ctx.now() - started, commits: dev.commits, usage: dev.usage };
-    skeletonGaps(dev.output).forEach((g) => gaps.add(g));
+    gaps.push(...skeletonGaps(dev.output));
     const asked = needsHuman(dev.output);
     if (asked !== null) {
       stages.push({ ...devRecord, outcome: "needs-human" });
@@ -209,6 +212,12 @@ export async function work(ctx: CommandContext, number: number | null, options: 
 
     let reverted: string[] = [];
     if (!(dev.commits === 0 && onlyAnswers)) {
+      // The Skeleton change as Development left it: the Review may undo it itself, and the Skeleton pull request needs it.
+      const developed = product === null ? [] : await changedSkeletonPaths(git, base);
+      if (developed.length > 0) {
+        const head = await git.head();
+        developed.forEach((p) => skeletonFiles.set(p, head));
+      }
       // Review
       timeoutMs = budget(config.timeouts.review);
       if (timeoutMs === null) {
@@ -218,18 +227,20 @@ export async function work(ctx: CommandContext, number: number | null, options: 
       started = ctx.now();
       const reviewRun = await agent.run(
         "review",
-        reviewPrompt({ issue, log: await git.log(base, "HEAD"), since: lastReviewed, findings: reviews, round: flow?.kind === "pr-feedback" ? round() : undefined }),
+        reviewPrompt({ issue, log: await git.log(base, "HEAD"), since: lastReviewed, findings: reviews, gaps: mergeGaps(gaps), round: flow?.kind === "pr-feedback" ? round() : undefined }),
         { timeoutMs, model: config.models.review, extract: reviewExtraction },
       );
       add(usage.review, reviewRun.usage);
       const reviewRecord = { stage: "review" as const, durationMs: ctx.now() - started, commits: reviewRun.commits, usage: reviewRun.usage, retries: reviewRun.retries };
-      skeletonGaps(reviewRun.output).forEach((g) => gaps.add(g));
+      gaps.push(...skeletonGaps(reviewRun.output));
       if (product !== null) {
-        reverted = await changedSkeletonPaths(git, base);
-        if (reverted.length > 0) {
-          await revertToBase(git, base, reverted, `revert: drop Skeleton changes from Product issue #${number}\n\nA Product issue never changes ${reverted.length} file(s) under packages/skeleton/:\n${reverted.map((p) => `- ${p}`).join("\n")}`);
-          reverted.forEach((p) => skeletonFiles.add(p));
+        const left = await changedSkeletonPaths(git, base);
+        if (left.length > 0) {
+          const head = await git.head();
+          left.forEach((p) => skeletonFiles.set(p, head));
+          await revertToBase(git, base, left, `revert: drop Skeleton changes from Product issue #${number}\n\nA Product issue never changes ${left.length} file(s) under packages/skeleton/:\n${left.map((p) => `- ${p}`).join("\n")}`);
         }
+        reverted = [...new Set([...developed, ...left])].sort();
       }
       if (reviewRun.timedOut) {
         stages.push({ ...reviewRecord, outcome: "timeout", output: tail(reviewRun.output) });
@@ -276,9 +287,11 @@ export async function work(ctx: CommandContext, number: number | null, options: 
     }
   }
 
+  await mkdir(options.out, { recursive: true });
+  if (skeletonFiles.size > 0) await writeFile(join(options.out, SKELETON_PATCH_FILE), await skeletonPatch(git, base, skeletonFiles));
   const followUps =
-    product !== null && (skeletonFiles.size > 0 || gaps.size > 0)
-      ? [followUpTicket(issue, product, [...skeletonFiles].sort(), [...gaps])]
+    product !== null && (skeletonFiles.size > 0 || gaps.length > 0)
+      ? [followUpTicket(issue, product, [...skeletonFiles.keys()].sort(), gaps, skeletonFiles.size > 0 ? SKELETON_PATCH_FILE : null)]
       : [];
   if (!ready && reason === "e2e-failures" && skippedFailure !== null) {
     reason = "needs-human";
@@ -286,26 +299,24 @@ export async function work(ctx: CommandContext, number: number | null, options: 
   }
   // A Skeleton follow-up means the criteria may need the Skeleton: green E2E is not enough, the final Review must say
   // that every criterion is met without it (a test skipped in the E2E would pass too).
-  if (ready && followUps.length > 0 && reviews.at(-1)?.criteriaMetWithoutSkeleton !== true) {
+  const needsSkeleton =
+    followUps.length > 0 && (ready ? reviews.at(-1)?.criteriaMetWithoutSkeleton !== true : reason === "e2e-failures");
+  // An issue run then waits on its Skeleton follow-up and starts again once it is closed; a PR round escalates.
+  const waiting = needsSkeleton && flow === null;
+  if (needsSkeleton) {
     ready = false;
     reason = "needs-human";
-    question = SKELETON_QUESTION;
-  }
-  // No new `reason`: criteria that fail without the Skeleton change are a needs-human Escalation.
-  if (!ready && reason === "e2e-failures" && followUps.length > 0) {
-    reason = "needs-human";
-    question = SKELETON_QUESTION;
+    question = waiting ? null : SKELETON_QUESTION;
   }
 
   const head = (await git.countCommits(base, "HEAD")) > 0 ? await git.head() : null;
-  await mkdir(options.out, { recursive: true });
   if (head) await git.run("bundle", "create", "--quiet", join(options.out, BUNDLE_FILE), `refs/heads/${branch}`, `^${base}`);
   const evidence = ready ? await collectEvidence(join(options.repo, config.evidenceDir), join(options.out, EVIDENCE_DIR)) : [];
 
-  // Pull Request Stage: once, outside the attempts, only for a run that left commits.
+  // Pull Request Stage: once, outside the attempts, only for a run that left commits and opens a pull request.
   let pullRequestBody: string | null = null;
   let pullRequestStage: PullRequestStageRecord | null = null;
-  if (head && flow?.kind !== "update-branch") {
+  if (head && flow?.kind !== "update-branch" && !waiting) {
     const timeoutMs = budget(config.timeouts.pullRequest);
     if (timeoutMs === null) {
       pullRequestStage = { outcome: "skipped", durationMs: 0, usage: zeroUsage(), retries: 0, reason: "no time left in the global limit" };
@@ -349,8 +360,8 @@ export async function work(ctx: CommandContext, number: number | null, options: 
     branch,
     base,
     head,
-    outcome: ready ? "ready" : "escalated",
-    reason: ready ? null : reason,
+    outcome: ready ? "ready" : waiting ? "waiting" : "escalated",
+    reason: ready || waiting ? null : reason,
     question,
     attempts,
     review: combineReviews(reviews),

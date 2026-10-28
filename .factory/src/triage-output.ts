@@ -1,3 +1,5 @@
+import { readFile, realpath } from "node:fs/promises";
+import { isAbsolute, relative, resolve } from "node:path";
 import { z } from "zod";
 import { TRIAGE_MARKER } from "./guard.ts";
 import { MAX_EXTRACTION_RETRIES, type Extraction } from "./seams/agent.ts";
@@ -29,6 +31,12 @@ export const verdictSchema = z
     claims: z.array(text).default([]),
     questions: z.array(text).default([]),
     approach: text,
+    /**
+     * Every import, export, function, route or file the approach cites, and where the Triage found it
+     * (`foundAt`: a repo-relative `path` or `path:line`). `checked` is set by the harness, not the agent
+     * (`checkReferences`): the file exists in the checkout and holds `symbol`.
+     */
+    references: z.array(z.object({ symbol: text, foundAt: text, checked: z.boolean().optional() })).default([]),
     door: z.object({ kind: z.enum(["one-way", "two-way"]), blastRadius: text }),
     /** What each seam under test catches and what it lets through. */
     seams: z.array(z.object({ seam: text, catches: z.string(), misses: z.string() })).default([]),
@@ -69,7 +77,8 @@ export function parseVerdicts(output: string): Map<number, Verdict> {
     // The harness owns `fallback`: an agent cannot claim it.
     if (parsed.success && !found.has(parsed.data.number)) {
       const { fallback: _ignored, ...verdict } = parsed.data;
-      found.set(verdict.number, verdict);
+      // The harness owns `checked` too: `checkReferences` sets it.
+      found.set(verdict.number, { ...verdict, references: verdict.references.map(({ symbol, foundAt }) => ({ symbol, foundAt })) });
     }
   }
   return found;
@@ -82,7 +91,7 @@ export function triageExtraction(numbers: number[]): Extraction {
       const found = parseVerdicts(output);
       return numbers.every((n) => found.has(n));
     },
-    ask: `Your last message has no valid <triage> block for issues ${numbers.map((n) => `#${n}`).join(", ")}. Reply with the block again, and nothing else: <triage>{"issues": [{"number": 1, "tag": "easy-call|needs-a-human|blocked", "difficulty": "...", "files": [], "claims": [], "questions": [], "approach": "...", "door": {"kind": "one-way|two-way", "blastRadius": "..."}, "seams": [{"seam": "...", "catches": "...", "misses": "..."}], "product": null, "duplicateOf": null}]}</triage> with valid JSON, one entry per issue, and at least one seam for every easy-call.`,
+    ask: `Your last message has no valid <triage> block for issues ${numbers.map((n) => `#${n}`).join(", ")}. Reply with the block again, and nothing else: <triage>{"issues": [{"number": 1, "tag": "easy-call|needs-a-human|blocked", "difficulty": "...", "files": [], "claims": [], "questions": [], "approach": "...", "references": [{"symbol": "...", "foundAt": "path:line"}], "door": {"kind": "one-way|two-way", "blastRadius": "..."}, "seams": [{"seam": "...", "catches": "...", "misses": "..."}], "product": null, "duplicateOf": null}]}</triage> with valid JSON, one entry per issue, and at least one seam for every easy-call.`,
   };
 }
 
@@ -102,6 +111,7 @@ export function fallbackVerdict(number: number, why: "timeout" | "invalid", last
     files: [],
     claims: [],
     questions: [`${reason} Decide by hand: add the seams and \`ready-for-agent\`, or ask for another \`agent:explore\`.`],
+    references: [],
     approach: tail ? `The session's last words (untrusted, not checked):\n\n${tail}` : "The session left no usable text.",
     door: { kind: "one-way", blastRadius: "unknown: nobody has assessed this issue" },
     seams: [],
@@ -109,6 +119,33 @@ export function fallbackVerdict(number: number, why: "timeout" | "invalid", last
     duplicateOf: null,
     fallback: reason,
   };
+}
+
+/** Whether `text` holds `symbol` as a whole name: `line` is not found in `line7`, nor `/api/note` in `/api/notes`. */
+function holdsName(text: string, symbol: string): boolean {
+  const name = symbol.trim();
+  if (!name) return false;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![\\w$])${escaped}(?![\\w$])`).test(text);
+}
+
+/**
+ * Marks each reference `checked` when the file of its `foundAt` (without a `:line` suffix) is inside `repo`
+ * and its text holds `symbol` as a whole name (`holdsName`; the line itself is not checked). A reference that
+ * fails stays in the verdict, marked unchecked.
+ */
+export async function checkReferences(verdict: Verdict, repo: string): Promise<Verdict> {
+  const root = await realpath(repo);
+  const references = await Promise.all(
+    verdict.references.map(async ({ symbol, foundAt }) => {
+      const path = foundAt.replace(/:\d+(?:-\d+)?$/, "");
+      const file = await realpath(resolve(root, path)).catch(() => null);
+      const inside = file !== null && !isAbsolute(path) && !relative(root, file).startsWith("..") && file !== root;
+      const text = inside ? await readFile(file, "utf8").catch(() => "") : "";
+      return { symbol, foundAt, checked: holdsName(text, symbol) };
+    }),
+  );
+  return { ...verdict, references };
 }
 
 const bullets = (items: string[]) => items.map((i) => `- ${i}`).join("\n");
@@ -124,6 +161,11 @@ export function triageComment(v: Verdict, appliedTag: TriageTag): string {
   if (v.claims.length) lines.push("", "**Claims checked**", bullets(v.claims));
   if (v.questions.length) lines.push("", "**Open questions**", bullets(v.questions));
   lines.push("", "**Approach**", v.approach);
+  const cite = (r: Verdict["references"][number]) => `\`${r.symbol}\` at \`${r.foundAt}\``;
+  const checked = v.references.filter((r) => r.checked === true);
+  const unchecked = v.references.filter((r) => r.checked !== true);
+  if (checked.length) lines.push("", "**References checked**", bullets(checked.map(cite)));
+  if (unchecked.length) lines.push("", "**Not found in the code (unchecked)**", bullets(unchecked.map(cite)));
   lines.push("", `**Door:** ${v.door.kind}. Blast radius: ${v.door.blastRadius}`);
   if (v.seams.length) {
     lines.push("", "**Seams under test**");

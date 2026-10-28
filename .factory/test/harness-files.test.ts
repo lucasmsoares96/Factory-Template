@@ -13,11 +13,24 @@ const tracked = execFileSync("git", ["ls-files", "--cached", "--others", "--excl
   .filter(Boolean)
   .filter((file) => existsSync(join(repo, file)));
 
+const FACTORY_DOCS = ["docs/factory-flows.md", "docs/factory-bootstrap.md"];
 const AGENTS_FILES = ["AGENTS.md", "packages/skeleton/AGENTS.md", "packages/skeleton/template/AGENTS.md", ".factory/AGENTS.md", "apps/example/AGENTS.md"];
 
 describe("AGENTS.md", () => {
   it.each(AGENTS_FILES)("%s is under 200 lines", (file) => {
     expect(read(file).split("\n").length).toBeLessThan(200);
+  });
+
+  it("keeps the Factory's file to short bullets: no line over 600 characters", () => {
+    const long = read(".factory/AGENTS.md").split("\n").map((line, i) => ({ line: i + 1, length: line.length })).filter((l) => l.length > 600);
+    expect(long).toEqual([]);
+  });
+
+  it("points the Factory's file to the docs that hold its detail", () => {
+    for (const doc of FACTORY_DOCS) {
+      expect(read(".factory/AGENTS.md"), doc).toContain(`(../${doc})`);
+      expect(read("docs/README.md"), doc).toContain(`\`${doc.replace("docs/", "")}\``);
+    }
   });
 
   it("exists at every level and nowhere else but in a Product", () => {
@@ -33,7 +46,7 @@ describe("AGENTS.md", () => {
   });
 
   it("names no fixed repository", () => {
-    for (const file of [...AGENTS_FILES, "docs/agents/issue-tracker.md", "docs/agents/triage-labels.md", "docs/agents/domain.md", "docs/agents/mcp.md"]) {
+    for (const file of [...AGENTS_FILES, "docs/agents/issue-tracker.md", "docs/agents/triage-labels.md", "docs/agents/domain.md", "docs/agents/mcp.md", ...FACTORY_DOCS]) {
       expect(read(file), file).not.toMatch(/lucasmsoares96|Factory-Template/);
     }
   });
@@ -176,7 +189,7 @@ describe(".claude/settings.json", () => {
 });
 
 describe("CODING_STANDARDS.md", () => {
-  it("exists at the root with the header comment and the three empty sections", () => {
+  it("exists at the root with the header comment and the three sections", () => {
     const text = read("CODING_STANDARDS.md");
     expect(text).toMatch(/^# Coding Standards\n/);
     expect(text).toMatch(/Review/);
@@ -184,8 +197,15 @@ describe("CODING_STANDARDS.md", () => {
     expect(text).toContain("/retro");
     const sections = text.split(/^## /m).slice(1);
     expect(sections.map((s) => s.split("\n")[0])).toEqual(["Style", "Testing", "Architecture"]);
-    for (const section of sections) expect(section.split("\n").slice(1).join("\n").trim(), section).toBe("");
     expect(text).not.toMatch(/Example/);
+  });
+
+  it("holds the whole-token matching rule under Architecture", () => {
+    const architecture = read("CODING_STANDARDS.md").split(/^## /m).find((s) => s.startsWith("Architecture\n"));
+    expect(architecture, "## Architecture").toBeDefined();
+    for (const fragment of ["agent", "whole token", "substring", "blank", "near-miss", "`line` vs `line7`", "`/api/note` vs `/api/notes`"]) {
+      expect(architecture!, fragment).toContain(fragment);
+    }
   });
 
   it("is a harness path", () => {
@@ -249,5 +269,19 @@ describe("docs/forgejo-install-prompt.md", () => {
   it("is linked from docs/forgejo.md and the docs index", () => {
     expect(read("docs/forgejo.md")).toContain("(forgejo-install-prompt.md)");
     expect(read("docs/README.md")).toContain("forgejo-install-prompt.md");
+  });
+});
+
+describe(".factory/image/setup.sh", () => {
+  const setup = read(".factory/image/setup.sh");
+
+  it("installs python3 with the apt packages, for agents' support scripts", () => {
+    const installs = setup.match(/^apt-get install .*$/gm) ?? [];
+    expect(installs, "apt-get install lines").not.toHaveLength(0);
+    expect(installs.flatMap((line) => line.split(/\s+/))).toContain("python3");
+  });
+
+  it("runs python3 during the build, so a broken install fails the image", () => {
+    expect(setup).toMatch(/^python3 --version$/m);
   });
 });

@@ -114,6 +114,16 @@ export class MarkdownIssues {
     await writeFile(file.path, text.replace(STATUS, (_, b1 = "", b2 = "") => `${b1}Status:${b2} ${status}`));
   }
 
+  /** Rewrites the Blocked by value (`None …` when `ids` is empty), keeping the line's formatting; adds the line under the title when missing. */
+  async setBlockedBy(number: number, ids: string[]): Promise<void> {
+    const { file, text } = await this.read(number);
+    const value = ids.length > 0 ? ids.join(", ") : "None (can start immediately)";
+    const next = BLOCKED_BY.test(text)
+      ? text.replace(BLOCKED_BY, (_, b1 = "", b2 = "") => `${b1}Blocked by:${b2} ${value}`)
+      : text.replace(/^(# .*\n)/m, `$1\n**Blocked by:** ${value}\n`);
+    await writeFile(file.path, next);
+  }
+
   /** Appends a Factory comment at the end of `## Comments` (created when missing). */
   async appendComment(number: number, author: string, body: string): Promise<string> {
     const { file, text, issue } = await this.read(number);

@@ -47,8 +47,18 @@ export interface ConversationEntry {
   body: string;
 }
 
+/**
+ * A review thread's id, as the code host gives it (a review comment's id on GitHub; a Conversation entry's id for a
+ * Conversation request). Only an id the code host gave becomes one: an id the agent writes stays a string until it is
+ * matched against the threads.
+ */
+export type ThreadId = string & { readonly __brand: "ThreadId" };
+
+/** A Factory workflow a run may start: `<name>` is `.github/workflows/factory-<name>.yml`. */
+export type FactoryWorkflow = "issue" | "triage" | "retro" | "update-branches";
+
 export interface ReviewThread {
-  id: string;
+  id: ThreadId;
   path: string | null;
   /** A request from the Conversation tab rather than an inline thread: it is answered there, in one comment for the round. */
   conversation?: true;
@@ -64,7 +74,7 @@ export interface EvidenceImage {
   path: string;
 }
 
-/** A check that ended in `failure` or `timed_out` on a pull request's head, with the end of its job's log. */
+/** A check that ended in `failure`, `timed_out` or `cancelled` on a pull request's head, with the end of its job's log. */
 export interface FailedCheck {
   name: string;
   url: string;
@@ -129,17 +139,18 @@ export interface CodeHost {
   /** The reviews submitted on the pull request, oldest first. */
   reviews(pr: number): Promise<SubmittedReview[]>;
   /**
-   * The checks that ended in `failure` or `timed_out` on the pull request's current head, each with the last `lines`
-   * lines of its job's log (or why that log could not be read). Throws when the checks cannot be listed.
+   * The checks that ended in `failure`, `timed_out` or `cancelled` on the pull request's current head, each with the
+   * last `lines` lines of its job's log (or why that log could not be read); a whole run that was cancelled (superseded
+   * by a newer one) is left out. Throws when the checks cannot be listed.
    */
   failedChecks(pr: number, lines: number): Promise<FailedCheck[]>;
   /** The Conversation tab, oldest first: its comments and the bodies of submitted reviews (empty bodies left out). */
   conversation(pr: number): Promise<ConversationEntry[]>;
-  replyToThread(pr: number, threadId: string, body: string): Promise<void>;
+  replyToThread(pr: number, threadId: ThreadId, body: string): Promise<void>;
   /** Adds a reaction to a comment or review, to say the Factory has seen it. */
   react(target: ReactionTarget, reaction: "eyes"): Promise<void>;
   /** The Factory's workflow runs that are queued or going (this one included). */
   activeRuns(): Promise<ActiveRun[]>;
   /** Starts a Factory workflow run (e.g. `issue` for an unblocked issue). */
-  dispatch(workflow: string, inputs: Record<string, string>): Promise<void>;
+  dispatch(workflow: FactoryWorkflow, inputs: Record<string, string>): Promise<void>;
 }

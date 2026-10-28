@@ -1,4 +1,5 @@
-import { readdir } from "node:fs/promises";
+import { cp, readdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   developmentPrompt,
@@ -8,10 +9,13 @@ import {
   renderTemplate,
   retroPrompt,
   reviewPrompt,
+  snapshotPrompts,
   triagePrompt,
   updateBranchPrompt,
 } from "../src/prompts.ts";
+import type { ThreadId } from "../src/seams/code-host.ts";
 import type { Issue } from "../src/seams/tracker.ts";
+import { tempDir } from "./helpers.ts";
 
 const issue: Issue = {
   number: 7,
@@ -26,13 +30,13 @@ const issue: Issue = {
 
 const prompts = {
   development: developmentPrompt({ issue, log: "abc1234 feat: greet #7", feedback: "E2E failed running `pnpm factory:verify`." }),
-  review: reviewPrompt({ issue, log: "abc1234 feat: greet #7", since: null, findings: [] }),
+  review: reviewPrompt({ issue, log: "abc1234 feat: greet #7", since: null, findings: [], gaps: [] }),
   triage: triagePrompt({ issues: [issue] }),
   "pr-feedback": prFeedbackPrompt({
     issue,
     pr: 101,
     log: "abc1234 feat: greet #7",
-    threads: [{ id: "t1", path: "src/greet.ts", author: "alice", body: "Rename this.", replies: [] }],
+    threads: [{ id: "t1" as ThreadId, path: "src/greet.ts", author: "alice", body: "Rename this.", replies: [] }],
     checks: { checks: [] },
   }),
   "pull-request": pullRequestPrompt({
@@ -82,6 +86,11 @@ describe("prompt templates", () => {
     expect(prompts.retro).toContain("`.agents/skills/retro/SKILL.md`");
   });
 
+  it("tells the Triage to check and locate every symbol its approach cites", () => {
+    expect(prompts.triage).toContain("every import, export, function, route or file the approach cites");
+    expect(prompts.triage).toContain('"references": [{"symbol"');
+  });
+
   it("tells the update-branch session to regenerate the branch's own migration on top of the base branch's", () => {
     expect(prompts["update-branch"]).toMatch(/delete the branch's migration folder and generate it again on top of the newest migration from `main`/);
   });
@@ -98,6 +107,13 @@ describe("prompt templates", () => {
     expect(prompts.retro).toMatch(/Drop any candidate you cannot trace/);
     expect(prompts.retro).toMatch(/mechanical violation gets a deterministic check/);
     expect(prompts.retro).toContain("<retro>");
+  });
+
+  it("lists the Skeleton gaps reported so far and asks the Review to add only new ones", () => {
+    expect(prompts.review).toMatch(/Skeleton gaps already reported[^\n]*\n\(none\)/);
+    const listed = reviewPrompt({ issue, log: "", since: null, findings: [], gaps: ["The layout needs a footer slot."] });
+    expect(listed).toContain("<skeleton-gap>The layout needs a footer slot.</skeleton-gap>");
+    expect(listed).toContain("only for a change not already listed");
   });
 
   it("tells the Review to comment inline only on unfixed findings that need a human decision", () => {
@@ -125,5 +141,30 @@ describe("prompt templates", () => {
 
   it("refuses a template variable it was not given", () => {
     expect(() => renderTemplate("update-branch", { NUMBER: "7", TARGET: "issue #7" })).toThrow(/update-branch\.md needs \{\{BASE\}\}/);
+  });
+});
+
+describe("prompts snapshot", () => {
+  it("renders every template from the text read before the files on disk changed", async () => {
+    const dir = await tempDir("factory-prompts-");
+    await cp(PROMPTS_DIR, dir, { recursive: true });
+    snapshotPrompts(dir);
+    try {
+      for (const file of await readdir(dir)) await writeFile(join(dir, file), "Rewritten by the agent: {{GAPS}}\n");
+      expect(reviewPrompt({ issue, log: "abc1234 feat: greet #7", since: null, findings: [], gaps: [] })).toBe(prompts.review);
+      expect(developmentPrompt({ issue, log: "abc1234 feat: greet #7", feedback: "E2E failed running `pnpm factory:verify`." })).toBe(prompts.development);
+      expect(triagePrompt({ issues: [issue] })).toBe(prompts.triage);
+    } finally {
+      snapshotPrompts();
+    }
+  });
+
+  it("fails loudly when a template is not in the snapshot", async () => {
+    snapshotPrompts(await tempDir("factory-prompts-"));
+    try {
+      expect(() => reviewPrompt({ issue, log: "abc1234 feat: greet #7", since: null, findings: [], gaps: [] })).toThrow(/prompts\/rules\.md is missing/);
+    } finally {
+      snapshotPrompts();
+    }
   });
 });
