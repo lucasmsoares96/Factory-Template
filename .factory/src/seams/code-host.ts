@@ -47,8 +47,17 @@ export interface ConversationEntry {
   body: string;
 }
 
+/**
+ * A review thread's id, as the code host gives it (a review comment's id on GitHub; a Conversation entry's id for a
+ * Conversation request). Only the code host's side mints one: an id the agent writes is matched against the threads.
+ */
+export type ThreadId = string & { readonly __brand: "ThreadId" };
+
+/** A Factory workflow a run may start: `<name>` is `.github/workflows/factory-<name>.yml`. */
+export type FactoryWorkflow = "issue" | "triage" | "retro" | "update-branches";
+
 export interface ReviewThread {
-  id: string;
+  id: ThreadId;
   path: string | null;
   /** A request from the Conversation tab rather than an inline thread: it is answered there, in one comment for the round. */
   conversation?: true;
@@ -135,11 +144,11 @@ export interface CodeHost {
   failedChecks(pr: number, lines: number): Promise<FailedCheck[]>;
   /** The Conversation tab, oldest first: its comments and the bodies of submitted reviews (empty bodies left out). */
   conversation(pr: number): Promise<ConversationEntry[]>;
-  replyToThread(pr: number, threadId: string, body: string): Promise<void>;
+  replyToThread(pr: number, threadId: ThreadId, body: string): Promise<void>;
   /** Adds a reaction to a comment or review, to say the Factory has seen it. */
   react(target: ReactionTarget, reaction: "eyes"): Promise<void>;
   /** The Factory's workflow runs that are queued or going (this one included). */
   activeRuns(): Promise<ActiveRun[]>;
   /** Starts a Factory workflow run (e.g. `issue` for an unblocked issue). */
-  dispatch(workflow: string, inputs: Record<string, string>): Promise<void>;
+  dispatch(workflow: FactoryWorkflow, inputs: Record<string, string>): Promise<void>;
 }

@@ -393,9 +393,10 @@ const DECISION_LABEL = { address: "Address", decline: "Decline", defer: "Defer",
  */
 async function postReplies(ctx: CommandContext, pr: number, threadReplies: FactoryResult["threadReplies"]): Promise<void> {
   if (threadReplies.length === 0) return;
-  const known = new Set((await ctx.codeHost.threads(pr)).map((t) => t.id));
+  const known = new Map((await ctx.codeHost.threads(pr)).map((t) => [t.id as string, t.id]));
   for (const reply of threadReplies) {
-    if (known.has(reply.threadId)) await ctx.codeHost.replyToThread(pr, reply.threadId, `${DECISION_LABEL[reply.decision]}: ${reply.body}`);
+    const threadId = known.get(reply.threadId);
+    if (threadId) await ctx.codeHost.replyToThread(pr, threadId, `${DECISION_LABEL[reply.decision]}: ${reply.body}`);
   }
   const answers = (await ctx.codeHost.conversation(pr)).flatMap((request) => {
     const reply = threadReplies.find((r) => r.threadId === request.id);
