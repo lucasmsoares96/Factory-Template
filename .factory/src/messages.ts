@@ -64,6 +64,11 @@ export const catalog = {
     "pt-BR": (count, stage, noCommits, outcome) =>
       `O limite de tentativas foi atingido após ${count} tentativas sem um E2E verde; a última parou no ${stage}, que ${noCommits ? "não fez commits" : `terminou com ${outcome}`}.`,
   }),
+  headlineCriteriaUnmet: text({
+    en: (): string => "The Review found acceptance criteria that are not met.",
+    "pt-BR": () => "A Review encontrou critérios de aceitação que não foram atendidos.",
+  }),
+  criteriaUnmet: text({ en: (): string => "**Criteria not met**", "pt-BR": () => "**Critérios não atendidos**" }),
   question: text({ en: (question: string) => `**Question:** ${question}`, "pt-BR": (question) => `**Pergunta:** ${question}` }),
   attempts: text({ en: (): string => "**Attempts**", "pt-BR": () => "**Tentativas**" }),
   pullRequestStageLine: text({
@@ -165,6 +170,7 @@ export const catalog = {
     en: (paths: string[]) => `This pull request changes files that steer the Factory: ${list(paths)}. Review them with care.`,
     "pt-BR": (paths) => `Este pull request altera arquivos que guiam a Factory: ${list(paths)}. Revise-os com cuidado.`,
   }),
+  verdictsHeading: text({ en: (): string => "## Acceptance criteria verdicts", "pt-BR": () => "## Vereditos dos critérios de aceitação" }),
   minimalBody: text({ en: (): string => "Implemented by the Factory.", "pt-BR": () => "Implementado pela Factory." }),
   noFindings: text({ en: (): string => "No findings.", "pt-BR": () => "Nenhum achado." }),
 
