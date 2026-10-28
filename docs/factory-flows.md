@@ -4,7 +4,8 @@ The detail of the Factory's flows on the forge: which workflow runs which jobs, 
 
 ## Adapters on GitHub
 
-- `src/adapters/github/` is the GitHub Tracker and CodeHost. `api.ts` is `fetch` + Zod, and holds the token.
+- `src/adapters/github/` is the GitHub Tracker and CodeHost. `api.ts` is `fetch` + Zod, and holds the token; the bootstrap uses it too.
+- `gh.ts` has `runGh`, the one place that spawns `gh`. The child gets exactly the env its caller passes, built with `childEnv` (`BASE_ENV` plus the token), never all of `process.env`.
 - `git push --force-with-lease` and `gh pr comment --attach` get the token through their environment, never their argv.
 - `markReady` and the 👀 on a submitted review are the GraphQL calls: REST has neither.
 - `FACTORY_ADAPTERS=github` picks these adapters (`GITHUB_REPOSITORY`, token `FACTORY_TOKEN` else `GITHUB_TOKEN`).

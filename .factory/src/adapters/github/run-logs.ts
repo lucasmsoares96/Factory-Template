@@ -1,10 +1,9 @@
-import { execFile } from "node:child_process";
 import { readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { z } from "zod";
-import { BASE_ENV, pick } from "../../env.ts";
 import type { RunLogs, RunMatch, RunRef } from "../../commands/retro.ts";
 import { GitHubApi, type GitHubApiOptions } from "./api.ts";
+import { childEnv, runGh, type GhRunner } from "./gh.ts";
 
 /** The Factory workflows whose runs leave a `work-out` artifact with the session streams. */
 const WORKFLOWS = ["factory-issue.yml", "factory-pr-feedback.yml", "factory-update-branches.yml"];
@@ -18,17 +17,6 @@ const runRow = z.object({
 });
 const runsPage = z.object({ workflow_runs: z.array(runRow) });
 
-/** Runs `gh <args>` with `env` added to the base environment; throws with gh's message on failure. */
-export type GhRun = (args: string[], env: Record<string, string>) => Promise<void>;
-
-const runGh: GhRun = (args, env) =>
-  new Promise((resolve, reject) => {
-    execFile("gh", args, { env: { ...pick(process.env, BASE_ENV), ...env }, maxBuffer: 16 * 1024 * 1024 }, (error, _stdout, stderr) => {
-      if (error) reject(new Error(stderr.trim() || error.message));
-      else resolve();
-    });
-  });
-
 /**
  * The runs of an issue on GitHub Actions and their `work-out` artifacts. A run belongs to the issue when its title
  * names it: `#N …` (the `run-name` of the Factory workflows), or the issue's or the PR's title (runs started by an
@@ -37,9 +25,9 @@ const runGh: GhRun = (args, env) =>
 export class GitHubRunLogs implements RunLogs {
   private readonly api: GitHubApi;
   private readonly options: GitHubApiOptions;
-  private readonly gh: GhRun;
+  private readonly gh: GhRunner;
 
-  constructor(options: GitHubApiOptions & { gh?: GhRun }) {
+  constructor(options: GitHubApiOptions & { gh?: GhRunner }) {
     this.options = options;
     this.api = new GitHubApi(options);
     this.gh = options.gh ?? runGh;
@@ -60,7 +48,7 @@ export class GitHubRunLogs implements RunLogs {
 
   async download(run: RunRef, dir: string): Promise<string[]> {
     try {
-      await this.gh(["run", "download", String(run.id), "--repo", this.options.repo, "--name", ARTIFACT, "--dir", dir], { GH_TOKEN: this.options.token });
+      await this.gh(["run", "download", String(run.id), "--repo", this.options.repo, "--name", ARTIFACT, "--dir", dir], { env: childEnv(process.env, { GH_TOKEN: this.options.token }) });
     } catch {
       // Expired (14 days) or never uploaded: the run's record is gone, the Retro works with the rest.
       return [];
