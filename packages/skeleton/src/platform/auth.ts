@@ -7,6 +7,7 @@ import { authOptions } from "./auth-options.ts";
 import { createEmailSender, emailTransport } from "./email.ts";
 import type { SkeletonEnv } from "./env.ts";
 import { apiError } from "./errors.ts";
+import type { Feature } from "./feature.ts";
 import { passwordHashing } from "./password.ts";
 import { revokeAccess } from "./revoke-access.ts";
 import { rateLimitStorage } from "./rate-limit.ts";
@@ -15,6 +16,8 @@ export type AuthConfig = {
   /** The Product's sender, e.g. `Example <no-reply@example.com>`. */
   emailFrom: string;
   t: Messages;
+  /** Every feature of the Product, in mount order: their `authPlugins` join the config. */
+  features: readonly Feature[];
 };
 
 export type Auth = ReturnType<typeof createAuth>;
@@ -24,7 +27,7 @@ export type Auth = ReturnType<typeof createAuth>;
  * reached: on Workers that is a hostname routed to this Worker, never a header
  * the client controls.
  */
-export function createAuth(c: Context<SkeletonEnv>, { emailFrom, t }: AuthConfig) {
+export function createAuth(c: Context<SkeletonEnv>, { emailFrom, t, features }: AuthConfig) {
   return betterAuth(
     authOptions({
       db: c.var.db,
@@ -41,6 +44,7 @@ export function createAuth(c: Context<SkeletonEnv>, { emailFrom, t }: AuthConfig
       rateLimit: rateLimitStorage(c.env.RATE_LIMITER),
       revokeAccess: (user) => revokeAccess(c, user),
       defer: c.var.defer,
+      plugins: features.flatMap((feature) => feature.authPlugins?.(c) ?? []),
     }),
   );
 }

@@ -105,7 +105,8 @@ test("asking to change the email shows the change as pending, for the new addres
     .element(screen.getByTestId("email-pending"))
     .toHaveTextContent(format(t.account.emailPending, { email: "ana.lima@example.com", current: ana.email }));
   await expect.element(screen.getByTestId("current-email")).toHaveTextContent(format(t.account.currentEmail, { email: ana.email }));
-  expect(change.requests).toEqual([{ newEmail: "ana.lima@example.com", callbackURL: "/email-verified" }]);
+  // A refetch of getMe can show the pending change before the request is recorded.
+  await expect.poll(() => change.requests).toEqual([{ newEmail: "ana.lima@example.com", callbackURL: "/email-verified" }]);
 });
 
 test("a change of email asked earlier shows as pending when the account page opens", async ({ worker }) => {
