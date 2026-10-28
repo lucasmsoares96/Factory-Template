@@ -65,19 +65,21 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
   const state = await recheck(ctx, number, branch, options);
   if (!state.ok) return discard(ctx, number, state.reason, quietMoved && state.moved);
   const { issue, openPr } = state;
+  // recheck holds the continued PR to `options.pr`: it is `openPr` in a PR round.
+  const round = options.pr !== null ? openPr : null;
 
   let result: FactoryResult;
   try {
     result = await loadArtifacts(git, number, branch, options.in);
   } catch (error) {
-    return escalate(ctx, issue, { reason: "infra", result: null, detail: (error as Error).message, pr: null, runUrl: options.runUrl }, options.pr, options.dispatchRetro);
+    return escalate(ctx, issue, { reason: "infra", result: null, detail: (error as Error).message, pr: null, runUrl: options.runUrl }, round, options.dispatchRetro);
   }
   // Built before anything is written: a patch that cannot be the Skeleton pull request stops the run.
   let skeletonSha: string | null;
   try {
     skeletonSha = await skeletonChange(git, issue, result, options.in);
   } catch (error) {
-    return escalate(ctx, issue, { reason: "infra", result, detail: (error as Error).message, pr: null, runUrl: options.runUrl }, options.pr, options.dispatchRetro);
+    return escalate(ctx, issue, { reason: "infra", result, detail: (error as Error).message, pr: null, runUrl: options.runUrl }, round, options.dispatchRetro);
   }
   if (result.outcome === "waiting" && options.pr === null) return waitOnSkeleton(ctx, issue, await openFollowUps(ctx, issue, result, skeletonSha));
 
@@ -85,7 +87,7 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
   const changed = head ? await changedFiles(git, result.base, head) : [];
   if (!head) {
     const followUps = await openFollowUps(ctx, issue, result, skeletonSha);
-    return escalate(ctx, issue, { reason: escalationReason(result), result, pr: null, runUrl: options.runUrl, followUps }, options.pr, options.dispatchRetro);
+    return escalate(ctx, issue, { reason: escalationReason(result), result, pr: null, runUrl: options.runUrl, followUps }, round, options.dispatchRetro);
   }
 
   const push = await ctx.codeHost.push({ branch, sha: head, expectedSha: options.startSha });
@@ -103,7 +105,7 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
   }
   if (options.pr !== null) await postReplies(ctx, pr.number, result.threadReplies);
 
-  if (escalated) return escalate(ctx, issue, { reason: escalated, result, pr, runUrl: options.runUrl, followUps }, options.pr, options.dispatchRetro);
+  if (escalated) return escalate(ctx, issue, { reason: escalated, result, pr, runUrl: options.runUrl, followUps }, round, options.dispatchRetro);
   if (followUps.length > 0) await ctx.tracker.comment(number, followUpComment(followUps, config.language));
   if (pr.draft) await ctx.codeHost.markReady(pr.number);
   return { issue: number, outcome: "ready", pr: pr.number, url: pr.url };
@@ -434,19 +436,20 @@ async function postReplies(ctx: CommandContext, pr: number, threadReplies: Facto
 async function escalate(
   ctx: CommandContext,
   issue: Issue,
-  report: Parameters<typeof escalationComment>[0],
-  /** The PR this run continues: it gets a short note too, and stays as it is (never turned back into a draft). */
-  continuing: number | null = null,
+  report: Omit<Parameters<typeof escalationComment>[0], "round">,
+  /** The PR this run continues: the report cites it, it gets a short note too, and stays as it is (never turned back into a draft). */
+  continuing: PullRequest | null = null,
   dispatchRetro?: PublishOptions["dispatchRetro"],
 ): Promise<PublishResult> {
   const { tracker, config } = ctx;
-  await tracker.comment(issue.number, escalationComment(report, config));
+  await tracker.comment(issue.number, escalationComment({ ...report, round: continuing }, config));
   await tracker.swapLabel(issue.number, config.labels.inProgress, config.labels.readyForHuman);
   if (continuing !== null) {
-    await ctx.codeHost.commentPr(continuing, messages(config.language).roundEscalated(report.reason, issue.number, config.labels.readyForHuman));
+    await ctx.codeHost.commentPr(continuing.number, messages(config.language).roundEscalated(report.reason, issue.number, config.labels.readyForHuman));
   }
-  await startRetro(ctx, issue.number, report.pr?.number ?? continuing, dispatchRetro);
-  return { issue: issue.number, outcome: "escalated", reason: report.reason, pr: report.pr?.number ?? null, url: report.pr?.url ?? null };
+  const pr = report.pr ?? continuing;
+  await startRetro(ctx, issue.number, pr?.number ?? null, dispatchRetro);
+  return { issue: issue.number, outcome: "escalated", reason: report.reason, pr: pr?.number ?? null, url: pr?.url ?? null };
 }
 
 /**
