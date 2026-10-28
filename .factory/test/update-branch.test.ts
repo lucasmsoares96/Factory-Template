@@ -361,6 +361,19 @@ describe("factory update-branch", () => {
     expect(p.w.tracker.labelsOf(7)).toEqual(["in-progress"]);
   });
 
+  it("pushes the fix of a failing Verify even when the Review finds a criterion not met: the merge is not judged on the criteria", async () => {
+    const unmet = { criterion: "`greet()` returns a greeting.", met: false, proof: "No test proves it." };
+    const reviewUnmet: AgentStep = () => ({ output: `<review>${JSON.stringify({ summary: "Fine.", inline: [], criteria: [unmet] })}</review>` });
+    const p = await updateRound("clean", {
+      agent: { development: [commits()], review: [reviewUnmet] },
+      verify: [{ ok: false, failedCommand: "pnpm test", output: "merge broke it" }, { ok: true }],
+    });
+
+    expect(await git(p.publishRepo, "show", `${p.w.codeHost.branches.get(BRANCH)!}:src/greet.ts`)).toContain("hi");
+    expect(p.w.tracker.labelsOf(7)).toEqual(["in-progress"]);
+    expect(p.w.codeHost.pr(PR).body).toBe("Original body\n\nCloses #7");
+  });
+
   it("escalates when the agent leaves the merge unresolved", async () => {
     const p = await updateRound("conflict", { agent: { development: [() => ({ output: "gave up" })] } });
 
