@@ -15,7 +15,7 @@ Detail lives in two docs: [docs/factory-flows.md](../docs/factory-flows.md) (eac
 - `src/guard.ts`: the deterministic guard before the lock. `src/paths.ts`: sensitive and harness paths. `src/result.ts`: the Zod schema of `result.json`.
 - `src/report.ts`: PR, review, evidence and Escalation text. `src/prompts.ts` renders `prompts/*.md` from a snapshot read when it loads, before any agent session: an agent edit to a prompt never reaches the same run.
 - `prompts/`: the Stage prompts (`development`, `review`, `triage`, `pr-feedback`, `update-branch`, `retro`) plus `rules.md`, included in every one. `update-branch` also says how to fix a forked migration chain (the branch's unpublished migration is deleted and generated again on top of the base branch's newest; `skeleton migrations check-chain`, in every package's `lint`, catches the fork).
-- `image/`: `Dockerfile` and `setup.sh` of the execution image. `src/local/`: the local container runner.
+- `image/`: `Dockerfile` and `setup.sh` of the execution image (Node, pnpm, Claude Code, git, python3, Chromium). `src/local/`: the local container runner.
 - `test/`: Vitest, driven through the CLI with fake adapters.
 
 ## Rules
