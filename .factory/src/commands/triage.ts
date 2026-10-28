@@ -24,7 +24,7 @@ const MINUTE = 60_000;
 
 export interface TriageRun {
   triaged: number[];
-  /** Left out: the label is not trusted (`trustedExplore`), or the issue is gone from Triage. */
+  /** Left out: the label is not trusted (`trustedExplore`), the issue is gone from Triage, or it waits for the usage limit to reset. */
   skipped: number[];
   fallback: number[];
   /** The session stopped at the agent's usage limit: no verdict, the batch waits for the reset. */
@@ -88,15 +88,20 @@ async function finish(result: TriageResult, out: string, skipped: number[], fall
 
 /**
  * The issues a Triage run reads: those given, or every one labelled `agent:explore`, minus those whose label is not
- * trusted (`trustedExplore`).
+ * trusted (`trustedExplore`) and those paused at the agent's usage limit (`resume` starts their Triage after the reset).
  */
 export async function triageBatch(ctx: CommandContext, issues: number[] = []): Promise<{ batch: number[]; skipped: number[] }> {
   const { tracker, config } = ctx;
   const explore = config.labels.agentExplore;
   const wanted = issues.length > 0 ? issues : (await tracker.labeled(explore)).sort((a, b) => a - b);
+  const paused = new Set(await tracker.labeled(config.labels.sessionLimit));
   const batch: number[] = [];
   const skipped: number[] = [];
   for (const number of wanted) {
+    if (paused.has(number)) {
+      skipped.push(number);
+      continue;
+    }
     const origin = await tracker.labelOrigin(number, explore);
     if (origin === null || !(await trustedExplore(tracker, config, origin))) skipped.push(number);
     else batch.push(number);

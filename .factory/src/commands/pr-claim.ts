@@ -67,6 +67,8 @@ export async function claimPrUpdate(ctx: CommandContext, number: number): Promis
   if (!pr || pr.state !== "open") return no("pr-not-open");
   if (pr.fork) return no("fork");
   if (pr.base !== ctx.config.baseBranch) return no("other-base");
+  // An update paused at the agent's usage limit: `resume` starts it again after the reset.
+  if (pr.labels.includes(ctx.config.labels.sessionLimit)) return no("session-limit");
   const startSha = await ctx.codeHost.branchHead(pr.branch);
   if (startSha === null) return no("no-branch");
   await startWorking(ctx, { issues: [], prs: [pr.number] });

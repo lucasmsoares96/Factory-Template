@@ -1,7 +1,7 @@
 import { chmod, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { AGENT_ENV_ALLOWLIST, SandcastleAgent } from "../src/adapters/sandcastle/agent.ts";
+import { AGENT_ENV_ALLOWLIST, SandcastleAgent, usageLimit } from "../src/adapters/sandcastle/agent.ts";
 import { AgentSessionError, SessionLimitError } from "../src/seams/agent.ts";
 import { checkout, git, tempDir } from "./helpers.ts";
 
@@ -221,5 +221,25 @@ describe("Sandcastle Agent", () => {
     const error = await failed.agent.run("development", "Implement issue #7.", options).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(AgentSessionError);
     expect(error).not.toBeInstanceOf(SessionLimitError);
+  });
+});
+
+describe("usageLimit", () => {
+  const event = (over: object, text = LIMIT_TEXT) => JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text }] }, ...over });
+
+  it("reads the limit and its reset from the refused request's event", () => {
+    expect(usageLimit(event({ error: "rate_limit", api_error: "usage_limit_reached" }), "exited with code 1")).toEqual({ resetsAt: "3:20pm (UTC)" });
+    expect(usageLimit(event({ api_error: "usage_limit_reached" }, "You've hit your weekly limit"), "")).toEqual({ resetsAt: null });
+  });
+
+  it("takes a bare `rate_limit` event (a throttle) for a limit only with the limit's text", () => {
+    expect(usageLimit(event({ error: "rate_limit" }, "API Error: 429 rate limited, retrying"), "exited with code 1")).toBeNull();
+    expect(usageLimit(event({ error: "rate_limit" }), "exited with code 1")).toEqual({ resetsAt: "3:20pm (UTC)" });
+  });
+
+  it("matches `limit` as a whole word in Sandcastle's error, with either apostrophe", () => {
+    expect(usageLimit("", "claude-code exited with code 1:\nYou’ve hit your session limit · resets 3pm")).toEqual({ resetsAt: "3pm" });
+    expect(usageLimit("", "claude-code exited with code 1:\nYou've hit your limits page")).toBeNull();
+    expect(usageLimit("", "claude-code exited with code 1:\nYou've hit your unlimited plan's ceiling")).toBeNull();
   });
 });

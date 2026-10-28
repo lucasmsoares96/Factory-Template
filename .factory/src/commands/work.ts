@@ -441,7 +441,8 @@ async function subject(ctx: CommandContext, number: number | null, flow: WorkFlo
  */
 async function keptHead(ctx: CommandContext, git: Git, issue: Issue): Promise<string | null> {
   for (const comment of [...issue.comments].reverse()) {
-    const marker = [SESSION_LIMIT_MARKER, ESCALATION_MARKER, WAITING_MARKER].find((m) => comment.body.includes(m));
+    // A Factory comment opens with its marker; one quoted further down (in a session's message) is no word of the Factory's.
+    const marker = [SESSION_LIMIT_MARKER, ESCALATION_MARKER, WAITING_MARKER].find((m) => comment.body.startsWith(m));
     if (marker === undefined || !(await isFactoryComment(ctx.tracker, comment, marker))) continue;
     const head = marker === SESSION_LIMIT_MARKER ? parseWait(comment.body)?.head : marker === ESCALATION_MARKER ? continuedHead(comment.body) : null;
     if (!head) return null;

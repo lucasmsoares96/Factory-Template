@@ -724,3 +724,21 @@ describe("factory triage: paused at the agent's usage limit", () => {
     }
   });
 });
+
+describe("factory triage: an issue waiting for the reset", () => {
+  it("is left out of a Triage that runs before the reset, so it never leaves Triage with the wait's label on", async () => {
+    const s = await setup({
+      issues: [
+        { number: 5, title: "Greet", body: ISSUE_BODY, labels: { ...explore, "factory:session-limit": OWNER } },
+        { number: 8, title: "Wave", body: ISSUE_BODY, labels: explore },
+      ],
+      triage: [says(verdict(8))],
+    });
+
+    expect(await triage(s)).toBe(0);
+    expect(lastJson(s.w.logs)).toMatchObject({ triaged: [8], skipped: [5] });
+    expect(await apply(s)).toBe(0);
+    expect(s.w.tracker.labelsOf(5)).toEqual(["agent:explore", "factory:session-limit"]);
+    expect(s.w.tracker.labelsOf(8)).toEqual(["ready-for-agent"]);
+  });
+});

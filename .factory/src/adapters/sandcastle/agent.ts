@@ -99,14 +99,15 @@ export class SandcastleAgent implements Agent {
   }
 }
 
-// A whole line of Sandcastle's error, never a quote inside one.
-const LIMIT_LINE = /^You've hit your [^\n]*limit[^\n]*$/m;
+// A whole line of Sandcastle's error, never a quote inside one; `limit` as a word (`session limit`, `weekly limit`).
+const LIMIT_LINE = /^You[’']ve hit your [^\n]*\blimit\b[^\n]*$/m;
 const RESETS = /\bresets\s+([^\n"]+?)\s*$/m;
 
 /**
  * Whether a failed session stopped at the account's usage limit, and the reset time Claude Code gave. Claude Code
  * marks the event of the refused request (`error: "rate_limit"`, `api_error: "usage_limit_reached"`) and Sandcastle's
- * error repeats the final text; a session that only quotes the text (in a tool result, in its answer) is no limit.
+ * error repeats the final text; a session that only quotes the text (in a tool result, in its answer) is no limit. A
+ * `rate_limit` event alone is also a throttle, so it counts only with the limit's text.
  */
 export function usageLimit(stream: string, error: string): { resetsAt: string | null } | null {
   let text: string | null = null;
@@ -119,7 +120,8 @@ export function usageLimit(stream: string, error: string): { resetsAt: string | 
       continue;
     }
     if (event.error !== "rate_limit" && event.api_error !== "usage_limit_reached") continue;
-    text = (event.message?.content ?? []).flatMap((b) => (b.type === "text" && b.text ? [b.text] : [])).join("\n");
+    const said = (event.message?.content ?? []).flatMap((b) => (b.type === "text" && b.text ? [b.text] : [])).join("\n");
+    if (event.api_error === "usage_limit_reached" || LIMIT_LINE.test(said)) text = said;
   }
   text ??= error.match(LIMIT_LINE)?.[0] ?? null;
   if (text === null) return null;
