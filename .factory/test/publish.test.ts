@@ -6,6 +6,8 @@ import { checkout, commitFile, git, lastJson, tempDir, unmarked, world } from ".
 const develop: AgentStep = async ({ cwd }) => {
   await commitFile(cwd, "src/greet.ts", 'export const greet = () => "hi";\n', "feat: greet the user #7");
   await commitFile(cwd, "src/app.ts", (await git(cwd, "show", "HEAD:src/app.ts")).replace("line2 = 2", "line2 = 22") + "\n", "fix: line two #7");
+  // The prints of a spec the change touched are shown in the body.
+  await commitFile(cwd, "e2e/greet.spec.ts", ["home", "users", "about"].map((n) => `await evidence("${n}");`).join("\n") + "\n", "test: show the greeting #7");
 };
 
 const review: AgentStep = () => {

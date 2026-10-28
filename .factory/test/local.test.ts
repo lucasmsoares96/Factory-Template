@@ -7,7 +7,7 @@ import { adaptersFromEnv } from "../src/adapters/index.ts";
 import { runFactory } from "../src/cli.ts";
 import { IN_BUNDLE, IN_TRACKER, type ContainerJob, type ContainerRunner } from "../src/local/container.ts";
 import type { Stage } from "../src/seams/agent.ts";
-import { checkout, commitFile, git, lastJson, tempDir } from "./helpers.ts";
+import { checkout, commitFiles, git, lastJson, tempDir } from "./helpers.ts";
 
 const SPEC = "# Spec: greetings\n\n## Testing Decisions\n\n1. CLI against the fakes.\n";
 const TICKET = (status: string) =>
@@ -27,7 +27,7 @@ const TICKET = (status: string) =>
   ].join("\n");
 
 const develop: AgentStep = async ({ cwd }) => {
-  await commitFile(cwd, "src/greet.ts", 'export const greet = () => "hi";\n', "feat: greet the user #7");
+  await commitFiles(cwd, { "src/greet.ts": 'export const greet = () => "hi";\n', "apps/example/e2e/greet.spec.ts": 'await evidence("home");\n' }, "feat: greet the user #7");
 };
 const reviewSays: AgentStep = () => ({ output: '<review>{"summary": "Looks right.", "inline": []}</review>' });
 
