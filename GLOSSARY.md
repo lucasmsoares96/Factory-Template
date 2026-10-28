@@ -109,6 +109,28 @@ _Avoid_: Integration, token, app
 A pending, expiring offer, sent by email, for a specific address to join a Company with a given role.
 _Avoid_: Invite link
 
+### Billing (Skeleton)
+
+**Plan**:
+What a Product sells to a person: a name, a price for either a fixed number of Seats or each Seat, and what it unlocks. The free Plan is the one a person without a Subscription is on.
+_Avoid_: Tier, pricing
+
+**Seat**:
+A place for one person in the Companies a person owns, counted once per distinct person however many of those Companies they are in: the Owner takes one, and so does each Member and each pending Invitation.
+_Avoid_: License, user (as the unit that is paid for)
+
+**Entitlement**:
+Something a Plan unlocks in a Product, either on or off or up to a number, such as reports or ten projects. The Product's code names the Entitlements it checks; which Plans grant them is set with the Plans.
+_Avoid_: Feature (a unit of code in the Skeleton), permission (that is a role's)
+
+**Suspended Member**:
+A Member who keeps their place in a Company but cannot enter it, because the Owner's Seats fall short. The newest are suspended first, and they come back, longest suspended first, as Seats free up; the Owner is never suspended.
+_Avoid_: Blocked, inactive, removed
+
+**Subscription**:
+A person's agreement to pay for one Plan, kept in sync with Stripe: active, past due or canceled. It covers every Company the person owns; a person without one is on the Product's free Plan.
+_Avoid_: Billing (when the agreement itself is meant), membership, a Company's subscription
+
 ### Reference App
 
 **Manager**:
