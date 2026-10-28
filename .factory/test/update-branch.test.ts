@@ -127,8 +127,69 @@ describe("factory update-branch --scan", () => {
   });
 });
 
+describe("factory update-branch --scan --pr: the PR just opened or reopened", () => {
+  it("dispatches a person's PR that is behind by the PR, and touches no other PR nor any label", async () => {
+    const p = await prWorld({ main: "conflict" });
+    p.w.tracker.issues.get(7)!.labels.set("factory:working", "github-actions[bot]");
+    await pullRequestOn(p, 202, "feature/thing", "main~1");
+
+    expect(await p.w.factory("update-branch", "--scan", "--pr", "202", "--repo", p.workRepo)).toBe(0);
+
+    expect(p.w.codeHost.dispatches).toEqual([{ workflow: "update-branches", inputs: { pr: "202" } }]);
+    expect(lastJson(p.w.logs)).toEqual({ dispatched: [202], upToDate: [], forks: [] });
+    expect(p.w.tracker.labelsOf(7)).toContain("factory:working");
+  });
+
+  it("dispatches a Factory PR in progress that is behind in its issue's flow", async () => {
+    const p = await prWorld({ main: "conflict" });
+
+    expect(await p.w.factory("update-branch", "--scan", "--pr", String(PR), "--repo", p.workRepo)).toBe(0);
+
+    expect(p.w.codeHost.dispatches).toEqual([{ workflow: "update-branches", inputs: { issue: "7" } }]);
+    expect(lastJson(p.w.logs)).toEqual({ dispatched: [PR], upToDate: [], forks: [] });
+  });
+
+  it("does nothing for a PR that is up to date", async () => {
+    const p = await prWorld({ main: "conflict" });
+    await pullRequestOn(p, 203, "feature/fresh", "main");
+
+    expect(await p.w.factory("update-branch", "--scan", "--pr", "203", "--repo", p.workRepo)).toBe(0);
+
+    expect(p.w.codeHost.dispatches).toEqual([]);
+    expect(p.w.codeHost.writes).toEqual([]);
+    expect(lastJson(p.w.logs)).toEqual({ dispatched: [], upToDate: [203], forks: [] });
+  });
+
+  it("leaves one comment on a fork's PR that is behind, and dispatches and pushes nothing", async () => {
+    const p = await prWorld({ main: "clean" });
+    await pullRequestOn(p, 204, "patch-1", "main~1", { fork: true });
+
+    for (let open = 0; open < 2; open++) expect(await p.w.factory("update-branch", "--scan", "--pr", "204", "--repo", p.workRepo)).toBe(0);
+
+    expect(p.w.codeHost.dispatches).toEqual([]);
+    expect(p.w.codeHost.pushes).toEqual([]);
+    const comments = p.w.codeHost.pr(204).comments;
+    expect(comments).toHaveLength(1);
+    expect(comments[0]).toMatch(/update the branch/i);
+    expect(lastJson(p.w.logs)).toEqual({ dispatched: [], upToDate: [], forks: [204] });
+  });
+
+  it("ignores a PR that is closed, into another base, or missing", async () => {
+    const p = await prWorld({ main: "clean" });
+    await pullRequestOn(p, 205, "feature/closed", "main~1", { state: "closed" });
+    await pullRequestOn(p, 206, "feature/other", "main~1", { base: "release" });
+
+    for (const pr of ["205", "206", "999"]) {
+      expect(await p.w.factory("update-branch", "--scan", "--pr", pr, "--repo", p.workRepo)).toBe(0);
+      expect(lastJson(p.w.logs)).toEqual({ dispatched: [], upToDate: [], forks: [] });
+    }
+    expect(p.w.codeHost.dispatches).toEqual([]);
+    expect(p.w.codeHost.writes).toEqual([]);
+  });
+});
+
 /** A person's PR on `branch`, cut from `from` with one commit of its own (line 20), in both checkouts. */
-async function pullRequestOn(p: PrWorld, number: number, branch: string, from: string, extra: { draft?: boolean; fork?: boolean } = {}) {
+async function pullRequestOn(p: PrWorld, number: number, branch: string, from: string, extra: { draft?: boolean; fork?: boolean; state?: "open" | "closed"; base?: string } = {}) {
   await git(p.workRepo, "checkout", "--quiet", "-b", branch, from);
   await commitFile(p.workRepo, "src/person.ts", `export const person = "${branch}";\n`, `feat: work on ${branch}`);
   const sha = await git(p.workRepo, "rev-parse", "HEAD");
