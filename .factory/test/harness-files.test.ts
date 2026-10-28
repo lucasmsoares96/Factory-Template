@@ -208,6 +208,14 @@ describe("CODING_STANDARDS.md", () => {
     }
   });
 
+  it("holds the per-flow gate rule under Architecture", () => {
+    const architecture = read("CODING_STANDARDS.md").split(/^## /m).find((s) => s.startsWith("Architecture\n"));
+    expect(architecture, "## Architecture").toBeDefined();
+    for (const fragment of ["`needs-human`", "`issue`", "`pr-feedback`", "`update-branch`", "flow it skips", "keeps it green", "`.factory/src/commands/work.ts`"]) {
+      expect(architecture!, fragment).toContain(fragment);
+    }
+  });
+
   it("is a harness path", () => {
     expect(isHarnessPath("CODING_STANDARDS.md")).toBe(true);
   });
