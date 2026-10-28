@@ -1,3 +1,4 @@
+import { messages } from "../messages.ts";
 import type { CommandContext } from "./context.ts";
 
 export interface NotifyInput {
@@ -17,15 +18,11 @@ const LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
  * no `FACTORY_TOKEN`). GitHub notifies nobody of what the Factory writes as its owner, and a comment made with
  * `GITHUB_TOKEN` fires no workflow, so it can start no loop.
  */
-export async function notify(ctx: Pick<CommandContext, "tracker">, issue: number, input: NotifyInput): Promise<void> {
+export async function notify(ctx: Pick<CommandContext, "tracker" | "config">, issue: number, input: NotifyInput): Promise<void> {
   if (input.to !== "" && !LOGIN.test(input.to)) throw new Error(`Not a GitHub login: ${JSON.stringify(input.to)}`);
+  const m = messages(ctx.config.language);
   const mention = input.to ? `@${input.to} ` : "";
-  const link = input.url ? `: ${input.url}` : ".";
   const text =
-    input.outcome === "escalated"
-      ? `${mention}the Factory could not finish this issue and left what it has${input.url ? ` in a draft pull request: ${input.url}` : " (see the Escalation comment)."}`
-      : input.updated
-        ? `${mention}the Factory pushed the answers to your comments to the pull request${link}`
-        : `${mention}the Factory opened a pull request for this issue and it is ready for review${link}`;
+    input.outcome === "escalated" ? m.notifyEscalated(mention, input.url) : input.updated ? m.notifyUpdated(mention, input.url) : m.notifyReady(mention, input.url);
   await ctx.tracker.comment(issue, text);
 }

@@ -1,6 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { loadConfig } from "../src/config.ts";
 import { GitHubTracker } from "../src/adapters/github/github-tracker.ts";
 import { FACTORY_MARKER } from "../src/marker.ts";
 import { HUMAN, lastJson, tempDir, unmarked, world } from "./helpers.ts";
@@ -42,6 +43,59 @@ describe("factory notify", () => {
     expect(w.tracker.commentsOn(7)).toHaveLength(1);
   });
 
+  it("follows FACTORY_LANGUAGE=pt-BR for every outcome, keeping the mention and the link", async () => {
+    const w = world({ env: { FACTORY_LANGUAGE: "pt-BR" } });
+    const url = "https://github.com/o/r/pull/9";
+
+    await w.factory("notify", "7", "--outcome", "ready", "--url", url, "--to", HUMAN);
+    await w.factory("notify", "7", "--outcome", "ready", "--updated", "--url", url, "--to", HUMAN);
+    await w.factory("notify", "7", "--outcome", "escalated", "--url", url, "--to", HUMAN);
+    await w.factory("notify", "7", "--outcome", "escalated");
+
+    const comments = w.tracker.commentsOn(7);
+    expect(comments.map((c) => unmarked(c.body))).toEqual([
+      `@${HUMAN} a Factory abriu um pull request para esta issue e ele está pronto para revisão: ${url}`,
+      `@${HUMAN} a Factory enviou ao pull request as respostas aos seus comentários: ${url}`,
+      `@${HUMAN} a Factory não conseguiu concluir esta issue e deixou o que tem em um pull request rascunho: ${url}`,
+      "a Factory não conseguiu concluir esta issue e deixou o que tem (veja o comentário da Escalation).",
+    ]);
+    for (const c of comments) expect(c.body).toContain(FACTORY_MARKER);
+  });
+
+  it("is English without FACTORY_LANGUAGE, for every outcome", async () => {
+    const w = world();
+    const url = "https://github.com/o/r/pull/9";
+
+    await w.factory("notify", "7", "--outcome", "ready", "--updated", "--url", url, "--to", HUMAN);
+    await w.factory("notify", "7", "--outcome", "escalated", "--url", url, "--to", HUMAN);
+    await w.factory("notify", "7", "--outcome", "escalated");
+
+    expect(w.tracker.commentsOn(7).map((c) => unmarked(c.body))).toEqual([
+      `@${HUMAN} the Factory pushed the answers to your comments to the pull request: ${url}`,
+      `@${HUMAN} the Factory could not finish this issue and left what it has in a draft pull request: ${url}`,
+      "the Factory could not finish this issue and left what it has (see the Escalation comment).",
+    ]);
+  });
+
+  it("ends with a full stop when there is no pull request link, in both languages", async () => {
+    const en = world();
+    const pt = world({ env: { FACTORY_LANGUAGE: "pt-BR" } });
+
+    for (const w of [en, pt]) {
+      await w.factory("notify", "7", "--outcome", "ready", "--to", HUMAN);
+      await w.factory("notify", "7", "--outcome", "ready", "--updated");
+    }
+
+    expect(en.tracker.commentsOn(7).map((c) => unmarked(c.body))).toEqual([
+      `@${HUMAN} the Factory opened a pull request for this issue and it is ready for review.`,
+      "the Factory pushed the answers to your comments to the pull request.",
+    ]);
+    expect(pt.tracker.commentsOn(7).map((c) => unmarked(c.body))).toEqual([
+      `@${HUMAN} a Factory abriu um pull request para esta issue e ele está pronto para revisão.`,
+      "a Factory enviou ao pull request as respostas aos seus comentários.",
+    ]);
+  });
+
   it("says nothing for a discarded run", async () => {
     const w = world();
 
@@ -57,7 +111,7 @@ describe("factory notify", () => {
     const { notify } = await import("../src/commands/notify.ts");
     const tracker = new GitHubTracker({ repo: "o/r", token: "job-token", fetch: s.fetch });
 
-    await notify({ tracker } as never, 7, { outcome: "ready", updated: false, url: "https://github.com/o/r/pull/9", to: "alice" });
+    await notify({ tracker, config: loadConfig({}) }, 7, { outcome: "ready", updated: false, url: "https://github.com/o/r/pull/9", to: "alice" });
 
     expect(s.writes()).toEqual(["POST /repos/o/r/issues/7/comments"]);
     expect(s.calls[0]!.headers.get("authorization")).toBe("Bearer job-token");
