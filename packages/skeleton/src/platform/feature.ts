@@ -1,5 +1,7 @@
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import type { McpServer } from "@modelcontextprotocol/server";
+import type { BetterAuthPlugin } from "better-auth";
+import type { Context } from "hono";
 import type { Database, Transaction } from "./db.ts";
 import type { SkeletonEnv } from "./env.ts";
 
@@ -55,6 +57,14 @@ export type Feature = {
    * so the tools it registers are not filtered by the token's scope: check it yourself.
    */
   mcp?(server: McpServer): void;
+  /**
+   * Better Auth plugins the feature adds to the Skeleton's auth config, after
+   * the Skeleton's own options (which stay as they are). Runs once per request
+   * that builds the auth instance, so a plugin can read its secrets from `c.env`.
+   * Their routes answer under `/api/auth/*` and, like Better Auth's own, stay out
+   * of the OpenAPI document and the MCP tools.
+   */
+  authPlugins?(c: Context<SkeletonEnv>): BetterAuthPlugin[];
   nav?: FeatureNav;
   companyPage?: FeatureCompanyPage;
   /** Inserts the feature's demo data; used for preview databases and the E2E. Must be safe to run twice. */
