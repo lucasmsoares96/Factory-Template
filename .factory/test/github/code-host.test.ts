@@ -1,7 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { GitHubCodeHost, childEnv, type GitRunner } from "../../src/adapters/github/github-code-host.ts";
+import { GitHubCodeHost, childEnv, type GhRunner, type GitRunner } from "../../src/adapters/github/github-code-host.ts";
 import { marked } from "../../src/marker.ts";
+import type { ThreadId } from "../../src/seams/code-host.ts";
 import { FakeGitHubServer } from "./fake-github.ts";
 // Imported statically: helpers.ts registers the afterEach that removes temp dirs, which a dynamic import inside a test misses.
 import { git, tempDir } from "../helpers.ts";
@@ -12,11 +13,11 @@ const pr = (n: number, extra: Record<string, unknown> = {}) => ({
   head: { ref: "factory/issue-7", sha: "a".repeat(40), repo: { full_name: "o/r" } }, base: { ref: "main" }, ...extra,
 });
 
-function host(server: FakeGitHubServer, extra: { git?: GitRunner; gh?: (args: string[], env: Record<string, string>) => Promise<void> } = {}) {
+function host(server: FakeGitHubServer, extra: { git?: GitRunner; gh?: GhRunner } = {}) {
   return new GitHubCodeHost({
     repo: "o/r", token: "tok-123", fetch: server.fetch, baseBranch: "main", cwd: "/work",
     git: extra.git ?? (async () => ({ code: 0, stderr: "" })),
-    gh: extra.gh ?? (async () => {}),
+    gh: extra.gh ?? (async () => ""),
   });
 }
 
@@ -175,7 +176,7 @@ describe("GitHubCodeHost", () => {
     const h = host(s);
 
     expect(await h.threads(4)).toEqual([{ id: "10", path: "a.ts", author: "alice", body: "root", replies: [{ author: "bob", body: "reply" }] }]);
-    await h.replyToThread(4, "10", "done");
+    await h.replyToThread(4, "10" as ThreadId, "done");
     expect(s.calls.at(-1)!.body).toEqual({ body: marked("done") });
   });
 
@@ -209,9 +210,10 @@ describe("GitHubCodeHost", () => {
     /** A gh runner that records the args, the env and the body file as gh would read it. */
     const recorder = (fail?: Error) => {
       const calls: { args: string[]; env: Record<string, string>; file: string }[] = [];
-      const gh = async (args: string[], env: Record<string, string>) => {
+      const gh: GhRunner = async (args, { env }) => {
         calls.push({ args, env, file: await readFile(args[args.indexOf("--body-file") + 1]!, "utf8") });
         if (fail) throw fail;
+        return "";
       };
       return { calls, gh };
     };
@@ -362,6 +364,15 @@ describe("GitHubCodeHost", () => {
     expect(s.calls[0]!.body).toEqual({ ref: "main", inputs: { issue: "7" } });
   });
 
+  it("dispatches update-branches to factory-update-branches.yml", async () => {
+    const s = new FakeGitHubServer();
+    s.on("POST", `${R}/actions/workflows/factory-update-branches.yml/dispatches`, () => ({ status: 204 }));
+
+    await host(s).dispatch("update-branches", { pr: "14" });
+
+    expect(s.calls[0]!.body).toEqual({ ref: "main", inputs: { pr: "14" } });
+  });
+
   describe("failedChecks", () => {
     const head = "a".repeat(40);
     const run = (id: number, name: string, conclusion: string | null, status = "completed") => ({ id, name, status, conclusion, head_sha: head, html_url: `https://github.com/o/r/actions/runs/${id}` });
@@ -370,16 +381,20 @@ describe("GitHubCodeHost", () => {
       const s = new FakeGitHubServer();
       s.on("GET", `${R}/pulls/4`, () => ({ json: pr(4) }));
       s.on("GET", `${R}/actions/runs`, ({ query }) =>
-        query.get("head_sha") === head ? { json: { total_count: 3, workflow_runs: [run(1, "Factory PR", "failure"), run(2, "CI", "success"), run(3, "Factory PR feedback", null, "in_progress")] } } : { json: { total_count: 0, workflow_runs: [] } },
+        query.get("head_sha") === head
+          ? { json: { total_count: 4, workflow_runs: [run(1, "Factory PR", "failure"), run(2, "CI", "success"), run(3, "Factory PR feedback", null, "in_progress"), run(4, "Factory PR", "cancelled")] } }
+          : { json: { total_count: 0, workflow_runs: [] } },
       );
       s.on("GET", `${R}/actions/runs/1/jobs`, () => ({ json: { total_count: 4, jobs: [job(11, "build", "success"), job(12, "preview smoke", "failure"), job(13, "deploy", "timed_out"), job(14, "lint", "cancelled")] } }));
       s.on("GET", `${R}/actions/runs/3/jobs`, () => ({ json: { total_count: 1, jobs: [job(31, "wait", null)] } }));
+      s.on("GET", `${R}/actions/runs/4/jobs`, () => ({ json: { total_count: 1, jobs: [job(41, "build", "cancelled")] } }));
       s.on("GET", `${R}/actions/jobs/12/logs`, () => ({ text: Array.from({ length: 50 }, (_, i) => `smoke ${i + 1}`).join("\n") + "\nGET /api/me failed with status 500\n" }));
       s.on("GET", `${R}/actions/jobs/13/logs`, () => ({ text: "deploying\nThe job has exceeded the maximum execution time\n" }));
+      s.on("GET", `${R}/actions/jobs/14/logs`, () => ({ text: "linting\nThe operation was canceled.\n" }));
       return s;
     };
 
-    it("lists the Actions runs of the PR's head, keeps the jobs that failed or timed out and reads the end of each log", async () => {
+    it("lists the Actions runs of the PR's head, keeps the jobs that failed, timed out or were cancelled and reads the end of each log", async () => {
       const s = server();
 
       const checks = await host(s).failedChecks(4, 10);
@@ -387,11 +402,21 @@ describe("GitHubCodeHost", () => {
       expect(checks).toEqual([
         { name: "Factory PR / preview smoke", url: "https://github.com/o/r/actions/runs/1/job/12", log: [...Array.from({ length: 9 }, (_, i) => `smoke ${i + 42}`), "GET /api/me failed with status 500"].join("\n") },
         { name: "Factory PR / deploy", url: "https://github.com/o/r/actions/runs/1/job/13", log: "deploying\nThe job has exceeded the maximum execution time" },
+        { name: "Factory PR / lint", url: "https://github.com/o/r/actions/runs/1/job/14", log: "linting\nThe operation was canceled." },
       ]);
       expect(s.calls.map((c) => c.path.split("?")[0])).not.toContain(`${R}/actions/runs/2/jobs`);
       expect(s.calls.find((c) => c.path.startsWith(`${R}/actions/runs?`))!.path).toContain(`head_sha=${head}`);
       expect(s.calls.every((c) => c.headers.get("authorization") === "Bearer tok-123")).toBe(true);
       expect(s.writes()).toEqual([]);
+    });
+
+    it("skips a run that was itself cancelled, as a run superseded by a newer one on the same head is", async () => {
+      const s = server();
+
+      const checks = await host(s).failedChecks(4, 10);
+
+      expect(checks.map((c) => c.url)).not.toContain("https://github.com/o/r/actions/runs/1/job/41");
+      expect(s.calls.map((c) => c.path.split("?")[0])).not.toContain(`${R}/actions/runs/4/jobs`);
     });
 
     it("throws when the runs cannot be listed, without the token in the message", async () => {

@@ -2,6 +2,7 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { triagePrompt } from "../prompts.ts";
 import {
+  checkReferences,
   fallbackVerdict,
   parseVerdicts,
   triageComment,
@@ -32,9 +33,10 @@ export interface TriageRun {
  * the batch and writes `triage.json` into `out`. Changes nothing on the
  * forge. Issues whose `agent:explore` is not trusted (put by someone with
  * `write`+, or the Factory's swap of a writer's `ready-for-agent`: `trustedExplore`)
- * are not read: their text never reaches the Agent.
+ * are not read: their text never reaches the Agent. The references each verdict cites are checked
+ * in `repo` (the checkout): `checkReferences`.
  */
-export async function triage(ctx: CommandContext, options: { issues: number[]; out: string }): Promise<TriageRun> {
+export async function triage(ctx: CommandContext, options: { issues: number[]; out: string; repo: string }): Promise<TriageRun> {
   const { tracker, agent, config } = ctx;
   const chosen = await triageBatch(ctx, options.issues);
   const skipped = chosen.skipped;
@@ -56,7 +58,7 @@ export async function triage(ctx: CommandContext, options: { issues: number[]; o
     for (const number of numbers) {
       const verdict = found.get(number);
       if (verdict) {
-        result.issues.push(verdict);
+        result.issues.push(await checkReferences(verdict, options.repo));
       } else {
         fallback.push(number);
         result.issues.push(fallbackVerdict(number, run.timedOut ? "timeout" : "invalid", run.output));
@@ -97,10 +99,12 @@ const PRODUCT_ID = /^[a-z][a-z0-9-]*$/;
  * The write half (job `apply`, forge token). Trusts nothing in `triage.json`
  * but its shape: for each verdict it reads the forge again (still in Triage,
  * label trusted as in `triage`), posts the one marked comment, then swaps
- * `agent:explore` for the label of the verdict (the swap is the lock). Order
- * matters: the comment first, because `ready-for-agent` starts a run whose
- * guard looks for it. `easy-call` → `ready-for-agent`, `needs-a-human` →
- * `ready-for-human`, `blocked` → `needs-info`; a duplicate is never queued.
+ * `agent:explore` for the label of the verdict (the swap is the lock) and,
+ * only once the swap held, removes `needs-triage`, a state label the verdict
+ * replaces. Order matters: the comment first, because `ready-for-agent`
+ * starts a run whose guard looks for it. `easy-call` → `ready-for-agent`,
+ * `needs-a-human` → `ready-for-human`, `blocked` → `needs-info`; a duplicate
+ * is never queued.
  * It adds `product:<id>` when the verdict names a Product that exists under
  * `apps/` and the issue has no `product:` label yet.
  */
@@ -139,6 +143,7 @@ export async function apply(ctx: CommandContext, options: { in: string; repo: st
       run.skipped.push({ issue: number, reason: "lost the label while applying" });
       continue;
     }
+    if (issue.labels.includes(labels.needsTriage)) await tracker.removeLabel(number, labels.needsTriage);
     run.applied.push({ issue: number, tag, label: target, product });
   }
   return run;

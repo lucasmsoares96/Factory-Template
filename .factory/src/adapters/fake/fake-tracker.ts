@@ -94,6 +94,12 @@ export class FakeTracker implements Tracker {
     return this.get(number).blockedBy.map((n) => ({ number: n, done: this.get(n).done }));
   }
 
+  async addBlocker(number: number, blockedBy: number): Promise<void> {
+    this.get(blockedBy);
+    const issue = this.get(number);
+    if (!issue.blockedBy.includes(blockedBy)) issue.blockedBy.push(blockedBy);
+  }
+
   async blocking(number: number): Promise<number[]> {
     return [...this.issues.values()]
       .filter((i) => i.state === "open" && i.blockedBy.includes(number))

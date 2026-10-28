@@ -4,6 +4,7 @@ import { FakeTracker } from "../src/adapters/fake/fake-tracker.ts";
 import { GitHubCodeHost } from "../src/adapters/github/github-code-host.ts";
 import { GitHubTracker } from "../src/adapters/github/github-tracker.ts";
 import { FACTORY_MARKER, isMarked, marked } from "../src/marker.ts";
+import type { ThreadId } from "../src/seams/code-host.ts";
 import { FakeGitHubServer } from "./github/fake-github.ts";
 
 const R = "/repos/o/r";
@@ -27,7 +28,7 @@ describe("the Factory marker", () => {
     s.on("POST", `${R}/pulls/5/comments/3/replies`, () => ({ json: {} }));
     const api = { repo: "o/r", token: "tok", fetch: s.fetch };
     const tracker = new GitHubTracker(api);
-    const host = new GitHubCodeHost({ ...api, baseBranch: "main", cwd: "/work", gh: async () => {} });
+    const host = new GitHubCodeHost({ ...api, baseBranch: "main", cwd: "/work", gh: async () => "" });
 
     await tracker.comment(7, "triage said so");
     await tracker.createIssue({ title: "T", body: "follow-up" });
@@ -36,7 +37,7 @@ describe("the Factory marker", () => {
     await host.updatePrBody(5, "the new body");
     await host.closePr(5, "closing");
     await host.submitReview(5, { body: "summary", event: "COMMENT", comments: [{ path: "a.ts", line: 1, body: "inline" }] });
-    await host.replyToThread(5, "3", "Address: done");
+    await host.replyToThread(5, "3" as ThreadId, "Address: done");
 
     const texts = s.calls
       .filter((c) => c.method !== "GET")
@@ -55,7 +56,7 @@ describe("the Factory marker", () => {
     const { readFile } = await import("node:fs/promises");
     const host = new GitHubCodeHost({
       repo: "o/r", token: "tok", fetch: s.fetch, baseBranch: "main", cwd: "/work",
-      gh: async (args) => void (written = await readFile(args[args.indexOf("--body-file") + 1]!, "utf8")),
+      gh: async (args) => ((written = await readFile(args[args.indexOf("--body-file") + 1]!, "utf8")), ""),
     });
     await host.updatePrBody(5, "body ![a](/tmp/a.png)", [{ product: "web", name: "a", path: "/tmp/a.png" }]);
     expect(written).toContain(FACTORY_MARKER);
@@ -68,8 +69,8 @@ describe("the Factory marker", () => {
     const opened = await host.openDraftPr({ branch: "factory/issue-7", base: "main", title: "T", body: "b" });
     await host.commentPr(opened.number, "c");
     await host.submitReview(opened.number, { body: "r", event: "COMMENT", comments: [{ path: "a", line: 1, body: "i" }] });
-    host.pr(opened.number).threads.push({ id: "t", path: null, author: "alice", body: "x", replies: [] });
-    await host.replyToThread(opened.number, "t", "reply");
+    host.pr(opened.number).threads.push({ id: "t" as ThreadId, path: null, author: "alice", body: "x", replies: [] });
+    await host.replyToThread(opened.number, "t" as ThreadId, "reply");
     await host.closePr(opened.number, "bye");
 
     const p = host.pr(opened.number);

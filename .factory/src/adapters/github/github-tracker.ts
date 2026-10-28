@@ -59,6 +59,21 @@ export class GitHubTracker implements Tracker {
     return rows.map((r) => ({ number: r.number, done: r.state === "closed" && r.state_reason === "completed" }));
   }
 
+  /**
+   * The endpoint takes the blocker's `id`, not its number. GitHub's docs say nothing of a repeated dependency, so it is
+   * read first, and a 422 (validation failed) is accepted when the dependency is there after all (another run added it).
+   */
+  async addBlocker(number: number, blockedBy: number): Promise<void> {
+    const has = async () => (await this.blockers(number)).some((b) => b.number === blockedBy);
+    if (await has()) return;
+    const { id } = await this.api.get(this.api.repoPath(`/issues/${blockedBy}`), z.object({ id: z.number().int() }));
+    try {
+      await this.api.send("POST", this.api.repoPath(`/issues/${number}/dependencies/blocked_by`), { issue_id: id });
+    } catch (error) {
+      if (!(error instanceof GitHubError && error.status === 422 && (await has()))) throw error;
+    }
+  }
+
   async blocking(number: number): Promise<number[]> {
     const rows = await this.api.list(this.api.repoPath(`/issues/${number}/dependencies/blocking`), issueRow);
     return rows.filter((r) => r.state === "open").map((r) => r.number);
