@@ -251,3 +251,10 @@ describe("docs/forgejo-install-prompt.md", () => {
     expect(read("docs/README.md")).toContain("forgejo-install-prompt.md");
   });
 });
+
+describe(".factory/image/setup.sh", () => {
+  it("installs python3 with the apt packages, for agents' support scripts", () => {
+    const install = read(".factory/image/setup.sh").match(/^apt-get install .*$/m)?.[0];
+    expect(install?.split(/\s+/)).toContain("python3");
+  });
+});

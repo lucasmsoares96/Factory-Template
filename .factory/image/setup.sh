@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # Installs the Factory toolchain on Ubuntu 24.04, as root: Node (checksum
-# verified), pnpm through corepack, Claude Code, git and Playwright's Chromium,
-# plus the `factory` user (uid 1001). No Docker CLI: the agent never drives Docker.
+# verified), pnpm through corepack, Claude Code, git, python3 (for support
+# scripts) and Playwright's Chromium, plus the `factory` user (uid 1001).
+# No Docker CLI: the agent never drives Docker.
 set -euo pipefail
 
 : "${NODE_VERSION:?}" "${PNPM_VERSION:?}" "${PLAYWRIGHT_VERSION:?}" "${CLAUDE_CODE_VERSION:?}"
 export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
-apt-get install -y --no-install-recommends ca-certificates curl git xz-utils
+apt-get install -y --no-install-recommends ca-certificates curl git python3 xz-utils
 
 # Node, from nodejs.org, checked against the release's SHASUMS256.txt.
 case "$(dpkg --print-architecture)" in
