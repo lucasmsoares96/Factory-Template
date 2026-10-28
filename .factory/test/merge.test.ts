@@ -108,7 +108,11 @@ describe("factory merge: the Merge Mode's decision", () => {
     "apps/example/package.json",
     "package.json",
     "pnpm-workspace.yaml",
+    "pnpm-lock.yaml",
+    ".npmrc",
     ".node-version",
+    "turbo.json",
+    ".agents/skills/tdd/SKILL.md",
     "scripts/verify.ts",
   ])("treats %s as protected", async (path) => {
     const w = mergeWorld({ pr: { files: ["apps/example/src/a.ts", path] } });
@@ -146,6 +150,11 @@ describe("factory merge: the Merge Mode's decision", () => {
     expect(merged(deployFailed)).toBe(false);
     expect(decision(deployFailed)).toMatchObject({ unmet: ["preview"] });
 
+    const smokeGoing = mergeWorld({ checks: GREEN.map((c) => (c.name.startsWith("preview smoke") ? { ...c, conclusion: null } : c)) });
+    await run(smokeGoing);
+    expect(merged(smokeGoing)).toBe(false);
+    expect(decision(smokeGoing)).toMatchObject({ unmet: ["preview"] });
+
     const noPreview = mergeWorld({ checks: GREEN.map((c) => (c.name.startsWith("preview") ? { ...c, conclusion: "skipped" } : c)) });
     await run(noPreview);
     expect(merged(noPreview)).toBe(true);
@@ -181,6 +190,10 @@ describe("factory merge: the Merge Mode's decision", () => {
     const timedOut = mergeWorld({ deploy: "timed_out" });
     await run(timedOut);
     expect(merged(timedOut)).toBe(false);
+
+    const cancelled = mergeWorld({ deploy: "cancelled" });
+    await run(cancelled);
+    expect(merged(cancelled)).toBe(false);
 
     const none = mergeWorld({ deploy: null });
     await run(none);
