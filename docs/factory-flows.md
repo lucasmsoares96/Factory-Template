@@ -122,7 +122,7 @@ What a round reads:
 What `work` does:
 
 - It merges the base branch first (an agent resolves conflicts, `update-branch.md`), then Development with `pr-feedback.md`, Review, E2E.
-- On the first attempt, a `<checks>` block (untrusted) holds the Actions jobs of the PR's head that ended in `failure` or `timed_out`, with the end of each log (`CodeHost.failedChecks`).
+- On the first attempt, a `<checks>` block (untrusted) holds the Actions jobs of the PR's head that ended in `failure`, `timed_out` or `cancelled` (a run cancelled as a whole, superseded by a newer one, is skipped), with the end of each log (`CodeHost.failedChecks`).
   - It uses the Actions API, read with the job token's `actions: read`, which only this `work` job has; 200 lines per job, 1,000 in all, cut from the start.
   - A check posted by another app is not seen. A read that fails puts its reason in the block and the round goes on.
 - A `<replies>` block holds address, decline, defer or answer per thread. A round of declines, defers and answers makes no commit and skips Review.
