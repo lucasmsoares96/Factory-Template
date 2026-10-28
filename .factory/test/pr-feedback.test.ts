@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FACTORY_MARKER, marked } from "../src/marker.ts";
+import type { ThreadId } from "../src/seams/code-host.ts";
 import { git, HUMAN, lastJson, OWNER, unmarked } from "./helpers.ts";
 import { BRANCH, PR, commits, feedbackRound, finishRound, prWorld, replies, reviewOk, said, thread, type PrWorld } from "./pr-flow-helpers.ts";
 
@@ -17,7 +18,7 @@ describe("factory pr-feedback: who may trigger a round", () => {
 
   it("does not loop on its own words: a reply written by the adapter, as the owner, claims nothing", async () => {
     const p = await prWorld({ main: "none", threads: [thread("t1", "rename this")] });
-    await p.w.codeHost.replyToThread(PR, "t1", "Address: done.");
+    await p.w.codeHost.replyToThread(PR, "t1" as ThreadId, "Address: done.");
     expect(await p.w.factory("pr-feedback", "--pr", String(PR), "--actor", OWNER)).toBe(0);
     expect(lastJson(p.w.logs)).toEqual({ claimed: false, reason: "no-open-threads" });
   });

@@ -116,7 +116,7 @@ export async function scanBranches(
       continue;
     }
     const issue = await inProgressIssue(ctx, pr.branch);
-    await codeHost.dispatch("factory-update-branches.yml", issue === null ? { pr: String(pr.number) } : { issue: String(issue) });
+    await codeHost.dispatch("update-branches", issue === null ? { pr: String(pr.number) } : { issue: String(issue) });
     dispatched.push(pr.number);
   }
   let released: WorkingChange = { issues: [], prs: [] };
