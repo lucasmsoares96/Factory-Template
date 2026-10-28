@@ -2,6 +2,8 @@ import { accountNames } from "./accounts.ts";
 import { cloudflareAccountId, cloudflareCredential, LANGUAGE_VARIABLE } from "./common.ts";
 import { labelSpecs } from "./labels.ts";
 import { LANGUAGES } from "../messages.ts";
+import { MERGE_MODES } from "../config.ts";
+import { MERGE_MODE_VARIABLE } from "./factory.ts";
 import { NO_DNS, NO_LOGIN, deployFirstMessage, productionEnvironment, productSecretName, readDnsState, readWorkerDomainState } from "./domain.ts";
 import { hasPreviewTrace, previewEnvironment, previewNames, previewProjectName, previewSecretPresent, PREVIEW_PRODUCTS, BASE_BRANCH } from "./previews.ts";
 import { coversMain, DEPLOY_PRODUCTS, missingSecrets, neonHandle, neonOrgId, parseProductList, productionDatabaseUrl, productionSecrets, USE_ENVIRONMENTS } from "./product.ts";
@@ -95,6 +97,10 @@ export async function doctor(
   if (language === undefined) add("Variables", "ok", LANGUAGE_VARIABLE, `not set: the Factory writes in ${config.language}; \`pnpm bootstrap\` asks it`);
   else if ((LANGUAGES as readonly string[]).includes(language)) add("Variables", "ok", LANGUAGE_VARIABLE, language);
   else add("Variables", "warn", LANGUAGE_VARIABLE, `${language} is not one of ${LANGUAGES.join(", ")}: every Factory job fails; run \`pnpm bootstrap --redo language\``);
+  const mergeMode = variables[MERGE_MODE_VARIABLE];
+  if (mergeMode === undefined) add("Variables", "ok", MERGE_MODE_VARIABLE, "not set: human, every Factory pull request waits for a person; `pnpm bootstrap factory` asks it");
+  else if ((MERGE_MODES as readonly string[]).includes(mergeMode)) add("Variables", "ok", MERGE_MODE_VARIABLE, mergeMode);
+  else add("Variables", "warn", MERGE_MODE_VARIABLE, `${mergeMode} is not one of ${MERGE_MODES.join(", ")}: every Factory job fails; run \`pnpm bootstrap factory --redo merge-mode\``);
   if (variables.FACTORY_USE_ENVIRONMENTS === "false") {
     add("Variables", "off", "Environments", "secrets live at repo level: the plan or visibility refused environments or the ruleset; rerun the wizard after upgrading");
   }

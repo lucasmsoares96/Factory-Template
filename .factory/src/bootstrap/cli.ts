@@ -48,7 +48,8 @@ Commands:
   factory                The Factory module (after the common part): your own fine-grained token, limited to this
                          repository (the one thing asked, once, hidden; a pre-filled link is printed, and it goes straight
                          to the FACTORY_TOKEN secret), and Claude's auth taken from CLAUDE_CODE_OAUTH_TOKEN or
-                         ANTHROPIC_API_KEY in the environment (or an existing secret).
+                         ANTHROPIC_API_KEY in the environment (or an existing secret), and the Merge Mode
+                         (FACTORY_MERGE_MODE: human, the default, or safe; asked once, human without a terminal).
                          Turns FACTORY_ENABLED on once the doctor passes. A rerun with the secrets in place asks nothing
                          about credentials. At the end, with a terminal, it offers (default no) an example issue that the
                          Factory solves in about 15 minutes, using Claude credits; everything it creates is deleted.
@@ -65,7 +66,8 @@ Options:
                          for the product command: neon-project, github-environment, database-secrets, auth-secret,
                          default-account (asks again, resets the password and the secret), the four domain steps, main-ruleset, deploy-products;
                          for the previews command: preview-environment, preview-neon-project, preview-neon-key, preview-kv, preview-products;
-                         for the factory command: labels, factory-token (asks for the token again), claude-auth, auto-merge.
+                         for the factory command: labels, factory-token (asks for the token again), claude-auth, auto-merge,
+                         merge-mode (asks the Merge Mode again).
 
 The wizard ends by running the doctor with the credentials it already holds, so one run is enough.
 Run \`pnpm bootstrap doctor [<id>]\` on its own whenever something looks off; it checks Cloudflare with
