@@ -8,7 +8,7 @@ The detail of `pnpm bootstrap` (`.factory/src/bootstrap/`): its modules, their s
 - Wizard steps live in `common.ts` (the common part), `product.ts` (the Production module of `bootstrap product <id>`) and `domain.ts` (per Product: `resend-domain`, `dns-records`, `restricted-resend-key`, `worker-domain`).
   - `resendSteps(product)` is reused by `bootstrap product`. `domainSteps` adds `worker-domain` for `bootstrap domain` only: the Worker does not exist before the first deploy.
 - The steps run over client interfaces (`clients.ts`: GitHub, Cloudflare, Neon, Resend), real adapters (`cloudflare.ts`, `resend.ts`, Zod-validated; `neon.ts` drives `neonctl`) and `fake/`.
-- `previews.ts` is the Previews module (`previewSteps`). `github.ts` is the only module that calls `gh`.
+- `previews.ts` is the Previews module (`previewSteps`). `github.ts` is the only module that calls `gh` (through `runGh`; `gh` gets `BASE_ENV` plus its own sign-in variables, `GH_AUTH_ENV`, and the proxy/CA ones, `GH_NETWORK_ENV`). `token.ts` checks the owner's token through `GitHubApi`.
 - No local state, no secret on disk; `doctor` only reads.
 
 ## Common rules

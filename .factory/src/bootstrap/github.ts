@@ -1,32 +1,26 @@
-import { execFile } from "node:child_process";
 import { z } from "zod";
+import { GH_AUTH_ENV, GH_NETWORK_ENV, childEnv, runGh, type GhRunner } from "../adapters/github/gh.ts";
+import { pick } from "../env.ts";
 import type { GitHubClient, IssueRef, LabelSpec, PullRequestInfo, RepoInfo, RulesetInfo, RulesetSpec, WorkflowRun } from "./clients.ts";
 
-/** Runs `gh <args>` with optional stdin and returns stdout. */
-export type GhExec = (args: string[], input?: string) => Promise<string>;
-
-export const runGh: GhExec = (args, input) =>
-  new Promise((resolve, reject) => {
-    const child = execFile("gh", args, { maxBuffer: 16 * 1024 * 1024 }, (error, stdout, stderr) => {
-      if (!error) return resolve(stdout);
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        return reject(new Error("The GitHub CLI (`gh`) is required and was not found. Install it from https://cli.github.com and run `gh auth login`."));
-      }
-      reject(new Error(`gh ${args.slice(0, 2).join(" ")} failed: ${stderr.trim() || error.message}`));
-    });
-    child.stdin?.end(input ?? "");
-  });
-
 /**
- * The only module that calls `gh`. The repo is the one of the current
+ * The only module of the bootstrap that calls `gh`. The repo is the one of the current
  * directory (`gh` reads the git remote), so nothing is hard-coded. Secret
- * values travel through stdin, never through the arguments.
+ * values travel through stdin, never through the arguments. `gh` gets the base
+ * variables, its own sign-in ones (`gh auth login` lives under HOME) and the
+ * proxy and CA ones, not the rest of the owner's environment.
  */
 export class GhCli implements GitHubClient {
-  private readonly gh: GhExec;
+  private readonly run: GhRunner;
+  private readonly env: Record<string, string>;
 
-  constructor(gh: GhExec = runGh) {
-    this.gh = gh;
+  constructor(gh: GhRunner = runGh, parent: Record<string, string | undefined> = process.env) {
+    this.run = gh;
+    this.env = childEnv(parent, pick(parent, [...GH_AUTH_ENV, ...GH_NETWORK_ENV]));
+  }
+
+  private gh(args: string[], input?: string): Promise<string> {
+    return this.run(args, { env: this.env, input });
   }
 
   async repo(): Promise<RepoInfo> {
