@@ -49,7 +49,8 @@ export interface ConversationEntry {
 
 /**
  * A review thread's id, as the code host gives it (a review comment's id on GitHub; a Conversation entry's id for a
- * Conversation request). Only the code host's side mints one: an id the agent writes is matched against the threads.
+ * Conversation request). Only an id the code host gave becomes one: an id the agent writes stays a string until it is
+ * matched against the threads.
  */
 export type ThreadId = string & { readonly __brand: "ThreadId" };
 
