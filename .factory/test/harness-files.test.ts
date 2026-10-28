@@ -76,7 +76,7 @@ describe("label tables", () => {
 
   it("the Factory labels table is the config's labels", () => {
     const { labels } = defaultConfig;
-    expect(firstColumn(section("Factory labels"))).toEqual([labels.inProgress, labels.working, labels.agentExplore, labels.harnessChange, labels.preview, labels.retro, `${labels.productPrefix}<id>`]);
+    expect(firstColumn(section("Factory labels"))).toEqual([labels.inProgress, labels.working, labels.agentExplore, labels.harnessChange, labels.preview, labels.retro, labels.autoMerged, `${labels.productPrefix}<id>`]);
   });
 
   it("who sets each Factory label is stated, and `preview` is set by a human and removed by CI", () => {

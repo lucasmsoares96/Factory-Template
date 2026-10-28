@@ -7,7 +7,7 @@ import { FakeGitHubServer } from "../github/fake-github.ts";
 const PAT = "github_pat_owner_token";
 
 function factoryWorld(answers: Record<string, string | boolean | string[]> = {}, env: Record<string, string | undefined> = {}) {
-  const w = world({ "factory-token": PAT, ...answers }, env);
+  const w = world({ "factory-token": PAT, "merge-mode": "human", ...answers }, env);
   w.deps.interactive = true;
   w.tokens.add(PAT, { push: true });
   w.github.secrets.set("CLOUDFLARE_API_TOKEN", "x");
@@ -15,8 +15,8 @@ function factoryWorld(answers: Record<string, string | boolean | string[]> = {},
   return w;
 }
 
-/** The credential prompts; the optional example question (answered No by the helper) is not one. */
-const credentialPrompts = (w: { prompter: { asked: string[] } }) => w.prompter.asked.filter((id) => id !== "example-issue");
+/** The credential prompts; the optional example question (answered No by the helper) and the Merge Mode are not ones. */
+const credentialPrompts = (w: { prompter: { asked: string[] } }) => w.prompter.asked.filter((id) => id !== "example-issue" && id !== "merge-mode");
 
 const shown = (w: ReturnType<typeof factoryWorld>) => JSON.stringify([w.lines, w.prompter.notes, w.prompter.printed]);
 
@@ -57,6 +57,47 @@ describe("pnpm bootstrap factory: Factory module", () => {
     await w.run("factory");
 
     expect(w.github.autoMerge).toBe(true);
+  });
+
+  it("asks the Merge Mode once, offering human first, and sets FACTORY_MERGE_MODE", async () => {
+    const w = factoryWorld({}, { CLAUDE_CODE_OAUTH_TOKEN: "x" });
+    const offered: string[][] = [];
+    const select = w.prompter.select.bind(w.prompter);
+    w.prompter.select = async <T extends string>(input: { id: string; options?: { value: T }[] }) => {
+      if (input.id === "merge-mode") offered.push((input.options ?? []).map((o) => o.value));
+      return select(input);
+    };
+
+    await w.run("factory");
+
+    expect(offered).toEqual([["human", "safe"]]);
+    expect(w.github.variables.get("FACTORY_MERGE_MODE")).toBe("human");
+  });
+
+  it("does not ask the Merge Mode on a rerun, and changes it only with --redo merge-mode", async () => {
+    const w = factoryWorld({ "merge-mode": ["human", "safe"] }, { CLAUDE_CODE_OAUTH_TOKEN: "x" });
+    await w.run("factory");
+    w.prompter.asked.length = 0;
+
+    const { output } = await w.run("factory");
+    expect(credentialPrompts(w)).toEqual([]);
+    expect(w.prompter.asked).not.toContain("merge-mode");
+    expect(output).toMatch(/FACTORY_MERGE_MODE.*human/);
+
+    await w.run("factory", "--redo", "merge-mode");
+    expect(w.prompter.asked.filter((id) => id === "merge-mode")).toEqual(["merge-mode"]);
+    expect(w.github.variables.get("FACTORY_MERGE_MODE")).toBe("safe");
+  });
+
+  it("without a terminal, the Merge Mode is human, asked of nobody", async () => {
+    const w = factoryWorld({ "merge-mode": undefined as never }, { CLAUDE_CODE_OAUTH_TOKEN: "x" });
+    w.deps.interactive = false;
+
+    const { code } = await w.run("factory");
+
+    expect(code).toBe(0);
+    expect(w.prompter.asked).not.toContain("merge-mode");
+    expect(w.github.variables.get("FACTORY_MERGE_MODE")).toBe("human");
   });
 
   it("makes the labels the Factory uses", async () => {
@@ -207,6 +248,18 @@ describe("pnpm bootstrap factory: Factory module", () => {
 
     expect(output).toMatch(/ok\s+FACTORY_TOKEN/);
     expect(output).toMatch(/ok\s+FACTORY_ENABLED/);
+    expect(output).toMatch(/ok\s+FACTORY_MERGE_MODE\s+human/);
+  });
+
+  it("the doctor shows the Merge Mode, unset as human, and warns about one it does not know", async () => {
+    const w = factoryWorld();
+    expect((await w.run("doctor")).output).toMatch(/ok\s+FACTORY_MERGE_MODE\s+not set: human, every Factory pull request waits for a person; `pnpm bootstrap factory` asks it/);
+
+    w.github.variables.set("FACTORY_MERGE_MODE", "safe");
+    expect((await w.run("doctor")).output).toMatch(/ok\s+FACTORY_MERGE_MODE\s+safe/);
+
+    w.github.variables.set("FACTORY_MERGE_MODE", "yolo");
+    expect((await w.run("doctor")).output).toMatch(/warn\s+FACTORY_MERGE_MODE\s+yolo is not one of human, safe: every Factory job fails; run `pnpm bootstrap factory --redo merge-mode`/);
   });
 });
 
