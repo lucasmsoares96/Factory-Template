@@ -3,13 +3,18 @@ import type { z } from "zod";
 import { configSchema, variableName } from "../../src/config.ts";
 import { TOKEN, world } from "./helpers.ts";
 
-/** The values a leaf of the config schema accepts from a repo variable, when they are a closed list. */
+/**
+ * The values a leaf of the config schema accepts from a repo variable, when they are a closed list. A kind of leaf it
+ * does not know fails the test, so a new kind of closed setting (`z.literal`, …) cannot slip past the doctor unseen.
+ */
 function closedValues(schema: z.ZodType): string[] {
   const def = schema.def as { type: string; entries?: Record<string, string>; options?: z.ZodType[]; in?: z.ZodType };
   if (def.type === "enum") return Object.values(def.entries!);
-  if (def.type === "union") return def.options!.flatMap(closedValues);
+  // `flag`: the boolean branch is for the defaults, a repo variable is always text.
+  if (def.type === "union") return def.options!.filter((o) => o.def.type !== "boolean").flatMap(closedValues);
   if (def.type === "pipe") return closedValues(def.in!);
-  return [];
+  if (def.type === "string" || def.type === "number") return [];
+  throw new Error(`config leaf of kind ${def.type}: say here whether it is a closed list of values`);
 }
 
 /** Every `FACTORY_*` variable whose setting is a closed list of values, read from the schema itself. */
@@ -84,6 +89,13 @@ describe("pnpm bootstrap doctor", () => {
     w.github.variables.set("FACTORY_RETRO_ENABLED", "false");
 
     expect((await w.run("doctor")).output).toMatch(/ok\s+FACTORY_RETRO_ENABLED\s+false/);
+  });
+
+  it("treats an empty closed setting as unset, as loading the config does", async () => {
+    const w = world();
+    w.github.variables.set("FACTORY_MERGE_MODE", "");
+
+    expect((await w.run("doctor")).output).toMatch(/ok\s+FACTORY_MERGE_MODE\s+not set: human/);
   });
 
   it("shows a module as on when its variable is true", async () => {
