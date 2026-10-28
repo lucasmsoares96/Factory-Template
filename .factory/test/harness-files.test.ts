@@ -264,3 +264,17 @@ describe("docs/forgejo-install-prompt.md", () => {
     expect(read("docs/README.md")).toContain("forgejo-install-prompt.md");
   });
 });
+
+describe(".factory/image/setup.sh", () => {
+  const setup = read(".factory/image/setup.sh");
+
+  it("installs python3 with the apt packages, for agents' support scripts", () => {
+    const installs = setup.match(/^apt-get install .*$/gm) ?? [];
+    expect(installs, "apt-get install lines").not.toHaveLength(0);
+    expect(installs.flatMap((line) => line.split(/\s+/))).toContain("python3");
+  });
+
+  it("runs python3 during the build, so a broken install fails the image", () => {
+    expect(setup).toMatch(/^python3 --version$/m);
+  });
+});
