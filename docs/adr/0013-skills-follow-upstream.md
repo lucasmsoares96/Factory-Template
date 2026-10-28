@@ -16,5 +16,5 @@ Now an upstream change is taken with no one looking:
 ## Consequences
 
 - Text written by third parties (`mattpocock/skills`, the vendor skills) reaches every agent's instructions without a human review. Whoever controls those repositories steers the Factory. See `docs/known-risks.md`.
-- This is the only pull request that merges without a person at the Merge Gate. The Factory's own pull requests never turn auto-merge on.
+- It merges without a person whatever the Merge Mode (ADR 0016). The Factory's own pull requests never turn GitHub's auto-merge on: in the `safe` Merge Mode, `factory-merge.yml` merges them itself.
 - Between an upstream change and the merge of `skills/update`, the committed skills are one version behind; nothing fails meanwhile.
