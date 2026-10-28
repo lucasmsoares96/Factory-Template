@@ -2,6 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
+import { AgentSessionError, SessionLimitError } from "../src/seams/agent.ts";
 import { FakeCodeHost } from "../src/adapters/fake/fake-code-host.ts";
 import type { VerifyStep } from "../src/adapters/fake/fake-verify.ts";
 import { checkout, commitFile, commitFiles, git, lastJson, OWNER, tempDir, world, type WorldOptions } from "./helpers.ts";
@@ -30,7 +31,7 @@ const jobHost = () => new FakeCodeHost({ branches: {}, prs: [], self: OWNER });
  * `between` runs after work and before publish, to change forge state.
  */
 async function pipeline(
-  options: Pick<WorldOptions, "agent" | "verify" | "branches" | "prs" | "env" | "jobCodeHost"> & {
+  options: Pick<WorldOptions, "agent" | "verify" | "branches" | "prs" | "env" | "jobCodeHost" | "now"> & {
     between?: (w: ReturnType<typeof world>) => void | Promise<void>;
     publishArgs?: string[];
     /** PR flows do not run the issue claim: they take the lock on an issue whose PR is open. */
@@ -239,6 +240,20 @@ describe("factory publish: Escalation", () => {
     expect(w.codeHost.pr(101).draft).toBe(true);
   });
 
+  it("escalates infra with the failed session's own message, not a missing result, keeping the commits in a draft", async () => {
+    const crash: AgentStep = () => {
+      throw new AgentSessionError("Agent session 02-review failed: claude-code exited with code 1:\nAPI Error: 500 Internal Server Error");
+    };
+    const { w, output, factoryComments } = await pipeline({ agent: { development: [develop], review: [crash] } });
+
+    expect(output).toMatchObject({ outcome: "escalated", reason: "infra", pr: 101 });
+    expect(w.tracker.labelsOf(7)).toEqual(["ready-for-human"]);
+    const [comment] = factoryComments();
+    expect(comment).toContain("The agent session of the Review failed; its message is below.");
+    expect(comment).toContain("API Error: 500 Internal Server Error");
+    expect(comment).not.toContain("Cannot read");
+  });
+
   it("escalates with reason infra when the work job left no result.json", async () => {
     const repo = await checkout();
     const w = world({ repo });
@@ -420,5 +435,50 @@ describe("factory publish: sensitive and harness paths", () => {
     expect(w.codeHost.pr(101).labels).toEqual([]);
     expect(w.codeHost.pr(101).body).toMatch(/^Closes #7$/m);
     expect(w.codeHost.pr(101).body).not.toContain("[!CAUTION]");
+  });
+});
+
+describe("factory publish: a run paused at the agent's usage limit", () => {
+  const limitHit =
+    (resetsAt: string | null): AgentStep =>
+    () => {
+      throw new SessionLimitError(`Agent session 02-review failed: claude-code exited with code 1:\nYou've hit your session limit · resets ${resetsAt}`, resetsAt);
+    };
+  const now = () => Date.parse("2026-10-28T14:00:00Z");
+
+  it("keeps the commits on the branch and puts the issue back in the queue under factory:session-limit, with no Escalation", async () => {
+    const { w, head, output, factoryComments } = await pipeline({ agent: { development: [develop], review: [limitHit("3:20pm (UTC)")] }, now });
+
+    expect(output).toEqual({ issue: 7, outcome: "paused", reason: "session-limit", resetsAt: "3:20pm (UTC)", resumeAt: "2026-10-28T15:20:00.000Z" });
+    expect(w.tracker.labelsOf(7).sort()).toEqual(["factory:session-limit", "ready-for-agent"]);
+    expect(w.codeHost.pushes).toEqual([{ branch: "factory/issue-7", sha: head, expectedSha: null }]);
+    expect(await w.codeHost.openPullRequests()).toEqual([]);
+    // No Escalation: no Retro either.
+    expect(w.codeHost.dispatches).toEqual([]);
+    const [comment] = factoryComments();
+    expect(comment).toContain("<!-- factory:session-limit ");
+    expect(comment).toContain("**Factory paused (`session-limit`):** the Review session hit the agent's usage limit, which resets 3:20pm (UTC). The Factory starts again on its own after 2026-10-28 15:20 UTC.");
+    expect(comment).toContain("The commits so far are on `factory/issue-7`: the next run continues from them.");
+    expect(comment).toContain("You've hit your session limit · resets 3:20pm (UTC)");
+    expect(comment).toContain(RUN_URL);
+    expect(comment).not.toContain("escalation");
+  });
+
+  it("writes the pause in FACTORY_LANGUAGE", async () => {
+    const { factoryComments } = await pipeline({ agent: { development: [develop], review: [limitHit("3:20pm (UTC)")] }, now, env: { FACTORY_LANGUAGE: "pt-BR" } });
+    const [comment] = factoryComments();
+    expect(comment).toContain("**A Factory pausou (`session-limit`):** a sessão do Review atingiu o limite de uso do agente, que reinicia 3:20pm (UTC). A Factory recomeça sozinha depois de 2026-10-28 15:20 UTC.");
+  });
+
+  it("does not start the issue again while it waits for the reset", async () => {
+    const { w } = await pipeline({ agent: { development: [develop], review: [limitHit("3:20pm (UTC)")] }, now });
+    const comments = w.tracker.commentsOn(7).length;
+
+    // The `labeled` event of the swap back to ready-for-agent starts a claim: the guard refuses it, silently.
+    expect(await w.factory("claim", "7", "--event", "labeled")).toBe(0);
+
+    expect(lastJson(w.logs)).toEqual({ claimed: false, issue: 7, reason: "session-limit" });
+    expect(w.tracker.commentsOn(7)).toHaveLength(comments);
+    expect(w.tracker.labelsOf(7).sort()).toEqual(["factory:session-limit", "ready-for-agent"]);
   });
 });

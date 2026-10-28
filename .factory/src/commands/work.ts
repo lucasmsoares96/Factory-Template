@@ -15,13 +15,16 @@ import {
   type ReviewOutput,
   type StageRecord,
 } from "../result.ts";
-import { fence, summaryMarkdown } from "../report.ts";
+import { ESCALATION_MARKER, fence, summaryMarkdown } from "../report.ts";
+import { isFactoryComment } from "../guard.ts";
+import { WAITING_MARKER } from "./claim.ts";
 import { parsePullRequestBody, pullRequestExtraction } from "../pull-request-output.ts";
 import { changedSkeletonPaths, followUpTicket, mergeGaps, productOf, revertToBase, skeletonGaps, skeletonPatch } from "../scope.ts";
 import { addedSkippedTests, skippedTestsFeedback } from "../skipped-tests.ts";
 import { parseReviewOutput, reviewExtraction } from "../review-output.ts";
 import { parseReplies, repliesExtraction, type ThreadReply } from "../replies-output.ts";
-import type { Usage } from "../seams/agent.ts";
+import { AgentSessionError, type AgentRun, type Extraction, type Stage, type Usage } from "../seams/agent.ts";
+import { parseWait, SESSION_LIMIT_MARKER, sessionFailure, type SessionFailure } from "../session-limit.ts";
 import type { ReviewThread } from "../seams/code-host.ts";
 import type { Issue } from "../seams/tracker.ts";
 import type { CommandContext } from "./context.ts";
@@ -65,7 +68,8 @@ export async function work(ctx: CommandContext, number: number | null, options: 
   const flow = options.flow ?? null;
   const { issue, branch } = await subject(ctx, number, flow);
   const base = await resolveBase(git, config.baseBranch);
-  await git.run("checkout", "--quiet", ...(flow ? [branch] : ["-B", branch, base]));
+  // An issue run starts from the base branch, or from the commits a run paused at the usage limit kept.
+  await git.run("checkout", "--quiet", ...(flow ? [branch] : ["-B", branch, (await pausedHead(ctx, git, issue)) ?? base]));
   // A branch that already contains the base branch has nothing to update.
   const upToDate = flow?.kind === "update-branch" && (await git.isAncestor(base, "HEAD"));
 
@@ -88,6 +92,8 @@ export async function work(ctx: CommandContext, number: number | null, options: 
   let bail = false;
   // The skipped or focused tests of the last attempt that left some; see skipped-tests.ts.
   let skippedFailure: string | null = null;
+  // The agent session that failed and ended the run, if one did: see session-limit.ts.
+  const ended: { session: SessionFailure | null } = { session: null };
 
   /** A Stage's timeout, cut to what is left of the global limit; null when nothing is left. */
   const budget = (minutes: number): number | null => {
@@ -96,6 +102,18 @@ export async function work(ctx: CommandContext, number: number | null, options: 
   };
   const round = () => ({ threads: roundThreads, decisions: [...replies.values()] });
   const outOfTime = () => ctx.now() >= deadline;
+  /** One agent session; null when it failed, with `ended.session` set. Its commits stay on the branch. */
+  const session = async (stage: Stage, prompt: string, options: { timeoutMs: number; model: string; extract?: Extraction }): Promise<AgentRun | null> => {
+    try {
+      return await agent.run(stage, prompt, options);
+    } catch (error) {
+      if (!(error instanceof AgentSessionError)) throw error;
+      ended.session = sessionFailure(stage, error, ctx.now());
+      reason = "infra";
+      return null;
+    }
+  };
+  const failedRecord = (stage: "development" | "review", started: number): StageRecord => ({ stage, outcome: "failed", durationMs: ctx.now() - started, failedCommand: "agent session", output: tail(ended.session?.message ?? "") });
 
   if (upToDate) {
     ready = true;
@@ -105,14 +123,16 @@ export async function work(ctx: CommandContext, number: number | null, options: 
       const timeout = budget(config.timeouts.development);
       let resolved = false;
       if (timeout !== null) {
-        const run = await agent.run("development", updateBranchPrompt({ issue, base: config.baseBranch, conflicts, pr: number === null ? flow.pr : null, language: config.language }), { timeoutMs: timeout, model: config.models.development });
-        add(usage.development, run.usage);
-        resolved = !run.timedOut && !(await mergeInProgress(git));
+        const run = await session("development", updateBranchPrompt({ issue, base: config.baseBranch, conflicts, pr: number === null ? flow.pr : null, language: config.language }), { timeoutMs: timeout, model: config.models.development });
+        if (run) add(usage.development, run.usage);
+        resolved = run !== null && !run.timedOut && !(await mergeInProgress(git));
       }
       if (!resolved) {
         await git.run("merge", "--abort").catch(() => undefined);
-        reason = "needs-human";
-        question = `Merging \`${config.baseBranch}\` into the branch conflicts in ${conflicts.map((c) => `\`${c}\``).join(", ")} and the Factory could not resolve it.`;
+        if (!ended.session) {
+          reason = "needs-human";
+          question = `Merging \`${config.baseBranch}\` into the branch conflicts in ${conflicts.map((c) => `\`${c}\``).join(", ")} and the Factory could not resolve it.`;
+        }
         bail = true;
       }
     }
@@ -164,13 +184,17 @@ export async function work(ctx: CommandContext, number: number | null, options: 
       roundThreads = await openThreads(ctx, config, flow.pr);
       checks = await failedChecks(ctx, flow.pr);
     }
-    const dev = await agent.run(
+    const dev = await session(
       "development",
       feedbackRound
         ? prFeedbackPrompt({ issue, pr: flow.pr, log: await git.log(base, "HEAD"), threads: roundThreads, checks, language: config.language })
         : developmentPrompt({ issue, base: config.baseBranch, log: await git.log(base, "HEAD"), feedback, language: config.language }),
       { timeoutMs, model: config.models.development, ...(feedbackRound ? { extract: repliesExtraction } : {}) },
     );
+    if (dev === null) {
+      stages.push(failedRecord("development", started));
+      break;
+    }
     const said = flow?.kind === "pr-feedback" ? parseReplies(dev.output) : null;
     for (const r of said ?? []) replies.set(r.threadId, r);
     add(usage.development, dev.usage);
@@ -226,14 +250,15 @@ export async function work(ctx: CommandContext, number: number | null, options: 
         break;
       }
       started = ctx.now();
-      const reviewRun = await agent.run(
+      const reviewRun = await session(
         "review",
         reviewPrompt({ issue, log: await git.log(base, "HEAD"), since: lastReviewed, findings: reviews, gaps: mergeGaps(gaps), round: flow?.kind === "pr-feedback" ? round() : undefined, language: config.language }),
         { timeoutMs, model: config.models.review, extract: reviewExtraction },
       );
-      add(usage.review, reviewRun.usage);
-      const reviewRecord = { stage: "review" as const, durationMs: ctx.now() - started, commits: reviewRun.commits, usage: reviewRun.usage, retries: reviewRun.retries };
-      gaps.push(...skeletonGaps(reviewRun.output));
+      if (reviewRun) {
+        add(usage.review, reviewRun.usage);
+        gaps.push(...skeletonGaps(reviewRun.output));
+      }
       if (product !== null) {
         const left = await changedSkeletonPaths(git, base);
         if (left.length > 0) {
@@ -243,6 +268,11 @@ export async function work(ctx: CommandContext, number: number | null, options: 
         }
         reverted = [...new Set([...developed, ...left])].sort();
       }
+      if (reviewRun === null) {
+        stages.push(failedRecord("review", started));
+        break;
+      }
+      const reviewRecord = { stage: "review" as const, durationMs: ctx.now() - started, commits: reviewRun.commits, usage: reviewRun.usage, retries: reviewRun.retries };
       if (reviewRun.timedOut) {
         stages.push({ ...reviewRecord, outcome: "timeout", output: tail(reviewRun.output) });
         if (outOfTime()) {
@@ -324,7 +354,8 @@ export async function work(ctx: CommandContext, number: number | null, options: 
   // Pull Request Stage: once, outside the attempts, only for a run that left commits and opens a pull request.
   let pullRequestBody: string | null = null;
   let pullRequestStage: PullRequestStageRecord | null = null;
-  if (head && flow?.kind !== "update-branch" && !waiting) {
+  // A failed session ends the run: the Pull Request Stage would meet the same failure (the same spent quota).
+  if (head && flow?.kind !== "update-branch" && !waiting && !ended.session) {
     const timeoutMs = budget(config.timeouts.pullRequest);
     if (timeoutMs === null) {
       pullRequestStage = { outcome: "skipped", durationMs: 0, usage: zeroUsage(), retries: 0, reason: "no time left in the global limit" };
@@ -363,15 +394,18 @@ export async function work(ctx: CommandContext, number: number | null, options: 
     }
   }
 
+  const paused = !ready && !waiting && ended.session?.limit != null;
   const result: FactoryResult = {
     version: 1,
     issue: issue.number,
     branch,
     base,
     head,
-    outcome: ready ? "ready" : waiting ? "waiting" : "escalated",
-    reason: ready || waiting ? null : reason,
+    outcome: ready ? "ready" : waiting ? "waiting" : paused ? "paused" : "escalated",
+    reason: ready || waiting || paused ? null : reason,
     question,
+    flow: flow?.kind ?? "issue",
+    session: ended.session,
     attempts,
     review: combineReviews(reviews),
     threadReplies: [...replies.values()],
@@ -398,6 +432,21 @@ async function subject(ctx: CommandContext, number: number | null, flow: WorkFlo
   if (!pr) throw new Error(`Pull request #${flow.pr} does not exist.`);
   const issue: Issue = { number: pr.number, title: `Pull request #${pr.number}`, body: PR_SUBJECT_BODY, state: "open", labels: [], parent: null, children: [], comments: [] };
   return { issue, branch: pr.branch };
+}
+
+/**
+ * The head a paused issue run pushed, when the Factory's last word on the issue is that pause (not a later Escalation
+ * or wait on the Skeleton, after which a run starts over) and the checkout has the commit; null otherwise.
+ */
+async function pausedHead(ctx: CommandContext, git: Git, issue: Issue): Promise<string | null> {
+  for (const comment of [...issue.comments].reverse()) {
+    const marker = [SESSION_LIMIT_MARKER, ESCALATION_MARKER, WAITING_MARKER].find((m) => comment.body.includes(m));
+    if (marker === undefined || !(await isFactoryComment(ctx.tracker, comment, marker))) continue;
+    const head = marker === SESSION_LIMIT_MARKER ? parseWait(comment.body)?.head : null;
+    if (!head) return null;
+    return (await git.run("cat-file", "-e", `${head}^{commit}`).then(() => true, () => false)) ? head : null;
+  }
+  return null;
 }
 
 /** The failed checks of the PR's head for a pr-feedback round. A forge that cannot be read never stops the round: the prompt says why. */

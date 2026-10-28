@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AGENT_ENV_ALLOWLIST, pick } from "../../env.ts";
 import { Git } from "../../git.ts";
-import { MAX_EXTRACTION_RETRIES, type Agent, type AgentRun, type Extraction, type Stage, type Usage } from "../../seams/agent.ts";
+import { AgentSessionError, MAX_EXTRACTION_RETRIES, SessionLimitError, type Agent, type AgentRun, type Extraction, type Stage, type Usage } from "../../seams/agent.ts";
 import type { SessionRequest, SessionResponse } from "./session.ts";
 
 export { AGENT_ENV_ALLOWLIST };
@@ -88,10 +88,41 @@ export class SandcastleAgent implements Agent {
       ...(resumeSession ? { resumeSession } : {}),
     };
     const { response, timedOut } = await runSession(request, env, timeoutMs);
-    if (!timedOut && !response?.ok) throw new Error(`Agent session ${file} failed: ${response?.error ?? "no response"}`);
     const stream = await readFile(streamFile, "utf8").catch(() => "");
+    if (!timedOut && !response?.ok) {
+      const error = response?.error ?? "no response";
+      const message = `Agent session ${file} failed: ${error}`;
+      const limit = usageLimit(stream, error);
+      throw limit ? new SessionLimitError(message, limit.resetsAt) : new AgentSessionError(message);
+    }
     return { ...summarize(stream), sessionId: sessionIdOf(stream), timedOut };
   }
+}
+
+const LIMIT_LINE = /You've hit your [^\n]*limit[^\n]*/;
+const RESETS = /\bresets\s+([^\n"]+?)\s*$/m;
+
+/**
+ * Whether a failed session stopped at the account's usage limit, and the reset time Claude Code gave. Claude Code
+ * marks the event of the refused request (`error: "rate_limit"`, `api_error: "usage_limit_reached"`) and Sandcastle's
+ * error repeats the final text; a session that only quotes the text (in a tool result, in its answer) is no limit.
+ */
+export function usageLimit(stream: string, error: string): { resetsAt: string | null } | null {
+  let text: string | null = null;
+  for (const line of stream.split("\n")) {
+    if (!line.startsWith("{")) continue;
+    let event: { error?: unknown; api_error?: unknown; message?: { content?: { type: string; text?: string }[] } };
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (event.error !== "rate_limit" && event.api_error !== "usage_limit_reached") continue;
+    text = (event.message?.content ?? []).flatMap((b) => (b.type === "text" && b.text ? [b.text] : [])).join("\n");
+  }
+  text ??= error.match(LIMIT_LINE)?.[0] ?? null;
+  if (text === null) return null;
+  return { resetsAt: text.match(RESETS)?.[1] ?? null };
 }
 
 /** The Claude Code session id, from the first stream-json event that carries one. */

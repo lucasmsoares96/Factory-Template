@@ -76,7 +76,7 @@ describe("label tables", () => {
 
   it("the Factory labels table is the config's labels", () => {
     const { labels } = defaultConfig;
-    expect(firstColumn(section("Factory labels"))).toEqual([labels.inProgress, labels.working, labels.agentExplore, labels.harnessChange, labels.preview, labels.retro, `${labels.productPrefix}<id>`]);
+    expect(firstColumn(section("Factory labels"))).toEqual([labels.inProgress, labels.working, labels.sessionLimit, labels.agentExplore, labels.harnessChange, labels.preview, labels.retro, `${labels.productPrefix}<id>`]);
   });
 
   it("who sets each Factory label is stated, and `preview` is set by a human and removed by CI", () => {
@@ -86,6 +86,7 @@ describe("label tables", () => {
     expect(rows.get(defaultConfig.labels.inProgress)).toMatch(/^the Factory/);
     expect(rows.get(defaultConfig.labels.agentExplore)).toMatch(/^a human/);
     expect(rows.get(defaultConfig.labels.working)).toMatch(/^the Factory/);
+    expect(rows.get(defaultConfig.labels.sessionLimit)).toMatch(/^the Factory/);
   });
 
   it("`factory:working` says when it comes off, and how it differs from `in-progress`", () => {

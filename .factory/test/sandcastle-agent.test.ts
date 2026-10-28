@@ -2,6 +2,7 @@ import { chmod, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { AGENT_ENV_ALLOWLIST, SandcastleAgent } from "../src/adapters/sandcastle/agent.ts";
+import { AgentSessionError, SessionLimitError } from "../src/seams/agent.ts";
 import { checkout, git, tempDir } from "./helpers.ts";
 
 /**
@@ -9,10 +10,10 @@ import { checkout, git, tempDir } from "./helpers.ts";
  * fake `claude` on PATH. The fake records its argv, stdin and env, may run a
  * shell command in the repo, and answers in Claude Code's stream-json.
  */
-async function fakeClaude(behaviour: { run?: string; sleep?: boolean; exit?: number; result?: string; results?: string[] } = {}) {
+async function fakeClaude(behaviour: { run?: string; sleep?: boolean; exit?: number; result?: string; results?: string[]; lines?: object[] } = {}) {
   const bin = await tempDir("factory-bin-");
   const record = join(bin, "record.json");
-  const lines = [
+  const lines = behaviour.lines ?? [
     { type: "system", subtype: "init", session_id: "session-1" },
     { type: "assistant", message: { content: [{ type: "text", text: "Working on it." }] } },
     {
@@ -49,6 +50,21 @@ process.exit(${behaviour.exit ?? 0});`}
       JSON.parse(await readFile(record, "utf8")) as { argv: string[]; stdin: string; env: Record<string, string>; cwd: string },
   };
 }
+
+const LIMIT_TEXT = "You've hit your session limit · resets 3:20pm (UTC)";
+const SESSION_LIMIT_STREAM = [
+  { type: "system", subtype: "init", session_id: "session-1" },
+  {
+    type: "assistant",
+    message: { content: [{ type: "text", text: LIMIT_TEXT }] },
+    session_id: "session-1",
+    error: "rate_limit",
+    is_api_error_message: true,
+    api_error_status: 429,
+    api_error: "usage_limit_reached",
+  },
+  { type: "result", subtype: "success", is_error: true, result: LIMIT_TEXT, session_id: "session-1", usage: { input_tokens: 0, output_tokens: 0 } },
+];
 
 async function setup(behaviour: Parameters<typeof fakeClaude>[0] = {}) {
   const claude = await fakeClaude(behaviour);
@@ -171,8 +187,28 @@ describe("Sandcastle Agent", () => {
     expect(Date.now() - started).toBeLessThan(30_000);
   });
 
-  it("fails the run when Claude Code fails (an infra failure for the job)", async () => {
+  it("fails the run with a session error when Claude Code fails", async () => {
     const { agent } = await setup({ exit: 1 });
-    await expect(agent.run("development", "Implement issue #7.", options)).rejects.toThrow(/claude-code exited with code 1/);
+    const failure = agent.run("development", "Implement issue #7.", options);
+    await expect(failure).rejects.toThrow(/claude-code exited with code 1/);
+    await expect(failure).rejects.toBeInstanceOf(AgentSessionError);
+    await expect(failure).rejects.not.toBeInstanceOf(SessionLimitError);
+  });
+
+  it("fails the run with a session limit error, with the reset time Claude Code gave", async () => {
+    // As Claude Code 2.1 writes it in stream-json (work-out of runs 40571051832 and 40698886550).
+    const { agent, repo } = await setup({ lines: SESSION_LIMIT_STREAM, exit: 1, run: "echo 'export const greet = 1;' > src/greet.ts && git add . && git commit -qm 'feat: greet #7' || true" });
+
+    const failure = await agent.run("development", "Implement issue #7.", options).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(SessionLimitError);
+    expect(failure).toMatchObject({ resetsAt: "3:20pm (UTC)", message: expect.stringContaining("You've hit your session limit · resets 3:20pm (UTC)") });
+    // The commits the session made before the limit stay on the branch.
+    expect(await git(repo, "log", "-1", "--format=%s")).toBe("feat: greet #7");
+  });
+
+  it("does not take a session that only quotes the limit text for a limit", async () => {
+    const { agent } = await setup({ result: "The issue says: You've hit your session limit · resets 3:20pm (UTC)" });
+    await expect(agent.run("development", "Implement issue #7.", options)).resolves.toMatchObject({ timedOut: false });
   });
 });
