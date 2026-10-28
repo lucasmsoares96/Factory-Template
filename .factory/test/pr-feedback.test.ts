@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { rmSync } from "node:fs";
+import { loadConfig } from "../src/config.ts";
 import { FACTORY_MARKER, marked } from "../src/marker.ts";
+import { escalationComment } from "../src/report.ts";
 import type { ThreadId } from "../src/seams/code-host.ts";
 import { git, HUMAN, lastJson, OWNER, unmarked } from "./helpers.ts";
 import { BRANCH, PR, commits, feedbackRound, finishRound, prWorld, replies, reviewOk, said, thread, type PrWorld } from "./pr-flow-helpers.ts";
@@ -244,6 +247,40 @@ describe("factory pr-feedback: a round", () => {
     expect(pr.body).toContain("## Summary");
     expect(pr.body).not.toMatch(/draft|holds its progress|\[!WARNING\]/i);
     expect(unmarked(pr.body).trimEnd().endsWith("Closes #7")).toBe(true);
+  });
+
+  it("escalates a round whose work job left no result.json citing the round's PR, without sending the issue back to ready-for-agent", async () => {
+    const p = await prWorld({
+      main: "none",
+      threads: [thread("t1", "fix it")],
+      agent: { development: [commits(replies({ threadId: "t1", decision: "address", body: "Done." }))], review: [reviewOk] },
+      verify: [{ ok: true }],
+    });
+
+    await feedbackRound(p, { beforePublish: () => rmSync(p.out, { recursive: true, force: true }) });
+
+    expect(JSON.parse(p.w.logs.findLast((line) => line.includes('"outcome"'))!)).toMatchObject({ outcome: "escalated", reason: "infra", pr: PR });
+    expect(p.w.tracker.labelsOf(7)).toEqual(["ready-for-human"]);
+    const comment = p.w.tracker.commentsOn(7).at(-1)!.body;
+    expect(comment).toContain(`#${PR}`);
+    expect(comment).not.toContain("No pull request");
+    expect(comment).not.toMatch(/draft/i);
+    expect(comment).not.toContain("ready-for-agent");
+    expect(comment).toContain("`in-progress`");
+    expect(p.w.codeHost.pr(PR).draft).toBe(false);
+    expect(p.w.codeHost.pr(PR).state).toBe("open");
+  });
+
+  it("cites the round's PR in pt-BR too, even after a push, and hints to comment on it again instead of ready-for-agent", () => {
+    const url = `https://example.test/pull/${PR}`;
+    const comment = escalationComment(
+      { reason: "needs-human", result: null, pr: { number: PR, url }, round: { number: PR, url }, runUrl: null },
+      loadConfig({ FACTORY_LANGUAGE: "pt-BR" }),
+    );
+
+    expect(comment).toContain(`**Pull request:** #${PR}, o que esta rodada continua`);
+    expect(comment).toContain(`comente de novo no pull request #${PR}`);
+    expect(comment).not.toMatch(/rascunho|Nenhum pull request|ready-for-agent/);
   });
 
   it("escalates a round whose Review finds a criterion not met, and lists the unchecked verdict in the PR body", async () => {
