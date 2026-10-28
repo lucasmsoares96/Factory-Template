@@ -315,6 +315,26 @@ describe("factory merge: the Merge Mode's decision", () => {
     expect(lastJson(w.logs)).toEqual({ mode: "all", decisions: [{ pr: 101, merged: true }] });
   });
 
+  it("in all, names the mode and the protected files in the pt-BR comment", async () => {
+    const w = mergeWorld({ env: { FACTORY_MERGE_MODE: "all", FACTORY_LANGUAGE: "pt-BR" }, pr: { files: [".factory/src/guard.ts"] } });
+
+    await run(w);
+
+    const comment = unmarked(w.codeHost.pr(101).comments.at(-1)!);
+    expect(comment).toContain("o Merge Mode é `all`");
+    expect(comment).toContain("este diff altera `.factory/src/guard.ts`");
+    expect(comment).not.toContain("Nenhum arquivo do diff é protegido");
+  });
+
+  it("in all, still holds a PR whose verify failed, and reports no protected files as the reason", async () => {
+    const w = mergeWorld({ env: { FACTORY_MERGE_MODE: "all" }, checks: GREEN.map((c) => (c.name === "verify" ? { ...c, conclusion: "failure" } : c)), pr: { files: [".factory/src/config.ts"] } });
+
+    await run(w);
+
+    expect(merged(w)).toBe(false);
+    expect(decision(w)).toEqual({ pr: 101, merged: false, reason: "conditions", unmet: ["verify"] });
+  });
+
   it("in all, does not merge when a criterion has no met verdict", async () => {
     const w = mergeWorld({ env: { FACTORY_MERGE_MODE: "all" }, pr: { files: [".factory/src/config.ts"], body: verdicts(["- [x] One. — proof", "- [ ] Two. — not done"]) } });
 
