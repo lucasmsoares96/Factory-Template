@@ -76,7 +76,7 @@ describe("label tables", () => {
 
   it("the Factory labels table is the config's labels", () => {
     const { labels } = defaultConfig;
-    expect(firstColumn(section("Factory labels"))).toEqual([labels.inProgress, labels.working, labels.sessionLimit, labels.agentExplore, labels.harnessChange, labels.preview, labels.retro, `${labels.productPrefix}<id>`]);
+    expect(firstColumn(section("Factory labels"))).toEqual([labels.inProgress, labels.working, labels.sessionLimit, labels.agentExplore, labels.harnessChange, labels.preview, labels.retro, labels.autoMerged, `${labels.productPrefix}<id>`]);
   });
 
   it("who sets each Factory label is stated, and `preview` is set by a human and removed by CI", () => {
@@ -205,6 +205,14 @@ describe("CODING_STANDARDS.md", () => {
     const architecture = read("CODING_STANDARDS.md").split(/^## /m).find((s) => s.startsWith("Architecture\n"));
     expect(architecture, "## Architecture").toBeDefined();
     for (const fragment of ["agent", "whole token", "substring", "blank", "near-miss", "`line` vs `line7`", "`/api/note` vs `/api/notes`"]) {
+      expect(architecture!, fragment).toContain(fragment);
+    }
+  });
+
+  it("holds the per-flow gate rule under Architecture", () => {
+    const architecture = read("CODING_STANDARDS.md").split(/^## /m).find((s) => s.startsWith("Architecture\n"));
+    expect(architecture, "## Architecture").toBeDefined();
+    for (const fragment of ["`needs-human`", "`issue`", "`pr-feedback`", "`update-branch`", "not pushing", "flow it skips", "keeps it green", "never stops it", "`.factory/src/commands/work.ts`"]) {
       expect(architecture!, fragment).toContain(fragment);
     }
   });

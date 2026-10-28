@@ -223,6 +223,33 @@ export const catalog = {
     en: (paths: string[]) => `This pull request changes files that steer the Factory: ${list(paths)}. Review them with care.`,
     "pt-BR": (paths) => `Este pull request altera arquivos que guiam a Factory: ${list(paths)}. Revise-os com cuidado.`,
   }),
+  // `merge`: the comment on a pull request the Factory merged on its own (Merge Mode).
+  autoMerged: text({
+    en: (mode: string, base: string, preview: boolean) =>
+      [
+        `The Factory merged this pull request on its own: the Merge Mode is \`${mode}\`, and every condition held.`,
+        "",
+        "- No file of the diff is protected (`PROTECTED_PATHS` in `.factory/src/config.ts`).",
+        "- `verify` passed.",
+        preview ? "- No preview deploy or smoke failed." : "- This pull request has no preview to smoke.",
+        "- Every acceptance criterion has a met verdict.",
+        `- The last deploy of \`${base}\` did not fail.`,
+        "",
+        "To undo it, revert the merge commit.",
+      ].join("\n"),
+    "pt-BR": (mode, base, preview) =>
+      [
+        `A Factory fez o merge deste pull request sozinha: o Merge Mode é \`${mode}\`, e todas as condições valeram.`,
+        "",
+        "- Nenhum arquivo do diff é protegido (`PROTECTED_PATHS` em `.factory/src/config.ts`).",
+        "- O `verify` passou.",
+        preview ? "- Nenhum deploy ou smoke de preview falhou." : "- Este pull request não tem preview para o smoke.",
+        "- Todo critério de aceitação tem veredito atendido.",
+        `- O último deploy da \`${base}\` não falhou.`,
+        "",
+        "Para desfazer, reverta o commit de merge.",
+      ].join("\n"),
+  }),
   verdictsHeading: text({ en: (): string => "## Acceptance criteria verdicts", "pt-BR": () => "## Vereditos dos critérios de aceitação" }),
   minimalBody: text({ en: (): string => "Implemented by the Factory.", "pt-BR": () => "Implementado pela Factory." }),
   noFindings: text({ en: (): string => "No findings.", "pt-BR": () => "Nenhum achado." }),
