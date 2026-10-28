@@ -935,6 +935,40 @@ describe("Factory update branches workflow", () => {
     expect(concurrencyOf(update.jobs["scan-pr"]!)).toEqual({ group: "factory-update-open-${{ github.event.pull_request.number }}", "cancel-in-progress": true });
   });
 
+  it("a newer dispatch for the same issue or PR cancels the update in progress; the scans and `work`'s group are left alone", () => {
+    const concurrency = (update as unknown as { concurrency: { group: string; "cancel-in-progress": boolean } }).concurrency;
+    expect(concurrency).toEqual({
+      group: "${{ github.event_name == 'workflow_dispatch' && (inputs.issue && format('factory-update-{0}', inputs.issue) || format('factory-update-pr-{0}', inputs.pr)) || format('factory-update-run-{0}', github.run_id) }}",
+      "cancel-in-progress": true,
+    });
+    // A push or an opened PR is a group of its own run: a scan never cancels another scan's run, nor a dispatched update.
+    expect(concurrency.group).toContain("format('factory-update-run-{0}', github.run_id)");
+    expect((update.jobs.work as unknown as { concurrency: unknown }).concurrency).toEqual({
+      group: "${{ needs.claim.outputs.issue && format('factory-{0}', needs.claim.outputs.issue) || format('factory-pr-{0}', needs.claim.outputs.pr) }}",
+      "cancel-in-progress": false,
+      queue: "max",
+    });
+  });
+
+  it("a run cancelled while it worked only takes factory:working off; once `publish` started, it finishes", () => {
+    const publish = update.jobs.publish!;
+    expect(publish.if).toBe("${{ always() && needs.claim.outputs.claimed == 'true' }}");
+    const [off, ...rest] = steps(publish).reverse();
+    expect(off!.run).toContain("pnpm factory working off");
+    expect(off!.if).toBe("always()");
+    expect(publish.needs).toEqual(["claim", "image", "work"]);
+    // `always()` keeps each step going when the run is cancelled mid-publish; a run cancelled before skips the publish.
+    const [publishStep, download, ...setup] = rest;
+    const skipCancelled = "${{ always() && !(cancelled() && contains(needs.*.result, 'cancelled')) }}";
+    expect(publishStep!.name).toBe("publish");
+    expect(publishStep!.if).toBe(skipCancelled);
+    expect(download!.uses).toMatch(/^actions\/download-artifact@/);
+    expect(download!.if).toBe(skipCancelled);
+    // The harness `working off` runs on.
+    for (const step of setup) expect(step.if, step.uses ?? step.run).toBe("always()");
+    expect(runs(publish).join("\n")).toMatch(/pnpm factory publish \$\{ISSUE:\+"\$ISSUE"\} --flow update-branch /);
+  });
+
   it("`scan` dispatches with the job token and holds no secret; it may write only a fork PR's comment and factory:working", () => {
     const scan = update.jobs.scan!;
     expect(scan.permissions).toEqual({ contents: "read", issues: "write", "pull-requests": "write", actions: "write" });
