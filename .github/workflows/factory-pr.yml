@@ -462,7 +462,10 @@ jobs:
     permissions: {}
     steps:
       - if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        env:
+          NEEDS: ${{ toJSON(needs) }}
         run: |
-          echo "A job failed or was cancelled." >&2
+          echo "A job failed or was cancelled:" >&2
+          jq -r 'to_entries[] | "\(.key): \(.result)"' <<<"$NEEDS" >&2
           exit 1
       - run: echo "verify passed"
