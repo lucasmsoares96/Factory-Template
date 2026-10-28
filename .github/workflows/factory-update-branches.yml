@@ -12,6 +12,9 @@
 #                                   then E2E, and the normal loop if it fails. The PR body is left alone. A run keyed by the
 #                                   PR changes no label but factory:working, opens no PR and comments only on the PR.
 #                                   `claim` puts factory:working on the PR (and the issue); publish's last step takes it off.
+# A newer dispatch for the same issue or PR cancels the run going (it would merge an older base branch): cancelled while
+# it works (`claim`, `image`, `work`), the run only takes factory:working off; once in `publish`, it finishes, and a run
+# discarded because the branch moved only says so in the log, for the newer one is on its way.
 # `publish` pushes with FACTORY_TOKEN, so the PR's CI runs again. The agent never sees FACTORY_TOKEN, and no job runs a
 # fork's code. Off until `pnpm bootstrap factory` sets FACTORY_ENABLED.
 name: Factory update branches
@@ -36,6 +39,12 @@ on:
         required: false
 
 permissions: {}
+
+# One group per dispatched issue or PR, cancelling the run going. A push or an opened PR is a group of its own run: the
+# scans keep their job groups and never cancel a dispatched update. `work` keeps the issue flow's group below.
+concurrency:
+  group: ${{ github.event_name == 'workflow_dispatch' && (inputs.issue && format('factory-update-{0}', inputs.issue) || format('factory-update-pr-{0}', inputs.pr)) || format('factory-update-run-{0}', github.run_id) }}
+  cancel-in-progress: true
 
 env:
   ISSUE: ${{ inputs.issue }}
@@ -263,8 +272,10 @@ jobs:
           if-no-files-found: ignore
 
   publish:
-    needs: [claim, work]
-    # Also when `work` failed, timed out or was cancelled: with no result.json it escalates "infra".
+    needs: [claim, image, work]
+    # Also when `work` failed or timed out: with no result.json it escalates "infra". A run cancelled during `claim`,
+    # `image` or `work` publishes nothing and only takes factory:working off; cancelled during `publish`, `always()`
+    # keeps the job and its steps going (GitHub re-evaluates their `if` on a cancel), so it finishes.
     if: ${{ always() && needs.claim.outputs.claimed == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -283,23 +294,29 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: always()
         with:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: always()
         with:
           node-version-file: .node-version
-      - run: corepack enable pnpm && pnpm install --frozen-lockfile --ignore-scripts --filter @factory/harness
-      - env:
+      - if: always()
+        run: corepack enable pnpm && pnpm install --frozen-lockfile --ignore-scripts --filter @factory/harness
+      - if: always()
+        env:
           VARS_JSON: ${{ toJSON(vars) }}
         run: node .factory/src/ci/vars.ts
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: ${{ always() && !(cancelled() && contains(needs.*.result, 'cancelled')) }}
         continue-on-error: true
         with:
           name: work-out
           path: ${{ runner.temp }}/out
       - name: publish
+        if: ${{ always() && !(cancelled() && contains(needs.*.result, 'cancelled')) }}
         # GITHUB_TOKEN only dispatches the Retro of an Escalation; FACTORY_TOKEN does every write.
         env:
           FACTORY_TOKEN: ${{ secrets.FACTORY_TOKEN }}
@@ -309,7 +326,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/out"
           gh --version | head -1
-          pnpm factory publish ${ISSUE:+"$ISSUE"} --in "$RUNNER_TEMP/out" --pr "$PR" --start-sha "$START_SHA"
+          pnpm factory publish ${ISSUE:+"$ISSUE"} --flow update-branch --in "$RUNNER_TEMP/out" --pr "$PR" --start-sha "$START_SHA"
       # The end of the run, whatever happened: never with FACTORY_TOKEN, whose label events would start workflows.
       - name: working off
         if: always()
