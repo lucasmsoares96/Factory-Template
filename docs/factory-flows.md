@@ -106,7 +106,7 @@ The detail of the Factory's flows on the forge: which workflow runs which jobs, 
 
 `work <N> --flow pr-feedback|update-branch --pr <n>`, then `publish <N> --pr <n>`; `commands/pr-claim.ts` guards both.
 
-- `publish` pushes with `FACTORY_TOKEN`, so the PR's CI runs again (the `GITHUB_TOKEN` that step holds only dispatches the Retro of an Escalation). The guarantee is the lease: `Run discarded` when the branch moved, on the issue or, for a PR-keyed run, on the PR.
+- `publish` pushes with `FACTORY_TOKEN`, so the PR's CI runs again (the `GITHUB_TOKEN` that step holds only dispatches the Retro of an Escalation). The guarantee is the lease: `Run discarded` on the issue when the branch moved. An update of a branch (`publish --flow update-branch`, and every PR-keyed run) writes that discard to the log only: the newer update that moved the branch is on its way. Any other discard still comments.
 
 ### PR feedback
 
@@ -146,6 +146,8 @@ What `publish` does:
   - Any other PR, a person's or a Factory PR whose issue is not `in-progress`, is keyed by the PR (`pr`, `update-branch --pr`, `work --flow update-branch --pr`, `publish --pr` with no issue; run `PR #N update branch`, group `factory-pr-<N>`).
 - A fork's PR is never pushed to and none of its code runs: it gets one marked comment (`<!-- factory:update-fork -->`, never repeated) asking its author to update the branch, and `update-branch --pr` refuses it.
 - The run merges with no agent when clean (conflict: the agent, "preserve both intents, do not invent new behaviour"; a branch that already contains the base runs nothing), runs Verify and enters the normal loop only if it fails. It runs no Pull Request Stage and leaves the PR body alone.
+- Each dispatched update has its own workflow group, `factory-update-<N>` (issue) or `factory-update-pr-<N>` (PR), with `cancel-in-progress: true`: a newer push cancels the update going for the same branch. A push or an opened PR is a group of its own run, so the scans never cancel each other or an update; `work` keeps the `factory-<N>` / `factory-pr-<N>` group it shares with the other flows.
+  - Cancelled during `claim`, `image` or `work`, the run publishes nothing (no comment, no Escalation) and only takes `factory:working` off. Once in `publish`, `always()` on the job and its steps keeps it going to the end.
 - A PR-keyed run reads no issue (the prompt names the PR), changes no label but `factory:working` on the PR, opens no PR, starts no Retro and comments only on the PR: what it merged, or why it stopped (after the 5 attempts, with them; nothing is pushed then).
 
 ## PR previews
