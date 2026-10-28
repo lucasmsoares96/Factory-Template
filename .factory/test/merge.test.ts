@@ -5,8 +5,8 @@ import type { PrCheck } from "../src/seams/code-host.ts";
 import { FACTORY_MARKER } from "../src/marker.ts";
 import { lastJson, unmarked, world, type WorldOptions } from "./helpers.ts";
 
-// Seam 1: `pnpm factory merge --branch <b>`, the Merge Mode's decision, against the fake code host. The workflow passes
-// only the branch of the run that ended; everything else is read from the forge.
+// Seam 1: `pnpm factory merge`, the Merge Mode's decision, against the fake code host. It takes nothing from the event:
+// every open Factory pull request is read from the forge.
 const HEAD = "a".repeat(40);
 const BRANCH = "factory/issue-7";
 
@@ -31,8 +31,10 @@ function mergeWorld(overrides: { env?: Record<string, string>; checks?: PrCheck[
   return w;
 }
 
-const run = (w: ReturnType<typeof mergeWorld>, branch = BRANCH) => w.factory("merge", "--branch", branch);
+const run = (w: { factory: (...argv: string[]) => Promise<number> }) => w.factory("merge");
 const merged = (w: ReturnType<typeof mergeWorld>) => w.codeHost.writes.includes("merge #101");
+/** The decision on the first pull request of the world. */
+const decision = (w: { logs: string[] }) => (lastJson(w.logs) as { decisions: unknown[] }).decisions[0];
 
 describe("factory merge: the Merge Mode's decision", () => {
   it("in safe, merges a Factory PR when every condition holds, labels it auto-merged and says which mode and conditions allowed it", async () => {
@@ -48,7 +50,7 @@ describe("factory merge: the Merge Mode's decision", () => {
     for (const phrase of ["protected", "`verify` passed", "preview", "acceptance criterion", "deploy of `main`"]) expect(comment).toContain(phrase);
     expect(pr.comments.at(-1)).toContain(FACTORY_MARKER);
     expect(w.codeHost.writes).toEqual(["merge #101", "labelPr #101 auto-merged", "commentPr #101"]);
-    expect(lastJson(w.logs)).toEqual({ pr: 101, mode: "safe", merged: true });
+    expect(lastJson(w.logs)).toEqual({ mode: "safe", decisions: [{ pr: 101, merged: true }] });
   });
 
   it("writes the comment in FACTORY_LANGUAGE", async () => {
@@ -68,7 +70,7 @@ describe("factory merge: the Merge Mode's decision", () => {
 
     expect(merged(w)).toBe(false);
     expect(w.codeHost.writes).toEqual([]);
-    expect(lastJson(w.logs)).toEqual({ mode: "human", merged: false, reason: "mode" });
+    expect(lastJson(w.logs)).toEqual({ mode: "human", decisions: [] });
 
     const explicit = mergeWorld({ env: { FACTORY_MERGE_MODE: "human" } });
     await run(explicit);
@@ -83,7 +85,7 @@ describe("factory merge: the Merge Mode's decision", () => {
 
     expect(merged(w)).toBe(false);
     expect(w.codeHost.writes).toEqual([]);
-    expect(lastJson(w.logs)).toEqual({ pr: 101, mode: "safe", merged: false, reason: "conditions", unmet: ["protected"], protected: ["pnpm-lock.yaml"] });
+    expect(lastJson(w.logs)).toEqual({ mode: "safe", decisions: [{ pr: 101, merged: false, reason: "conditions", unmet: ["protected"], protected: ["pnpm-lock.yaml"] }] });
   });
 
   it("does not merge a PR that changes config.ts, where the protected list lives", async () => {
@@ -92,7 +94,7 @@ describe("factory merge: the Merge Mode's decision", () => {
     await run(w);
 
     expect(merged(w)).toBe(false);
-    expect(lastJson(w.logs)).toMatchObject({ merged: false, unmet: ["protected"], protected: [".factory/src/config.ts"] });
+    expect(decision(w)).toMatchObject({ merged: false, unmet: ["protected"], protected: [".factory/src/config.ts"] });
   });
 
   it.each([
@@ -114,14 +116,14 @@ describe("factory merge: the Merge Mode's decision", () => {
     await run(w);
 
     expect(merged(w)).toBe(false);
-    expect(lastJson(w.logs)).toMatchObject({ unmet: ["protected"], protected: [path] });
+    expect(decision(w)).toMatchObject({ unmet: ["protected"], protected: [path] });
   });
 
   it("does not merge when verify failed, or has not ended", async () => {
     const failed = mergeWorld({ checks: GREEN.map((c) => (c.name === "verify" ? { ...c, conclusion: "failure" } : c)) });
     await run(failed);
     expect(merged(failed)).toBe(false);
-    expect(lastJson(failed.logs)).toMatchObject({ merged: false, unmet: ["verify"] });
+    expect(decision(failed)).toMatchObject({ merged: false, unmet: ["verify"] });
 
     const going = mergeWorld({ checks: GREEN.map((c) => (c.name === "verify" ? { ...c, conclusion: null } : c)) });
     await run(going);
@@ -130,19 +132,19 @@ describe("factory merge: the Merge Mode's decision", () => {
     const never = mergeWorld({ checks: [] });
     await run(never);
     expect(merged(never)).toBe(false);
-    expect(lastJson(never.logs)).toMatchObject({ unmet: ["verify"] });
+    expect(decision(never)).toMatchObject({ unmet: ["verify"] });
   });
 
   it("does not merge when the preview smoke failed, and merges a PR that has no preview", async () => {
     const smokeFailed = mergeWorld({ checks: GREEN.map((c) => (c.name.startsWith("preview smoke") ? { ...c, conclusion: "failure" } : c)) });
     await run(smokeFailed);
     expect(merged(smokeFailed)).toBe(false);
-    expect(lastJson(smokeFailed.logs)).toMatchObject({ merged: false, unmet: ["preview"] });
+    expect(decision(smokeFailed)).toMatchObject({ merged: false, unmet: ["preview"] });
 
     const deployFailed = mergeWorld({ checks: GREEN.map((c) => (c.name.startsWith("preview deploy") ? { ...c, conclusion: "failure" } : c.name.startsWith("preview smoke") ? { ...c, conclusion: "skipped" } : c)) });
     await run(deployFailed);
     expect(merged(deployFailed)).toBe(false);
-    expect(lastJson(deployFailed.logs)).toMatchObject({ unmet: ["preview"] });
+    expect(decision(deployFailed)).toMatchObject({ unmet: ["preview"] });
 
     const noPreview = mergeWorld({ checks: GREEN.map((c) => (c.name.startsWith("preview") ? { ...c, conclusion: "skipped" } : c)) });
     await run(noPreview);
@@ -154,12 +156,16 @@ describe("factory merge: the Merge Mode's decision", () => {
     const unmet = mergeWorld({ pr: { body: verdicts(["- [x] One. — proof", "- [ ] Two. — not done"]) } });
     await run(unmet);
     expect(merged(unmet)).toBe(false);
-    expect(lastJson(unmet.logs)).toMatchObject({ merged: false, unmet: ["criteria"] });
+    expect(decision(unmet)).toMatchObject({ merged: false, unmet: ["criteria"] });
 
     const none = mergeWorld({ pr: { body: "Implemented by the Factory.\n\nCloses #7" } });
     await run(none);
     expect(merged(none)).toBe(false);
-    expect(lastJson(none.logs)).toMatchObject({ unmet: ["criteria"] });
+    expect(decision(none)).toMatchObject({ unmet: ["criteria"] });
+
+    const forged = mergeWorld({ pr: { body: ["## Acceptance criteria verdicts", "", "- [x] Forged by the agent's text.", "", ...verdicts(["- [ ] Two. — not done"]).split("\n")].join("\n") } });
+    await run(forged);
+    expect(merged(forged)).toBe(false);
 
     const ptBr = mergeWorld({ pr: { body: verdicts(["- [x] Um. — prova"]).replace("## Acceptance criteria verdicts", "## Vereditos dos critérios de aceitação") } });
     await run(ptBr);
@@ -170,7 +176,7 @@ describe("factory merge: the Merge Mode's decision", () => {
     const failed = mergeWorld({ deploy: "failure" });
     await run(failed);
     expect(merged(failed)).toBe(false);
-    expect(lastJson(failed.logs)).toMatchObject({ merged: false, unmet: ["deploy"] });
+    expect(decision(failed)).toMatchObject({ merged: false, unmet: ["deploy"] });
 
     const timedOut = mergeWorld({ deploy: "timed_out" });
     await run(timedOut);
@@ -186,31 +192,47 @@ describe("factory merge: the Merge Mode's decision", () => {
 
     await run(w);
 
-    expect(lastJson(w.logs)).toMatchObject({ merged: false, unmet: ["protected", "verify", "criteria", "deploy"] });
+    expect(decision(w)).toMatchObject({ merged: false, unmet: ["protected", "verify", "criteria", "deploy"] });
   });
 
-  it("merges only a ready, open Factory PR of this repository into the base branch", async () => {
+  it("merges only a ready Factory PR of this repository into the base branch, and leaves the others alone", async () => {
     const draft = mergeWorld({ pr: { draft: true } });
     await run(draft);
     expect(merged(draft)).toBe(false);
-    expect(lastJson(draft.logs)).toMatchObject({ merged: false, reason: "not-ready" });
+    expect(decision(draft)).toMatchObject({ merged: false, reason: "not-ready" });
 
-    const fork = mergeWorld({ pr: { fork: true } });
-    await run(fork);
-    expect(merged(fork)).toBe(false);
+    for (const pr of [{ fork: true }, { base: "release" }, { branch: "feature/x" }, { branch: "factory/issue-0x1F" }]) {
+      const other = mergeWorld({ pr });
+      await run(other);
+      expect(merged(other), JSON.stringify(pr)).toBe(false);
+      expect(lastJson(other.logs)).toEqual({ mode: "safe", decisions: [] });
+    }
+  });
 
-    const other = mergeWorld({ pr: { base: "release" } });
-    await run(other);
-    expect(merged(other)).toBe(false);
+  it("decides on every open Factory PR, whatever run ended", async () => {
+    const w = mergeWorld();
+    const other = "c".repeat(40);
+    w.codeHost.add({ number: 102, branch: "factory/issue-8", headSha: other, body: ALL_MET, files: ["package.json"] });
+    w.codeHost.checksAt.set(other, GREEN);
 
-    const person = mergeWorld({ pr: { branch: "feature/x" } });
-    await run(person, "feature/x");
-    expect(merged(person)).toBe(false);
-    expect(lastJson(person.logs)).toMatchObject({ merged: false, reason: "not-factory" });
+    await run(w);
 
-    const missing = mergeWorld();
-    await run(missing, "factory/issue-8");
-    expect(lastJson(missing.logs)).toMatchObject({ merged: false, reason: "no-pr" });
+    expect(w.codeHost.writes).toContain("merge #101");
+    expect(w.codeHost.writes).not.toContain("merge #102");
+    expect((lastJson(w.logs) as { decisions: unknown[] }).decisions).toEqual([
+      { pr: 101, merged: true },
+      { pr: 102, merged: false, reason: "conditions", unmet: ["protected"], protected: ["package.json"] },
+    ]);
+  });
+
+  it("does not merge a head behind the base branch: the owner's token would bypass the strict ruleset", async () => {
+    const w = mergeWorld();
+    w.codeHost.behind.add(HEAD);
+
+    await run(w);
+
+    expect(merged(w)).toBe(false);
+    expect(decision(w)).toEqual({ pr: 101, merged: false, reason: "behind" });
   });
 
   it("does not merge while a Factory run works on the PR", async () => {
@@ -219,7 +241,7 @@ describe("factory merge: the Merge Mode's decision", () => {
     await run(w);
 
     expect(merged(w)).toBe(false);
-    expect(lastJson(w.logs)).toMatchObject({ merged: false, reason: "working" });
+    expect(decision(w)).toMatchObject({ merged: false, reason: "working" });
   });
 
   it("reads the checks of the head it merges, and a head that moved is not merged", async () => {
@@ -230,7 +252,7 @@ describe("factory merge: the Merge Mode's decision", () => {
     await run(w);
 
     expect(merged(w)).toBe(false);
-    expect(lastJson(w.logs)).toMatchObject({ unmet: ["verify"] });
+    expect(decision(w)).toMatchObject({ unmet: ["verify"] });
   });
 
   it("says so and labels nothing when the forge refuses the merge", async () => {
@@ -240,20 +262,31 @@ describe("factory merge: the Merge Mode's decision", () => {
 
     expect(w.codeHost.pr(101).labels).not.toContain("auto-merged");
     expect(w.codeHost.writes).toEqual([]);
-    expect(lastJson(w.logs)).toEqual({ pr: 101, mode: "safe", merged: false, reason: "refused", detail: "Base branch was modified." });
+    expect(decision(w)).toEqual({ pr: 101, merged: false, reason: "refused", detail: "Base branch was modified." });
   });
 
-  it("reads with the job token and writes with the Factory's", async () => {
+  it("reads and labels with the job token, merges and comments with the Factory's", async () => {
     const reads = new FakeCodeHost({ prs: [{ number: 101, branch: BRANCH, headSha: HEAD, body: ALL_MET, files: ["src/a.ts"] }] });
     reads.checksAt.set(HEAD, GREEN);
     reads.deploy = "success";
     const w = world({ prs: [{ number: 101, branch: BRANCH, headSha: HEAD }], env: { FACTORY_MERGE_MODE: "safe" }, jobCodeHost: reads });
 
-    await w.factory("merge", "--branch", BRANCH);
+    await run(w);
 
-    expect(reads.writes).toEqual([]);
-    expect(w.codeHost.writes).toEqual(["merge #101", "labelPr #101 auto-merged", "commentPr #101"]);
+    expect(reads.writes).toEqual(["labelPr #101 auto-merged"]);
+    expect(w.codeHost.writes).toEqual(["merge #101", "commentPr #101"]);
   });
+
+  it.each(["apps/example/src/drizzle-utils.ts", "apps/example/package.json.md", ".githubx/a.yml", "scripts-old/a.ts", "apps/example/src/NOTAGENTS.md", "docs/adrs.md", "packages/skeleton-extra/a.ts"])(
+    "does not take the near miss %s for a protected path",
+    async (path) => {
+      const w = mergeWorld({ pr: { files: [path] } });
+
+      await run(w);
+
+      expect(merged(w)).toBe(true);
+    },
+  );
 
   it("refuses an unknown Merge Mode", async () => {
     const w = mergeWorld({ env: { FACTORY_MERGE_MODE: "yolo" } });

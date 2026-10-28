@@ -61,6 +61,8 @@ export class FakeCodeHost implements CodeHost {
   readonly checksAt = new Map<string, PrCheck[]>();
   /** The conclusion of the newest deploy of the base branch that ended; null: none ended. */
   deploy: string | null = null;
+  /** The heads that lack commits of the base branch. */
+  readonly behind = new Set<string>();
 
   /** Login the Factory writes as: author of its replies. */
   readonly self: string;
@@ -218,6 +220,10 @@ export class FakeCodeHost implements CodeHost {
 
   async lastDeploy(): Promise<string | null> {
     return this.deploy;
+  }
+
+  async behindBase(sha: string): Promise<boolean> {
+    return this.behind.has(sha);
   }
 
   async merge(pr: number, sha: string): Promise<MergeResult> {

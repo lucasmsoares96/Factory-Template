@@ -188,6 +188,10 @@ export class LocalCodeHost implements CodeHost {
     throw new Error(LOCAL_MERGE);
   }
 
+  async behindBase(_sha: string): Promise<boolean> {
+    throw new Error(LOCAL_MERGE);
+  }
+
   async merge(_pr: number, _sha: string): Promise<MergeResult> {
     throw new Error(LOCAL_MERGE);
   }

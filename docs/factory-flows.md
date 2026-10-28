@@ -185,15 +185,15 @@ What `publish` does:
 
 ADR 0016; `src/commands/merge.ts`. `FACTORY_MERGE_MODE` is `human` (the default: nothing is merged here) or `safe`.
 
-- `.github/workflows/factory-merge.yml` (`workflow_run` of the `PR` workflow, `completed`, branches `factory/issue-*`; off until `FACTORY_ENABLED`, skipped in `human`): one job, `merge`, on the checkout of the default branch. Job token: `contents`, `pull-requests` and `actions` read. It runs `pnpm factory merge --branch <head_branch>` with `GITHUB_TOKEN` for the reads and `FACTORY_TOKEN` for the writes.
-- The command reads the forge itself: the open PR of the branch (not a fork, into the base branch, not a draft, no `factory:working`), its files, its body, the jobs of the newest `factory-pr.yml` run at its head and the newest finished `factory-deploy.yml` run of the base branch. It merges only when every condition holds:
+- `.github/workflows/factory-merge.yml` (`workflow_run` of the `PR` workflow, `completed`, one run at a time; off until `FACTORY_ENABLED`, skipped in `human` and for a run that was not `pull_request_target`): one job, `merge`, on the checkout of the default branch. Job token: `contents` and `actions` read, `pull-requests` write (the label). It runs `pnpm factory merge` with `GITHUB_TOKEN` and `FACTORY_TOKEN`.
+- The command takes nothing from the event. It lists the open pull requests of `factory/issue-N` branches of this repository into the base branch and reads, for each: whether it is a draft or has `factory:working`, whether its head is behind the base branch (`FACTORY_TOKEN` acts as an admin and bypasses the strict ruleset, so a head behind is never merged; the update-branch scan updates it), its files, its body, the jobs of the newest `factory-pr.yml` run at its head, and the newest finished `factory-deploy.yml` run of the base branch. It merges only when every condition holds:
   - `protected`: no file of the diff matches `PROTECTED_PATHS` in `config.ts`;
   - `verify`: the `verify` job passed;
   - `preview`: no `preview-plan`, `preview deploy (<id>)` or `preview smoke (<id>)` job failed or is still going (skipped counts as passed: no preview);
-  - `criteria`: the body's verdicts section has at least one verdict, all checked;
+  - `criteria`: the last verdicts section of the body (the one `publish` writes after the agent's text) has at least one verdict, all checked;
   - `deploy`: the last deploy of the base branch did not fail (none yet is fine).
-- Then `PUT /pulls/{n}/merge` with the head SHA it checked (a merge commit), the `auto-merged` label and one comment in `FACTORY_LANGUAGE` naming the mode and the conditions. A refusal of the forge (head moved, branch behind `main`) is printed and changes nothing; the next checks decide again.
-- Output: one JSON line, `{pr, mode, merged, reason, unmet, protected}`.
+- Reads go through the job token (`actions: read`, which the fine-grained `FACTORY_TOKEN` lacks). The merge is `PUT /pulls/{n}/merge` with `FACTORY_TOKEN`, pinned to the head SHA it checked (a merge commit), so the deploy of the base branch starts. Then the `auto-merged` label with the job token (a label written with `FACTORY_TOKEN` would start the PR workflow on the merged PR) and one comment in `FACTORY_LANGUAGE` naming the mode and the conditions. A refusal of the forge is printed and changes nothing; the next run decides again.
+- Output: one JSON line, `{mode, decisions: [{pr, merged, reason, unmet, protected, detail}]}`.
 
 ## Skills update
 

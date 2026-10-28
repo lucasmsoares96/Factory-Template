@@ -166,6 +166,8 @@ export interface CodeHost {
   prChecks(sha: string): Promise<PrCheck[]>;
   /** The conclusion of the newest deploy of the base branch that ended (`factory-deploy.yml`), or null when none has. */
   lastDeploy(): Promise<string | null>;
+  /** Whether head `sha` lacks commits of the base branch (a strict ruleset would ask for an update first). */
+  behindBase(sha: string): Promise<boolean>;
   /** Merges the pull request with a merge commit, only while its head is still `sha`. */
   merge(pr: number, sha: string): Promise<MergeResult>;
   /** The Factory's workflow runs that are queued or going (this one included). */

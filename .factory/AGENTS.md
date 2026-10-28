@@ -45,7 +45,7 @@ Every Factory workflow is off until `FACTORY_ENABLED`. Jobs, tokens and writes o
 - [PR flows](../docs/factory-flows.md#pr-flows) (`commands/pr-claim.ts`): `factory-pr-feedback.yml` answers writers' threads and Conversation requests; `factory-update-branches.yml` brings every open non-fork PR up to date with the base branch (a fork's PR gets one comment).
 - [PR previews](../docs/factory-flows.md#pr-previews) (`factory-pr.yml`, off until `PREVIEWS_ENABLED`): a Worker Preview and a Neon branch per PR, smoked, removed on close.
 - [Automatic Retro](../docs/factory-flows.md#automatic-retro) (`factory-retro.yml`): after every Escalation and on a closed Factory PR with writers' feedback; opens or edits a `Retro:` issue.
-- [Merge Mode](../docs/factory-flows.md#merge-mode) (`factory-merge.yml`, `commands/merge.ts`, ADR 0016): after the PR workflow of a Factory branch, `pnpm factory merge --branch <b>` merges it in `safe` when nothing in `PROTECTED_PATHS` (`config.ts`) changed and `verify`, the preview, the verdicts and the last deploy allow it; `human` merges nothing.
+- [Merge Mode](../docs/factory-flows.md#merge-mode) (`factory-merge.yml`, `commands/merge.ts`, ADR 0016): after each PR workflow run, `pnpm factory merge` merges, in `safe`, each open Factory PR up to date with the base branch when nothing in `PROTECTED_PATHS` (`config.ts`) changed and `verify`, the preview, the verdicts and the last deploy allow it; `human` merges nothing.
 - [Skills update](../docs/factory-flows.md#skills-update) (`src/ci/skills.ts`, ADR 0013): the PR's `skills-check` and `factory-skills-update.yml`, which auto-merges `skills/update`.
 
 ## Commands
