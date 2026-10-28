@@ -449,7 +449,8 @@ jobs:
           SHA: ${{ github.event.pull_request.head.sha }}
           MATRIX: ${{ needs.preview-plan.outputs.matrix }}
           TRUSTED: ${{ needs.preview-plan.outputs.trusted }}
-          WHY: ${{ needs.preview-plan.outputs.why }}
+          FACTORY_LABELS_PREVIEW: ${{ vars.FACTORY_LABELS_PREVIEW }}
+          FACTORY_LANGUAGE: ${{ vars.FACTORY_LANGUAGE }}
         run: node .factory/src/ci/previews.ts comment --results "$RUNNER_TEMP/results"
 
   # The one required check. Green when everything that had to run passed; a

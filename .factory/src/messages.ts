@@ -221,6 +221,104 @@ export const catalog = {
     "pt-BR": () => " O merge quebrou o `verify`; a Factory o corrigiu neste branch:",
   }),
   updateVerified: text({ en: (): string => " `verify` passed.", "pt-BR": () => " O `verify` passou." }),
+
+  // The one previews comment of a pull request (`src/ci/previews.ts`).
+  previewUntrusted: text({
+    en: (label: string) => `Preview not deployed: the author has no write access: someone with write access must add the \`${label}\` label.`,
+    "pt-BR": (label) => `Preview não publicado: quem abriu o PR não tem acesso de escrita; alguém com acesso de escrita precisa adicionar o label \`${label}\`.`,
+  }),
+  previewMissing: text({
+    en: (): string => "preview not deployed (the build or the deploy did not finish; see the run)",
+    "pt-BR": () => "preview não publicado (o build ou o deploy não terminou; veja a execução)",
+  }),
+  previewLimitReached: text({ en: (): string => "preview skipped: limit reached", "pt-BR": () => "preview pulado: limite atingido" }),
+  previewBindingsChanged: text({
+    en: (): string => "preview skipped: the Worker bindings changed (a preview runs with the bindings of the default branch; merge that change first)",
+    "pt-BR": () => "preview pulado: os bindings do Worker mudaram (um preview roda com os bindings do branch padrão; faça o merge dessa mudança antes)",
+  }),
+  previewFailed: text({ en: (): string => "preview failed (see the run)", "pt-BR": () => "o preview falhou (veja a execução)" }),
+  previewBadUrl: text({
+    en: (): string => "preview deployed, but its URL is not a workers.dev address",
+    "pt-BR": () => "preview publicado, mas a URL dele não é um endereço workers.dev",
+  }),
+  previewReady: text({
+    en: (url: string, smoke: "passed" | "failed" | undefined) => `${url} (smoke ${smoke ?? "not run"})`,
+    "pt-BR": (url, smoke) => `${url} (smoke ${smoke === "passed" ? "passou" : smoke === "failed" ? "falhou" : "não rodou"})`,
+  }),
+  previewFooter: text({
+    en: (sha: string) => `Commit ${sha}. The preview and its database are deleted when the PR closes.`,
+    "pt-BR": (sha) => `Commit ${sha}. O preview e o banco de dados dele são apagados quando o PR fecha.`,
+  }),
+
+  // The example issue of `pnpm bootstrap factory` (`src/bootstrap/example.ts`): a parent spec and its child.
+  exampleParentTitle: text({
+    en: (title: string) => `Example: change the ${title} sign-in title`,
+    "pt-BR": (title) => `Exemplo: mudar o título de login de ${title}`,
+  }),
+  exampleChildTitle: text({
+    en: (title: string) => `Example: welcome text on the ${title} sign-in screen`,
+    "pt-BR": (title) => `Exemplo: texto de boas-vindas na tela de login de ${title}`,
+  }),
+  exampleParentBody: text({
+    en: (id: string, title: string) =>
+      [
+        `A throwaway example created by \`pnpm bootstrap factory\` to watch the Factory work on the Product \`${id}\`. It is deleted at the end of the run.`,
+        "",
+        "## Goal",
+        "",
+        `Show the Factory turning a small, harmless change to ${title} into a pull request with evidence.`,
+        "",
+        "## Testing Decisions",
+        "",
+        `- Seam: the Product's own Playwright E2E spec under \`apps/${id}/e2e/\`, with an \`@evidence\` screenshot of the changed screen.`,
+        "- Every text goes through the Product's i18n messages (`en` and `pt-BR`), never as a literal in a component.",
+        "- Never change `packages/skeleton`: the Product extends it by configuration only.",
+      ].join("\n"),
+    "pt-BR": (id, title) =>
+      [
+        `Um exemplo descartável criado por \`pnpm bootstrap factory\` para ver a Factory trabalhar no Product \`${id}\`. Ele é apagado no fim da execução.`,
+        "",
+        "## Objetivo",
+        "",
+        `Mostrar a Factory transformando uma mudança pequena e inofensiva em ${title} num pull request com evidência.`,
+        "",
+        "## Testing Decisions",
+        "",
+        `- Seam: o spec Playwright E2E do próprio Product em \`apps/${id}/e2e/\`, com um screenshot \`@evidence\` da tela alterada.`,
+        "- Todo texto passa pelas mensagens de i18n do Product (`en` e `pt-BR`), nunca como literal num componente.",
+        "- Nunca altere `packages/skeleton`: o Product só o estende por configuração.",
+      ].join("\n"),
+  }),
+  exampleChildBody: text({
+    en: (id: string, title: string, parent: number) =>
+      [
+        `Part of #${parent}. A throwaway example; it is deleted at the end.`,
+        "",
+        "## What to build",
+        "",
+        `Override the sign-in screen title in \`apps/${id}/product.config.ts\`, in \`messages\` for both locales: \`auth.signIn.title\` becomes "Welcome to ${title}" in \`en\` and "Bem-vindo ao ${title}" in \`pt-BR\`. The Skeleton already renders this text, so no change outside \`apps/${id}/\` is needed.`,
+        "",
+        "## Acceptance criteria",
+        "",
+        `- [ ] \`apps/${id}/product.config.ts\` overrides \`auth.signIn.title\` in \`en\` and \`pt-BR\` with the texts above.`,
+        `- [ ] The Product's own E2E spec under \`apps/${id}/e2e/\` checks that the sign-in screen shows the new title and prints an \`@evidence\` screenshot.`,
+        "- [ ] Nothing under `packages/skeleton/` changes.",
+      ].join("\n"),
+    "pt-BR": (id, title, parent) =>
+      [
+        `Parte de #${parent}. Um exemplo descartável; ele é apagado no fim.`,
+        "",
+        "## O que construir",
+        "",
+        `Sobrescrever o título da tela de login em \`apps/${id}/product.config.ts\`, em \`messages\` nos dois idiomas: \`auth.signIn.title\` passa a ser "Welcome to ${title}" em \`en\` e "Bem-vindo ao ${title}" em \`pt-BR\`. O Skeleton já mostra esse texto, então nenhuma mudança fora de \`apps/${id}/\` é necessária.`,
+        "",
+        "## Acceptance criteria",
+        "",
+        `- [ ] \`apps/${id}/product.config.ts\` sobrescreve \`auth.signIn.title\` em \`en\` e \`pt-BR\` com os textos acima.`,
+        `- [ ] O spec E2E do próprio Product em \`apps/${id}/e2e/\` confere que a tela de login mostra o novo título e gera um screenshot \`@evidence\`.`,
+        "- [ ] Nada em `packages/skeleton/` muda.",
+      ].join("\n"),
+  }),
 };
 
 export type Messages = { [K in keyof typeof catalog]: (typeof catalog)[K]["en"] };
