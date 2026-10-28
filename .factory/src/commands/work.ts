@@ -9,6 +9,7 @@ import {
   RESULT_FILE,
   SKELETON_PATCH_FILE,
   writeResult,
+  type CriterionVerdict,
   type FactoryResult,
   type PullRequestStageRecord,
   type ReviewOutput,
@@ -297,16 +298,23 @@ export async function work(ctx: CommandContext, number: number | null, options: 
     reason = "needs-human";
     question = `Development kept adding skipped or focused tests (${skippedFailure}), which prove nothing, so no acceptance criterion is shown to be met. If the criteria need the Skeleton, a human must decide how to proceed.`;
   }
-  // A Skeleton follow-up means the criteria may need the Skeleton: green E2E is not enough, the final Review must say
-  // that every criterion is met without it (a test skipped in the E2E would pass too).
-  const needsSkeleton =
-    followUps.length > 0 && (ready ? reviews.at(-1)?.criteriaMetWithoutSkeleton !== true : reason === "e2e-failures");
+  // Only the final Review judges the branch that gets published: one criterion it finds not met keeps the run from ready.
+  const verdicts = reviews.at(-1)?.criteria ?? [];
+  const unmet = verdicts.filter((v) => !v.met);
+  // A Skeleton follow-up means the criteria may need the Skeleton: green E2E is not enough, the final Review must give
+  // a verdict that every criterion is met without it (a test skipped in the E2E would pass too).
+  const needsSkeleton = followUps.length > 0 && (ready ? verdicts.length === 0 || unmet.length > 0 : reason === "e2e-failures");
   // An issue run then waits on its Skeleton follow-up and starts again once it is closed; a PR round escalates.
   const waiting = needsSkeleton && flow === null;
   if (needsSkeleton) {
     ready = false;
     reason = "needs-human";
     question = waiting ? null : SKELETON_QUESTION;
+  } else if (ready && unmet.length > 0 && flow?.kind !== "update-branch") {
+    // The Escalation comment names each criterion and why, from the verdicts. An update-branch round only merges the
+    // base and keeps it green: its Review does not gate the push on the criteria.
+    ready = false;
+    reason = "needs-human";
   }
 
   const head = (await git.countCommits(base, "HEAD")) > 0 ? await git.head() : null;
@@ -330,7 +338,7 @@ export async function work(ctx: CommandContext, number: number | null, options: 
             issue,
             base: config.baseBranch,
             log: await git.log(base, "HEAD"),
-            result: runOutcome({ ready, reason, question, attempts }),
+            result: runOutcome({ ready, reason, question, attempts, unmet }),
             round: flow?.kind === "pr-feedback" ? round() : undefined,
             prints: evidence.map((e) => ({ product: e.product, path: `${config.evidenceDir}/${e.product}/${e.name}` })),
             language: config.language,
@@ -402,10 +410,11 @@ async function failedChecks(ctx: CommandContext, pr: number): Promise<ChecksRead
 }
 
 /** What the run ended with, for the Pull Request Stage: green and when, or why it escalated and the last failing E2E. */
-function runOutcome(run: { ready: boolean; reason: Reason; question: string | null; attempts: FactoryResult["attempts"] }): string {
+function runOutcome(run: { ready: boolean; reason: Reason; question: string | null; attempts: FactoryResult["attempts"]; unmet: CriterionVerdict[] }): string {
   if (run.ready) return `E2E passed on attempt ${run.attempts.length}.`;
   const lines = [`The run escalated (${run.reason}) after ${run.attempts.length} ${run.attempts.length === 1 ? "attempt" : "attempts"}; this is the progress so far.`];
   if (run.question) lines.push(`Question for a human: ${run.question}`);
+  for (const v of run.unmet) lines.push(`Acceptance criterion not met: ${v.criterion} (${v.proof})`);
   const failed = run.attempts.flatMap((a) => a.stages).findLast((s) => s.stage === "e2e" && s.output);
   if (failed) lines.push(`Last failing E2E (\`${failed.failedCommand ?? "factory:verify"}\`), truncated:`, fence(failed.output!, "text"));
   return lines.join("\n");
@@ -419,7 +428,7 @@ function needsHuman(output: string): string | null {
 
 /** One review for the PR: the summary of every attempt, the inline findings of all of them. */
 function combineReviews(reviews: (ReviewOutput & { attempt: number })[]): ReviewOutput {
-  if (reviews.length === 0) return { summary: "", inline: [], criteriaMetWithoutSkeleton: false };
+  if (reviews.length === 0) return { summary: "", inline: [], criteria: [] };
   const summary =
     reviews.length === 1 ? reviews[0]!.summary : reviews.map((r) => `**Attempt ${r.attempt}.** ${r.summary}`).join("\n\n");
   const seen = new Set<string>();
@@ -430,7 +439,7 @@ function combineReviews(reviews: (ReviewOutput & { attempt: number })[]): Review
       return seen.has(key) ? false : (seen.add(key), true);
     });
   // Only the final Review judges the branch that gets published.
-  return { summary, inline, criteriaMetWithoutSkeleton: reviews.at(-1)!.criteriaMetWithoutSkeleton };
+  return { summary, inline, criteria: reviews.at(-1)!.criteria };
 }
 
 function tail(output: string): string {

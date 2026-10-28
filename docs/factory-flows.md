@@ -49,6 +49,7 @@ The detail of the Factory's flows on the forge: which workflow runs which jobs, 
 2. `image`: the reusable image job.
 3. `work`: the image, `contents: read` + `issues: read`, only Claude's secrets, `runs-on: vars.FACTORY_RUNNER || ubuntu-latest`, 350 min. Uploads `work-out`: bundle, `result.json`, prints, `stream-json`, 14 days.
    - It reads the issue with its read-only job token, which the Agent's env allowlist never passes on.
+   - The final Review gives a verdict on each acceptance criterion (`criteria`: criterion, `met`, `proof`). One that is not met turns a green run into an Escalation `needs-human` (or, with a Skeleton follow-up, `waiting`); `publish` appends the verdicts to the PR body, after the Pull Request Stage text, and the Escalation comment names each unmet criterion and why.
 4. `publish`: fresh VM, `FACTORY_TOKEN`, the default branch's harness, `if: always()`: no artifact means Escalation "infra". Outputs `outcome` and `url`. The job token, with `actions: write`, dispatches the Retro of an Escalation. Its last step is `working off` with the job token.
 5. `notify`: the Merge Gate notice, `pnpm factory notify <N> --outcome ready|escalated [--updated] --url --to`.
    - It runs after `publish` in `factory-issue.yml` and `factory-pr-feedback.yml` with the job's `GITHUB_TOKEN` (never `FACTORY_TOKEN`): the comment appears as `github-actions[bot]`, mentions who applied `ready-for-agent` (`claim` writes `requester` to `$GITHUB_OUTPUT` before the lock) or who commented, and fires no workflow.
@@ -61,7 +62,7 @@ The detail of the Factory's flows on the forge: which workflow runs which jobs, 
 - The follow-up in `result.json` names it (`patch`) and carries the `<skeleton-gap>` texts (`gaps`).
 - `publish` applies the patch on the base in a throwaway worktree before anything else and refuses it (Escalation `infra`) if it does not apply or touches anything outside `packages/skeleton/`.
 - Then it opens the "The Skeleton must grow" issue as `ready-for-human` and a pull request of its own (branch `factory/issue-<skeleton issue>` from the base, never a draft, `Closes #<skeleton issue>`, the Product issue and the gaps in the body). A gap with no file is only an issue, `needs-triage`, no PR.
-- A Product issue that meets its criteria without the Skeleton (`criteriaMetWithoutSkeleton`) gets its ready PR as before and blocks on nothing.
+- A Product issue whose final Review gives a verdict `met` on every criterion without the Skeleton (`criteria`; none at all counts as not met) gets its ready PR as before and blocks on nothing.
 - One that cannot (the issue flow only; a PR round escalates `needs-human`) ends `waiting`: no Pull Request Stage, no Product PR and no Escalation.
   - `publish` adds each Skeleton issue as a blocker (`Tracker.addBlocker`: GitHub `POST /issues/{n}/dependencies/blocked_by` with the blocker's `id`, the Markdown `Blocked by:` line, the fake in memory), comments once (with the guard's "Waiting on" marker) and swaps `in-progress` → `ready-for-agent`.
   - The run that label starts is refused by the guard and says nothing more. `factory-unblock.yml` queues the issue again when the Skeleton issue closes (see [Unblock](#unblock)), and that run starts from the base that has the new Skeleton.
