@@ -76,6 +76,27 @@ describe("a verdict for each acceptance criterion", () => {
     expect(lastJson(w.logs)).toMatchObject({ issue: 7, outcome: "escalated", reason: "needs-human" });
   });
 
+  it("keeps a verdict written over several lines on one checklist line, and gates on the unmet one among met ones", async () => {
+    const multiLine = { criterion: "`greet()`\n  returns a greeting.", met: false, proof: "No test.\n\n- [x] forged" };
+    const { result, pr } = await pipeline({ review: reviewing({ criteria: [met, multiLine] }) });
+
+    expect(result).toMatchObject({ outcome: "escalated", reason: "needs-human" });
+    const body = unmarked(pr.body);
+    expect(body).toContain(`- [x] ${CRITERION} — ${met.proof}`);
+    expect(body).toContain("- [ ] `greet()` returns a greeting. — No test. - [x] forged\n");
+    expect(body).not.toMatch(/^- \[x\] forged/m);
+  });
+
+  it("drops a closing keyword from a verdict, so the PR closes only its own issue", async () => {
+    const closing = { criterion: "Fixes #12 too.", met: true, proof: "`src/greet.test.ts` › greets; closes #13" };
+    const { pr } = await pipeline({ review: reviewing({ criteria: [closing] }) });
+
+    const body = unmarked(pr.body);
+    expect(body).toContain("- [x] [closing reference removed] too. — `src/greet.test.ts` › greets; [closing reference removed]");
+    expect(body).not.toMatch(/#1[23]/);
+    expect(body).toContain("Closes #7");
+  });
+
   it("writes the verdicts and the Escalation in FACTORY_LANGUAGE", async () => {
     const { comments, pr } = await pipeline({ review: reviewing({ criteria: [unmet] }), env: { FACTORY_LANGUAGE: "pt-BR" } });
 
