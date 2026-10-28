@@ -1,32 +1,14 @@
-import { chmod, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { runGh } from "../../src/adapters/github/gh.ts";
 import { tempDir } from "../helpers.ts";
-
-/** A `gh` on PATH that prints its environment and its stdin as JSON, or fails with a message on stderr. */
-async function fakeGh(): Promise<string> {
-  const dir = await tempDir("fake-gh-");
-  const script = [
-    `#!${process.execPath}`,
-    'let input = "";',
-    'process.stdin.on("data", (chunk) => (input += chunk));',
-    'process.stdin.on("end", () => {',
-    '  if (process.argv[2] === "fail") { process.stderr.write("HTTP 403: nope\\n"); process.exit(1); }',
-    "  process.stdout.write(JSON.stringify({ args: process.argv.slice(2), env: process.env, input }));",
-    "});",
-  ].join("\n");
-  await writeFile(join(dir, "gh"), script);
-  await chmod(join(dir, "gh"), 0o755);
-  return dir;
-}
+import { fakeGh, type FakeGhOutput } from "./fake-gh.ts";
 
 describe("runGh", () => {
   it("gives gh exactly the env it is passed, none of the parent's secrets, and writes the input to stdin", async () => {
     const bin = await fakeGh();
     process.env.FACTORY_TEST_SECRET = "parent-secret";
     try {
-      const out = JSON.parse(await runGh(["api", "user"], { env: { PATH: bin, GH_TOKEN: "tok" }, input: "body" })) as { args: string[]; env: Record<string, string>; input: string };
+      const out = JSON.parse(await runGh(["api", "user"], { env: { PATH: bin, GH_TOKEN: "tok" }, input: "body" })) as FakeGhOutput;
 
       expect(out.args).toEqual(["api", "user"]);
       expect(out.input).toBe("body");
@@ -37,6 +19,14 @@ describe("runGh", () => {
     } finally {
       delete process.env.FACTORY_TEST_SECRET;
     }
+  });
+
+  it("closes stdin when there is no input, so gh does not wait on it", async () => {
+    const bin = await fakeGh();
+
+    const out = JSON.parse(await runGh(["api", "user"], { env: { PATH: bin }, input: undefined })) as FakeGhOutput;
+
+    expect(out.input).toBe("");
   });
 
   it("rejects with gh's stderr", async () => {

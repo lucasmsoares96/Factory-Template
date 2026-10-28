@@ -244,6 +244,7 @@ describe("the real adapters of the Factory module", () => {
     s.on("GET", "/repos/o/r", () => ({ json: { permissions: { push: true } } }));
     s.on("GET", "/repos/o/read-only", () => ({ json: { permissions: { push: false } } }));
     s.on("GET", "/repos/o/broken", () => ({ status: 500, json: { message: "boom" } }));
+    s.on("GET", "/repos/o/revoked", () => ({ status: 401, json: { message: "Bad credentials" } }));
     const api = new GitHubTokenApi("secret-pat", { fetch: s.fetch });
 
     expect(await api.repoAccess("o/r")).toEqual({ push: true });
@@ -251,6 +252,8 @@ describe("the real adapters of the Factory module", () => {
     const broken = await api.repoAccess("o/broken").catch((e: Error) => e);
     expect((broken as Error).message).toContain("(500)");
     expect((broken as Error).message).not.toContain("secret-pat");
+    const revoked = await api.repoAccess("o/revoked").catch((e: Error) => e);
+    expect((revoked as Error).message).toContain("rejected the token");
     const missing = await api.repoAccess("o/gone").catch((e: Error) => e);
     expect((missing as Error).message).toContain("cannot see o/gone");
     expect(s.calls[0]!.headers.get("authorization")).toBe("Bearer secret-pat");

@@ -16,10 +16,12 @@ import {
   removeDatabase,
   renderComment,
   upsertComment,
+  GhPreviewForge,
   type Permission,
   type PreviewForge,
 } from "../src/ci/previews.ts";
 import { previewSmoke } from "../src/ci/smoke.ts";
+import { fakeGh, type FakeGhOutput } from "./github/fake-gh.ts";
 
 const repo = join(import.meta.dirname, "../..");
 const exampleSource = parseJsonc(readFileSync(join(repo, "apps/example/wrangler.jsonc"), "utf8"));
@@ -419,5 +421,42 @@ describe("the preview smoke", () => {
     await previewSmoke("https://p.workers.dev", { fetchFn: preview.fetchFn, sleep: async () => {} });
     await previewSmoke("https://p.workers.dev", { fetchFn: preview.fetchFn, sleep: async () => {} });
     expect(preview.users.size).toBe(2);
+  });
+});
+
+describe("GhPreviewForge (a fake gh on PATH)", () => {
+  it("runs gh api with the job's GH_TOKEN and the base variables only", async () => {
+    const bin = await fakeGh();
+    const saved = { PATH: process.env.PATH, GH_TOKEN: process.env.GH_TOKEN, CLOUDFLARE_API_TOKEN: process.env.CLOUDFLARE_API_TOKEN };
+    Object.assign(process.env, { PATH: bin, GH_TOKEN: "job-token", CLOUDFLARE_API_TOKEN: "cf-secret" });
+    try {
+      const forge = new GhPreviewForge("o/r");
+
+      // The fake prints one JSON line, which `comments` parses as it would a comment.
+      const [out] = (await forge.comments(7)) as unknown as FakeGhOutput[];
+      await forge.createComment(7, "hello");
+
+      expect(out!.args).toEqual(["api", "--paginate", "repos/o/r/issues/7/comments", "--jq", '.[] | {id, body, bot: (.user.type == "Bot")}']);
+      expect(out!.env.GH_TOKEN).toBe("job-token");
+      expect(out!.env.PATH).toBe(bin);
+      expect(out!.env.CLOUDFLARE_API_TOKEN).toBeUndefined();
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
+  it("reads a permission it cannot get as none", async () => {
+    const bin = await fakeGh();
+    const saved = process.env.PATH;
+    process.env.PATH = bin;
+    try {
+      // The fake's output is not a permission name.
+      expect(await new GhPreviewForge("o/r").permission("someone")).toBe("none");
+    } finally {
+      process.env.PATH = saved;
+    }
   });
 });

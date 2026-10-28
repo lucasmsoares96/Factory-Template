@@ -5,10 +5,13 @@ import { BASE_ENV, pick } from "../../env.ts";
  * Runs `gh <args>` with exactly `env` as its environment (nothing of the parent's is added) and `input` on stdin;
  * resolves with stdout, rejects with gh's stderr.
  */
-export type GhRunner = (args: string[], options: { env: Record<string, string>; input?: string }) => Promise<string>;
+export type GhRunner = (args: string[], options: { env: Record<string, string>; input?: string | undefined }) => Promise<string>;
 
 /** Where a signed-in `gh` finds its credentials and host, beyond the `HOME` of `BASE_ENV`: for a human's own `gh auth login`. */
 export const GH_AUTH_ENV = ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GH_HOST", "GH_CONFIG_DIR", "XDG_CONFIG_HOME"];
+
+/** How a human's `gh` reaches GitHub from behind a proxy or with a private CA; the bootstrap's `gh` inherited them before `runGh`. */
+export const GH_NETWORK_ENV = ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR"];
 
 /** What git and gh get: the base variables every tool needs, plus `extra` (the token they authenticate with). Never the parent's secrets. */
 export function childEnv(parent: Record<string, string | undefined>, extra: Record<string, string>): Record<string, string> {
