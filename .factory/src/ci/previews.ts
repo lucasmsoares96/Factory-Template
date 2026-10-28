@@ -13,13 +13,14 @@
 //   comment   the one PR comment listing every Product's preview (edited, never duplicated)
 //   base      (deploy of `main`) `base` exists, recreated when missing, and is migrated with the artifact's migrations
 //   cleanup   (PR closed) the Neon branch of the PR is deleted
-import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { z } from "zod";
+import { childEnv, runGh } from "../adapters/github/gh.ts";
 import { loadConfig } from "../config.ts";
+import { pick } from "../env.ts";
 import { productSecretName } from "../bootstrap/domain.ts";
 import { artifactSkeletonMigrations, builtConfigs, deployConfig, parseList, type DeployEntry } from "./deploy.ts";
 import type { MatrixEntry } from "./matrix.ts";
@@ -260,26 +261,29 @@ export class GhPreviewForge implements PreviewForge {
     if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error("REPO is not owner/name.");
     this.repo = repo;
   }
-  private gh(args: string[], input?: string): string {
-    return execFileSync("gh", ["api", ...args], { encoding: "utf8", input, stdio: ["pipe", "pipe", "inherit"] });
+  /** `gh api` with the job's `GH_TOKEN` and the base variables, nothing else of the job's env. */
+  private gh(args: string[], input?: string): Promise<string> {
+    return runGh(["api", ...args], { env: childEnv(process.env, pick(process.env, ["GH_TOKEN", "GH_HOST"])), ...(input === undefined ? {} : { input }) });
   }
   async permission(login: string): Promise<Permission> {
     try {
-      const value = this.gh([`repos/${this.repo}/collaborators/${encodeURIComponent(login)}/permission`, "--jq", ".permission"]).trim();
+      const value = (await this.gh([`repos/${this.repo}/collaborators/${encodeURIComponent(login)}/permission`, "--jq", ".permission"])).trim();
       return (["admin", "maintain", "write", "triage", "read"] as const).find((p) => p === value) ?? "none";
-    } catch {
+    } catch (error) {
+      // gh's reason (its stderr) stays in the job log.
+      console.error((error as Error).message);
       return "none";
     }
   }
   async comments(pr: number) {
-    const raw = this.gh(["--paginate", `repos/${this.repo}/issues/${pr}/comments`, "--jq", '.[] | {id, body, bot: (.user.type == "Bot")}']);
+    const raw = await this.gh(["--paginate", `repos/${this.repo}/issues/${pr}/comments`, "--jq", '.[] | {id, body, bot: (.user.type == "Bot")}']);
     return raw.split("\n").filter(Boolean).map((line) => JSON.parse(line) as { id: number; body: string; bot: boolean });
   }
   async createComment(pr: number, body: string): Promise<void> {
-    this.gh([`repos/${this.repo}/issues/${pr}/comments`, "--method", "POST", "--input", "-"], JSON.stringify({ body }));
+    await this.gh([`repos/${this.repo}/issues/${pr}/comments`, "--method", "POST", "--input", "-"], JSON.stringify({ body }));
   }
   async updateComment(id: number, body: string): Promise<void> {
-    this.gh([`repos/${this.repo}/issues/comments/${id}`, "--method", "PATCH", "--input", "-"], JSON.stringify({ body }));
+    await this.gh([`repos/${this.repo}/issues/comments/${id}`, "--method", "PATCH", "--input", "-"], JSON.stringify({ body }));
   }
 }
 

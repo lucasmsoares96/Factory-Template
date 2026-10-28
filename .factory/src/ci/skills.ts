@@ -13,6 +13,7 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
+import { childEnv, runGh } from "../adapters/github/gh.ts";
 
 /** Every path the restore can change. A patch outside them is refused. */
 export const SKILL_PATHS = [".agents/skills/", "skills-lock.json"];
@@ -84,7 +85,8 @@ function output(name: string, value: string) {
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `${name}=${value}\n`);
 }
 
-const gh = (args: string[], env: Record<string, string>) => execFileSync("gh", args, { encoding: "utf8", env: { ...process.env, ...env } });
+/** `gh` with the base variables plus `env` (the token), nothing else of the job's env. */
+const gh = (args: string[], env: Record<string, string>) => runGh(args, { env: childEnv(process.env, env) });
 
 if (import.meta.main) {
   const { positionals, values } = parseArgs({ allowPositionals: true, options: { base: { type: "string" }, out: { type: "string" }, in: { type: "string" } } });
@@ -135,18 +137,18 @@ if (import.meta.main) {
     const auth = Buffer.from(`x-access-token:${token}`).toString("base64");
     execFileSync("git", ["-c", `http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}`, "push", "--force", `https://github.com/${repo}.git`, `HEAD:refs/heads/${UPDATE_BRANCH}`], { cwd, stdio: "ignore" });
     const env = { GH_TOKEN: token };
-    const open = gh(["pr", "list", "--repo", repo, "--head", UPDATE_BRANCH, "--state", "open", "--json", "number", "--jq", ".[0].number"], env).trim();
+    const open = (await gh(["pr", "list", "--repo", repo, "--head", UPDATE_BRANCH, "--state", "open", "--json", "number", "--jq", ".[0].number"], env)).trim();
     const pr =
       open ||
-      gh(
+      (await gh(
         ["pr", "create", "--repo", repo, "--head", UPDATE_BRANCH, "--base", process.env.BASE_BRANCH || "main", "--title", "chore(skills): take the upstream versions of the locked skills", "--body", "The locked skills changed upstream. `factory-skills-update.yml` opened this pull request and turned on auto-merge: GitHub merges it once `verify` is green (ADR 0013).\n\n<!-- factory -->"],
         env,
-      )
+      ))
         .trim()
         .split("/")
         .at(-1)!;
     try {
-      gh(["pr", "merge", pr, "--repo", repo, "--auto", "--merge"], env);
+      await gh(["pr", "merge", pr, "--repo", repo, "--auto", "--merge"], env);
       console.log(`pull request #${pr}: auto-merge on`);
     } catch (error) {
       // The repo setting is off: `pnpm bootstrap factory` turns it on (step `auto-merge`).
