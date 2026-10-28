@@ -313,15 +313,19 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
 /** `--flow pr-feedback|update-branch` with the PR it continues; undefined for the issue flow. */
 function flowOf(values: { flow?: string; pr?: string }): WorkFlow | undefined {
   if (values.flow === undefined) return undefined;
-  if (values.flow !== "pr-feedback" && values.flow !== "update-branch") throw new Error(`Unknown --flow: ${values.flow}. Known: pr-feedback, update-branch.`);
-  return { kind: values.flow, pr: parseIssue(values.pr) };
+  return { kind: flowKind(values.flow), pr: parseIssue(values.pr) };
+}
+
+function flowKind(flow: string): WorkFlow["kind"] {
+  if (flow !== "pr-feedback" && flow !== "update-branch") throw new Error(`Unknown --flow: ${flow}. Known: pr-feedback, update-branch.`);
+  return flow;
 }
 
 /** `publish --flow update-branch`: the one flow `publish` needs told; pr-feedback is accepted and changes nothing. */
 function publishFlow(flow: string | undefined): "update-branch" | undefined {
-  if (flow === undefined || flow === "pr-feedback") return undefined;
-  if (flow !== "update-branch") throw new Error(`Unknown --flow: ${flow}. Known: pr-feedback, update-branch.`);
-  return flow;
+  if (flow === undefined) return undefined;
+  const kind = flowKind(flow);
+  return kind === "update-branch" ? kind : undefined;
 }
 
 /** The comment or review whose event started a feedback round: the event's name and the id it carries. */
