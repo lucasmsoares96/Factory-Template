@@ -31,7 +31,8 @@ const productOnly: AgentStep = async ({ cwd }) => {
 const reviewing = (extra: object): AgentStep => () => ({
   output: `Reviewed.\n<skeleton-gap>The root layout needs a footer slot.</skeleton-gap>\n<review>${JSON.stringify({ summary: "Looks fine.", inline: [], ...extra })}</review>`,
 });
-const review = reviewing({ criteriaMetWithoutSkeleton: true });
+const verdict = (met: boolean) => ({ criterion: "`greet()` returns a greeting.", met, proof: met ? "`apps/example/e2e/home.spec.ts` › greets" : "The footer needs the Skeleton's slot." });
+const review = reviewing({ criteria: [verdict(true)] });
 
 /** A checkout whose base commit holds the Skeleton files; the commit is made once per file and copied. */
 const skeletonCheckout = () =>
@@ -127,11 +128,11 @@ describe("Skeleton scope of a Product issue", () => {
     expect(lastJson(w.logs)).toMatchObject({ issue: 7, outcome: "ready" });
   });
 
-  it("puts the Product issue back in the queue, blocked by the Skeleton issue, when the Review does not say the criteria are met without it", async () => {
-    for (const extra of [{}, { criteriaMetWithoutSkeleton: false }]) {
-      const { w, result, filesOf } = await run({ labels: PRODUCT, review: reviewing(extra) });
+  it("puts the Product issue back in the queue, blocked by the Skeleton issue, when the Review's verdicts do not say every criterion is met without it", async () => {
+    for (const criteria of [undefined, [], [verdict(true), verdict(false)]]) {
+      const { w, result, filesOf } = await run({ labels: PRODUCT, review: reviewing(criteria === undefined ? {} : { criteria }) });
       expect(result).toMatchObject({ outcome: "waiting", reason: null, evidence: [], pullRequestStage: null });
-      expect(result.review.criteriaMetWithoutSkeleton).toBe(false);
+      expect(result.review.criteria).toEqual(criteria ?? []);
 
       expect(w.tracker.labelsOf(8)).toEqual(["ready-for-human"]);
       const skeleton = skeletonPr(w, 8)!;

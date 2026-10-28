@@ -4,8 +4,8 @@ import { diffLines, filterToDiff, type DiffLines } from "../diff.ts";
 import { Git } from "../git.ts";
 import { messages, type Language, type Messages } from "../messages.ts";
 import { isHarnessPath, isSensitivePath } from "../paths.ts";
-import { attemptLine, costFooter, escalationComment, fence, followUpComment, lastFailure, waitingComment, type EscalationReason, type FollowUpRef } from "../report.ts";
-import { BUNDLE_FILE, EVIDENCE_DIR, RESULT_FILE, readResult, type FactoryResult } from "../result.ts";
+import { attemptLine, costFooter, escalationComment, fence, followUpComment, lastFailure, verdictsSection, waitingComment, type EscalationReason, type FollowUpRef } from "../report.ts";
+import { BUNDLE_FILE, EVIDENCE_DIR, RESULT_FILE, readResult, type CriterionVerdict, type FactoryResult } from "../result.ts";
 import { gapsSection, SKELETON_PATH, skeletonCommit } from "../scope.ts";
 import { fromTouchedSpecs, isSpecPath, shownIn, withEvidence, type TouchedSpec } from "../pull-request-evidence.ts";
 import type { EvidenceImage, PullRequest } from "../seams/code-host.ts";
@@ -90,7 +90,7 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
   const sensitivePaths = changed.filter(isSensitivePath);
   const harnessPaths = changed.filter((path) => isHarnessPath(path) && !isSensitivePath(path));
   const escalated = result.outcome === "ready" ? null : escalationReason(result);
-  const pr = await pullRequest(ctx, issue, { branch, openPr, continues: options.pr !== null, sensitivePaths, harnessPaths, escalated, followUps, text: result.pullRequestBody, images: evidenceImages(result, options.in), appendable: fromTouchedSpecs(await touchedSpecs(git, head, changed)), markWorking: options.markWorking });
+  const pr = await pullRequest(ctx, issue, { branch, openPr, continues: options.pr !== null, sensitivePaths, harnessPaths, escalated, followUps, text: result.pullRequestBody, criteria: result.review.criteria, images: evidenceImages(result, options.in), appendable: fromTouchedSpecs(await touchedSpecs(git, head, changed)), markWorking: options.markWorking });
   if (!escalated || result.review.summary !== "") {
     // A PR round without a Review (update-branch, a round that only answers) leaves no empty review behind.
     if (options.pr === null || result.review.summary !== "") await submitReview(ctx, pr.number, result, lines);
@@ -231,7 +231,7 @@ async function touchedSpecs(git: Git, head: string, changed: string[]): Promise<
 async function pullRequest(
   ctx: CommandContext,
   issue: Issue,
-  input: { branch: string; openPr: PullRequest | null; continues: boolean; sensitivePaths: string[]; harnessPaths: string[]; escalated: EscalationReason | null; followUps: FollowUpRef[]; text: string | null; images: EvidenceImage[]; appendable: (image: EvidenceImage) => boolean; markWorking?: PublishOptions["markWorking"] },
+  input: { branch: string; openPr: PullRequest | null; continues: boolean; sensitivePaths: string[]; harnessPaths: string[]; escalated: EscalationReason | null; followUps: FollowUpRef[]; text: string | null; criteria: CriterionVerdict[]; images: EvidenceImage[]; appendable: (image: EvidenceImage) => boolean; markWorking?: PublishOptions["markWorking"] },
 ): Promise<PullRequest> {
   const { codeHost, config } = ctx;
   let pr: PullRequest;
@@ -262,13 +262,13 @@ async function pullRequest(
 }
 
 /**
- * The body in three parts (the print references swapped by `withEvidence`): the warnings and the follow-up note (deterministic),
- * the Pull Request Stage text (or the minimal sentence), `Closes #N`. The agent
- * never writes the first and last parts; a closing keyword in its text is dropped.
+ * The body in four parts (the print references swapped by `withEvidence`): the warnings and the follow-up note (deterministic),
+ * the Pull Request Stage text (or the minimal sentence), the final Review's verdict on each acceptance criterion, `Closes #N`.
+ * The agent never writes the first and last parts; a closing keyword in its text is dropped.
  */
 function prBody(
   issue: Issue,
-  input: { continues: boolean; sensitivePaths: string[]; harnessPaths: string[]; escalated: EscalationReason | null; followUps: FollowUpRef[]; text: string | null; images: EvidenceImage[]; appendable: (image: EvidenceImage) => boolean },
+  input: { continues: boolean; sensitivePaths: string[]; harnessPaths: string[]; escalated: EscalationReason | null; followUps: FollowUpRef[]; text: string | null; criteria: CriterionVerdict[]; images: EvidenceImage[]; appendable: (image: EvidenceImage) => boolean },
   language: Language,
 ): string {
   const m = messages(language);
@@ -286,7 +286,8 @@ function prBody(
   if (input.followUps.length > 0) warnings.push("> [!NOTE]", `> ${followUpComment(input.followUps, language).replaceAll("\n", "\n> ")}`, "");
   const text = input.text ? withoutAttribution(withoutClosingKeywords(input.text)) : m.minimalBody();
   const middle = withEvidence(text, input.images, input.appendable);
-  return [...warnings, middle, "", `Closes #${issue.number}`].join("\n");
+  const verdicts = verdictsSection(input.criteria, language);
+  return [...warnings, middle, ...(verdicts.length > 0 ? ["", ...verdicts] : []), "", `Closes #${issue.number}`].join("\n");
 }
 
 /** The `pr` skill's template ends with a tool attribution line; the Factory's body is the harness's, not the tool's. */
