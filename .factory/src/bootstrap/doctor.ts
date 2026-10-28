@@ -1,6 +1,7 @@
 import { accountNames } from "./accounts.ts";
 import { cloudflareAccountId, cloudflareCredential, LANGUAGE_VARIABLE } from "./common.ts";
 import { labelSpecs } from "./labels.ts";
+import { LANGUAGES } from "../messages.ts";
 import { NO_DNS, NO_LOGIN, deployFirstMessage, productionEnvironment, productSecretName, readDnsState, readWorkerDomainState } from "./domain.ts";
 import { hasPreviewTrace, previewEnvironment, previewNames, previewProjectName, previewSecretPresent, PREVIEW_PRODUCTS, BASE_BRANCH } from "./previews.ts";
 import { coversMain, DEPLOY_PRODUCTS, missingSecrets, neonHandle, neonOrgId, parseProductList, productionDatabaseUrl, productionSecrets, USE_ENVIRONMENTS } from "./product.ts";
@@ -90,8 +91,10 @@ export async function doctor(
     add("Variables", on ? "ok" : "off", name, on ? undefined : `${what} is switched off`);
   }
   const language = variables[LANGUAGE_VARIABLE];
-  // Unset is no fault: the Factory writes in the default language.
-  add("Variables", "ok", LANGUAGE_VARIABLE, language ?? `not set: the Factory writes in ${config.language}; \`pnpm bootstrap\` asks it`);
+  // Unset is no fault: the Factory writes in the default language. A value it does not know stops every job.
+  if (language === undefined) add("Variables", "ok", LANGUAGE_VARIABLE, `not set: the Factory writes in ${config.language}; \`pnpm bootstrap\` asks it`);
+  else if ((LANGUAGES as readonly string[]).includes(language)) add("Variables", "ok", LANGUAGE_VARIABLE, language);
+  else add("Variables", "warn", LANGUAGE_VARIABLE, `${language} is not one of ${LANGUAGES.join(", ")}: every Factory job fails; run \`pnpm bootstrap --redo language\``);
   if (variables.FACTORY_USE_ENVIRONMENTS === "false") {
     add("Variables", "off", "Environments", "secrets live at repo level: the plan or visibility refused environments or the ruleset; rerun the wizard after upgrading");
   }
