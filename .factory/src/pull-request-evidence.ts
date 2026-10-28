@@ -17,17 +17,20 @@ export function withEvidence(text: string, images: EvidenceImage[], appendable: 
   return missing.length === 0 ? resolved : appendToEvidence(resolved, missing);
 }
 
-/** What Playwright runs by default: `*.spec.ts`, `*.test.mjs`, ... */
+/** A Playwright spec (`*.spec.ts`, `*.test.mjs`, ...) under an `e2e/` folder: the Skeleton's `e2e/specs/`, a Product's `e2e/`. */
 export function isSpecPath(path: string): boolean {
-  return /\.(?:spec|test)\.[cm]?[jt]sx?$/.test(path);
+  return /(?:^|\/)e2e\/(?:.+\/)?[^/]+\.(?:spec|test)\.[cm]?[jt]sx?$/.test(path);
 }
+
+/** A spec file the change touched, with its content at the head. */
+export type TouchedSpec = { path: string; content: string };
 
 /**
  * Keeps a print taken by `evidence("<name>")` in one of the spec files the change touched (`specs`: path and content
  * at the head). A spec under `apps/<id>/` takes only that Product's prints; any other (the Skeleton's shared specs)
  * takes every Product's. A name that is not a string literal is not seen.
  */
-export function fromTouchedSpecs(specs: { path: string; content: string }[]): (image: EvidenceImage) => boolean {
+export function fromTouchedSpecs(specs: TouchedSpec[]): (image: EvidenceImage) => boolean {
   const named = specs
     .filter((s) => isSpecPath(s.path))
     .map((s) => ({
