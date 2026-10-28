@@ -439,5 +439,10 @@ describe("factory update-branch: paused at the agent's usage limit", () => {
     expect(pr.labels).toEqual(["factory:session-limit"]);
     expect(pr.comments.at(-1)).toContain('"flow":"update-pr"');
     untouched();
+
+    // A push to main before the reset finds the PR still behind: its update waits for `resume`, never runs early.
+    expect(await p.w.factory("update-branch", "--pr", String(HUMAN_PR))).toBe(0);
+    expect(lastJson(p.w.logs)).toEqual({ claimed: false, reason: "session-limit" });
+    expect(pr.labels).toEqual(["factory:session-limit"]);
   });
 });

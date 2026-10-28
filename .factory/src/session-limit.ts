@@ -33,7 +33,9 @@ export type SessionFailure = z.infer<typeof sessionFailureSchema>;
 export function sessionFailure(stage: Stage, error: AgentSessionError, now: number): SessionFailure {
   if (!(error instanceof SessionLimitError)) return { stage, message: error.message, limit: null };
   const reset = error.resetsAt === null ? null : resetTime(error.resetsAt, now);
-  return { stage, message: error.message, limit: { resetsAt: error.resetsAt, resumeAt: new Date(reset ?? now + HOUR).toISOString() } };
+  // A reset already past (a date misread, a clock off) would start the run again at once, into the same limit.
+  const resumeAt = reset !== null && reset > now ? reset : now + HOUR;
+  return { stage, message: error.message, limit: { resetsAt: error.resetsAt, resumeAt: new Date(resumeAt).toISOString() } };
 }
 
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
@@ -122,9 +124,12 @@ export function waitMarker(wait: Wait): string {
   return `${SESSION_LIMIT_MARKER} ${JSON.stringify(wait)} -->`;
 }
 
-/** The wait a comment's marker carries; null when it has none or it does not parse. */
+/**
+ * The wait a comment's marker carries; null when it has none or it does not parse. Only the comment's first line is the
+ * marker: a session message quoted below it may carry one too.
+ */
 export function parseWait(body: string): Wait | null {
-  const json = body.match(new RegExp(`${SESSION_LIMIT_MARKER} (\\{[^\\n]*?\\}) -->`))?.[1];
+  const json = body.split("\n", 1)[0]!.match(new RegExp(`^${SESSION_LIMIT_MARKER} (\\{.*\\}) -->$`))?.[1];
   if (json === undefined) return null;
   try {
     const parsed = waitSchema.safeParse(JSON.parse(json));
@@ -160,7 +165,10 @@ export function continueMarker(head: string): string {
   return `<!-- factory:continue ${head} -->`;
 }
 
-/** The head a `continueMarker` names; null when the text has none. */
+/**
+ * The head a `continueMarker` names; null when the text has none. Only the comment's header (the lines before the
+ * first blank one) holds the marker: a session message quoted below it may carry one too.
+ */
 export function continuedHead(body: string): string | null {
-  return body.match(/<!-- factory:continue ([0-9a-f]{40,64}) -->/)?.[1] ?? null;
+  return body.split("\n\n", 1)[0]!.match(/^<!-- factory:continue ([0-9a-f]{40,64}) -->$/m)?.[1] ?? null;
 }
