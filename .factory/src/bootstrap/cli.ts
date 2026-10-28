@@ -27,7 +27,8 @@ export type { BootstrapDeps } from "./steps.ts";
 const USAGE = `Usage: pnpm bootstrap [command] [options]
 
 Commands:
-  (none)                 Set up the common part: Cloudflare token and account, workers.dev, labels.
+  (none)                 Set up the common part: Cloudflare token and account, workers.dev, labels, and the
+                         language of the Factory's public text (en or pt-BR, asked once: FACTORY_LANGUAGE).
                          Looks at the current state and skips what already exists, so it is safe to rerun.
   doctor                 Read-only check of secrets, variables, labels and resources; shows what is switched off.
   domain <id>            Per Product: Resend sending domain, its DNS records in Cloudflare, a restricted
@@ -58,7 +59,8 @@ Commands:
   help                   Show this message.
 
 Options:
-  --redo <step>          Redo one step even if it looks done (repeatable): cloudflare-token, workers-dev, labels;
+  --redo <step>          Redo one step even if it looks done (repeatable): cloudflare-token, workers-dev, labels,
+                         language (asks the language again);
                          for the domain command: resend-domain, dns-records, restricted-resend-key, worker-domain;
                          for the product command: neon-project, github-environment, database-secrets, auth-secret,
                          default-account (asks again, resets the password and the secret), the four domain steps, main-ruleset, deploy-products;

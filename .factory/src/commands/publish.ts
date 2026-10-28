@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { issueBranch } from "../config.ts";
 import { diffLines, filterToDiff, type DiffLines } from "../diff.ts";
 import { Git } from "../git.ts";
+import { messages, type Language, type Messages } from "../messages.ts";
 import { isHarnessPath, isSensitivePath } from "../paths.ts";
 import { attemptLine, costFooter, escalationComment, fence, followUpComment, lastFailure, waitingComment, type EscalationReason, type FollowUpRef } from "../report.ts";
 import { BUNDLE_FILE, EVIDENCE_DIR, RESULT_FILE, readResult, type FactoryResult } from "../result.ts";
@@ -82,7 +83,7 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
   }
 
   const push = await ctx.codeHost.push({ branch, sha: head, expectedSha: options.startSha });
-  if (!push.ok) return discard(ctx, number, `branch ${branch} moved since the run started`);
+  if (!push.ok) return discard(ctx, number, (m) => m.branchMoved(branch));
 
   const followUps = await openFollowUps(ctx, issue, result, skeletonSha);
   const lines = await diffLines(git, result.base, head);
@@ -97,7 +98,7 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
   if (options.pr !== null) await postReplies(ctx, pr.number, result.threadReplies);
 
   if (escalated) return escalate(ctx, issue, { reason: escalated, result, pr, runUrl: options.runUrl, followUps }, options.pr, options.dispatchRetro);
-  if (followUps.length > 0) await ctx.tracker.comment(number, followUpComment(followUps));
+  if (followUps.length > 0) await ctx.tracker.comment(number, followUpComment(followUps, config.language));
   if (pr.draft) await ctx.codeHost.markReady(pr.number);
   return { issue: number, outcome: "ready", pr: pr.number, url: pr.url };
 }
@@ -113,6 +114,7 @@ export type PrUpdateResult =
  */
 export async function publishPrUpdate(ctx: CommandContext, number: number, options: Omit<PublishOptions, "pr">): Promise<PrUpdateResult> {
   const { codeHost, config } = ctx;
+  const m = messages(config.language);
   const git = new Git(options.repo);
   const stop = async (outcome: "stopped" | "discarded", reason: string, comment: string): Promise<PrUpdateResult> => {
     await codeHost.commentPr(number, comment);
@@ -120,8 +122,8 @@ export async function publishPrUpdate(ctx: CommandContext, number: number, optio
   };
   const pr = await codeHost.pullRequest(number);
   if (!pr || pr.state !== "open" || pr.fork) return { pr: number, outcome: "discarded", reason: `pull request #${number} is no longer open on this repository` };
-  const moved = `branch ${pr.branch} moved since the run started`;
-  const discarded = () => stop("discarded", moved, `Run discarded: ${moved}. Nothing was pushed.`);
+  const moved = messages("en").branchMoved(pr.branch);
+  const discarded = () => stop("discarded", moved, m.discarded(m.branchMoved(pr.branch)));
   if ((await codeHost.branchHead(pr.branch)) !== options.startSha) return discarded();
 
   let result: FactoryResult;
@@ -129,62 +131,68 @@ export async function publishPrUpdate(ctx: CommandContext, number: number, optio
     result = await loadArtifacts(git, number, pr.branch, options.in);
   } catch (error) {
     const detail = (error as Error).message;
-    return stop("stopped", "infra", `The Factory could not update this branch with \`${config.baseBranch}\`: the work job left no valid result (${detail}). Nothing was pushed.${runLine(options.runUrl)}`);
+    return stop("stopped", "infra", m.updateNoResult(config.baseBranch, detail) + runLine(options.runUrl, config.language));
   }
   if (result.outcome === "escalated") {
-    return stop("stopped", result.reason ?? "infra", prUpdateStopped(result, config.baseBranch, options.runUrl));
+    return stop("stopped", result.reason ?? "infra", prUpdateStopped(result, config.baseBranch, options.runUrl, config.language));
   }
   if (result.head === null || result.head === options.startSha) return { pr: number, outcome: "up-to-date", reason: `already contains ${config.baseBranch}` };
 
   const push = await codeHost.push({ branch: pr.branch, sha: result.head, expectedSha: options.startSha });
   if (!push.ok) return discarded();
-  const fixes = result.attempts.length > 1 ? ` The merge broke \`verify\`; the Factory fixed it on this branch:\n\n${result.attempts.map((a) => `- ${attemptLine(a)}`).join("\n")}` : " `verify` passed.";
-  await codeHost.commentPr(number, `Merged \`${config.baseBranch}\` (\`${result.base.slice(0, 7)}\`) into this branch and pushed \`${result.head.slice(0, 7)}\`.${fixes}${runLine(options.runUrl)}`);
+  const fixes = result.attempts.length > 1 ? `${m.updateFixed()}\n\n${result.attempts.map((a) => `- ${attemptLine(a, config.language)}`).join("\n")}` : m.updateVerified();
+  await codeHost.commentPr(number, `${m.updated(config.baseBranch, result.base.slice(0, 7), result.head.slice(0, 7))}${fixes}${runLine(options.runUrl, config.language)}`);
   return { pr: number, outcome: "updated", url: pr.url };
 }
 
 /** Why the update of a person's PR stopped, with the attempts: the branch is left as it was. */
-function prUpdateStopped(result: FactoryResult, base: string, runUrl: string | null): string {
-  const lines = [`The Factory could not update this branch with \`${base}\` (\`${result.reason ?? "infra"}\`), so it pushed nothing and stopped.`];
+function prUpdateStopped(result: FactoryResult, base: string, runUrl: string | null, language: Language): string {
+  const m = messages(language);
+  const lines = [m.updateStopped(base, result.reason ?? "infra")];
   if (result.question) lines.push("", result.question);
   if (result.attempts.length > 0) {
-    lines.push("", "**Attempts**", ...result.attempts.map((a) => `- ${attemptLine(a)}`));
+    lines.push("", m.attempts(), ...result.attempts.map((a) => `- ${attemptLine(a, language)}`));
     const failure = lastFailure(result);
-    if (failure?.output) lines.push("", `**Last output**${failure.failedCommand ? ` (\`${failure.failedCommand}\`)` : ""}, truncated:`, fence(failure.output, "text"));
+    if (failure?.output) lines.push("", m.lastOutput(failure.failedCommand ?? null), fence(failure.output, "text"));
   }
-  return lines.join("\n") + runLine(runUrl);
+  return lines.join("\n") + runLine(runUrl, language);
 }
 
-function runLine(runUrl: string | null): string {
-  return runUrl ? `\n\n**Workflow run:** ${runUrl}` : "";
+function runLine(runUrl: string | null, language: Language): string {
+  return runUrl ? `\n\n${messages(language).workflowRun(runUrl)}` : "";
 }
 
-type Recheck = { ok: true; issue: Issue; openPr: PullRequest | null } | { ok: false; reason: string };
+/** Why a run is discarded, in any language: the result keeps the English one, the comment the configured one. */
+type DiscardReason = (m: Messages) => string;
+
+type Recheck = { ok: true; issue: Issue; openPr: PullRequest | null } | { ok: false; reason: DiscardReason };
 
 /** Forge state must still match the claim: issue open and locked, PR as expected, branch where it was. */
 async function recheck(ctx: CommandContext, number: number, branch: string, options: PublishOptions): Promise<Recheck> {
   const { tracker, codeHost, config } = ctx;
   const issue = await tracker.issue(number);
-  if (issue.state !== "open") return { ok: false, reason: `issue #${number} is closed` };
+  if (issue.state !== "open") return { ok: false, reason: (m) => m.issueClosed(number) };
   if (!issue.labels.includes(config.labels.inProgress)) {
-    return { ok: false, reason: `issue #${number} no longer has \`${config.labels.inProgress}\`` };
+    return { ok: false, reason: (m) => m.issueUnlocked(number, config.labels.inProgress) };
   }
   const openPr = await codeHost.openPrFor(branch);
-  if (options.pr !== null && openPr?.number !== options.pr) {
-    return { ok: false, reason: `pull request #${options.pr} is no longer open` };
+  const continued = options.pr;
+  if (continued !== null && openPr?.number !== continued) {
+    return { ok: false, reason: (m) => m.pullRequestGone(continued) };
   }
   if (options.pr === null && openPr && !openPr.draft) {
-    return { ok: false, reason: `pull request #${openPr.number} is already open for this issue` };
+    return { ok: false, reason: (m) => m.pullRequestOpen(openPr.number) };
   }
   if ((await codeHost.branchHead(branch)) !== options.startSha) {
-    return { ok: false, reason: `branch ${branch} moved since the run started` };
+    return { ok: false, reason: (m) => m.branchMoved(branch) };
   }
   return { ok: true, issue, openPr };
 }
 
-async function discard(ctx: CommandContext, number: number, reason: string): Promise<PublishResult> {
-  await ctx.tracker.comment(number, `Run discarded: ${reason}. Nothing was pushed.`);
-  return { issue: number, outcome: "discarded", reason };
+async function discard(ctx: CommandContext, number: number, reason: DiscardReason): Promise<PublishResult> {
+  const m = messages(ctx.config.language);
+  await ctx.tracker.comment(number, m.discarded(reason(m)));
+  return { issue: number, outcome: "discarded", reason: reason(messages("en")) };
 }
 
 /** result.json plus the branch from the bundle; any mismatch is an infra failure. */
@@ -231,17 +239,14 @@ async function pullRequest(
     pr = input.openPr;
     // The run may have changed the PR: its body is written again.
     if (input.text !== null) {
-      const body = prBody(issue, input);
+      const body = prBody(issue, input, config.language);
       await codeHost.updatePrBody(pr.number, body, shownIn(body, input.images));
     }
   } else {
     if (input.openPr) {
-      await codeHost.closePr(
-        input.openPr.number,
-        `Superseded by a new Factory run for #${issue.number}, which starts over from \`${config.baseBranch}\`.`,
-      );
+      await codeHost.closePr(input.openPr.number, messages(config.language).superseded(issue.number, config.baseBranch));
     }
-    const body = prBody(issue, input);
+    const body = prBody(issue, input, config.language);
     pr = await codeHost.openDraftPr({
       branch: input.branch,
       base: config.baseBranch,
@@ -264,32 +269,22 @@ async function pullRequest(
 function prBody(
   issue: Issue,
   input: { continues: boolean; sensitivePaths: string[]; harnessPaths: string[]; escalated: EscalationReason | null; followUps: FollowUpRef[]; text: string | null; images: EvidenceImage[]; appendable: (image: EvidenceImage) => boolean },
+  language: Language,
 ): string {
+  const m = messages(language);
   const warnings: string[] = [];
   // A round on a ready PR leaves it as it is (the comment on the PR and the issue say so): only a draft "holds progress".
   if (input.escalated && !input.continues) {
-    warnings.push(
-      "> [!WARNING]",
-      `> The Factory escalated this work (\`${input.escalated}\`): this draft holds its progress. See the comment on #${issue.number}.`,
-      "",
-    );
+    warnings.push("> [!WARNING]", `> ${m.escalatedDraft(input.escalated, issue.number)}`, "");
   }
   if (input.sensitivePaths.length > 0) {
-    warnings.push(
-      "> [!WARNING]",
-      `> This pull request changes sensitive files: ${input.sensitivePaths.map((p) => `\`${p}\``).join(", ")}. A workflow runs with the repository's secrets, and skills, \`.claude/\` and \`.mcp.json\` steer every agent: read them line by line before merging.`,
-      "",
-    );
+    warnings.push("> [!WARNING]", `> ${m.sensitiveFiles(input.sensitivePaths)}`, "");
   }
   if (input.harnessPaths.length > 0) {
-    warnings.push(
-      "> [!CAUTION]",
-      `> This pull request changes files that steer the Factory: ${input.harnessPaths.map((p) => `\`${p}\``).join(", ")}. Review them with care.`,
-      "",
-    );
+    warnings.push("> [!CAUTION]", `> ${m.harnessFiles(input.harnessPaths)}`, "");
   }
-  if (input.followUps.length > 0) warnings.push("> [!NOTE]", `> ${followUpComment(input.followUps).replaceAll("\n", "\n> ")}`, "");
-  const text = input.text ? withoutAttribution(withoutClosingKeywords(input.text)) : "Implemented by the Factory.";
+  if (input.followUps.length > 0) warnings.push("> [!NOTE]", `> ${followUpComment(input.followUps, language).replaceAll("\n", "\n> ")}`, "");
+  const text = input.text ? withoutAttribution(withoutClosingKeywords(input.text)) : m.minimalBody();
   const middle = withEvidence(text, input.images, input.appendable);
   return [...warnings, middle, "", `Closes #${issue.number}`].join("\n");
 }
@@ -315,7 +310,7 @@ function withoutClosingKeywords(text: string): string {
 async function submitReview(ctx: CommandContext, pr: number, result: FactoryResult, lines: DiffLines): Promise<void> {
   await ctx.codeHost.submitReview(pr, {
     event: "COMMENT",
-    body: `${result.review.summary || "No findings."}\n\n---\n${costFooter(result, ctx.config.pricing)}`,
+    body: `${result.review.summary || messages(ctx.config.language).noFindings()}\n\n---\n${costFooter(result, ctx.config.pricing, ctx.config.language)}`,
     comments: filterToDiff(result.review.inline, lines),
   });
 }
@@ -371,11 +366,12 @@ async function skeletonPullRequest(
     ctx.log(`The Skeleton pull request for #${skeletonIssue} was not opened: branch ${branch} already exists.`);
     return null;
   }
+  const m = messages(config.language);
   const body = [
-    `Product issue #${issue.number} (${issue.title}) needs this change in \`${SKELETON_PATH}\`. A Product issue never changes the Skeleton, so the Factory took it out of that run and opened it here, from \`${config.baseBranch}\`, as the run wrote it. Review it as a change to the Skeleton.`,
-    ...gapsSection(followUp.gaps),
+    m.skeletonPullRequestIntro(issue.number, issue.title, SKELETON_PATH, config.baseBranch),
+    ...gapsSection(followUp.gaps, config.language),
     "",
-    "## Files",
+    m.filesHeading(),
     "",
     ...followUp.files.map((f) => `- \`${f}\``),
     "",
@@ -399,24 +395,23 @@ async function waitOnSkeleton(ctx: CommandContext, issue: Issue, followUps: Foll
   return { issue: issue.number, outcome: "waiting", blockedBy: followUps.map((f) => f.number) };
 }
 
-const DECISION_LABEL = { address: "Address", decline: "Decline", defer: "Defer", answer: "Answer" } as const;
-
 /**
  * The agent's answers, posted in their threads. A thread that is gone, or that is not open any more, gets nothing.
  * The Conversation requests get one comment for the whole round, each request quoted above its answer.
  */
 async function postReplies(ctx: CommandContext, pr: number, threadReplies: FactoryResult["threadReplies"]): Promise<void> {
   if (threadReplies.length === 0) return;
+  const m = messages(ctx.config.language);
   const known = await ctx.codeHost.threads(pr);
   for (const reply of threadReplies) {
     const thread = known.find((t) => t.id === reply.threadId);
-    if (thread) await ctx.codeHost.replyToThread(pr, thread.id, `${DECISION_LABEL[reply.decision]}: ${reply.body}`);
+    if (thread) await ctx.codeHost.replyToThread(pr, thread.id, `${m.decision(reply.decision)}: ${reply.body}`);
   }
   const answers = (await ctx.codeHost.conversation(pr)).flatMap((request) => {
     const reply = threadReplies.find((r) => r.threadId === request.id);
     if (!reply) return [];
     const quote = request.body.trim().split("\n").map((line) => `> ${line}`.trimEnd());
-    return [[`**${request.author}** ${request.kind === "review" ? "reviewed" : "wrote"}:`, ...quote, "", `${DECISION_LABEL[reply.decision]}: ${reply.body}`].join("\n")];
+    return [[m.quoted(request.author, request.kind === "review"), ...quote, "", `${m.decision(reply.decision)}: ${reply.body}`].join("\n")];
   });
   if (answers.length > 0) await ctx.codeHost.commentPr(pr, answers.join("\n\n---\n\n"));
 }
@@ -434,10 +429,7 @@ async function escalate(
   await tracker.comment(issue.number, escalationComment(report, config));
   await tracker.swapLabel(issue.number, config.labels.inProgress, config.labels.readyForHuman);
   if (continuing !== null) {
-    await ctx.codeHost.commentPr(
-      continuing,
-      `The Factory could not finish this round (\`${report.reason}\`). Issue #${issue.number} is now \`${config.labels.readyForHuman}\`: the comment there has the attempts. This pull request stays as it is.`,
-    );
+    await ctx.codeHost.commentPr(continuing, messages(config.language).roundEscalated(report.reason, issue.number, config.labels.readyForHuman));
   }
   await startRetro(ctx, issue.number, report.pr?.number ?? continuing, dispatchRetro);
   return { issue: issue.number, outcome: "escalated", reason: report.reason, pr: report.pr?.number ?? null, url: report.pr?.url ?? null };

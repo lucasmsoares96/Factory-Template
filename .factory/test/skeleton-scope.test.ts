@@ -49,6 +49,7 @@ async function run(options: {
   review?: AgentStep;
   /** Runs between `work` and `publish`, on the artifacts. */
   between?: (artifacts: string) => Promise<void>;
+  env?: Record<string, string>;
 }) {
   const workCheckout = await skeletonCheckout();
   const publishCheckout = await skeletonCheckout();
@@ -63,7 +64,7 @@ async function run(options: {
       development: Array.from({ length: options.attempts ?? 1 }, () => options.develop ?? develop),
       review: Array.from({ length: options.attempts ?? 1 }, () => options.review ?? review),
     },
-    env: { FACTORY_MAX_ATTEMPTS: String(options.attempts ?? 5) },
+    env: { FACTORY_MAX_ATTEMPTS: String(options.attempts ?? 5), ...options.env },
     verify: options.verify ?? [{ ok: true }],
   });
   await w.factory("claim", "7");
@@ -148,6 +149,26 @@ describe("Skeleton scope of a Product issue", () => {
       expect(w.codeHost.dispatches).toEqual([]);
       expect(lastJson(w.logs)).toMatchObject({ issue: 7, outcome: "waiting", blockedBy: [8] });
     }
+  });
+
+  it("writes the follow-up in FACTORY_LANGUAGE, keeping its title and contract headings in English for the guard and the search", async () => {
+    const { w } = await run({ labels: PRODUCT, env: { FACTORY_LANGUAGE: "pt-BR" } });
+
+    const followUp = w.tracker.issues.get(8)!;
+    expect(followUp.title).toBe("The Skeleton must grow: Footer on the home page");
+    expect(followUp.body).toContain("The Skeleton must grow: o Product `example` precisa de uma mudança em `packages/skeleton/` para concluir #7 (Footer on the home page).");
+    expect(followUp.body).toContain("## O que o Skeleton precisa oferecer");
+    expect(followUp.body).toMatch(/^## Acceptance criteria$/m);
+    expect(followUp.body).not.toContain("A Product extends the Skeleton");
+    expect(skeletonPr(w, 8)!.body).toContain("A issue de Product #7 (Footer on the home page) precisa desta mudança");
+    const note = w.tracker.commentsOn(7).at(-1)!.body;
+    expect(note).toContain("**The Skeleton must grow.** Uma issue de Product nunca altera `packages/skeleton/`");
+    expect(note).toContain(", com o pull request #");
+
+    // The guard still finds the criteria: with them, what it misses is the seams.
+    const guarded = world({ issues: [{ number: 8, title: followUp.title, body: followUp.body, labels: { "ready-for-agent": HUMAN } }], env: { FACTORY_LANGUAGE: "pt-BR" } });
+    await guarded.factory("claim", "8");
+    expect(lastJson(guarded.logs)).toMatchObject({ claimed: false, reason: "missing-seams" });
   });
 
   it("recognises a Product issue by `apps/<id>` in its text", async () => {

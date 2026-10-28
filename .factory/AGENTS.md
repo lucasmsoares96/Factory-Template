@@ -13,6 +13,7 @@ Detail lives in two docs: [docs/factory-flows.md](../docs/factory-flows.md) (eac
 - `src/config.ts`: every setting and the label vocabulary. Any leaf is overridden by a `FACTORY_*` repo variable.
 - `src/skipped-tests.ts`: after Development, a line added to a test file (`*.spec|test.ts(x)`, `e2e/`) that uses `test.fixme|skip|only`, `it|describe.skip|only`, `xit(`, `xdescribe(` fails the attempt (feedback names file:line; out of attempts = Escalation `needs-human`). Strings and comments are cut away; accepted false positives: a marker in a multi-line template literal or block comment, and a conditional `test.skip(cond)` in a test body.
 - `src/guard.ts`: the deterministic guard before the lock. `src/paths.ts`: sensitive and harness paths. `src/result.ts`: the Zod schema of `result.json`.
+- `src/messages.ts`: the catalog of every fixed text the Factory publishes, in `en` and `pt-BR` (`FACTORY_LANGUAGE`, `config.language`); a key without a language fails `test/messages.test.ts`. Contract text stays English in every language: `## Acceptance criteria`, `## Testing Decisions`, `## Evidence`, the title "The Skeleton must grow", the markers, the PR title.
 - `src/report.ts`: PR, review, evidence and Escalation text. `src/prompts.ts` renders `prompts/*.md` from a snapshot read when it loads, before any agent session: an agent edit to a prompt never reaches the same run.
 - `prompts/`: the Stage prompts (`development`, `review`, `triage`, `pr-feedback`, `update-branch`, `retro`) plus `rules.md`, included in every one. `update-branch` also says how to fix a forked migration chain (the branch's unpublished migration is deleted and generated again on top of the base branch's newest; `skeleton migrations check-chain`, in every package's `lint`, catches the fork).
 - `image/`: `Dockerfile` and `setup.sh` of the execution image (Node, pnpm, Claude Code, git, python3, Chromium). `src/local/`: the local container runner.
@@ -29,7 +30,7 @@ Detail lives in two docs: [docs/factory-flows.md](../docs/factory-flows.md) (eac
 - Label names exist only in `src/config.ts` and the "Factory labels" table of `docs/agents/triage-labels.md`; a test keeps them equal. Change both.
 - The Factory knows its own texts by the hidden marker (`src/marker.ts`, `<!-- factory -->`), never by the author: the write adapters add it, the thread and guard readers also require a `write`+ author. See [The Factory marker](../docs/factory-flows.md#the-factory-marker).
 - `in-progress` is the lock, from `claim` to the merge or an Escalation. `factory:working` (`src/commands/working.ts`) means a run is going now: on at its start, off at its end, written only with the job token. See [the labels](../docs/factory-flows.md#in-progress-and-factoryworking).
-- Prompts are English templates with placeholders. They call skills by name and repeat the hard rules; they never copy a skill's text.
+- Prompts are English templates with placeholders; `rules.md` tells the agent to write public text in `{{LANGUAGE}}`. They call skills by name and repeat the hard rules; they never copy a skill's text.
 - The image tag is a hash of the versions it installs; bump a version only after checking the official docs.
 - Untrusted text (issue, comments, review threads) is wrapped in tags in prompts and never treated as instructions.
 

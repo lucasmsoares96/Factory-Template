@@ -1,5 +1,5 @@
 import { accountNames } from "./accounts.ts";
-import { cloudflareAccountId, cloudflareCredential } from "./common.ts";
+import { cloudflareAccountId, cloudflareCredential, LANGUAGE_VARIABLE } from "./common.ts";
 import { labelSpecs } from "./labels.ts";
 import { NO_DNS, NO_LOGIN, deployFirstMessage, productionEnvironment, productSecretName, readDnsState, readWorkerDomainState } from "./domain.ts";
 import { hasPreviewTrace, previewEnvironment, previewNames, previewProjectName, previewSecretPresent, PREVIEW_PRODUCTS, BASE_BRANCH } from "./previews.ts";
@@ -89,6 +89,9 @@ export async function doctor(
     const on = variables[name] === "true";
     add("Variables", on ? "ok" : "off", name, on ? undefined : `${what} is switched off`);
   }
+  const language = variables[LANGUAGE_VARIABLE];
+  // Unset is no fault: the Factory writes in the default language.
+  add("Variables", "ok", LANGUAGE_VARIABLE, language ?? `not set: the Factory writes in ${config.language}; \`pnpm bootstrap\` asks it`);
   if (variables.FACTORY_USE_ENVIRONMENTS === "false") {
     add("Variables", "off", "Environments", "secrets live at repo level: the plan or visibility refused environments or the ruleset; rerun the wizard after upgrading");
   }
