@@ -115,6 +115,8 @@ export interface EscalationReport {
   /** Why the result could not be read, for infra. */
   detail?: string;
   pr: { number: number; url: string } | null;
+  /** The open pull request a PR round (pr-feedback, update-branch) continues; absent in the issue flow. */
+  round?: { number: number; url: string } | null;
   runUrl: string | null;
   /** Skeleton tickets opened for this run. */
   followUps?: FollowUpRef[];
@@ -185,10 +187,14 @@ export function escalationComment(report: EscalationReport, config: FactoryConfi
     if (failure?.output) lines.push("", m.lastOutput(failure.failedCommand ?? null), fence(failure.output, "text"));
   }
   lines.push("");
-  if (report.pr) lines.push(m.draftPullRequest(report.pr.number));
+  const { round } = report;
+  if (round) lines.push(m.roundPullRequest(round.number));
+  else if (report.pr) lines.push(m.draftPullRequest(report.pr.number));
   else lines.push(m.noPullRequest());
   if (report.runUrl) lines.push(m.workflowRun(report.runUrl));
-  lines.push("", m.retry(config.labels.readyForAgent, config.baseBranch));
+  // A round keeps its ready PR: re-adding ready-for-agent would close it and start over from the base branch.
+  if (round) lines.push("", m.retryRound(round.number, config.labels.inProgress, config.labels.readyForHuman));
+  else lines.push("", m.retry(config.labels.readyForAgent, config.baseBranch));
   if (result) lines.push("", costFooter(result, config.pricing, language));
   return lines.join("\n");
 }
