@@ -2,7 +2,7 @@ import { cp, mkdir } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { marked } from "../../marker.ts";
 import type { FactoryConfig } from "../../config.ts";
-import type { ActiveRun, CodeHost, ConversationEntry, EvidenceImage, FailedCheck, PullRequest, PushResult, ReactionTarget, Review, ReviewThread, SubmittedReview, FactoryWorkflow } from "../../seams/code-host.ts";
+import type { ActiveRun, CodeHost, ConversationEntry, EvidenceImage, FailedCheck, MergeResult, PrCheck, PullRequest, PushResult, ReactionTarget, Review, ReviewThread, SubmittedReview, FactoryWorkflow } from "../../seams/code-host.ts";
 import { Git } from "../../git.ts";
 import type { MarkdownIssues } from "./markdown-issues.ts";
 
@@ -171,6 +171,27 @@ export class LocalCodeHost implements CodeHost {
     return text;
   }
 
+  async pullRequestBody(pr: number): Promise<string> {
+    return (await this.read(pr))?.body ?? "";
+  }
+
+  /** The Merge Mode works on the forge only: a local run ends at the Merge Gate, with a person. */
+  async changedFiles(_pr: number): Promise<string[]> {
+    throw new Error(LOCAL_MERGE);
+  }
+
+  async prChecks(_sha: string): Promise<PrCheck[]> {
+    throw new Error(LOCAL_MERGE);
+  }
+
+  async lastDeploy(): Promise<string | null> {
+    throw new Error(LOCAL_MERGE);
+  }
+
+  async merge(_pr: number, _sha: string): Promise<MergeResult> {
+    throw new Error(LOCAL_MERGE);
+  }
+
   async dispatch(workflow: FactoryWorkflow, _inputs: Record<string, string>): Promise<void> {
     throw new Error(`Dispatching \`${workflow}\` is not available in local mode: run \`pnpm factory local <N>\` for the issue.`);
   }
@@ -225,6 +246,8 @@ export class LocalCodeHost implements CodeHost {
     };
   }
 }
+
+const LOCAL_MERGE = "The Merge Mode is not available in local mode: a person merges the branch.";
 
 /** `.scratch/<feature>/evidence/NN/`, next to the feature's `issues/`. */
 export function evidenceDir(issuesDir: string, id: string): string {

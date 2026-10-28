@@ -102,6 +102,15 @@ export interface ActiveRun {
   pr: number | null;
 }
 
+/** A job of the pull request workflow (`factory-pr.yml`) on one head. `conclusion` is null while the job has not ended. */
+export interface PrCheck {
+  name: string;
+  conclusion: string | null;
+}
+
+/** `refused`: the forge would not merge (head moved, not mergeable, a rule of the branch); `reason` says why. */
+export type MergeResult = { ok: true } | { ok: false; reason: string };
+
 export type PushResult = { ok: true } | { ok: false; reason: "branch-moved" };
 
 export interface CodeHost {
@@ -149,6 +158,16 @@ export interface CodeHost {
   replyToThread(pr: number, threadId: ThreadId, body: string): Promise<void>;
   /** Adds a reaction to a comment or review, to say the Factory has seen it. */
   react(target: ReactionTarget, reaction: "eyes"): Promise<void>;
+  /** The body of pull request `pr`, as written. */
+  pullRequestBody(pr: number): Promise<string>;
+  /** Every path the pull request changes (a rename gives both names). Throws when the forge cannot list them all. */
+  changedFiles(pr: number): Promise<string[]>;
+  /** The jobs of the newest run of the pull request workflow at head `sha`; empty when it never ran there. */
+  prChecks(sha: string): Promise<PrCheck[]>;
+  /** The conclusion of the newest deploy of the base branch that ended (`factory-deploy.yml`), or null when none has. */
+  lastDeploy(): Promise<string | null>;
+  /** Merges the pull request with a merge commit, only while its head is still `sha`. */
+  merge(pr: number, sha: string): Promise<MergeResult>;
   /** The Factory's workflow runs that are queued or going (this one included). */
   activeRuns(): Promise<ActiveRun[]>;
   /** Starts a Factory workflow run (e.g. `issue` for an unblocked issue). */

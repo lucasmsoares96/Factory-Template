@@ -25,6 +25,8 @@ interface Job {
   env?: Record<string, string>;
 }
 interface Workflow {
+  name?: string;
+  concurrency?: { group?: string; "cancel-in-progress"?: boolean };
   on: Record<string, unknown>;
   permissions?: unknown;
   jobs: Record<string, Job>;
@@ -32,7 +34,7 @@ interface Workflow {
 
 /** Reads and parses every workflow in `dir`, relative to the repository root. */
 function load(dir: string): Record<string, Workflow> {
-  const names = ["factory-image.yml", "factory-pr.yml", "factory-deploy.yml", "factory-pr-cleanup.yml", "factory-issue.yml", "factory-unblock.yml", "factory-triage.yml", "factory-pr-feedback.yml", "factory-update-branches.yml", "factory-retro.yml", "factory-skills-update.yml"];
+  const names = ["factory-image.yml", "factory-pr.yml", "factory-deploy.yml", "factory-pr-cleanup.yml", "factory-issue.yml", "factory-unblock.yml", "factory-triage.yml", "factory-pr-feedback.yml", "factory-update-branches.yml", "factory-retro.yml", "factory-skills-update.yml", "factory-merge.yml"];
   return Object.fromEntries(names.map((name) => [name, parse(readFileSync(join(repo, dir, name), "utf8")) as Workflow]));
 }
 
@@ -1087,5 +1089,64 @@ describe("factory:working in the workflows", () => {
     const step = steps(workflows["factory-pr-feedback.yml"]!.jobs.claim!).find((s) => s.name === "claim")!;
     expect(step.env).toMatchObject({ EVENT_NAME: "${{ github.event_name }}", COMMENT_ID: "${{ github.event.comment.id || github.event.review.id }}" });
     expect(step.run).toBe('pnpm factory pr-feedback --pr "$PR" --actor "$ACTOR" --event "$EVENT_NAME" --comment-id "$COMMENT_ID"');
+  });
+});
+
+describe("Factory merge workflow (Merge Mode)", () => {
+  const { workflows, allJobs } = checkWorkflows(WORKFLOWS_DIR);
+  const workflow = workflows["factory-merge.yml"]!;
+  const job = workflow.jobs.merge!;
+  const step = steps(job).find((s) => s.name === "merge")!;
+
+  it("runs when the PR workflow of a Factory branch ends: `workflow_run` runs the default branch's file", () => {
+    expect(Object.keys(workflow.on)).toEqual(["workflow_run"]);
+    expect(workflow.on.workflow_run).toEqual({ workflows: [workflows["factory-pr.yml"]!.name], types: ["completed"], branches: ["factory/issue-*"] });
+    expect(workflow.concurrency?.["cancel-in-progress"]).toBe(false);
+  });
+
+  it("runs the code of the default branch, never the pull request's", () => {
+    const checkouts = steps(job).filter((s) => s.uses?.startsWith("actions/checkout@"));
+    expect(checkouts).toHaveLength(1);
+    expect(checkouts[0]!.with).toMatchObject({ ref: "${{ github.event.repository.default_branch }}", "persist-credentials": false });
+    expect(textOf(job)).not.toMatch(/head_sha|pull_request\.head|download-artifact/);
+  });
+
+  it("is off with FACTORY_ENABLED off and in the human Merge Mode, and decides only after a pull request's checks", () => {
+    expect(job.if).toContain("vars.FACTORY_ENABLED == 'true'");
+    expect(job.if).toContain("vars.FACTORY_MERGE_MODE != 'human'");
+    expect(job.if).toContain("vars.FACTORY_MERGE_MODE != ''");
+    expect(job.if).toContain("github.event.workflow_run.event == 'pull_request_target'");
+  });
+
+  it("reads with the read-only job token and merges with FACTORY_TOKEN, the branch its only input from the event", () => {
+    expect(job.permissions).toEqual({ contents: "read", "pull-requests": "read", actions: "read" });
+    expect(step.run).toBe('pnpm factory merge --branch "$BRANCH"');
+    expect(step.env).toEqual({
+      FACTORY_ADAPTERS: "github",
+      GITHUB_TOKEN: "${{ github.token }}",
+      FACTORY_TOKEN: "${{ secrets.FACTORY_TOKEN }}",
+      BRANCH: "${{ github.event.workflow_run.head_branch }}",
+    });
+    expect(steps(job).filter((s) => JSON.stringify(s).includes("secrets."))).toEqual([step]);
+  });
+
+  it("is the only workflow that merges a Factory pull request with FACTORY_TOKEN; the skills update only turns on GitHub's auto-merge", () => {
+    const merges = /pnpm factory merge\b|gh pr merge|\/merge\b|skills\.ts publish/;
+    const mergers = allJobs.flatMap(({ file, id, job }) =>
+      steps(job)
+        .filter((s) => JSON.stringify(s).includes("secrets.FACTORY_TOKEN") && merges.test(s.run ?? ""))
+        .map((s) => `${file} ${id} ${s.run}`),
+    );
+    expect(mergers).toEqual([
+      'factory-skills-update.yml publish node .factory/src/ci/skills.ts publish --in "$RUNNER_TEMP/skills"',
+      'factory-merge.yml merge pnpm factory merge --branch "$BRANCH"',
+    ]);
+    const runners = allJobs.filter(({ job }) => runs(job).some((r) => /pnpm factory merge\b/.test(r))).map(({ file }) => file);
+    expect(runners).toEqual(["factory-merge.yml"]);
+  });
+
+  it("every workflow file is checked here", () => {
+    const files = readdirSync(join(repo, WORKFLOWS_DIR)).filter((f) => f.endsWith(".yml")).sort();
+    expect(Object.keys(workflows).sort()).toEqual(files);
   });
 });

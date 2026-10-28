@@ -35,7 +35,11 @@ The read-only pass, started by the `agent:explore` label, that decides whether a
 _Avoid_: Exploration, explore
 
 **Merge Gate**:
-The point where a human reviews and merges the factory's pull request; the factory never merges its own work. When a pull request is ready or escalated, the Merge Gate notice, a comment from `github-actions[bot]`, mentions whoever started the run, since nobody is notified of what the factory itself writes.
+The point where a pull request is merged into the default branch: by a human, or by the factory itself when the Merge Mode allows it. The skills update always merges on its own.
+
+**Merge Mode**:
+The repository's choice of which of the factory's pull requests it may merge without a human: none, those that touch nothing protected, or all. An unmet acceptance criterion or a failing deploy of the default branch stops it in every mode.
+_Avoid_: Dark factory, auto-merge
 
 **Escalation**:
 What the factory does when it cannot finish an issue: it explains why on the issue, swaps `in-progress` for `ready-for-human`, and opens a draft pull request with its progress when there are commits. The reason is one of `e2e-failures` (five attempts failed), `time` (the global limit ran out), `needs-human` (a question for a person, an acceptance criterion the Review found not met, or the criteria cannot be met without changing the Skeleton) or `infra` (the run left no result).

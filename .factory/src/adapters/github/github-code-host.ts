@@ -3,9 +3,9 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import type { ActiveRun, CodeHost, ConversationEntry, EvidenceImage, FailedCheck, PullRequest, PushResult, ReactionTarget, Review, ReviewThread, SubmittedReview, FactoryWorkflow, ThreadId } from "../../seams/code-host.ts";
+import type { ActiveRun, CodeHost, ConversationEntry, EvidenceImage, FailedCheck, MergeResult, PrCheck, PullRequest, PushResult, ReactionTarget, Review, ReviewThread, SubmittedReview, FactoryWorkflow, ThreadId } from "../../seams/code-host.ts";
 import { marked } from "../../marker.ts";
-import { GitHubApi, type GitHubApiOptions } from "./api.ts";
+import { GitHubApi, GitHubError, type GitHubApiOptions } from "./api.ts";
 import { childEnv, runGh, type GhRunner } from "./gh.ts";
 
 export { childEnv, type GhRunner };
@@ -65,6 +65,15 @@ const jobRow = z.object({ id: z.number(), name: z.string(), conclusion: z.string
  */
 const CLEAN_RUN = new Set(["success", "skipped", "neutral", "cancelled"]);
 const FAILED_JOB = new Set(["failure", "timed_out", "cancelled"]);
+const bodyRow = z.object({ body: z.string().nullable().optional(), changed_files: z.number().int() });
+const fileRow = z.object({ filename: z.string(), previous_filename: z.string().optional() });
+const workflowRunRow = z.object({ id: z.number(), created_at: z.string(), conclusion: z.string().nullable(), status: z.string().nullable() });
+const prJobRow = z.object({ name: z.string(), status: z.string().nullable(), conclusion: z.string().nullable() });
+/** The pull request workflow, whose jobs (`verify`, `preview deploy (<id>)`, `preview smoke (<id>)`) the merge reads. */
+const PR_WORKFLOW = "factory-pr.yml";
+const DEPLOY_WORKFLOW = "factory-deploy.yml";
+/** The newest first: ISO 8601 UTC timestamps sort as strings. */
+const newestFirst = <T extends { created_at: string }>(rows: T[]) => [...rows].sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
 const graphql = z.object({ data: z.unknown().optional(), errors: z.array(z.object({ message: z.string() })).optional() });
 
 /**
@@ -265,6 +274,44 @@ export class GitHubCodeHost implements CodeHost {
       },
     });
     if (response?.errors?.length) throw new Error(`GitHub could not react to review ${target.id}: ${response.errors.map((e) => e.message).join("; ")}`);
+  }
+
+  async pullRequestBody(pr: number): Promise<string> {
+    return (await this.api.get(this.api.repoPath(`/pulls/${pr}`), bodyRow)).body ?? "";
+  }
+
+  /** The files endpoint lists 3000 files at most: a longer diff throws rather than hide a path. */
+  async changedFiles(pr: number): Promise<string[]> {
+    const { changed_files: count } = await this.api.get(this.api.repoPath(`/pulls/${pr}`), bodyRow);
+    const rows = await this.api.list(this.api.repoPath(`/pulls/${pr}/files`), fileRow);
+    if (rows.length < count) throw new Error(`GitHub listed ${rows.length} of the ${count} files of #${pr}.`);
+    return [...new Set(rows.flatMap((r) => (r.previous_filename ? [r.filename, r.previous_filename] : [r.filename])))];
+  }
+
+  /** Through the Actions API (`actions: read`), like `failedChecks`: the latest attempt of each job of the newest run. */
+  async prChecks(sha: string): Promise<PrCheck[]> {
+    const runs = await this.api.listIn(this.api.repoPath(`/actions/workflows/${PR_WORKFLOW}/runs?head_sha=${sha}`), "workflow_runs", workflowRunRow);
+    const newest = newestFirst(runs)[0];
+    if (!newest) return [];
+    const jobs = await this.api.listIn(this.api.repoPath(`/actions/runs/${newest.id}/jobs`), "jobs", prJobRow);
+    return jobs.map((j) => ({ name: j.name, conclusion: j.status === "completed" ? j.conclusion : null }));
+  }
+
+  async lastDeploy(): Promise<string | null> {
+    const path = this.api.repoPath(`/actions/workflows/${DEPLOY_WORKFLOW}/runs?branch=${encodeURIComponent(this.options.baseBranch)}&status=completed&per_page=20`);
+    const { workflow_runs: runs } = await this.api.get(path, z.object({ workflow_runs: z.array(workflowRunRow) }));
+    return newestFirst(runs)[0]?.conclusion ?? null;
+  }
+
+  /** `PUT /pulls/{n}/merge` with `sha`: 405 (not mergeable), 409 (the head moved) and 422 (refused) are refusals. */
+  async merge(pr: number, sha: string): Promise<MergeResult> {
+    try {
+      await this.api.send("PUT", this.api.repoPath(`/pulls/${pr}/merge`), { sha, merge_method: "merge" });
+      return { ok: true };
+    } catch (error) {
+      if (error instanceof GitHubError && [405, 409, 422].includes(error.status)) return { ok: false, reason: this.scrub(error.message) };
+      throw error;
+    }
   }
 
   /** The repository's runs in each status that has not ended, kept when their workflow is a Factory one (a Triage run only when it triages). */
