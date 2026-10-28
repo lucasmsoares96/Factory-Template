@@ -468,4 +468,70 @@ describe("GitHubCodeHost.push with the real git", () => {
     expect(await h.push({ branch: "factory/issue-7", sha: two, expectedSha: one })).toEqual({ ok: true });
     expect(await git(bare, "rev-parse", "factory/issue-7")).toBe(two);
   });
+  describe("what the Merge Mode reads and writes", () => {
+    const head = "a".repeat(40);
+    const workflowRun = (id: number, created: string, conclusion: string | null, status = "completed") => ({ id, created_at: created, conclusion, status });
+
+    it("reads the body and every changed file, a rename by both names", async () => {
+      const s = new FakeGitHubServer();
+      s.on("GET", `${R}/pulls/4`, () => ({ json: { ...pr(4), body: "## Acceptance criteria verdicts", changed_files: 3 } }));
+      s.on("GET", `${R}/pulls/4/files`, () => ({ json: [{ filename: "a.ts" }, { filename: "b.ts", previous_filename: "old/b.ts" }, { filename: "c.ts" }] }));
+
+      expect(await host(s).pullRequestBody(4)).toBe("## Acceptance criteria verdicts");
+      expect(await host(s).changedFiles(4)).toEqual(["a.ts", "b.ts", "old/b.ts", "c.ts"]);
+    });
+
+    it("throws rather than hide a file when GitHub lists fewer than the PR changes", async () => {
+      const s = new FakeGitHubServer();
+      s.on("GET", `${R}/pulls/4`, () => ({ json: { ...pr(4), body: null, changed_files: 3001 } }));
+      s.on("GET", `${R}/pulls/4/files`, () => ({ json: [{ filename: "a.ts" }] }));
+
+      await expect(host(s).changedFiles(4)).rejects.toThrow(/1 of the 3001 files/);
+    });
+
+    it("reads the jobs of the newest run of factory-pr.yml at the head, a job still going without a conclusion", async () => {
+      const s = new FakeGitHubServer();
+      s.on("GET", `${R}/actions/workflows/factory-pr.yml/runs`, ({ query }) =>
+        query.get("head_sha") === head
+          ? { json: { total_count: 2, workflow_runs: [workflowRun(1, "2026-10-28T10:00:00Z", "failure"), workflowRun(2, "2026-10-28T11:00:00Z", null, "in_progress")] } }
+          : { json: { total_count: 0, workflow_runs: [] } },
+      );
+      s.on("GET", `${R}/actions/runs/2/jobs`, () => ({ json: { total_count: 2, jobs: [{ name: "build (example)", status: "completed", conclusion: "success" }, { name: "verify", status: "in_progress", conclusion: null }] } }));
+
+      expect(await host(s).prChecks(head)).toEqual([{ name: "build (example)", conclusion: "success" }, { name: "verify", conclusion: null }]);
+      expect(await host(s).prChecks("b".repeat(40))).toEqual([]);
+    });
+
+    it("reads the newest deploy of the base branch that ended, null when none has", async () => {
+      const s = new FakeGitHubServer();
+      let runs = [workflowRun(1, "2026-10-28T10:00:00Z", "success"), workflowRun(2, "2026-10-28T12:00:00Z", "failure")];
+      s.on("GET", `${R}/actions/workflows/factory-deploy.yml/runs`, ({ query }) =>
+        query.get("branch") === "main" && query.get("status") === "completed" ? { json: { total_count: runs.length, workflow_runs: runs } } : { status: 400, json: {} },
+      );
+
+      expect(await host(s).lastDeploy()).toBe("failure");
+      runs = [];
+      expect(await host(s).lastDeploy()).toBeNull();
+    });
+
+    it("compares the head with the base branch: behind when the head lacks a commit of it", async () => {
+      const s = new FakeGitHubServer();
+      s.on("GET", `${R}/compare/main...${head}`, () => ({ json: { behind_by: 2, ahead_by: 1 } }));
+      s.on("GET", `${R}/compare/main...${"b".repeat(40)}`, () => ({ json: { behind_by: 0, ahead_by: 3 } }));
+
+      expect(await host(s).behindBase(head)).toBe(true);
+      expect(await host(s).behindBase("b".repeat(40))).toBe(false);
+    });
+
+    it("merges with a merge commit pinned to the head, and a refusal is a result, not a throw", async () => {
+      const s = new FakeGitHubServer();
+      s.on("PUT", `${R}/pulls/4/merge`, ({ body }) => (body.sha === head ? { json: { merged: true } } : { status: 409, json: { message: "Head branch was modified" } }));
+
+      expect(await host(s).merge(4, head)).toEqual({ ok: true });
+      expect(s.calls[0]!.body).toEqual({ sha: head, merge_method: "merge" });
+      const refused = await host(s).merge(4, "b".repeat(40));
+      expect(refused.ok).toBe(false);
+      expect(!refused.ok && refused.reason).toContain("Head branch was modified");
+    });
+  });
 });
