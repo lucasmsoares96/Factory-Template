@@ -262,12 +262,12 @@ export const catalog = {
 
   // The Merge Gate notice of `notify`. `mention` is `@login ` or empty, so each sentence starts in lower case.
   notifyReady: text({
-    en: (mention: string, link: string) => `${mention}the Factory opened a pull request for this issue and it is ready for review${link}`,
-    "pt-BR": (mention, link) => `${mention}a Factory abriu um pull request para esta issue e ele está pronto para revisão${link}`,
+    en: (mention: string, url: string | null) => `${mention}the Factory opened a pull request for this issue and it is ready for review${url ? `: ${url}` : "."}`,
+    "pt-BR": (mention, url) => `${mention}a Factory abriu um pull request para esta issue e ele está pronto para revisão${url ? `: ${url}` : "."}`,
   }),
   notifyUpdated: text({
-    en: (mention: string, link: string) => `${mention}the Factory pushed the answers to your comments to the pull request${link}`,
-    "pt-BR": (mention, link) => `${mention}a Factory enviou ao pull request as respostas aos seus comentários${link}`,
+    en: (mention: string, url: string | null) => `${mention}the Factory pushed the answers to your comments to the pull request${url ? `: ${url}` : "."}`,
+    "pt-BR": (mention, url) => `${mention}a Factory enviou ao pull request as respostas aos seus comentários${url ? `: ${url}` : "."}`,
   }),
   notifyEscalated: text({
     en: (mention: string, url: string | null) =>

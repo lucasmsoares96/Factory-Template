@@ -77,6 +77,25 @@ describe("factory notify", () => {
     ]);
   });
 
+  it("ends with a full stop when there is no pull request link, in both languages", async () => {
+    const en = world();
+    const pt = world({ env: { FACTORY_LANGUAGE: "pt-BR" } });
+
+    for (const w of [en, pt]) {
+      await w.factory("notify", "7", "--outcome", "ready", "--to", HUMAN);
+      await w.factory("notify", "7", "--outcome", "ready", "--updated");
+    }
+
+    expect(en.tracker.commentsOn(7).map((c) => unmarked(c.body))).toEqual([
+      `@${HUMAN} the Factory opened a pull request for this issue and it is ready for review.`,
+      "the Factory pushed the answers to your comments to the pull request.",
+    ]);
+    expect(pt.tracker.commentsOn(7).map((c) => unmarked(c.body))).toEqual([
+      `@${HUMAN} a Factory abriu um pull request para esta issue e ele está pronto para revisão.`,
+      "a Factory enviou ao pull request as respostas aos seus comentários.",
+    ]);
+  });
+
   it("says nothing for a discarded run", async () => {
     const w = world();
 

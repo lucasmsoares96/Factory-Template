@@ -22,8 +22,7 @@ export async function notify(ctx: Pick<CommandContext, "tracker" | "config">, is
   if (input.to !== "" && !LOGIN.test(input.to)) throw new Error(`Not a GitHub login: ${JSON.stringify(input.to)}`);
   const m = messages(ctx.config.language);
   const mention = input.to ? `@${input.to} ` : "";
-  const link = input.url ? `: ${input.url}` : ".";
   const text =
-    input.outcome === "escalated" ? m.notifyEscalated(mention, input.url) : input.updated ? m.notifyUpdated(mention, link) : m.notifyReady(mention, link);
+    input.outcome === "escalated" ? m.notifyEscalated(mention, input.url) : input.updated ? m.notifyUpdated(mention, input.url) : m.notifyReady(mention, input.url);
   await ctx.tracker.comment(issue, text);
 }
