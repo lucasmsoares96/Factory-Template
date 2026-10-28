@@ -90,10 +90,20 @@ export const catalog = {
     en: (): string => "**Pull request:** No pull request: the run made no commits.",
     "pt-BR": () => "**Pull request:** Nenhum pull request: a execução não fez commits.",
   }),
+  roundPullRequest: text({
+    en: (pr: number) => `**Pull request:** #${pr}, the one this round continues. It stays as it is.`,
+    "pt-BR": (pr) => `**Pull request:** #${pr}, o que esta rodada continua. Ele fica como está.`,
+  }),
   workflowRun: text({ en: (url: string) => `**Workflow run:** ${url}`, "pt-BR": (url) => `**Execução do workflow:** ${url}` }),
   retry: text({
     en: (ready: string, base: string) => `To try again, re-add the \`${ready}\` label: the Factory closes the draft pull request and starts over from \`${base}\`.`,
     "pt-BR": (ready, base) => `Para tentar de novo, coloque o label \`${ready}\` outra vez: a Factory fecha o pull request rascunho e recomeça a partir de \`${base}\`.`,
+  }),
+  retryRound: text({
+    en: (pr: number, inProgress: string, readyForHuman: string) =>
+      `To try again, put \`${inProgress}\` back on this issue in place of \`${readyForHuman}\`, then comment on pull request #${pr} again: the Factory starts another round on it, from its branch.`,
+    "pt-BR": (pr, inProgress, readyForHuman) =>
+      `Para tentar de novo, coloque \`${inProgress}\` outra vez nesta issue no lugar de \`${readyForHuman}\` e comente de novo no pull request #${pr}: a Factory abre outra rodada nele, a partir do branch dele.`,
   }),
 
   // A run paused at the agent's usage limit (`src/session-limit.ts`).
