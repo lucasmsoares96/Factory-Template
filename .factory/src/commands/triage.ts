@@ -47,7 +47,7 @@ export async function triage(ctx: CommandContext, options: { issues: number[]; o
   const fallback: number[] = [];
   if (batch.length > 0) {
     const numbers = batch.map((i) => i.number);
-    const run = await agent.run("triage", triagePrompt({ issues: batch }), {
+    const run = await agent.run("triage", triagePrompt({ issues: batch, language: config.language }), {
       timeoutMs: config.timeouts.triage * MINUTE,
       model: config.models.triage,
       extract: triageExtraction(numbers),

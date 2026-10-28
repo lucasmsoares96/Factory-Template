@@ -1,6 +1,7 @@
 import type { Step, StepContext } from "./steps.ts";
 import { CloudflareRefused, type CloudflareClient } from "./clients.ts";
 import { labelSpecs } from "./labels.ts";
+import { LANGUAGES, type Language } from "../messages.ts";
 
 const TOKEN_SECRET = "CLOUDFLARE_API_TOKEN";
 const ACCOUNT_SECRET = "CLOUDFLARE_ACCOUNT_ID";
@@ -214,4 +215,26 @@ export const labels: Step = {
   },
 };
 
-export const commonSteps: Step[] = [cloudflareToken, workersDev, labels];
+export const LANGUAGE_VARIABLE = "FACTORY_LANGUAGE";
+
+const LANGUAGE_LABELS: Record<Language, string> = { en: "English (en)", "pt-BR": "Brazilian Portuguese (pt-BR)" };
+
+/** The language of the Factory's public text. Asked only while the variable does not exist; `en` is offered first. */
+export const language: Step = {
+  id: "language",
+  title: `Language of the Factory's public text (${LANGUAGE_VARIABLE})`,
+  async check(ctx) {
+    const value = (await ctx.github.listVariables())[LANGUAGE_VARIABLE];
+    return { done: value !== undefined, detail: value };
+  },
+  async run(ctx) {
+    const value = await ctx.prompter.select<Language>({
+      id: "factory-language",
+      message: "Language of the text the Factory publishes (comments, pull requests, issues)? Code, commits and docs stay in English.",
+      options: LANGUAGES.map((value) => ({ value, label: LANGUAGE_LABELS[value] })),
+    });
+    await ctx.github.setVariable(LANGUAGE_VARIABLE, value);
+  },
+};
+
+export const commonSteps: Step[] = [cloudflareToken, workersDev, labels, language];

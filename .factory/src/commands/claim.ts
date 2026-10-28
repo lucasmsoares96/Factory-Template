@@ -1,5 +1,6 @@
 import { issueBranch } from "../config.ts";
 import { guard, isFactoryComment, type GuardDecision, type Refusal } from "../guard.ts";
+import { messages } from "../messages.ts";
 import type { CommandContext } from "./context.ts";
 import { startWorking } from "./working.ts";
 
@@ -37,21 +38,16 @@ async function answerRefusal(ctx: CommandContext, decision: Exclude<GuardDecisio
   const { tracker, config } = ctx;
   const { number } = decision.issue;
   const ready = config.labels.readyForAgent;
+  const m = messages(config.language);
   switch (decision.reason) {
     case "missing-acceptance-criteria":
       if (await tracker.swapLabel(number, ready, config.labels.needsInfo)) {
-        await tracker.comment(
-          number,
-          `The Factory needs a \`## Acceptance criteria\` section in the issue body. Add it and re-add \`${ready}\`.`,
-        );
+        await tracker.comment(number, m.missingCriteria(ready));
       }
       return;
     case "missing-seams":
       if (await tracker.swapLabel(number, ready, config.labels.agentExplore)) {
-        await tracker.comment(
-          number,
-          "No agreed seams: the parent spec has no `## Testing Decisions` and there is no Triage comment. Sent to Triage.",
-        );
+        await tracker.comment(number, m.missingSeams());
         await startTriage(ctx, number);
       }
       return;
@@ -59,14 +55,7 @@ async function answerRefusal(ctx: CommandContext, decision: Exclude<GuardDecisio
       if (event !== "labeled") return;
       for (const c of decision.issue.comments) if (await isFactoryComment(tracker, c, WAITING_MARKER)) return;
       const list = decision.waitingOn.map((n) => `#${n}`).join(", ");
-      await tracker.comment(
-        number,
-        [
-          WAITING_MARKER,
-          `Waiting on ${list}. The Factory starts this issue when the last of them is done.`,
-          `If you remove a dependency, remove and re-add \`${ready}\` to start right away.`,
-        ].join("\n"),
-      );
+      await tracker.comment(number, [WAITING_MARKER, m.waitingOn(list, ready)].join("\n"));
       return;
     }
     default:

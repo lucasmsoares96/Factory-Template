@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { FactoryConfig } from "./config.ts";
 import { Git } from "./git.ts";
+import { messages, type Language } from "./messages.ts";
 import type { SKELETON_PATCH_FILE } from "./result.ts";
 import type { Issue } from "./seams/tracker.ts";
 
@@ -102,25 +103,27 @@ export interface SkeletonFollowUp {
 }
 
 /** The `<skeleton-gap>` texts under their heading, for the Skeleton issue and pull request; nothing without gaps. */
-export function gapsSection(gaps: string[]): string[] {
-  return gaps.length > 0 ? ["", "## What the Skeleton must offer", "", ...gaps.map((g) => `<skeleton-gap>\n${g}\n</skeleton-gap>`)] : [];
+export function gapsSection(gaps: string[], language: Language): string[] {
+  return gaps.length > 0 ? ["", messages(language).gapsHeading(), "", ...gaps.map((g) => `<skeleton-gap>\n${g}\n</skeleton-gap>`)] : [];
 }
 
-/** The ticket asking for the Skeleton change; the Tracker adapter adds the link back to the issue. */
-export function followUpTicket(issue: Pick<Issue, "number" | "title">, product: string, files: string[], reportedGaps: string[], patch: typeof SKELETON_PATCH_FILE | null): SkeletonFollowUp {
+/**
+ * The ticket asking for the Skeleton change; the Tracker adapter adds the link back to the issue. Its title and
+ * `## Acceptance criteria` stay in English in every language: the guard and the follow-up search look for them.
+ */
+export function followUpTicket(issue: Pick<Issue, "number" | "title">, product: string, files: string[], reportedGaps: string[], patch: typeof SKELETON_PATCH_FILE | null, language: Language): SkeletonFollowUp {
+  const m = messages(language);
   const gaps = mergeGaps(reportedGaps);
   const body = [
-    `The Skeleton must grow: Product \`${product}\` needs a change in \`${SKELETON_PATH}\` to finish #${issue.number} (${issue.title}).`,
+    m.followUpBodyIntro(product, SKELETON_PATH, issue.number, issue.title),
     "",
-    patch
-      ? "A Product extends the Skeleton by configuration only, so the Factory removed this change from the Product pull request and opened it as a pull request of its own, from the base branch: review and merge it to close this issue."
-      : "A Product extends the Skeleton by configuration only, so the Factory removed this change from the Product pull request.",
-    ...gapsSection(gaps),
-    ...(files.length > 0 ? ["", "## Files the Product run changed (removed from its branch)", "", ...files.map((f) => `- \`${f}\``)] : []),
+    m.followUpBodyRemoved(patch !== null),
+    ...gapsSection(gaps, language),
+    ...(files.length > 0 ? ["", m.followUpFilesHeading(), "", ...files.map((f) => `- \`${f}\``)] : []),
     "",
     "## Acceptance criteria",
     "",
-    "- [ ] The Skeleton exposes what the Product needs, through its interface (grown in a separate change).",
+    m.followUpCriterion(),
   ].join("\n");
   return { title: `The Skeleton must grow: ${issue.title}`, body, files, gaps, patch };
 }

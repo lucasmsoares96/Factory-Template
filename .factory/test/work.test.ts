@@ -25,6 +25,15 @@ async function setup(agent: WorldOptions["agent"], verify: WorldOptions["verify"
 }
 
 describe("factory work", () => {
+  it("gives every Stage the language of FACTORY_LANGUAGE for the text the Factory publishes", async () => {
+    const { repo, out, w } = await setup({ development: [develop], review: [reviewWithFix] }, [{ ok: true }], { FACTORY_LANGUAGE: "pt-BR" });
+
+    expect(await w.factory("work", "7", "--out", out, "--repo", repo)).toBe(0);
+
+    expect(w.agent.calls.map((c) => c.stage)).toEqual(["development", "review", "pull-request"]);
+    for (const call of w.agent.calls) expect(call.prompt).toContain("questions for a human) in Brazilian Portuguese (pt-BR).");
+  });
+
   it("runs Development → Review → E2E once and writes a ready result", async () => {
     const { repo, out, w, readResult } = await setup(
       { development: [develop], review: [reviewWithFix] },

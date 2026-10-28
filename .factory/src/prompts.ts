@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { LANGUAGE_NAMES, type Language } from "./messages.ts";
 import type { ThreadReply } from "./replies-output.ts";
 import type { ReviewOutput } from "./result.ts";
 import type { FailedCheck, ReviewThread } from "./seams/code-host.ts";
@@ -10,7 +11,7 @@ import type { RetroSources } from "./commands/retro.ts";
 /**
  * Prompts for each agent session, rendered from the English templates in
  * `.factory/prompts/`. `{{NAME}}` is a variable; `{{RULES}}` is `rules.md`,
- * the hard rules every template repeats. Inputs are the issue with its
+ * the hard rules every template repeats, which name the language of the public text (`{{LANGUAGE}}`). Inputs are the issue with its
  * comments, `git log <base>..HEAD` and the previous attempt's feedback:
  * never a resumed session.
  */
@@ -62,6 +63,8 @@ export interface StageContext {
   log: string;
   /** Why the previous attempt failed, if it did. */
   feedback: string | null;
+  /** The language of the text the Factory publishes (`FACTORY_LANGUAGE`). */
+  language: Language;
 }
 
 /** The issue and its comments, fenced as untrusted content. */
@@ -72,6 +75,7 @@ function issueBlock(issue: Issue): string {
 
 export function developmentPrompt(ctx: StageContext & { base?: string }): string {
   return renderTemplate("development", {
+    LANGUAGE: LANGUAGE_NAMES[ctx.language],
     NUMBER: String(ctx.issue.number),
     BASE: ctx.base ?? "main",
     ISSUE: issueBlock(ctx.issue),
@@ -126,6 +130,7 @@ const PULL_REQUEST_ROUND_RULE =
 export function reviewPrompt(ctx: ReviewContext): string {
   const findings = ctx.findings.flatMap((f) => [f.summary, ...f.inline.map((c) => `- ${c.path}:${c.line} ${c.body}`)]);
   return renderTemplate("review", {
+    LANGUAGE: LANGUAGE_NAMES[ctx.language],
     NUMBER: String(ctx.issue.number),
     SCOPE: ctx.since
       ? `Review only what changed since ${ctx.since} (\`git diff ${ctx.since}..HEAD\`), and check that the previous findings are dealt with. Do not start a second broad review.`
@@ -152,6 +157,7 @@ export function pullRequestPrompt(ctx: PullRequestContext): string {
   const byProduct = Map.groupBy(ctx.prints, (p) => p.product);
   const prints = [...byProduct].map(([product, files]) => [`${product}:`, ...files.map((f) => `- ${f.path}`)].join("\n"));
   return renderTemplate("pull-request", {
+    LANGUAGE: LANGUAGE_NAMES[ctx.language],
     NUMBER: String(ctx.issue.number),
     BASE: ctx.base,
     ROUND: roundBlock(ctx.round, PULL_REQUEST_ROUND_RULE),
@@ -163,8 +169,9 @@ export function pullRequestPrompt(ctx: PullRequestContext): string {
 }
 
 /** Triage of a batch of `agent:explore` issues (`pnpm factory triage`). */
-export function triagePrompt(ctx: { issues: Issue[] }): string {
+export function triagePrompt(ctx: { issues: Issue[]; language: Language }): string {
   return renderTemplate("triage", {
+    LANGUAGE: LANGUAGE_NAMES[ctx.language],
     NUMBER: "N",
     ISSUES: ctx.issues.map(issueBlock).join("\n\n"),
   });
@@ -201,9 +208,10 @@ function checksBlock(read: ChecksRead): string {
 }
 
 /** Review comments on a Factory pull request (ticket 18 runs it). */
-export function prFeedbackPrompt(ctx: { issue: Issue; pr: number; log: string; threads: ReviewThread[]; checks: ChecksRead }): string {
+export function prFeedbackPrompt(ctx: { issue: Issue; pr: number; log: string; threads: ReviewThread[]; checks: ChecksRead; language: Language }): string {
   const threads = ctx.threads.map(threadBlock);
   return renderTemplate("pr-feedback", {
+    LANGUAGE: LANGUAGE_NAMES[ctx.language],
     NUMBER: String(ctx.issue.number),
     PR: String(ctx.pr),
     ISSUE: issueBlock(ctx.issue),
@@ -214,8 +222,9 @@ export function prFeedbackPrompt(ctx: { issue: Issue; pr: number; log: string; t
 }
 
 /** Merge conflicts with the base branch on a Factory branch (ticket 18 runs it). */
-export function updateBranchPrompt(ctx: { issue: Issue; base: string; conflicts: string[]; pr?: number | null }): string {
+export function updateBranchPrompt(ctx: { issue: Issue; base: string; conflicts: string[]; pr?: number | null; language: Language }): string {
   return renderTemplate("update-branch", {
+    LANGUAGE: LANGUAGE_NAMES[ctx.language],
     NUMBER: String(ctx.issue.number),
     TARGET: ctx.pr ? `pull request #${ctx.pr}` : `issue #${ctx.issue.number}`,
     BASE: ctx.base,
@@ -228,10 +237,11 @@ export function updateBranchPrompt(ctx: { issue: Issue; base: string; conflicts:
 export const RETRO_SKILL = ".agents/skills/retro/SKILL.md";
 
 /** The automatic Retro over what `retro-collect` gathered in `dir` (`pnpm factory retro`). */
-export function retroPrompt(ctx: { sources: RetroSources; dir: string; base: string }): string {
+export function retroPrompt(ctx: { sources: RetroSources; dir: string; base: string; language: Language }): string {
   const { sources } = ctx;
   const runs = sources.runs.map((r) => `  - \`runs/${r.id}/\`: ${r.workflow}, ${r.createdAt}, ${r.url}${r.files.length === 0 ? " (artifact expired: no sessions)" : ""}`);
   return renderTemplate("retro", {
+    LANGUAGE: LANGUAGE_NAMES[ctx.language],
     NUMBER: String(sources.issue),
     PR: sources.pr === null ? "" : ` (pull request #${sources.pr})`,
     SKILL: RETRO_SKILL,
