@@ -11,3 +11,4 @@ export {
   resolveDevProduct,
   titleFromId,
 } from "./products.ts";
+export { stripeSignature } from "../features/billing/fake-stripe/sign.ts";

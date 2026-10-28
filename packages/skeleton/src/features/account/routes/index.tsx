@@ -9,6 +9,7 @@ import { Input } from "#ui/input";
 import { Label } from "#ui/label";
 import { EMAIL_VERIFIED_PATH, SIGN_IN_PATH, authClient, orThrow } from "../../../client/auth.ts";
 import { getMeQueryKey, useGetMe } from "../../../gen/hooks/useGetMe.ts";
+import { useGetNav } from "../../../gen/hooks/useGetNav.ts";
 import { useUpdateMe } from "../../../gen/hooks/useUpdateMe.ts";
 import { errorCode, useErrorMessage, useMessages } from "../../../client/i18n.tsx";
 import { format } from "../../../i18n/index.ts";
@@ -37,6 +38,7 @@ function ChangeName() {
   const t = useMessages();
   const errorMessage = useErrorMessage();
   const { data: me } = useGetMe();
+  const nav = useGetNav();
   const queryClient = useQueryClient();
   const updateMe = useUpdateMe({
     mutation: { onSuccess: (user) => queryClient.setQueryData(getMeQueryKey(), user) },
@@ -115,6 +117,11 @@ function ChangeName() {
         <Link to="/account/connections" className={`${buttonVariants({ variant: "link" })} mt-4 px-0`}>
           {t.account.connections.link}
         </Link>
+        {nav.data?.accountPage.map((page) => (
+          <Link key={page.to} to={page.to} className={`${buttonVariants({ variant: "link" })} mt-4 px-0`}>
+            {page.label}
+          </Link>
+        ))}
       </CardContent>
     </Card>
   );
