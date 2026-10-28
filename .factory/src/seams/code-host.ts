@@ -74,7 +74,7 @@ export interface EvidenceImage {
   path: string;
 }
 
-/** A check that ended in `failure` or `timed_out` on a pull request's head, with the end of its job's log. */
+/** A check that ended in `failure`, `timed_out` or `cancelled` on a pull request's head, with the end of its job's log. */
 export interface FailedCheck {
   name: string;
   url: string;
@@ -139,8 +139,9 @@ export interface CodeHost {
   /** The reviews submitted on the pull request, oldest first. */
   reviews(pr: number): Promise<SubmittedReview[]>;
   /**
-   * The checks that ended in `failure` or `timed_out` on the pull request's current head, each with the last `lines`
-   * lines of its job's log (or why that log could not be read). Throws when the checks cannot be listed.
+   * The checks that ended in `failure`, `timed_out` or `cancelled` on the pull request's current head, each with the
+   * last `lines` lines of its job's log (or why that log could not be read); a whole run that was cancelled (superseded
+   * by a newer one) is left out. Throws when the checks cannot be listed.
    */
   failedChecks(pr: number, lines: number): Promise<FailedCheck[]>;
   /** The Conversation tab, oldest first: its comments and the bodies of submitted reviews (empty bodies left out). */

@@ -59,9 +59,12 @@ const FACTORY_WORKFLOWS = new Set(["factory-issue.yml", "factory-pr-feedback.yml
 /** The `run-name` of a Triage run that works on the batch; any other label event names itself otherwise and ends at once. */
 const TRIAGE_RUN = "Factory triage";
 const jobRow = z.object({ id: z.number(), name: z.string(), conclusion: z.string().nullable(), html_url: z.string().nullable() });
-/** A run that ended like this has no failed job to read. */
-const CLEAN_RUN = new Set(["success", "skipped", "neutral"]);
-const FAILED_JOB = new Set(["failure", "timed_out"]);
+/**
+ * A run that ended like this has no failed job to read. Nor does a cancelled run: a newer run of the same head
+ * superseded it (`cancel-in-progress`), or someone stopped it. A job that hits its `timeout-minutes` may end `cancelled` while its run ends `failure`, so it is still read.
+ */
+const CLEAN_RUN = new Set(["success", "skipped", "neutral", "cancelled"]);
+const FAILED_JOB = new Set(["failure", "timed_out", "cancelled"]);
 const graphql = z.object({ data: z.unknown().optional(), errors: z.array(z.object({ message: z.string() })).optional() });
 
 /**
@@ -209,8 +212,8 @@ export class GitHubCodeHost implements CodeHost {
 
   /**
    * Through the Actions API, which the job token reads with `actions: read` (the check-runs API would need `checks: read`):
-   * the runs of the head, their jobs that failed or timed out, and the end of each job's log. A check posted by an app
-   * other than Actions is not seen.
+   * the runs of the head that did not end clean or cancelled, their jobs that failed, timed out or were cancelled, and
+   * the end of each job's log. A check posted by an app other than Actions is not seen.
    */
   async failedChecks(pr: number, lines: number): Promise<FailedCheck[]> {
     const head = (await this.api.get(this.api.repoPath(`/pulls/${pr}`), prRow)).head.sha;
