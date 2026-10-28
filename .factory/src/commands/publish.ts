@@ -424,7 +424,7 @@ async function postReplies(ctx: CommandContext, pr: number, threadReplies: Facto
 async function escalate(
   ctx: CommandContext,
   issue: Issue,
-  report: Parameters<typeof escalationComment>[0],
+  report: Omit<Parameters<typeof escalationComment>[0], "round">,
   /** The PR this run continues: the report cites it, it gets a short note too, and stays as it is (never turned back into a draft). */
   continuing: PullRequest | null = null,
   dispatchRetro?: PublishOptions["dispatchRetro"],

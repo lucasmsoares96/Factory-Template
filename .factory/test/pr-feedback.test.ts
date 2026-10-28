@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { rmSync } from "node:fs";
+import { loadConfig } from "../src/config.ts";
 import { FACTORY_MARKER, marked } from "../src/marker.ts";
+import { escalationComment } from "../src/report.ts";
 import type { ThreadId } from "../src/seams/code-host.ts";
 import { git, HUMAN, lastJson, OWNER, unmarked } from "./helpers.ts";
 import { BRANCH, PR, commits, feedbackRound, finishRound, prWorld, replies, reviewOk, said, thread, type PrWorld } from "./pr-flow-helpers.ts";
@@ -267,6 +269,18 @@ describe("factory pr-feedback: a round", () => {
     expect(comment).toContain("`in-progress`");
     expect(p.w.codeHost.pr(PR).draft).toBe(false);
     expect(p.w.codeHost.pr(PR).state).toBe("open");
+  });
+
+  it("cites the round's PR in pt-BR too, even after a push, and hints to comment on it again instead of ready-for-agent", () => {
+    const url = `https://example.test/pull/${PR}`;
+    const comment = escalationComment(
+      { reason: "needs-human", result: null, pr: { number: PR, url }, round: { number: PR, url }, runUrl: null },
+      loadConfig({ FACTORY_LANGUAGE: "pt-BR" }),
+    );
+
+    expect(comment).toContain(`**Pull request:** #${PR}, o que esta rodada continua`);
+    expect(comment).toContain(`comente de novo no pull request #${PR}`);
+    expect(comment).not.toMatch(/rascunho|Nenhum pull request|ready-for-agent/);
   });
 
   it("escalates a round whose Review finds a criterion not met, and lists the unchecked verdict in the PR body", async () => {
