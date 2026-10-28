@@ -10,6 +10,8 @@ export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
 apt-get install -y --no-install-recommends ca-certificates curl git python3 xz-utils
+# Fail the build here, not in an agent session, if python3 does not run.
+python3 --version
 
 # Node, from nodejs.org, checked against the release's SHASUMS256.txt.
 case "$(dpkg --print-architecture)" in
