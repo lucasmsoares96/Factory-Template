@@ -389,6 +389,19 @@ describe("factory triage + apply", () => {
       expect(comment!.body).toContain("`ine7` at `src/app.ts:7`");
     });
 
+    it("a path that only appears as the prefix of a longer path is unchecked", async () => {
+      const s = await setup({ triage: [says(cites({ symbol: "/api/note", foundAt: "src/routes.ts" }, { symbol: "/api/notes", foundAt: "src/routes.ts" }))] });
+      await writeFile(join(s.repo, "src/routes.ts"), 'app.get("/api/notes", list);\n');
+
+      await triage(s);
+      await apply(s);
+
+      const [comment] = triageComments(s.w, 5);
+      const [found, notFound] = comment!.body.split(unchecked);
+      expect(found).toContain("`/api/notes` at `src/routes.ts`");
+      expect(notFound).toContain("`/api/note` at `src/routes.ts`");
+    });
+
     it("the agent cannot mark its own reference checked", async () => {
       const s = await setup({ triage: [says(cites({ symbol: "PASSWORD_MIN_LENGTH", foundAt: "src/app.ts", checked: true }))] });
 
