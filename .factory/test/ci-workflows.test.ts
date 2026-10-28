@@ -142,6 +142,16 @@ describe.each([[WORKFLOWS_DIR]])("CI workflows in %s", (dir) => {
     expect(JSON.stringify(job)).toContain("contains(needs.*.result, 'failure')");
   });
 
+  it("`verify` names each needed job's result when it fails, reading `needs` from env, never interpolated into the script", () => {
+    const job = pr.jobs.verify!;
+    const failing = steps(job).find((s) => s.if?.includes("contains(needs.*.result, 'failure')"))!;
+    expect(failing.env).toEqual({ NEEDS: "${{ toJSON(needs) }}" });
+    expect(failing.run).not.toContain("${{");
+    expect(failing.run).toContain('jq -r \'to_entries[] | "\\(.key): \\(.result)"\' <<<"$NEEDS"');
+    expect(failing.run).toMatch(/exit 1\s*$/);
+    expect(job.permissions).toEqual({});
+  });
+
   it("every action is pinned to a commit", () => {
     for (const { id, job } of allJobs) {
       for (const step of steps(job)) if (step.uses) expect(step.uses, id).toMatch(/^[\w.-]+\/[\w.-]+@[0-9a-f]{40}$/);
