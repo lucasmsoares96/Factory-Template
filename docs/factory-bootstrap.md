@@ -63,6 +63,7 @@ Optional, after Production.
     - `FACTORY_TOKEN` in the env or already as a secret skips the prompt.
   - `claude-auth`: never prompted. `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` from the env, or an existing secret; both in the env stores only the OAuth one; both as secrets is a warning.
   - `auto-merge`: the repo's `allow_auto_merge`, which the skills update needs ([factory-flows.md](factory-flows.md#skills-update)).
+  - `merge-mode`: the Merge Mode in `FACTORY_MERGE_MODE` (ADR 0016, [factory-flows.md](factory-flows.md#merge-mode)). One `select` (`merge-mode`), `human` offered first; without a terminal it sets `human`, and `FACTORY_MERGE_MODE` in the env skips the prompt. Asked only while the variable does not exist; `--redo merge-mode` asks again. The doctor shows it under Variables (unset reads as `human`, an unknown value is a warning).
 - Then the doctor (Factory section, no Cloudflare checks) and, only if it passes, `FACTORY_ENABLED=true`. A rerun with the secrets present asks no credential.
 - No second GitHub account exists any more (ADR 0002).
 
