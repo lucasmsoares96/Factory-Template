@@ -4,7 +4,7 @@ import { adaptersFromEnv } from "./adapters/index.ts";
 import { claim } from "./commands/claim.ts";
 import type { Adapters, CommandContext } from "./commands/context.ts";
 import { CLAUDE_AUTH, local } from "./commands/local.ts";
-import { claimPrFeedback, claimPrUpdate, claimUpdateBranch, scanBranches, type PrClaim } from "./commands/pr-claim.ts";
+import { claimPrFeedback, claimPrUpdate, claimUpdateBranch, scanBranch, scanBranches, type PrClaim } from "./commands/pr-claim.ts";
 import { notify } from "./commands/notify.ts";
 import { publish, publishPrUpdate } from "./commands/publish.ts";
 import { retro, retroCollect, retroPublish, type RunLogs } from "./commands/retro.ts";
@@ -52,6 +52,8 @@ Commands:
   update-branch --pr <n>                 Guard an update keyed by PR <n> alone (open, into the base branch, not a fork).
   update-branch --scan [--repo <dir>]    After a push to the base branch: dispatch update-branch for each open PR that is
                                          behind it (Factory and people's PRs); a fork's PR gets one comment instead.
+  update-branch --scan --pr <n> [--repo <dir>]
+                                         When PR <n> is opened or reopened: the same scan, for that PR alone.
   publish <issue> --in <dir> [--repo <dir>] [--start-sha <sha>] [--run-url <url>] [--pr <n>]
                                          Re-check the forge, validate result.json, push with a lease, then open the
                                          PR with review and evidence, or escalate. --pr: the run continues PR <n>.
@@ -170,7 +172,8 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
     case "update-branch": {
       if (values.scan) {
         const git = new Git(values.repo);
-        const result = await scanBranches(ctx, git, await resolveBase(git, config.baseBranch));
+        const base = await resolveBase(git, config.baseBranch);
+        const result = values.pr ? await scanBranch(ctx, git, base, parseIssue(values.pr)) : await scanBranches(ctx, git, base);
         deps.log(JSON.stringify(result));
         return 0;
       }
