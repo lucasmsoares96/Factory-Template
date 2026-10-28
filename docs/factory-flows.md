@@ -147,7 +147,7 @@ What `publish` does:
 
 ## PR previews
 
-`.github/workflows/factory-pr.yml`, off until `PREVIEWS_ENABLED` (set up by `pnpm bootstrap previews <id>`, see [factory-bootstrap.md](factory-bootstrap.md)). Logic in `.factory/src/ci/previews.ts`.
+`.github/workflows/factory-pr.yml`, off until `PREVIEWS_ENABLED` (set up by `pnpm bootstrap previews <id>`, see [factory-bootstrap.md](factory-bootstrap.md)). Logic in `.factory/src/ci/previews.ts`: gate, bindings check, Neon branch, preview config, URL, result, comment, `base`, cleanup.
 
 1. `build`: PR code, no secrets; also uploads `bundle-<id>`.
 2. `preview-plan`: `previews.ts gate`: affected ∩ `PREVIEW_PRODUCTS`, author `write`+ or the event of the `preview` label put by someone with `write`+; a push removes the label.
