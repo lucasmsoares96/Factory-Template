@@ -181,6 +181,20 @@ What `publish` does:
 - It never applies `ready-for-agent`.
 - The Review ends its summary with "Rules this review wanted and could not find", which the Retro reads.
 
+## Merge Mode
+
+ADR 0016; `src/commands/merge.ts`. `FACTORY_MERGE_MODE` is `human` (the default: nothing is merged here) or `safe`.
+
+- `.github/workflows/factory-merge.yml` (`workflow_run` of the `PR` workflow, `completed`, branches `factory/issue-*`; off until `FACTORY_ENABLED`, skipped in `human`): one job, `merge`, on the checkout of the default branch. Job token: `contents`, `pull-requests` and `actions` read. It runs `pnpm factory merge --branch <head_branch>` with `GITHUB_TOKEN` for the reads and `FACTORY_TOKEN` for the writes.
+- The command reads the forge itself: the open PR of the branch (not a fork, into the base branch, not a draft, no `factory:working`), its files, its body, the jobs of the newest `factory-pr.yml` run at its head and the newest finished `factory-deploy.yml` run of the base branch. It merges only when every condition holds:
+  - `protected`: no file of the diff matches `PROTECTED_PATHS` in `config.ts`;
+  - `verify`: the `verify` job passed;
+  - `preview`: no `preview-plan`, `preview deploy (<id>)` or `preview smoke (<id>)` job failed or is still going (skipped counts as passed: no preview);
+  - `criteria`: the body's verdicts section has at least one verdict, all checked;
+  - `deploy`: the last deploy of the base branch did not fail (none yet is fine).
+- Then `PUT /pulls/{n}/merge` with the head SHA it checked (a merge commit), the `auto-merged` label and one comment in `FACTORY_LANGUAGE` naming the mode and the conditions. A refusal of the forge (head moved, branch behind `main`) is printed and changes nothing; the next checks decide again.
+- Output: one JSON line, `{pr, mode, merged, reason, unmet, protected}`.
+
 ## Skills update
 
 Skills follow upstream (ADR 0013; `src/ci/skills.ts`).

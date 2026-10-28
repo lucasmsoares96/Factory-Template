@@ -1,0 +1,52 @@
+# The Merge Mode (ADR 0016): when the PR workflow of a Factory branch ends, `pnpm factory merge` decides whether the
+# Factory merges that pull request on its own. `workflow_run` runs this file and the checkout of the default branch,
+# never the pull request's: a pull request cannot change the rule that decides its own merge. The command reads the
+# forge itself (the branch is the only thing taken from the event) with the job token, read-only, and merges, labels
+# `auto-merged` and comments with FACTORY_TOKEN, so the merge starts the deploy of the default branch as a person's
+# merge would. Skipped in `human`, the default; off until `pnpm bootstrap factory` sets FACTORY_ENABLED.
+name: Factory merge
+
+on:
+  workflow_run:
+    workflows: [PR]
+    types: [completed]
+    branches: ["factory/issue-*"]
+
+# One decision per branch at a time; a newer run of the checks decides again on the newer head.
+concurrency:
+  group: factory-merge-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  merge:
+    if: ${{ vars.FACTORY_ENABLED == 'true' && vars.FACTORY_MERGE_MODE != '' && vars.FACTORY_MERGE_MODE != 'human' && github.event.workflow_run.event == 'pull_request_target' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: corepack enable pnpm && pnpm install --frozen-lockfile --ignore-scripts --filter @factory/harness
+      - env:
+          VARS_JSON: ${{ toJSON(vars) }}
+        run: node .factory/src/ci/vars.ts
+      - name: merge
+        env:
+          FACTORY_ADAPTERS: github
+          GITHUB_TOKEN: ${{ github.token }}
+          FACTORY_TOKEN: ${{ secrets.FACTORY_TOKEN }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: pnpm factory merge --branch "$BRANCH"

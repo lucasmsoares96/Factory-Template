@@ -5,6 +5,7 @@ import { claim } from "./commands/claim.ts";
 import type { Adapters, CommandContext } from "./commands/context.ts";
 import { CLAUDE_AUTH, local } from "./commands/local.ts";
 import { claimPrFeedback, claimPrUpdate, claimUpdateBranch, scanBranch, scanBranches, type PrClaim } from "./commands/pr-claim.ts";
+import { merge } from "./commands/merge.ts";
 import { notify } from "./commands/notify.ts";
 import { publish, publishPrUpdate } from "./commands/publish.ts";
 import { retro, retroCollect, retroPublish, type RunLogs } from "./commands/retro.ts";
@@ -82,6 +83,10 @@ Commands:
   notify <issue> --outcome ready|escalated [--updated] [--url <url>] [--to <login>]
                                          The Merge Gate notice: a short comment on the issue that mentions <login> and
                                          links the PR. Run with the job's GITHUB_TOKEN, not FACTORY_TOKEN.
+  merge --branch <branch>                The Merge Mode's decision, after the checks of the PR of <branch> end: in safe,
+                                         merge the ready Factory PR when nothing protected changed, verify and the preview
+                                         passed, every criterion is met and the last deploy did not fail; then label it
+                                         auto-merged and comment. Reads with GITHUB_TOKEN, merges with FACTORY_TOKEN.
   working on|off [<issue>...] [--pr <n>] [--triage]
                                          factory:working, run with the job token: on at the start of a run, off at its end
                                          (kept where another Factory run is queued or going). An issue brings its open
@@ -97,7 +102,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
     deps.log(USAGE);
     return command === undefined ? 1 : 0;
   }
-  if (!["claim", "work", "publish", "local", "triage", "apply", "unblock", "pr-feedback", "update-branch", "notify", "retro-collect", "retro", "retro-publish", "working"].includes(command)) {
+  if (!["claim", "work", "publish", "local", "triage", "apply", "unblock", "pr-feedback", "update-branch", "notify", "retro-collect", "retro", "retro-publish", "working", "merge"].includes(command)) {
     deps.log(`Unknown command: ${command}\n\n${USAGE}`);
     return 1;
   }
@@ -125,6 +130,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
       trigger: { type: "string" },
       triage: { type: "boolean" },
       "comment-id": { type: "string" },
+      branch: { type: "string" },
     },
   });
   // Parsed on use: `pr-feedback` and `update-branch --scan` take no issue.
@@ -192,6 +198,13 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
       }
       await notify(ctx, issue, { outcome, updated: values.updated ?? false, url: values.url || null, to: values.to ?? "" });
       deps.log(JSON.stringify({ issue, notified: true }));
+      return 0;
+    }
+    case "merge": {
+      // The job token reads the checks (`actions: read`, which the Factory's fine-grained token lacks).
+      const reads = deps.adapters({ config, repo: values.repo, jobToken: true }).codeHost;
+      const result = await merge(ctx, { branch: required(values.branch, "--branch"), reads });
+      deps.log(JSON.stringify(result));
       return 0;
     }
     case "claim": {

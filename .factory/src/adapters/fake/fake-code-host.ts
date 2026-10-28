@@ -5,6 +5,8 @@ import type {
   ConversationEntry,
   EvidenceImage,
   FailedCheck,
+  MergeResult,
+  PrCheck,
   PullRequest,
   PushResult,
   ReactionTarget,
@@ -33,6 +35,12 @@ export interface FakePullRequest extends PullRequest {
   failedChecks: FailedCheck[];
   /** When set, `failedChecks` throws with this message. */
   failedChecksError?: string;
+  /** Set by `merge`. */
+  merged?: boolean;
+  /** What `changedFiles` returns. */
+  files: string[];
+  /** When set, `merge` refuses with this reason. */
+  mergeRefusal?: string;
 }
 
 /** In-memory CodeHost. Tests seed branches and read PRs and pushes back. */
@@ -49,6 +57,10 @@ export class FakeCodeHost implements CodeHost {
   readonly runs: ActiveRun[] = [];
   /** The pull requests whose failed checks were read, in order. */
   readonly checkReads: number[] = [];
+  /** The jobs of the pull request workflow at each head, as `prChecks` returns them. */
+  readonly checksAt = new Map<string, PrCheck[]>();
+  /** The conclusion of the newest deploy of the base branch that ended; null: none ended. */
+  deploy: string | null = null;
 
   /** Login the Factory writes as: author of its replies. */
   readonly self: string;
@@ -192,6 +204,32 @@ export class FakeCodeHost implements CodeHost {
     this.writes.push(`react ${target.kind} ${target.id}`);
   }
 
+  async pullRequestBody(pr: number): Promise<string> {
+    return this.pr(pr).body;
+  }
+
+  async changedFiles(pr: number): Promise<string[]> {
+    return [...this.pr(pr).files];
+  }
+
+  async prChecks(sha: string): Promise<PrCheck[]> {
+    return structuredClone(this.checksAt.get(sha) ?? []);
+  }
+
+  async lastDeploy(): Promise<string | null> {
+    return this.deploy;
+  }
+
+  async merge(pr: number, sha: string): Promise<MergeResult> {
+    const target = this.pr(pr);
+    if (target.headSha !== sha) return { ok: false, reason: "Head branch was modified." };
+    if (target.mergeRefusal) return { ok: false, reason: target.mergeRefusal };
+    target.state = "closed";
+    target.merged = true;
+    this.writes.push(`merge #${pr}`);
+    return { ok: true };
+  }
+
   async activeRuns(): Promise<ActiveRun[]> {
     return structuredClone(this.runs);
   }
@@ -226,6 +264,7 @@ function fakePr(seed: FakePullRequestSeed): FakePullRequest {
     comments: [],
     conversation: [],
     failedChecks: [],
+    files: [],
     ...seed,
   };
 }
