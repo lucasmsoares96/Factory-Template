@@ -8,13 +8,13 @@ import { LANGUAGES } from "./messages.ts";
  * `labels.inProgress` → `FACTORY_LABELS_IN_PROGRESS`.
  */
 export const defaultConfig = {
-  /** Opus in every Stage. Checked against the Claude model list on 2026-10-19. */
+  /** Sonnet in Development, Review and Retro; Haiku in Triage and Pull Request. Checked against the Claude model list on 2026-10-19. */
   models: {
-    development: "claude-opus-5-5",
-    review: "claude-opus-5-5",
-    triage: "claude-opus-5-5",
-    pullRequest: "claude-opus-5-5",
-    retro: "claude-opus-5-5",
+    development: "claude-sonnet-5-5",
+    review: "claude-sonnet-5-5",
+    triage: "claude-haiku-5-5",
+    pullRequest: "claude-haiku-5-5",
+    retro: "claude-sonnet-5-5",
   },
   /** Minutes. A Stage timeout counts as a failure; `total` leads to Escalation "time". */
   timeouts: {
@@ -29,7 +29,7 @@ export const defaultConfig = {
   /**
    * USD per million tokens, for the estimated cost in the review, the
    * Escalation and the job summary. Claude Opus 5.5 list price, checked on
-   * 2026-10-19. Every Stage runs on Opus.
+   * 2026-10-19. Used for every Stage, so it overestimates Sonnet and Haiku.
    */
   pricing: {
     inputPerMTok: 4,

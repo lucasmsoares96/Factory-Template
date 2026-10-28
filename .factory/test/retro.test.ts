@@ -197,6 +197,7 @@ describe("factory retro + retro-publish", () => {
     expect(run.publishCode).toBe(0);
     const [call] = s.w.agent.calls;
     expect(call!.stage).toBe("retro");
+    expect(call!.model).toBe("claude-sonnet-5-5");
     expect(call!.prompt).toContain(".agents/skills/retro/SKILL.md");
     expect(call!.prompt).toContain(run.out);
     expect(call!.prompt).toContain("read-only");
