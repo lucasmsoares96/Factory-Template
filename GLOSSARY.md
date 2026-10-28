@@ -35,7 +35,7 @@ The read-only pass, started by the `agent:explore` label, that decides whether a
 _Avoid_: Exploration, explore
 
 **Merge Gate**:
-The point where a pull request is merged into the default branch: by a human, or by the factory itself when the Merge Mode allows it. The skills update always merges on its own.
+The point where a pull request is merged into the default branch: by a human, or by the factory itself when the Merge Mode allows it. The skills update always merges on its own. When a pull request is ready or escalated, the Merge Gate notice, a comment from `github-actions[bot]`, mentions whoever started the run, since nobody is notified of what the factory itself writes.
 
 **Merge Mode**:
 The repository's choice of which of the factory's pull requests it may merge without a human: none, those that touch nothing protected, or all. An unmet acceptance criterion or a failing deploy of the default branch stops it in every mode.
