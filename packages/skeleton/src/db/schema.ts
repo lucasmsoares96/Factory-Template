@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, check, index, pgSchema, primaryKey, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { boolean, check, index, integer, pgSchema, primaryKey, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
 /** Every Skeleton table lives in this Postgres schema, apart from the Product's tables in `public`. */
 export const skeletonSchema = pgSchema("skeleton");
@@ -32,6 +32,11 @@ export const users = skeletonSchema.table("users", {
    * there. Not a Better Auth field: the Skeleton sets and clears it (auth-options.ts).
    */
   pendingEmail: text("pending_email"),
+  /**
+   * The Stripe customer this person is: the card and the invoices are theirs (ADR 0015).
+   * Not a Skeleton field: `@better-auth/stripe` reads and writes it, and only when billing is on.
+   */
+  stripeCustomerId: text("stripe_customer_id"),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
@@ -89,8 +94,43 @@ export const verifications = skeletonSchema.table(
   (table) => [index("verifications_identifier_idx").on(table.identifier)],
 );
 
-/** The schema the Better Auth Drizzle adapter reads (`usePlural: true`). */
-export const authSchema = { users, sessions, accounts, verifications };
+/**
+ * A person's agreement to pay for one Plan, kept in sync with Stripe by
+ * `@better-auth/stripe` (model `subscription`, fields as the plugin declares
+ * them). `referenceId` is the paying user's id (ADR 0015); `plan` is the Plan's
+ * key, the Stripe product id lower-cased. Deleting the user deletes it.
+ */
+export const subscriptions = skeletonSchema.table(
+  "subscriptions",
+  {
+    id: text("id").primaryKey(),
+    plan: text("plan").notNull(),
+    referenceId: text("reference_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    stripeCustomerId: text("stripe_customer_id"),
+    stripeSubscriptionId: text("stripe_subscription_id"),
+    status: text("status").notNull().default("incomplete"),
+    periodStart: timestamp("period_start", { withTimezone: true }),
+    periodEnd: timestamp("period_end", { withTimezone: true }),
+    trialStart: timestamp("trial_start", { withTimezone: true }),
+    trialEnd: timestamp("trial_end", { withTimezone: true }),
+    cancelAtPeriodEnd: boolean("cancel_at_period_end").default(false),
+    cancelAt: timestamp("cancel_at", { withTimezone: true }),
+    canceledAt: timestamp("canceled_at", { withTimezone: true }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    seats: integer("seats"),
+    billingInterval: text("billing_interval"),
+    stripeScheduleId: text("stripe_schedule_id"),
+  },
+  (table) => [
+    index("subscriptions_reference_id_idx").on(table.referenceId),
+    uniqueIndex("subscriptions_stripe_subscription_id_idx").on(table.stripeSubscriptionId),
+  ],
+);
+
+/** The schema the Better Auth Drizzle adapter reads (`usePlural: true`): the core tables and the billing plugin's. */
+export const authSchema = { users, sessions, accounts, verifications, subscriptions };
 
 /**
  * Every email the outbox transport "sent": in previews and tests the Worker

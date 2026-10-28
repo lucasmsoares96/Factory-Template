@@ -36,7 +36,7 @@ function companyApi(pending: Invitation[], { role = "owner", t = messagesFor("en
     requests,
     handlers: [
       getMeHandler(ana),
-      getNavHandler({ entries: [{ label: t.account.nav, to: "/account" }], companyPage: [] }),
+      getNavHandler({ entries: [{ label: t.account.nav, to: "/account" }], companyPage: [], accountPage: [] }),
       listCompaniesHandler({ items: [company], nextCursor: null }),
       getCompanyHandler(company),
       listMembersHandler({ items: [{ userId: ana.id, name: ana.name, email: ana.email, role }], nextCursor: null }),

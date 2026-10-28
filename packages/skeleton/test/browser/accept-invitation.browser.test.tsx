@@ -29,7 +29,7 @@ const signedOut = getMeHandler(() => getMeHandlerResponse401({ code: "UNAUTHENTI
 
 /** The Company page the accepted Invitation lands on. */
 const companyPage = [
-  getNavHandler({ entries: [], companyPage: [] }),
+  getNavHandler({ entries: [], companyPage: [], accountPage: [] }),
   listCompaniesHandler({ items: [acme], nextCursor: null }),
   getCompanyHandler(acme),
   listMembersHandler({ items: [{ userId: bruno.id, name: bruno.name, email: bruno.email, role: "employee" }], nextCursor: null }),

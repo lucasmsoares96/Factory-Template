@@ -51,7 +51,7 @@ export function createApp({ product, features: productFeatures = [], mcpTools = 
   const t = messagesFor(buildLocale, messages);
   const app = new OpenAPIHono<SkeletonEnv>();
   const mcp = mcpBridge({ title, t, tools: mcpTools, app, features });
-  const auth = authContext({ emailFrom, t, features });
+  const auth = authContext({ productId: title, emailFrom, t, features });
 
   const api = createRouter();
   api.use(database, auth, emailContext({ emailFrom, t }), mcp.context, async (c, next) => {
