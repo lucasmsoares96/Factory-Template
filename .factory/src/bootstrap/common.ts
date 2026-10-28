@@ -1,6 +1,7 @@
 import type { Step, StepContext } from "./steps.ts";
 import { CloudflareRefused, type CloudflareClient } from "./clients.ts";
 import { labelSpecs } from "./labels.ts";
+import { variableName } from "../config.ts";
 import { LANGUAGES, type Language } from "../messages.ts";
 
 const TOKEN_SECRET = "CLOUDFLARE_API_TOKEN";
@@ -215,7 +216,7 @@ export const labels: Step = {
   },
 };
 
-export const LANGUAGE_VARIABLE = "FACTORY_LANGUAGE";
+export const LANGUAGE_VARIABLE = variableName(["language"]);
 
 const LANGUAGE_LABELS: Record<Language, string> = { en: "English (en)", "pt-BR": "Brazilian Portuguese (pt-BR)" };
 

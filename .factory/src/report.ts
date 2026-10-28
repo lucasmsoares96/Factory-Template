@@ -10,7 +10,7 @@ import type { Usage } from "./seams/agent.ts";
 
 const STAGE: Record<StageRecord["stage"], string> = { development: "Development", review: "Review", e2e: "E2E" };
 
-export function stageOutcome(stage: StageRecord, language: Language = "en"): string {
+export function stageOutcome(stage: StageRecord, language: Language): string {
   const m = messages(language);
   switch (stage.outcome) {
     case "failed":
@@ -65,7 +65,7 @@ export function summaryMarkdown(result: FactoryResult, config: FactoryConfig): s
   const verdict = result.outcome === "escalated" ? `escalated (${result.reason})` : result.outcome === "waiting" ? "waiting on the Skeleton" : "ready";
   const rows = result.attempts.flatMap((a) =>
     a.stages.map((s) =>
-      [a.number, STAGE[s.stage], stageOutcome(s), duration(s.durationMs), s.commits ?? "", s.usage ? tokens(s.usage) : ""].join(" | "),
+      [a.number, STAGE[s.stage], stageOutcome(s, "en"), duration(s.durationMs), s.commits ?? "", s.usage ? tokens(s.usage) : ""].join(" | "),
     ),
   );
   return [
