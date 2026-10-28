@@ -103,7 +103,7 @@ export type MergeMode = (typeof MERGE_MODES)[number];
 
 /**
  * What a pull request may not touch to be merged in the `safe` Merge Mode (`all` ignores it). Not a setting: no repo variable overrides it,
- * and this file is in the list, so the Factory cannot widen what it may merge itself. An entry ending in `/` matches what
+ * and this file is in the list, so in `safe` the Factory cannot widen what it may merge itself (in `all` it can). An entry ending in `/` matches what
  * is under it; an entry that starts with `**` and a slash matches the rest (a file, or a folder when it ends in `/`) at any level; any other entry matches
  * itself or what is under it.
  */

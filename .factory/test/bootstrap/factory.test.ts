@@ -125,6 +125,24 @@ describe("pnpm bootstrap factory: Factory module", () => {
     expect(fresh.github.variables.has("FACTORY_MERGE_MODE")).toBe(false);
   });
 
+  it.each(["al", "All", "yes", "all please"])("does not take %j as the confirmation of all", async (typed) => {
+    const w = factoryWorld({ "merge-mode": "all", "merge-mode-confirm": typed }, { CLAUDE_CODE_OAUTH_TOKEN: "x" });
+
+    await w.run("factory");
+
+    expect(w.github.variables.has("FACTORY_MERGE_MODE")).toBe(false);
+  });
+
+  it("without a terminal or FACTORY_MERGE_MODE, never sets all", async () => {
+    const w = factoryWorld({ "merge-mode": "all", "merge-mode-confirm": "all" }, { CLAUDE_CODE_OAUTH_TOKEN: "x" });
+    w.deps.interactive = false;
+
+    await w.run("factory");
+
+    expect(w.prompter.asked.filter((id) => id.startsWith("merge-mode"))).toEqual([]);
+    expect(w.github.variables.get("FACTORY_MERGE_MODE")).toBe("human");
+  });
+
   it("without a terminal, takes all only from FACTORY_MERGE_MODE in the environment", async () => {
     const w = factoryWorld({ "merge-mode": undefined as never }, { CLAUDE_CODE_OAUTH_TOKEN: "x", FACTORY_MERGE_MODE: "all" });
     w.deps.interactive = false;
