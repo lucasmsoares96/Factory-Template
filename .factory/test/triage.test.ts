@@ -49,6 +49,7 @@ describe("factory triage + apply", () => {
     const s = await setup({ triage: [says(verdict(5))] });
 
     expect(await triage(s)).toBe(0);
+    expect(s.w.agent.calls[0]!.model).toBe("claude-haiku-5-5");
     // `work` is read-only: nothing changed on the forge yet.
     expect(s.w.tracker.labelsOf(5)).toEqual(["agent:explore"]);
     expect(s.w.tracker.commentsOn(5)).toEqual([]);
