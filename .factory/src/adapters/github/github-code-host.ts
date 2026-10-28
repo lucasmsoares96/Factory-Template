@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import type { ActiveRun, CodeHost, ConversationEntry, EvidenceImage, FailedCheck, PullRequest, PushResult, ReactionTarget, Review, ReviewThread, SubmittedReview } from "../../seams/code-host.ts";
+import type { ActiveRun, CodeHost, ConversationEntry, EvidenceImage, FailedCheck, PullRequest, PushResult, ReactionTarget, Review, ReviewThread, SubmittedReview, FactoryWorkflow, ThreadId } from "../../seams/code-host.ts";
 import { marked } from "../../marker.ts";
 import { BASE_ENV, pick } from "../../env.ts";
 import { GitHubApi, type GitHubApiOptions } from "./api.ts";
@@ -197,7 +197,7 @@ export class GitHubCodeHost implements CodeHost {
     return rows
       .filter((r) => r.in_reply_to_id == null)
       .map((root) => ({
-        id: String(root.id),
+        id: String(root.id) as ThreadId,
         path: root.path ?? null,
         author: root.user?.login ?? "ghost",
         body: root.body ?? "",
@@ -249,7 +249,7 @@ export class GitHubCodeHost implements CodeHost {
       .map((e) => e.entry);
   }
 
-  async replyToThread(pr: number, threadId: string, body: string): Promise<void> {
+  async replyToThread(pr: number, threadId: ThreadId, body: string): Promise<void> {
     await this.api.send("POST", this.api.repoPath(`/pulls/${pr}/comments/${threadId}/replies`), { body: marked(body) });
   }
 
@@ -280,8 +280,8 @@ export class GitHubCodeHost implements CodeHost {
     return found;
   }
 
-  async dispatch(workflow: string, inputs: Record<string, string>): Promise<void> {
-    const file = workflow.endsWith(".yml") ? workflow : `factory-${workflow}.yml`;
+  async dispatch(workflow: FactoryWorkflow, inputs: Record<string, string>): Promise<void> {
+    const file = `factory-${workflow}.yml`;
     await this.api.send("POST", this.api.repoPath(`/actions/workflows/${file}/dispatches`), { ref: this.options.baseBranch, inputs });
   }
 
