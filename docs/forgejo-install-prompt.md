@@ -8,7 +8,7 @@ Nothing in it has run on a Forgejo yet. The portability notes it relies on are i
 
 You are installing the Factory, an issue-to-pull-request harness, in this repository. It is hosted on Forgejo and already has its own code and stack. The source is the Factory Template repository (call it `TEMPLATE`; clone it next to this one). Work on a branch, in small Conventional Commits, and open one pull request at the end. Before you use any Forgejo API, CLI, runner flag or workflow feature, read the official documentation for the version this instance runs (`GET /api/v1/version`); the names below were checked against Forgejo v15 LTS to v17 and Forgejo Runner v13, and may differ.
 
-Read first: `TEMPLATE/AGENTS.md`, `TEMPLATE/GLOSSARY.md`, `TEMPLATE/.factory/AGENTS.md`, `TEMPLATE/docs/forgejo.md` and ADRs 0002, 0005, 0006, 0012, 0013 and 0014 in `TEMPLATE/docs/adr/`. Use the glossary's terms (Factory, Stage, Escalation, Merge Gate, Verify, ...) as written.
+Read first: `TEMPLATE/AGENTS.md`, `TEMPLATE/GLOSSARY.md`, `TEMPLATE/.factory/AGENTS.md`, `TEMPLATE/docs/factory-flows.md`, `TEMPLATE/docs/forgejo.md` and ADRs 0002, 0005, 0006, 0012, 0013 and 0014 in `TEMPLATE/docs/adr/`. Use the glossary's terms (Factory, Stage, Escalation, Merge Gate, Verify, ...) as written.
 
 ## 0. Check the instance
 
