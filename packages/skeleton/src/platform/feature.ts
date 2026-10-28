@@ -59,10 +59,14 @@ export type Feature = {
   mcp?(server: McpServer): void;
   /**
    * Better Auth plugins the feature adds to the Skeleton's auth config, after
-   * the Skeleton's own options (which stay as they are). Runs once per request
-   * that builds the auth instance, so a plugin can read its secrets from `c.env`.
+   * the Skeleton's own options. The Skeleton's hooks still run, before the
+   * plugins'; a plugin's `init` can still override options, so pick plugins that
+   * leave sign-in, verification and deletion alone. Runs once per request that
+   * builds the auth instance, so a plugin can read its secrets from `c.env`.
    * Their routes answer under `/api/auth/*` and, like Better Auth's own, stay out
-   * of the OpenAPI document and the MCP tools.
+   * of the OpenAPI document and the MCP tools. A plugin `schema` (its own tables
+   * or fields) is not supported yet: the Drizzle adapter only knows the Skeleton's
+   * auth tables.
    */
   authPlugins?(c: Context<SkeletonEnv>): BetterAuthPlugin[];
   nav?: FeatureNav;

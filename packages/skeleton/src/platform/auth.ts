@@ -17,7 +17,7 @@ export type AuthConfig = {
   emailFrom: string;
   t: Messages;
   /** Every feature of the Product, in mount order: their `authPlugins` join the config. */
-  features?: readonly Feature[];
+  features: readonly Feature[];
 };
 
 export type Auth = ReturnType<typeof createAuth>;
@@ -27,7 +27,7 @@ export type Auth = ReturnType<typeof createAuth>;
  * reached: on Workers that is a hostname routed to this Worker, never a header
  * the client controls.
  */
-export function createAuth(c: Context<SkeletonEnv>, { emailFrom, t, features = [] }: AuthConfig) {
+export function createAuth(c: Context<SkeletonEnv>, { emailFrom, t, features }: AuthConfig) {
   return betterAuth(
     authOptions({
       db: c.var.db,
