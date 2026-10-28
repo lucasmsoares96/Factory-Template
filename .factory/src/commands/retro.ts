@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { issueBranch } from "../config.ts";
 import { isMarked } from "../marker.ts";
+import { messages } from "../messages.ts";
 import { retroPrompt } from "../prompts.ts";
 import { parseRetro, retroExtraction, retroFailure, retroIssueBody, retroMarker, retroResultSchema, RETRO_FILE, type RetroResult } from "../retro-output.ts";
 import type { ReviewThread, SubmittedReview } from "../seams/code-host.ts";
@@ -140,15 +141,16 @@ export async function retroPublish(ctx: CommandContext, options: { in: string; r
   const { tracker, codeHost, config } = ctx;
   const result = retroResultSchema.parse(JSON.parse(await readFile(join(options.in, RETRO_FILE), "utf8")));
   const number = result.issue;
+  const m = messages(config.language);
 
   if (result.candidates.length === 0) {
-    const text = `The automatic Retro found no candidate it could trace to this run's record, so it opened no issue.${options.runUrl ? ` Run: ${options.runUrl}` : ""}`;
+    const text = m.retroNoCandidates(options.runUrl);
     if (result.pr !== null) await codeHost.commentPr(result.pr, text);
     else await tracker.comment(number, text);
     return { issue: number, outcome: "no-candidates" };
   }
 
-  const body = retroIssueBody(result, { runUrl: options.runUrl, pricing: config.pricing });
+  const body = retroIssueBody(result, { runUrl: options.runUrl, pricing: config.pricing, language: config.language });
   const existing = await existingRetro(ctx, number);
   if (existing !== null) {
     await tracker.updateIssue(existing, body);
@@ -156,7 +158,7 @@ export async function retroPublish(ctx: CommandContext, options: { in: string; r
     return { issue: number, outcome: "updated", retro: existing };
   }
   const created = await tracker.createIssue({
-    title: `Retro: #${number} ${result.title}`,
+    title: m.retroTitle(number, result.title),
     body,
     labels: [config.labels.needsTriage, config.labels.retro],
     relatedTo: number,

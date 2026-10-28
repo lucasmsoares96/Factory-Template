@@ -176,7 +176,7 @@ What `publish` does:
 - Jobs:
   1. `collect`: job token, `actions: read`, `issues: write` for `factory:working` on the origin issue only. It goes on for a closed PR only when a writer left an unmarked thread or review, then writes `retro-in`: `issue.md` (writers' comments), `pull-request.md` (writer-only threads and reviews), `runs/<id>/` (each run's `work-out` artifact, found by `#N` or the issue's/PR's title in the run title: `GitHubRunLogs`, `gh run download`) and `sources.json`.
   2. `work`: the image, read-only, Claude's auth only. One session that reads `.agents/skills/retro/SKILL.md` and ends with `<retro>{"summary", "candidates": [{category, severity, title, proposal, evidence[]}]}</retro>`. No valid block after 2 resumes fails the run; nothing is published.
-  3. `publish`: `FACTORY_TOKEN`. Creates `Retro: #N <title>` with `needs-triage` + `retro`, or edits the open one carrying `<!-- factory:retro:issue-N -->` and the Factory marker. No candidate = one comment on the PR (or the issue).
+  3. `publish`: `FACTORY_TOKEN`. Creates `Retro: #N <title>` (`Retro de #N: <title>` in `pt-BR`; the body follows `FACTORY_LANGUAGE` too) with `needs-triage` + `retro`, or edits the open one carrying `<!-- factory:retro:issue-N -->` and the Factory marker. No candidate = one comment on the PR (or the issue).
 - It never applies `ready-for-agent`.
 - The Review ends its summary with "Rules this review wanted and could not find", which the Retro reads.
 
