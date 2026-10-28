@@ -5,7 +5,7 @@ import type { FactoryResult } from "./result.ts";
  * prints. Every other string in the result is text the agent wrote for the forge, and `forForge` cleans it: a field
  * added later is cleaned unless it is listed here.
  */
-export const STRUCTURAL_KEYS: ReadonlySet<string> = new Set([
+const STRUCTURAL_KEYS: ReadonlySet<string> = new Set([
   "version",
   "issue",
   "branch",
@@ -46,18 +46,19 @@ function cleaned(value: unknown): unknown {
 }
 
 /** The `pr` skill's template ends with a tool attribution line; the Factory's text is the harness's, not the tool's. */
-export function withoutAttribution(text: string): string {
+function withoutAttribution(text: string): string {
   return text.replace(/^[ \t]*(?:🤖[ \t]*)?Generated with \[?Claude Code\]?.*$\n?|^[ \t]*Co-Authored-By:.*$\n?/gim, "").trim();
 }
 
 const REF = String.raw`(?:[\w.-]+\/[\w.-]+)?#\d+`;
-const CLOSING = new RegExp(String.raw`\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b:?[ \t]+${REF}(?:[ \t]*(?:,|\band\b)[ \t]*${REF})*`, "gi");
+// `\s`, not `[ \t]`: a keyword and its reference on two lines are one closing reference once a verdict is put on one line.
+const CLOSING = new RegExp(String.raw`\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b:?\s+${REF}(?:\s*(?:,|\band\b)\s*${REF})*`, "gi");
 
 /**
  * `Closes #9` written by the agent would close the wrong issue: only `publish` writes it. A line that is only a closing
  * reference goes; one inside a sentence becomes a placeholder so the rest still reads.
  */
-export function withoutClosingKeywords(text: string): string {
+function withoutClosingKeywords(text: string): string {
   const alone = new RegExp(String.raw`^[ \t>*-]*${CLOSING.source}\.?[ \t]*$\n?`, "gim");
   return text.replace(alone, "").replace(CLOSING, "[closing reference removed]").trim();
 }
