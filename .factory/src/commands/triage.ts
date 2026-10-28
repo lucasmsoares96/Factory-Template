@@ -61,7 +61,7 @@ export async function triage(ctx: CommandContext, options: { issues: number[]; o
         result.issues.push(await checkReferences(verdict, options.repo));
       } else {
         fallback.push(number);
-        result.issues.push(fallbackVerdict(number, run.timedOut ? "timeout" : "invalid", run.output));
+        result.issues.push(fallbackVerdict(number, run.timedOut ? "timeout" : "invalid", run.output, config));
       }
     }
   }
@@ -131,7 +131,7 @@ export async function apply(ctx: CommandContext, options: { in: string; repo: st
     const tag: TriageTag = verdict.duplicateOf !== null && verdict.tag === "easy-call" ? "needs-a-human" : verdict.tag;
     const target = { "easy-call": labels.readyForAgent, "needs-a-human": labels.readyForHuman, blocked: labels.needsInfo }[tag];
 
-    await tracker.comment(number, triageComment(verdict, tag));
+    await tracker.comment(number, triageComment(verdict, tag, config.language));
     // The product label goes first: `ready-for-agent` starts a run, which must already find its Product.
     let product: string | null = null;
     const has = issue.labels.some((l) => l.startsWith(labels.productPrefix));
