@@ -263,7 +263,7 @@ export class GhPreviewForge implements PreviewForge {
   }
   /** `gh api` with the job's `GH_TOKEN` and the base variables, nothing else of the job's env. */
   private gh(args: string[], input?: string): Promise<string> {
-    return runGh(["api", ...args], { env: childEnv(process.env, pick(process.env, ["GH_TOKEN", "GH_HOST"])), ...(input === undefined ? {} : { input }) });
+    return runGh(["api", ...args], { env: childEnv(process.env, pick(process.env, ["GH_TOKEN", "GH_HOST"])), input });
   }
   async permission(login: string): Promise<Permission> {
     try {

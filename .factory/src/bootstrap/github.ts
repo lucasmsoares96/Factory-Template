@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { GH_AUTH_ENV, childEnv, runGh, type GhRunner } from "../adapters/github/gh.ts";
+import { GH_AUTH_ENV, GH_NETWORK_ENV, childEnv, runGh, type GhRunner } from "../adapters/github/gh.ts";
 import { pick } from "../env.ts";
 import type { GitHubClient, IssueRef, LabelSpec, PullRequestInfo, RepoInfo, RulesetInfo, RulesetSpec, WorkflowRun } from "./clients.ts";
 
@@ -7,8 +7,8 @@ import type { GitHubClient, IssueRef, LabelSpec, PullRequestInfo, RepoInfo, Rule
  * The only module of the bootstrap that calls `gh`. The repo is the one of the current
  * directory (`gh` reads the git remote), so nothing is hard-coded. Secret
  * values travel through stdin, never through the arguments. `gh` gets the base
- * variables and its own sign-in ones (`gh auth login` lives under HOME), not the
- * rest of the owner's environment.
+ * variables, its own sign-in ones (`gh auth login` lives under HOME) and the
+ * proxy and CA ones, not the rest of the owner's environment.
  */
 export class GhCli implements GitHubClient {
   private readonly run: GhRunner;
@@ -16,11 +16,11 @@ export class GhCli implements GitHubClient {
 
   constructor(gh: GhRunner = runGh, parent: Record<string, string | undefined> = process.env) {
     this.run = gh;
-    this.env = childEnv(parent, pick(parent, GH_AUTH_ENV));
+    this.env = childEnv(parent, pick(parent, [...GH_AUTH_ENV, ...GH_NETWORK_ENV]));
   }
 
   private gh(args: string[], input?: string): Promise<string> {
-    return this.run(args, { env: this.env, ...(input === undefined ? {} : { input }) });
+    return this.run(args, { env: this.env, input });
   }
 
   async repo(): Promise<RepoInfo> {

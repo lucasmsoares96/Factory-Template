@@ -16,14 +16,14 @@ describe("GhCli (command construction, no gh process)", () => {
     return { gh, calls };
   }
 
-  it("gives gh the base variables and its own sign-in ones, not the rest of the owner's environment", async () => {
+  it("gives gh the base variables, its own sign-in ones and the proxy, not the rest of the owner's environment", async () => {
     const envs: Record<string, string>[] = [];
-    const parent = { PATH: "/bin", HOME: "/home/x", GH_TOKEN: "gh-tok", GH_CONFIG_DIR: "/cfg", NEON_API_KEY: "neon", CLOUDFLARE_API_TOKEN: "cf" };
+    const parent = { PATH: "/bin", HOME: "/home/x", GH_TOKEN: "gh-tok", GH_CONFIG_DIR: "/cfg", HTTPS_PROXY: "http://proxy:3128", NEON_API_KEY: "neon", CLOUDFLARE_API_TOKEN: "cf" };
     const gh = new GhCli(async (_args, { env }) => (envs.push(env), "x"), parent);
 
     await gh.user();
 
-    expect(envs).toEqual([{ PATH: "/bin", HOME: "/home/x", GH_TOKEN: "gh-tok", GH_CONFIG_DIR: "/cfg" }]);
+    expect(envs).toEqual([{ PATH: "/bin", HOME: "/home/x", GH_TOKEN: "gh-tok", GH_CONFIG_DIR: "/cfg", HTTPS_PROXY: "http://proxy:3128" }]);
   });
 
   it("sends a secret through stdin, never in the arguments", async () => {
