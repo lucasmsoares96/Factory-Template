@@ -372,6 +372,27 @@ describe("factory merge: the Merge Mode's decision", () => {
       }
     });
 
+    it("holds a PR whose Merge Danger says one-way in Portuguese, and not one that says two-way", async () => {
+      for (const door of ["**Porta:** de mão única", "**Porta:** Mão Única. muda cobranças", "**Porta:** sem volta"]) {
+        const w = mergeWorld({ pr: { body: danger(door) } });
+        await run(w);
+        expect(merged(w), door).toBe(false);
+        expect(decision(w)).toMatchObject({ unmet: ["door"] });
+      }
+      for (const door of ["**Porta:** de mão dupla", "**Porta:** two-way"]) {
+        const w = mergeWorld({ pr: { body: danger(door) } });
+        await run(w);
+        expect(merged(w), door).toBe(true);
+      }
+    });
+
+    it("holds a PR when a pt-BR Triage says one-way", async () => {
+      const w = withTriage("**Porta:** de mão única");
+      await run(w);
+      expect(merged(w)).toBe(false);
+      expect(decision(w)).toMatchObject({ unmet: ["door"] });
+    });
+
     it("holds a PR with no protected file when the Triage says one-way", async () => {
       for (const door of ["**Door:** one-way", "**Porta:** one-way"]) {
         const w = withTriage(door);
