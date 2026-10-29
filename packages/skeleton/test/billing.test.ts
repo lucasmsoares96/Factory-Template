@@ -14,6 +14,9 @@ const WEBHOOK_SECRET = "whsec_test";
 let db: Awaited<ReturnType<typeof createEmptyDatabase>>;
 let worker: TestWorker;
 let withoutKey: TestWorker;
+let preview: TestWorker;
+let previewDb: Awaited<ReturnType<typeof createEmptyDatabase>>;
+let previewAuth: Awaited<ReturnType<typeof createTestAuth>>;
 let testAuth: Awaited<ReturnType<typeof createTestAuth>>;
 
 beforeAll(async () => {
@@ -24,11 +27,22 @@ beforeAll(async () => {
     vars: { STRIPE_FAKE: "true", STRIPE_WEBHOOK_SECRET: WEBHOOK_SECRET, EMAIL_TRANSPORT: "outbox" },
   });
   withoutKey = await startTestWorker({ databaseUrl: db.url });
+  // A Preview: its own database and tag (`pr-7`), on the same fake Stripe as any other.
+  previewDb = await createEmptyDatabase();
+  await migrateDatabase({ databaseUrl: previewDb.url });
+  preview = await startTestWorker({
+    databaseUrl: previewDb.url,
+    vars: { STRIPE_FAKE: "true", STRIPE_WEBHOOK_SECRET: WEBHOOK_SECRET, EMAIL_TRANSPORT: "outbox", BILLING_ENVIRONMENT: "pr-7" },
+  });
+  previewAuth = await createTestAuth({ databaseUrl: previewDb.url, baseURL: preview.origin });
   testAuth = await createTestAuth({ databaseUrl: db.url, baseURL: worker.origin });
 });
 afterAll(async () => {
   await testAuth?.close();
+  await previewAuth?.close();
   await worker?.close();
+  await preview?.close();
+  await previewDb?.drop();
   await withoutKey?.close();
   await db?.drop();
 });
@@ -120,6 +134,62 @@ test("every customer and Subscription carries the Product's id", async () => {
 
   expect(customer?.metadata).toMatchObject({ productId: "skeleton-test" });
   expect(subscription?.metadata).toMatchObject({ productId: "skeleton-test" });
+});
+
+test("a Preview tags its customers and Subscriptions with its environment, production tags none", async () => {
+  await preview.post("/api/fake-stripe/control/reset", {});
+  const user = await previewAuth.saveUser(previewAuth.createUser({ name: "Ana Souza", email: `user-${randomUUID()}@example.com`, emailVerified: true }));
+  const cookie = (await previewAuth.getAuthHeaders({ userId: user.id })).get("cookie")!;
+  const opened = await preview.post("/api/billing/subscribe", { plan: "prod_fake_pro" }, { cookie });
+  const checkout = new URL(((await opened.json()) as { url: string }).url).pathname;
+  await preview.fetch(`${checkout}/pay`, { method: "POST", redirect: "manual" });
+
+  const [customer] = await previewDb.query<{ metadata: Record<string, string> }>(`select body->'metadata' as metadata from skeleton.fake_stripe where kind = 'customer'`);
+  const [subscription] = await previewDb.query<{ metadata: Record<string, string> }>(`select body->'metadata' as metadata from skeleton.fake_stripe where kind = 'subscription'`);
+  expect(customer?.metadata).toMatchObject({ productId: "skeleton-test", environment: "pr-7" });
+  expect(subscription?.metadata).toMatchObject({ productId: "skeleton-test", environment: "pr-7" });
+
+  const { cookie: other } = await signedInUser();
+  await worker.fetch(`${await openCheckout(other, "prod_fake_pro")}/pay`, { method: "POST", redirect: "manual" });
+  const [own] = await db.query<{ metadata: Record<string, string> }>(`select body->'metadata' as metadata from skeleton.fake_stripe where kind = 'subscription'`);
+  expect(own?.metadata).not.toHaveProperty("environment");
+});
+
+test("a Preview ignores the events of another Preview and of production, and applies its own", async () => {
+  await preview.post("/api/fake-stripe/control/reset", {});
+  const user = await previewAuth.saveUser(previewAuth.createUser({ name: "Ana Souza", email: `user-${randomUUID()}@example.com`, emailVerified: true }));
+  const cookie = (await previewAuth.getAuthHeaders({ userId: user.id })).get("cookie")!;
+  const opened = await preview.post("/api/billing/subscribe", { plan: "prod_fake_pro" }, { cookie });
+  const checkout = new URL(((await opened.json()) as { url: string }).url).pathname;
+  await preview.fetch(`${checkout}/pay`, { method: "POST", redirect: "manual" });
+  const [row] = await previewDb.query<{ stripe_subscription_id: string }>(`select stripe_subscription_id from skeleton.subscriptions where reference_id = '${user.id}'`);
+  const plan = async () => ((await (await preview.fetch("/api/billing/plan", { headers: { cookie } })).json()) as PlanState).plan?.name;
+  const deleted = (metadata: Record<string, string>) => ({
+    type: "customer.subscription.deleted",
+    object: { id: row!.stripe_subscription_id, object: "subscription", status: "canceled", metadata, items: { data: [] } },
+  });
+
+  for (const metadata of [{ productId: "skeleton-test", environment: "pr-8" }, { productId: "skeleton-test" }] as Record<string, string>[]) {
+    const ignored = await preview.post("/api/fake-stripe/control/events", deleted(metadata));
+    expect(await ignored.json()).toEqual({ webhookStatus: 200 });
+    expect(await plan()).toBe("Pro");
+  }
+  await preview.post("/api/fake-stripe/control/events", deleted({ productId: "skeleton-test", environment: "pr-7" }));
+  expect(await plan()).toBe("Free");
+});
+
+test("production ignores an event that carries a Preview's tag", async () => {
+  const { user, cookie } = await signedInUser();
+  await worker.fetch(`${await openCheckout(cookie, "prod_fake_pro")}/pay`, { method: "POST", redirect: "manual" });
+  const [row] = await db.query<{ stripe_subscription_id: string }>(`select stripe_subscription_id from skeleton.subscriptions where reference_id = '${user.id}'`);
+
+  const ignored = await worker.post("/api/fake-stripe/control/events", {
+    type: "customer.subscription.deleted",
+    object: { id: row!.stripe_subscription_id, object: "subscription", status: "canceled", metadata: { productId: "skeleton-test", environment: "pr-7" }, items: { data: [] } },
+  });
+
+  expect(await ignored.json()).toEqual({ webhookStatus: 200 });
+  expect((await currentPlan(cookie)).plan?.name).toBe("Pro");
 });
 
 test("the Plans are read from Stripe once in five minutes", async () => {

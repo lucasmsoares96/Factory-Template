@@ -176,16 +176,18 @@ What `publish` does:
 
 1. `build`: PR code, no secrets; also uploads `bundle-<id>`.
 2. `preview-plan`: `previews.ts gate`: affected ∩ `PREVIEW_PRODUCTS`, author `write`+ or the event of the `preview` label put by someone with `write`+; a push removes the label.
-3. `deploy`: `main`'s checkout, the only job with Cloudflare and Neon preview secrets.
+3. `deploy`: `main`'s checkout, the only job of this workflow with Cloudflare, Neon and Stripe sandbox preview secrets.
    - Allowlist check, bindings against `apps/<id>/wrangler.jsonc` of `main`.
    - Neon branch `preview/pr-N` from `base`, or "preview skipped: limit reached" at `FACTORY_PREVIEW_LIMIT` (9) open previews.
    - Migrations, the Skeleton's and the Product's, both from the artifact: `bundle` copies `packages/skeleton/drizzle` to `migrations/skeleton`; an artifact without it fails `migrate`, push again to rebuild it. The deploy of `main` and `previews.ts base` read them the same way.
    - `previews.ts account`, right after the migrations: upserts the verified Default account (`<ID>_ACCOUNT_EMAIL`, password `<ID>_PREVIEW_ACCOUNT_PASSWORD`, hash only) into the PR's branch. It is the one step that sees that secret; no other job references it.
    - `wrangler preview --name pr-N --worker-name <id> --config <preview config> --secrets-file --ignore-base-config`.
+   - Billing, once the URL is known (`previews.ts billing`, the sandbox key `<ID>_PREVIEW_STRIPE_SECRET_KEY` in that one step; no key = no billing, silently). All Previews of a Product share the sandbox and Stripe sends each event to every endpoint, so the PR gets its own events endpoint (`<url>/api/auth/stripe/webhook`, metadata `productId` and `environment=pr-N`; the PR's old one is deleted first, since Stripe shows the secret once). The Worker is deployed a second time with `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` added to the secrets file, which is deleted at the end of the job. The preview config carries `BILLING_ENVIRONMENT=pr-N`: every customer and Subscription billing creates carries that tag, a Preview ignores events without its tag, production ignores events with any. Only webhook endpoints are touched: no plan, price or Entitlement is written in the sandbox.
+   - The sandbox takes 16 endpoints (counted over all of them, whoever made them). With no place, or if Stripe refuses, the preview stays as deployed, without billing, and the comment says so (`billing` in `result.json`: `on`, `full`, `unavailable`). A failed second deploy is a failed preview. The smoke never goes through Stripe's Checkout.
 4. `smoke`: no secrets. Real sign-up, the email read at `GET /api/preview/outbox?to=`, sign-in, `/api/me`, `/mcp` 401.
 5. `preview-comment`: one comment, edited (found by `<!-- factory-previews -->`), in `FACTORY_LANGUAGE`.
 
-- `factory-pr-cleanup.yml` on `closed` deletes the Worker Preview and the Neon branch.
+- `factory-pr-cleanup.yml` on `closed` deletes the Worker Preview, the Neon branch and the PR's Stripe events endpoint (`cleanup-billing`, the sandbox key in that step only; it runs even if a step before failed, so a closed PR never holds a place of the 16). It deletes only endpoints tagged with that PR and Product.
 - The deploy of `main` migrates `base` (`preview-base`) and recreates it when missing.
 - The outbox route exists only with `EMAIL_TRANSPORT=outbox` and `PREVIEW_OUTBOX=true`, which only the preview config sets.
 - A change to these workflows takes effect only after it is merged (`pull_request_target`).

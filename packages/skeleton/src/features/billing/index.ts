@@ -45,7 +45,7 @@ export function billing<const Name extends string>({ entitlements }: { entitleme
       const on = billingFor(c, entitlements);
       if (!on) return [];
       return [
-        productFilter({ productId: on.productId, stripe: on.stripe, webhookSecret: on.webhookSecret }),
+        productFilter({ productId: on.productId, environment: on.environment, stripe: on.stripe, webhookSecret: on.webhookSecret }),
         stripe({
           stripeClient: on.stripe,
           stripeWebhookSecret: on.webhookSecret,

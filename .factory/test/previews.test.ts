@@ -1,8 +1,14 @@
-import { readFileSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { promisify } from "node:util";
+import Stripe from "stripe";
+import { afterEach, describe, expect, it } from "vitest";
 import { FakeNeonProject } from "../src/ci/fake/neon-api.ts";
 import { NeonApi } from "../src/ci/neon-api.ts";
+import { FakeStripeSandbox } from "../src/ci/fake/stripe-api.ts";
+import { StripePreviewApi, WEBHOOK_LIMIT } from "../src/ci/stripe-api.ts";
 import {
   bindingSignature,
   bindingsChanged,
@@ -13,6 +19,8 @@ import {
   previewConfig,
   previewTrust,
   previewUrl,
+  registerBilling,
+  removeBilling,
   removeDatabase,
   renderComment,
   upsertComment,
@@ -154,6 +162,182 @@ describe("the preview's Worker config", () => {
 
   it("refuses a binding the preview has no resource for", () => {
     expect(() => previewConfig({ ...exampleBuilt, d1_databases: [{ binding: "DB" }] }, { id: "example", kvId: "k" })).toThrow(/d1:DB/);
+  });
+});
+
+describe("the preview's billing tag", () => {
+  it("is `pr-N` in the previews block when the PR is known, and absent otherwise", () => {
+    const tagged = previewConfig(exampleBuilt, { id: "example", kvId: "k", pr: 12 }) as Record<string, any>;
+    expect(tagged.previews.vars.BILLING_ENVIRONMENT).toBe("pr-12");
+    expect(JSON.stringify(tagged)).not.toMatch(/STRIPE/);
+    expect((previewConfig(exampleBuilt, { id: "example", kvId: "k" }) as Record<string, any>).previews.vars).not.toHaveProperty("BILLING_ENVIRONMENT");
+  });
+
+  it("is forced over a var of the PR with the same name", () => {
+    const config = previewConfig({ ...exampleBuilt, vars: { BILLING_ENVIRONMENT: "production" } }, { id: "example", kvId: "k", pr: 3 }) as Record<string, any>;
+    expect(config.previews.vars.BILLING_ENVIRONMENT).toBe("pr-3");
+  });
+});
+
+describe("the Stripe sandbox of the previews", () => {
+  const URL_OF_3 = "https://pr-3-example.bytewer.workers.dev";
+  const setup = () => {
+    const sandbox = new FakeStripeSandbox();
+    return { sandbox, webhooks: new StripePreviewApi(sandbox.apiKey, { httpClient: Stripe.createFetchHttpClient(sandbox.fetch) }) };
+  };
+
+  it("gets the PR's events endpoint, tagged with the Product and `pr-N`, and hands back its secret", async () => {
+    const { sandbox, webhooks } = setup();
+
+    const result = await registerBilling({ webhooks, productId: "example", pr: 3, previewUrl: URL_OF_3 });
+
+    expect(result).toEqual({ status: "on", secret: "whsec_1" });
+    expect(sandbox.endpoints).toEqual([expect.objectContaining({ url: `${URL_OF_3}/api/auth/stripe/webhook`, metadata: { productId: "example", environment: "pr-3" } })]);
+  });
+
+  it("replaces the PR's endpoint on the next push (Stripe shows the secret once) and leaves the others alone", async () => {
+    const { sandbox, webhooks } = setup();
+    await registerBilling({ webhooks, productId: "example", pr: 3, previewUrl: URL_OF_3 });
+    const other = await registerBilling({ webhooks, productId: "example", pr: 4, previewUrl: "https://pr-4-example.bytewer.workers.dev" });
+    const production = sandbox.seed({ productId: "example" }, "https://example.com/api/auth/stripe/webhook");
+
+    const again = await registerBilling({ webhooks, productId: "example", pr: 3, previewUrl: URL_OF_3 });
+
+    expect(again.status).toBe("on");
+    expect(sandbox.endpoints.filter((e) => e.metadata.environment === "pr-3")).toHaveLength(1);
+    expect(sandbox.endpoints.filter((e) => e.metadata.environment === "pr-4")).toHaveLength(1);
+    expect(sandbox.endpoints).toContain(production);
+    expect(other.status).toBe("on");
+    expect(again).not.toEqual({ status: "on", secret: "whsec_1" });
+  });
+
+  it("is `full` with no place left: nothing is made, and the endpoints that were there stay", async () => {
+    const { sandbox, webhooks } = setup();
+    for (let i = 0; i < WEBHOOK_LIMIT; i++) sandbox.seed({ productId: "example", environment: `pr-${100 + i}` });
+
+    const result = await registerBilling({ webhooks, productId: "example", pr: 3, previewUrl: URL_OF_3 });
+
+    expect(result).toEqual({ status: "full" });
+    expect(sandbox.endpoints).toHaveLength(WEBHOOK_LIMIT);
+    expect(sandbox.calls.filter((c) => c.startsWith("POST"))).toEqual([]);
+  });
+
+  it("counts the PR's own endpoint as a free place when it is replaced at the limit", async () => {
+    const { sandbox, webhooks } = setup();
+    for (let i = 0; i < WEBHOOK_LIMIT - 1; i++) sandbox.seed({ productId: "example", environment: `pr-${100 + i}` });
+    await registerBilling({ webhooks, productId: "example", pr: 3, previewUrl: URL_OF_3 });
+    expect(sandbox.endpoints).toHaveLength(WEBHOOK_LIMIT);
+
+    expect((await registerBilling({ webhooks, productId: "example", pr: 3, previewUrl: URL_OF_3 })).status).toBe("on");
+    expect(sandbox.endpoints).toHaveLength(WEBHOOK_LIMIT);
+  });
+
+  it("counts every endpoint of the sandbox, even one of another Product, and pages through them", async () => {
+    const { sandbox, webhooks } = setup();
+    for (let i = 0; i < 130; i++) sandbox.seed();
+    // 130 is past one page of 100 and past the limit.
+    expect((await registerBilling({ webhooks, productId: "example", pr: 3, previewUrl: URL_OF_3 })).status).toBe("full");
+    expect(sandbox.calls.filter((c) => c === "GET /v1/webhook_endpoints").length).toBeGreaterThan(2);
+  });
+
+  it("is removed when the PR closes: only the PR's own endpoint of that Product, and a missing one is no error", async () => {
+    const { sandbox, webhooks } = setup();
+    await registerBilling({ webhooks, productId: "example", pr: 3, previewUrl: URL_OF_3 });
+    await registerBilling({ webhooks, productId: "example", pr: 4, previewUrl: "https://pr-4-example.bytewer.workers.dev" });
+    await registerBilling({ webhooks, productId: "shop", pr: 3, previewUrl: "https://pr-3-shop.bytewer.workers.dev" });
+    const production = sandbox.seed({ productId: "example" });
+
+    expect(await removeBilling({ webhooks, productId: "example", pr: 3 })).toBe(1);
+    expect(await removeBilling({ webhooks, productId: "example", pr: 3 })).toBe(0);
+
+    expect(sandbox.endpoints.map((e) => `${e.metadata.productId}/${e.metadata.environment}`)).toEqual(["example/pr-4", "shop/pr-3", "example/undefined"]);
+    expect(sandbox.endpoints).toContain(production);
+  });
+
+  it("never writes plans or Entitlements: the only calls are the events endpoints'", async () => {
+    const { sandbox, webhooks } = setup();
+    await registerBilling({ webhooks, productId: "example", pr: 3, previewUrl: URL_OF_3 });
+    await registerBilling({ webhooks, productId: "example", pr: 3, previewUrl: URL_OF_3 });
+    await removeBilling({ webhooks, productId: "example", pr: 3 });
+
+    expect(sandbox.calls.every((c) => /^(GET|POST|DELETE) \/v1\/webhook_endpoints(\/we_\d+)?$/.test(c))).toBe(true);
+  });
+
+  it("sends the key as a bearer token, and a wrong key or an error shows Stripe's message and not the key", async () => {
+    const sandbox = new FakeStripeSandbox("rk_test_right");
+    const webhooks = new StripePreviewApi("rk_test_wrong", { httpClient: Stripe.createFetchHttpClient(sandbox.fetch) });
+
+    const error = await registerBilling({ webhooks, productId: "example", pr: 3, previewUrl: URL_OF_3 }).catch((e: Error) => e);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).not.toContain("rk_test_wrong");
+    expect(sandbox.auth).toEqual(["Bearer rk_test_wrong"]);
+  });
+
+  it("refuses a live key: the previews never touch the real account", () => {
+    expect(() => new StripePreviewApi("rk_live_abc")).toThrow(/sandbox/);
+    expect(() => new StripePreviewApi("sk_live_abc")).toThrow(/sandbox/);
+  });
+
+  it("shows in the comment, in both languages, that a ready preview runs without billing and why", () => {
+    const base = { trusted: true, previewLabel: "preview", products: ["example"] };
+    const ready = { id: "example", status: "deployed" as const, url: URL_OF_3, smoke: "passed" as const };
+    const full = renderComment({ ...base, language: "en", results: [{ ...ready, billing: "full" }] });
+    expect(full).toContain(`${URL_OF_3} (smoke passed)`);
+    expect(full).toContain("billing is off in this preview");
+    expect(full).toContain("16 events endpoints");
+    expect(renderComment({ ...base, language: "pt-BR", results: [{ ...ready, billing: "full" }] })).toContain("a cobrança está desligada neste preview");
+    expect(renderComment({ ...base, language: "en", results: [{ ...ready, billing: "unavailable" }] })).toContain("did not accept its events endpoint");
+    expect(renderComment({ ...base, language: "en", results: [{ ...ready, billing: "on" }] })).not.toContain("billing is off");
+    expect(renderComment({ ...base, language: "en", results: [ready] })).not.toContain("billing");
+  });
+});
+
+describe("`previews.ts billing` and `cleanup-billing` (the CLI)", () => {
+  const run = promisify(execFile);
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+  const tempDir = () => {
+    const dir = mkdtempSync(join(tmpdir(), "billing-"));
+    dirs.push(dir);
+    return dir;
+  };
+  const script = join(repo, ".factory/src/ci/previews.ts");
+  const call = async (args: string[], env: Record<string, string>, dir: string) => {
+    const output = join(dir, "output");
+    writeFileSync(output, "");
+    const { stdout } = await run("node", [script, ...args], { cwd: repo, env: { PATH: process.env.PATH!, GITHUB_OUTPUT: output, ...env } });
+    return { stdout, output: readFileSync(output, "utf8") };
+  };
+
+  it("says nothing is set up, and writes nothing, when the Product has no sandbox key", async () => {
+    const dir = tempDir();
+    writeFileSync(join(dir, "url.txt"), "https://pr-3-example.bytewer.workers.dev");
+    const result = await call(["billing", "--product", "example", "--url-file", join(dir, "url.txt"), "--file", join(dir, "env.json")], { PR_NUMBER: "3" }, dir);
+    expect(result.stdout).toContain("billing is not set up");
+    expect(result.output).toBe("");
+    expect((await call(["cleanup-billing", "--product", "example"], { PR_NUMBER: "3" }, dir)).stdout).toContain("no billing endpoint to delete");
+  });
+
+  it("leaves the preview as it is (status `unavailable`, the Worker's secrets file untouched) when the URL is not a workers.dev one", async () => {
+    const dir = tempDir();
+    writeFileSync(join(dir, "url.txt"), "https://evil.example.com");
+    writeFileSync(join(dir, "env.json"), '{"DATABASE_URL":"x"}');
+    const result = await call(["billing", "--product", "example", "--url-file", join(dir, "url.txt"), "--file", join(dir, "env.json")], { PR_NUMBER: "3", STRIPE_SANDBOX_KEY: "rk_test_secret" }, dir);
+    expect(result.output).toBe("status=unavailable\n");
+    expect(result.stdout).not.toContain("rk_test_secret");
+    expect(readFileSync(join(dir, "env.json"), "utf8")).toBe('{"DATABASE_URL":"x"}');
+  });
+
+  it("writes the `billing` of the result next to the URL, only for a deployed preview", async () => {
+    const dir = tempDir();
+    writeFileSync(join(dir, "url.txt"), "https://pr-3-example.bytewer.workers.dev");
+    await call(["result", "--product", "example", "--status", "deployed", "--file", join(dir, "url.txt"), "--out", join(dir, "a.json")], { BILLING: "full" }, dir);
+    await call(["result", "--product", "example", "--status", "failed", "--file", join(dir, "url.txt"), "--out", join(dir, "b.json")], { BILLING: "full" }, dir);
+    expect(JSON.parse(readFileSync(join(dir, "a.json"), "utf8"))).toEqual({ id: "example", status: "deployed", url: "https://pr-3-example.bytewer.workers.dev", billing: "full" });
+    expect(JSON.parse(readFileSync(join(dir, "b.json"), "utf8"))).toEqual({ id: "example", status: "failed" });
   });
 });
 
