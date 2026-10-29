@@ -552,10 +552,12 @@ describe.each([[WORKFLOWS_DIR]])("Factory triage and unblock workflows in %s", (
   it("triage `apply` is a fresh VM with the owner's token and the default branch's harness; the agent is nowhere near it", () => {
     expect(apply!["runs-on"]).toBe("ubuntu-latest");
     expect(apply!.container).toBeUndefined();
-    expect(apply!.permissions).toEqual({ contents: "read" });
+    expect(apply!.permissions).toEqual({ contents: "read", actions: "write" });
     expect(secretsOf(apply!)).toEqual(["secrets.FACTORY_TOKEN"]);
     expect(textOf(apply!)).not.toMatch(/CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_API_KEY/);
     expect(runs(apply!).join("\n")).toContain("pnpm factory apply");
+    // The job token switches the resume sweep on when a Triage pauses.
+    expect(steps(apply!).find((s) => s.name === "apply")?.env?.GITHUB_TOKEN).toBe("${{ github.token }}");
     expect(runs(apply!).join("\n")).toContain("--filter @factory/harness");
   });
 
@@ -675,10 +677,12 @@ describe.each([[WORKFLOWS_DIR]])("Factory retro workflow in %s", (dir) => {
   it("`publish` is a fresh VM with the owner's token and the default branch's harness; the agent is nowhere near it", () => {
     expect(publish!["runs-on"]).toBe("ubuntu-latest");
     expect(publish!.container).toBeUndefined();
-    expect(publish!.permissions).toEqual({ contents: "read" });
+    expect(publish!.permissions).toEqual({ contents: "read", actions: "write" });
     expect(secretsOf(publish!)).toEqual(["secrets.FACTORY_TOKEN"]);
     expect(textOf(publish!)).not.toMatch(/CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_API_KEY/);
     expect(runs(publish!).join("\n")).toContain("pnpm factory retro-publish");
+    // The job token switches the resume sweep on when a Retro pauses.
+    expect(steps(publish!).find((s) => s.name === "retro-publish")?.env?.GITHUB_TOKEN).toBe("${{ github.token }}");
     expect(runs(publish!).join("\n")).toContain("--filter @factory/harness");
   });
 

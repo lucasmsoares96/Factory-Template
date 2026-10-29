@@ -17,7 +17,7 @@ import { trustedExplore } from "../guard.ts";
 import type { Issue } from "../seams/tracker.ts";
 import { SessionLimitError, type AgentRun } from "../seams/agent.ts";
 import { messages } from "../messages.ts";
-import { sessionFailure, sessionLimitComment } from "../session-limit.ts";
+import { armResumeSweep, sessionFailure, sessionLimitComment } from "../session-limit.ts";
 import type { CommandContext } from "./context.ts";
 
 const MINUTE = 60_000;
@@ -131,7 +131,7 @@ const PRODUCT_ID = /^[a-z][a-z0-9-]*$/;
  * It adds `product:<id>` when the verdict names a Product that exists under
  * `apps/` and the issue has no `product:` label yet.
  */
-export async function apply(ctx: CommandContext, options: { in: string; repo: string }): Promise<ApplyRun> {
+export async function apply(ctx: CommandContext, options: { in: string; repo: string; armResume?: () => Promise<void> }): Promise<ApplyRun> {
   const { tracker, config } = ctx;
   const { labels } = config;
   const raw = JSON.parse(await readFile(join(options.in, TRIAGE_FILE), "utf8"));
@@ -143,6 +143,8 @@ export async function apply(ctx: CommandContext, options: { in: string; repo: st
     const { session } = result.paused;
     const wait = { flow: "triage" as const, resumeAt: session.limit?.resumeAt ?? new Date(ctx.now()).toISOString(), head: null, pr: null };
     const next = messages(config.language).sessionLimitTriage(labels.agentExplore);
+    // Switched on once, when the first issue is labelled: a Triage whose issues all moved on pauses nothing.
+    let armed: boolean | undefined;
     for (const number of result.paused.issues) {
       const issue = await tracker.issue(number);
       const origin = await tracker.labelOrigin(number, labels.agentExplore);
@@ -151,7 +153,8 @@ export async function apply(ctx: CommandContext, options: { in: string; repo: st
         continue;
       }
       await tracker.addLabel(number, labels.sessionLimit);
-      await tracker.comment(number, sessionLimitComment({ wait, failure: session, next, runUrl: null }, config));
+      armed ??= await armResumeSweep(ctx, options.armResume);
+      await tracker.comment(number, sessionLimitComment({ wait, failure: session, next, runUrl: null, armed }, config));
       run.paused.push(number);
     }
   }

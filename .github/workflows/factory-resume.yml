@@ -8,6 +8,10 @@
 # label off and dispatches (`actions: write`) and holds no secret; each run's own claim still decides. GitHub runs a
 # schedule on the default branch only, and pauses it in a public repository with no activity for 60 days. Off until
 # `pnpm bootstrap factory` sets FACTORY_ENABLED.
+# The workflow itself is disabled in the repository while nothing is paused (a scheduled run costs at least a minute of
+# Actions, 48 a day, in a private repo): the three commands above enable it right after they label an item
+# (`PUT /actions/workflows/factory-resume.yml/enable`), and the last step of this sweep disables it when no item is left.
+# If enabling failed, the item's comment says so: enable the workflow in Actions and run it by hand.
 name: Factory resume
 
 on:

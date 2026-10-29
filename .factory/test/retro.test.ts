@@ -343,6 +343,7 @@ describe("factory retro + retro-publish", () => {
     expect(run.output).toEqual({ issue: 7, outcome: "paused", reason: "session-limit", resumeAt: "2026-10-28T15:20:00.000Z" });
     expect(issuesTitled(s.w, "Retro:")).toEqual([]);
     expect(s.w.tracker.labelsOf(7)).toContain("factory:session-limit");
+    expect(s.w.codeHost.sweepChanges).toEqual([true]);
     const wait = s.w.tracker.commentsOn(7).at(-1)!.body;
     expect(wait).toContain('"flow":"retro"');
     expect(wait).toContain('"pr":101');

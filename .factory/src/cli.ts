@@ -164,6 +164,8 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
 
   const config = loadConfig(deps.env);
   const ctx: CommandContext = { ...deps.adapters({ config, repo: values.repo }), ...base(config) };
+  // A pause switches the resume sweep on with the job token (`actions: write`); FACTORY_TOKEN cannot.
+  const armResume = async () => await deps.adapters({ config, repo: values.repo, jobToken: true }).codeHost.setResumeSweep(true);
 
   const writeOutputs = async (claim: PrClaim) => {
     if (!deps.env.GITHUB_OUTPUT) return;
@@ -241,7 +243,11 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
       return 0;
     }
     case "apply": {
-      const result = await apply(ctx, { in: required(values.in, "--in"), repo: values.repo });
+      const result = await apply(ctx, {
+        in: required(values.in, "--in"),
+        repo: values.repo,
+        armResume,
+      });
       deps.log(JSON.stringify(result));
       return 0;
     }
@@ -265,7 +271,11 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
       return 0;
     }
     case "retro-publish": {
-      const result = await retroPublish(ctx, { in: required(values.in, "--in"), runUrl: values["run-url"] || runUrlFromEnv(deps.env) });
+      const result = await retroPublish(ctx, {
+        in: required(values.in, "--in"),
+        runUrl: values["run-url"] || runUrlFromEnv(deps.env),
+        armResume,
+      });
       deps.log(JSON.stringify(result));
       return 0;
     }
@@ -304,6 +314,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
           in: required(values.in, "--in"),
           startSha: values["start-sha"] || null,
           runUrl: values["run-url"] || runUrlFromEnv(deps.env),
+          armResume,
         });
         deps.log(JSON.stringify(result));
         if (deps.env.GITHUB_OUTPUT) await appendFile(deps.env.GITHUB_OUTPUT, `outcome=${result.outcome}\nurl=${"url" in result ? result.url : ""}\n`);
@@ -321,6 +332,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
         ...(flow ? { flow } : {}),
         markWorking: async (pr) => await jobCodeHost().labelPr(pr, config.labels.working),
         dispatchRetro: async (inputs) => await jobCodeHost().dispatch("retro", inputs),
+        armResume,
       });
       deps.log(JSON.stringify(result));
       if (deps.env.GITHUB_OUTPUT) {

@@ -3,6 +3,7 @@ import type { FactoryConfig } from "./config.ts";
 import { messages } from "./messages.ts";
 import { fence } from "./report.ts";
 import { SessionLimitError, type AgentSessionError, type Stage } from "./seams/agent.ts";
+import type { CodeHost } from "./seams/code-host.ts";
 
 /**
  * A session that failed in a run: its agent's own message and, at the account's usage limit, when the run starts again.
@@ -144,12 +145,30 @@ export function utcMinute(iso: string): string {
   return `${iso.slice(0, 16).replace("T", " ")} UTC`;
 }
 
-/** The comment of a paused item: marker, what stopped and when it starts again, what happens to the work, the session's message. */
-export function sessionLimitComment(input: { wait: Wait; failure: SessionFailure; next: string; runUrl: string | null }, config: FactoryConfig): string {
+/**
+ * Switches the resume sweep on right after an item got the `sessionLimit` label (it is off while nothing waits). `arm`
+ * is how the run does it when the forge token cannot (the job token, `actions: write`); by default the code host does.
+ * False when it failed: the pause stands, and the item's comment says the sweep has to be run by hand.
+ */
+export async function armResumeSweep(ctx: { codeHost: Pick<CodeHost, "setResumeSweep">; log: (line: string) => void }, arm?: () => Promise<void>): Promise<boolean> {
+  try {
+    await (arm ? arm() : ctx.codeHost.setResumeSweep(true));
+    return true;
+  } catch (error) {
+    ctx.log(`factory: could not switch on the resume sweep: ${(error as Error).message}`);
+    return false;
+  }
+}
+
+/**
+ * The comment of a paused item: marker, what stopped and when it starts again, what happens to the work, the session's
+ * message. `armed` is false when the resume sweep could not be switched on: the comment then says to run it by hand.
+ */
+export function sessionLimitComment(input: { wait: Wait; failure: SessionFailure; next: string; runUrl: string | null; armed: boolean }, config: FactoryConfig): string {
   const m = messages(config.language);
   const { wait, failure } = input;
   const manual = wait.flow === "issue" ? m.sessionLimitRestartIssue(config.labels.sessionLimit, config.labels.readyForAgent) : m.sessionLimitCancel(config.labels.sessionLimit);
-  const lines = [waitMarker(wait), m.sessionLimitTitle(STAGE_NAMES[failure.stage], failure.limit?.resetsAt ?? null, utcMinute(wait.resumeAt)), "", input.next, "", manual, "", fence(failure.message, "text")];
+  const lines = [waitMarker(wait), m.sessionLimitTitle(STAGE_NAMES[failure.stage], failure.limit?.resetsAt ?? null, utcMinute(wait.resumeAt)), "", input.next, "", manual, ...(input.armed ? [] : ["", m.sessionLimitSweepOff()]), "", fence(failure.message, "text")];
   if (input.runUrl) lines.push("", m.workflowRun(input.runUrl));
   return lines.join("\n");
 }

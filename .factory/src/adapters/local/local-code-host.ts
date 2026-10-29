@@ -200,6 +200,9 @@ export class LocalCodeHost implements CodeHost {
     throw new Error(`Dispatching \`${workflow}\` is not available in local mode: run \`pnpm factory local <N>\` for the issue.`);
   }
 
+  /** There is no scheduled sweep in local mode. */
+  async setResumeSweep(_enabled: boolean): Promise<void> {}
+
   private issueOf(branch: string): number | null {
     const prefix = this.options.config.branchPrefix;
     if (!branch.startsWith(prefix)) return null;

@@ -12,6 +12,8 @@ export interface ResumeRun {
   dropped: number[];
   /** The run could not be started: the label is back for the next sweep. */
   failed: number[];
+  /** Nothing was left under the label, so the sweep switched itself off (`factory-resume.yml` is on only while something waits). */
+  switchedOff: boolean;
 }
 
 /**
@@ -19,13 +21,15 @@ export interface ResumeRun {
  * `sessionLimit` whose Factory wait (the marked comment `publish`, `apply` or `retro-publish` left) has passed starts
  * again, the same work it was doing: the issue flow, the round on its pull request, the Triage (one for all) or the
  * Retro. The label comes off before the dispatch, since the guard refuses an issue that has it, and it is the only
- * record that a wait is pending: each wait starts once. A dispatch that fails puts it back.
+ * record that a wait is pending: each wait starts once. A dispatch that fails puts it back. When the sweep ends with
+ * nothing under the label, it switches `factory-resume.yml` off: a scheduled run costs Actions minutes even when it
+ * finds nothing, so `publish`, `apply` and `retro-publish` switch it on again at the next pause.
  */
 export async function resume(ctx: CommandContext): Promise<ResumeRun> {
   const { tracker, codeHost, config } = ctx;
   const label = config.labels.sessionLimit;
   const now = ctx.now();
-  const run: ResumeRun = { resumed: [], waiting: [], dropped: [], failed: [] };
+  const run: ResumeRun = { resumed: [], waiting: [], dropped: [], failed: [], switchedOff: false };
   const triage: number[] = [];
 
   const start = async (number: number, flow: Wait["flow"], unlabel: () => Promise<void>, relabel: () => Promise<void>, workflow: FactoryWorkflow, inputs: Record<string, string>) => {
@@ -90,7 +94,32 @@ export async function resume(ctx: CommandContext): Promise<ResumeRun> {
     }
     await start(pr.number, wait.flow, unlabel, relabel, "update-branches", { pr: String(pr.number) });
   }
+  run.switchedOff = await switchOffWhenIdle(ctx);
   return run;
+}
+
+/** Whether any open issue or pull request still waits under the label. */
+async function anyPaused(ctx: CommandContext): Promise<boolean> {
+  const label = ctx.config.labels.sessionLimit;
+  if ((await ctx.tracker.labeled(label)).length > 0) return true;
+  return (await ctx.codeHost.openPullRequests()).some((p) => p.labels.includes(label));
+}
+
+/**
+ * Switches the sweep off when nothing waits. A pause that labelled an item since the read above also switched it on,
+ * perhaps before this switch-off: the second read puts it back on, so an item is never left waiting with no sweep.
+ * A failure is logged and changes nothing: a sweep left on only costs a run, and the next one tries again.
+ */
+async function switchOffWhenIdle(ctx: CommandContext): Promise<boolean> {
+  try {
+    if (await anyPaused(ctx)) return false;
+    await ctx.codeHost.setResumeSweep(false);
+    if (!(await anyPaused(ctx))) return true;
+    await ctx.codeHost.setResumeSweep(true);
+  } catch (error) {
+    ctx.log(`factory: could not switch off the resume sweep: ${(error as Error).message}`);
+  }
+  return false;
 }
 
 /** The workflow that does the paused work again, and its inputs. */

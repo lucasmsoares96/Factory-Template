@@ -143,6 +143,12 @@ export const catalog = {
     en: (label: string) => `Removing \`${label}\` cancels the automatic restart.`,
     "pt-BR": (label) => `Remover \`${label}\` cancela o recomeço automático.`,
   }),
+  sessionLimitSweepOff: text({
+    en: (): string =>
+      "The Factory could not switch on the sweep that restarts paused work (`factory-resume.yml`). After the reset, enable it in Actions if it is off and run it by hand (Run workflow).",
+    "pt-BR": () =>
+      "A Factory não conseguiu ligar a varredura que recomeça o trabalho pausado (`factory-resume.yml`). Depois do reset, ligue-a em Actions se estiver desligada e rode-a à mão (Run workflow).",
+  }),
   roundPaused: text({
     en: (issue: number, resumeAt: string) => `The Factory paused this round at the agent's usage limit (\`session-limit\`) and starts it again after ${resumeAt}. Issue #${issue} has the details.`,
     "pt-BR": (issue, resumeAt) => `A Factory pausou esta rodada no limite de uso do agente (\`session-limit\`) e a recomeça depois de ${resumeAt}. A issue #${issue} tem os detalhes.`,
