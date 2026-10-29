@@ -22,6 +22,7 @@ export const errorMessages = {
   OWNER_MUST_TRANSFER: "The Owner cannot leave the Company. Transfer its ownership to another Member first.",
   ALREADY_SUBSCRIBED: "The user already has a Subscription.",
   BILLING_UNAVAILABLE: "Stripe did not answer.",
+  MEMBER_SUSPENDED: "Your access to this Company is suspended: the Owner's Seats fall short.",
   NO_FREE_SEAT: "The Owner has no free Seat. Remove someone, cancel an Invitation or upgrade the Plan.",
   OWNER_OF_COMPANIES: "You are the Owner of these Companies. Transfer or delete them before you delete your account.",
 } as const;

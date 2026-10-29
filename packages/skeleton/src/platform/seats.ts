@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { companies, invitations, members, users } from "../db/schema.ts";
 import type { Database, Transaction } from "./db.ts";
 
@@ -72,4 +72,121 @@ export async function ownerOf(db: Database | Transaction, companyId: string): Pr
  */
 export async function lockSeats(tx: Transaction, ownerId: string) {
   await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`seats:${ownerId}`}))`);
+}
+
+/** What `applySeatLimit` changed. */
+export type SeatReconciliation = {
+  /** The pending Invitations it canceled, newest first. */
+  canceledInvitations: number;
+  /** The people it suspended, newest first, as user ids. */
+  suspended: string[];
+  /** The people it brought back, longest suspended first, as user ids. */
+  restored: string[];
+};
+
+/**
+ * Makes the Companies `ownerId` owns fit `limit` Seats, nobody removed. When the Seats fall short the pending
+ * Invitations go first (newest first, only as many as needed), then the people who joined last are suspended in every
+ * Company of the Owner (a Suspended Member keeps their place; the Owner never is). When a Seat is free, the person
+ * suspended the longest comes back. Suspended Members still count in `seatPeople`, so no Invitation takes the Seat of
+ * someone waiting to come back. `limit` is `null` or `undefined` for no limit: everyone comes back.
+ * Hold `lockSeats` for the transaction.
+ */
+export async function applySeatLimit(
+  tx: Transaction,
+  ownerId: string,
+  limit: number | null | undefined,
+): Promise<SeatReconciliation> {
+  const result: SeatReconciliation = { canceledInvitations: 0, suspended: [], restored: [] };
+  const owned = await tx
+    .select({ id: companies.id })
+    .from(members)
+    .innerJoin(companies, eq(companies.id, members.companyId))
+    .where(and(eq(members.userId, ownerId), eq(members.role, "owner")));
+  if (owned.length === 0) return result;
+  const companyIds = owned.map((company) => company.id);
+
+  const rows = await tx
+    .select({ userId: members.userId, email: users.email, joinedAt: members.createdAt, suspendedAt: members.suspendedAt })
+    .from(members)
+    .innerJoin(users, eq(users.id, members.userId))
+    .where(inArray(members.companyId, companyIds));
+  const invites = await tx
+    .select({ id: invitations.id, email: invitations.email, createdAt: invitations.createdAt })
+    .from(invitations)
+    .where(and(inArray(invitations.companyId, companyIds), isNull(invitations.acceptedAt), isNull(invitations.canceledAt)))
+    .orderBy(sql`${invitations.createdAt} desc`, sql`${invitations.id} desc`);
+
+  type Person = { userId: string; email: string; joinedAt: number; suspendedAt: number | null };
+  const byUser = new Map<string, Person>();
+  for (const row of rows) {
+    const known = byUser.get(row.userId);
+    const joinedAt = row.joinedAt.getTime();
+    const suspendedAt = row.userId === ownerId ? null : (row.suspendedAt?.getTime() ?? null);
+    byUser.set(row.userId, {
+      userId: row.userId,
+      email: row.email.toLowerCase(),
+      joinedAt: known ? Math.min(known.joinedAt, joinedAt) : joinedAt,
+      suspendedAt: known?.suspendedAt != null && suspendedAt != null ? Math.min(known.suspendedAt, suspendedAt) : (known?.suspendedAt ?? suspendedAt),
+    });
+  }
+  const people = [...byUser.values()];
+  const personEmails = new Set(people.map((person) => person.email));
+  const cap = limit ?? Number.POSITIVE_INFINITY;
+
+  // A Seat for each person who has access, and for each address only invited.
+  const invitedOnly = new Set(invites.filter((invite) => !personEmails.has(invite.email)).map((invite) => invite.email));
+  const active = people.filter((person) => person.suspendedAt === null);
+  let used = active.length + invitedOnly.size;
+
+  if (used > cap) {
+    const canceled: string[] = [];
+    for (const invite of invites) {
+      if (used <= cap) break;
+      if (!invitedOnly.has(invite.email)) continue;
+      // Every pending Invitation of that address goes, from every Company: together they held one Seat.
+      for (const same of invites.filter((candidate) => candidate.email === invite.email)) canceled.push(same.id);
+      invitedOnly.delete(invite.email);
+      used -= 1;
+    }
+    if (canceled.length > 0) {
+      await tx.update(invitations).set({ canceledAt: new Date() }).where(inArray(invitations.id, canceled));
+      result.canceledInvitations = canceled.length;
+    }
+    const newestFirst = active
+      .filter((person) => person.userId !== ownerId)
+      .sort((a, b) => b.joinedAt - a.joinedAt || (a.userId < b.userId ? 1 : -1));
+    for (const person of newestFirst) {
+      if (used <= cap) break;
+      result.suspended.push(person.userId);
+      used -= 1;
+    }
+    if (result.suspended.length > 0) {
+      await tx
+        .update(members)
+        .set({ suspendedAt: new Date() })
+        .where(and(inArray(members.companyId, companyIds), inArray(members.userId, result.suspended)));
+    }
+  } else {
+    const waiting = people
+      .filter((person) => person.suspendedAt !== null)
+      .sort((a, b) => a.suspendedAt! - b.suspendedAt! || a.joinedAt - b.joinedAt || (a.userId < b.userId ? -1 : 1));
+    for (const person of waiting) {
+      if (used >= cap) break;
+      result.restored.push(person.userId);
+      used += 1;
+    }
+  }
+  if (result.restored.length > 0) {
+    await tx.update(members).set({ suspendedAt: null }).where(and(inArray(members.companyId, companyIds), inArray(members.userId, result.restored)));
+  }
+  // A person invited to another Company of the Owner while suspended: all their rows are suspended alike.
+  for (const person of people) {
+    if (person.suspendedAt === null || result.restored.includes(person.userId)) continue;
+    await tx
+      .update(members)
+      .set({ suspendedAt: new Date(person.suspendedAt) })
+      .where(and(inArray(members.companyId, companyIds), eq(members.userId, person.userId), isNull(members.suspendedAt)));
+  }
+  return result;
 }

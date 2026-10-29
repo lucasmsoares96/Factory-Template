@@ -33,7 +33,7 @@ const noLastCompany = getLastCompanyHandler(() =>
 );
 const memberList = () => ({
   items: [
-    { userId: ana.id, name: ana.name, email: ana.email, role: "owner" },
+    { userId: ana.id, name: ana.name, email: ana.email, role: "owner", suspended: false },
     { userId: "user-2", name: "Bruno Lima", email: "bruno@example.com", role: "employee" },
     { userId: "user-3", name: "Carla Dias", email: "carla@example.com", role: "manager" },
   ],

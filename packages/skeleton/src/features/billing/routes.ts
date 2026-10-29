@@ -8,13 +8,14 @@ import { checkoutPage } from "./fake-stripe/pages.ts";
 import { forgetPlans } from "./plans.ts";
 
 const Advance = z.object({ seconds: z.number().int().positive(), paymentFails: z.boolean().optional() });
+const Ending = z.object({ email: z.string().min(1) });
 const Failing = z.object({ on: z.boolean() });
 const Product = z.object({ id: z.string().min(1), metadata: z.record(z.string(), z.string()) });
 const Event = z.object({ type: z.string().min(1), object: z.record(z.string(), z.unknown()) });
 
 /**
  * The fake Stripe's own routes, `/api/fake-stripe/*`: the Checkout page and the
- * controls tests use (advance the clock, edit a Plan's metadata, make Stripe fail, send an event, read
+ * controls tests use (advance the clock, end a person's Subscriptions, edit a Plan's metadata, make Stripe fail, send an event, read
  * the calls, start over). They answer only where the fake runs (`STRIPE_FAKE`);
  * anywhere else they are a 404. Plain routes: no OpenAPI, no MCP.
  */
@@ -52,6 +53,11 @@ export function fakeStripeRoutes(entitlements: readonly string[]) {
     if (!body.success) return c.json(apiError("VALIDATION_FAILED"), 400);
     await fake(c).advance(body.data.seconds, { paymentFails: body.data.paymentFails });
     return c.json({ now: await fake(c).now() });
+  });
+  router.post("/fake-stripe/control/end-subscriptions", async (c) => {
+    const body = Ending.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json(apiError("VALIDATION_FAILED"), 400);
+    return c.json({ ended: await fake(c).endSubscriptions(body.data.email) });
   });
   router.post("/fake-stripe/control/fail", async (c) => {
     const body = Failing.safeParse(await c.req.json().catch(() => null));

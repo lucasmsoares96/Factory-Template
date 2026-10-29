@@ -167,7 +167,8 @@ export const companies = skeletonSchema.table("companies", {
  * A user's membership in a Company, with exactly one role. The database keeps
  * one Member per Company and user, and a single Owner per Company. Deleting the
  * Company or the user deletes the Member. `createdAt` (when they joined) keeps
- * milliseconds only, so a list cursor built from it in JavaScript is exact.
+ * milliseconds only, so a list cursor built from it in JavaScript is exact. A
+ * Suspended Member keeps the row, with `suspendedAt` set.
  */
 export const members = skeletonSchema.table(
   "members",
@@ -184,6 +185,8 @@ export const members = skeletonSchema.table(
     createdAt: timestamp("created_at", { withTimezone: true, precision: 3 }).notNull().defaultNow(),
     /** When the user last opened the Company in the SPA: where they land after signing in. */
     lastUsedAt: timestamp("last_used_at", { withTimezone: true, precision: 3 }),
+    /** When the Owner's Seats fell short and the Member lost access to the Company; `null` while they have it. */
+    suspendedAt: timestamp("suspended_at", { withTimezone: true, precision: 3 }),
   },
   (table) => [
     primaryKey({ columns: [table.companyId, table.userId] }),

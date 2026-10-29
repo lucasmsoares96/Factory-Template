@@ -141,6 +141,12 @@ export const en = {
       remove: "Remove {name}",
       removeButton: "Remove",
       removed: "{name} is no longer a Member of the Company.",
+      suspendedMark: "No access",
+    },
+    suspended: {
+      title: "Your access to {name} is suspended",
+      description:
+        "The Owner's plan does not have a Seat for everyone in their Companies, and the people who joined last lose access first. You come back on your own, without the Owner doing anything, when a Seat is free. Your other Companies are not affected.",
     },
     leave: {
       title: "Leave the Company",
@@ -362,6 +368,7 @@ export const en = {
     OWNER_OF_COMPANIES: "You are the Owner of these Companies. Transfer them or delete them before you delete your account.",
     ALREADY_SUBSCRIBED: "You already have a plan. Changing it is not available here yet.",
     BILLING_UNAVAILABLE: "We could not reach the payment service. Please try again soon.",
+    MEMBER_SUSPENDED: "Your access to this Company is suspended: the Owner has no Seat for you right now.",
     NO_FREE_SEAT: "There is no free Seat. Remove someone, cancel an Invitation or upgrade the plan to make room.",
     INVALID_EMAIL: "Enter a valid email address.",
     PASSWORD_TOO_SHORT: "The password is too short.",

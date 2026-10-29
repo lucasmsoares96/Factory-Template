@@ -32,7 +32,7 @@ const companyPage = [
   getNavHandler({ entries: [], companyPage: [], accountPage: [] }),
   listCompaniesHandler({ items: [acme], nextCursor: null }),
   getCompanyHandler(acme),
-  listMembersHandler({ items: [{ userId: bruno.id, name: bruno.name, email: bruno.email, role: "employee" }], nextCursor: null }),
+  listMembersHandler({ items: [{ userId: bruno.id, name: bruno.name, email: bruno.email, role: "employee", suspended: false }], nextCursor: null }),
 ];
 
 test("a visitor sees the Company and the role, and signs up or signs in to come back to the link", async ({ worker }) => {
