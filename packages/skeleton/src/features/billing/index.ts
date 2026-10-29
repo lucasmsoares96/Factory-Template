@@ -1,6 +1,7 @@
 import { stripe } from "@better-auth/stripe";
 import { defineFeature, type Feature } from "../../platform/feature.ts";
 import { billingApi } from "./api.ts";
+import { endSubscriptions, refuseActiveSubscription } from "./account-deletion.ts";
 import { billingEnabled, billingFor } from "./context.ts";
 import { productFilter } from "./product-filter.ts";
 import { fakeStripeRoutes } from "./routes.ts";
@@ -37,6 +38,10 @@ export function billing({ entitlements }: { entitlements: readonly string[] }): 
           subscription: { enabled: true, requireEmailVerification: true, plans: async () => (await on.plans()).priced.map(({ id, priceId, lookupKey }) => ({ name: id, ...(lookupKey ? { lookupKey } : { priceId }) })) },
         }),
       ];
+    },
+    events: {
+      accountArchiving: (event) => refuseActiveSubscription(event, entitlements),
+      accountPurging: (event) => endSubscriptions(event, entitlements),
     },
     accountPage: { label: "billing.nav", to: "/account/plan" },
     enabled: billingEnabled,
