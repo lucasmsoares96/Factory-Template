@@ -353,6 +353,8 @@ export interface StripePlanState {
   name: string;
   kind: string;
   seats: number | null;
+  /** The Plan's `entitlement_<name>` metadata, by name, as Stripe holds the text (`true`, `false` or a number). */
+  entitlements: Record<string, string>;
   prices: { lookupKey: string; amount: number; currency: string; interval: string }[];
 }
 
@@ -372,6 +374,8 @@ export interface StripeClient {
   listPlans(productId: string): Promise<StripePlanState[]>;
   /** Creates the product and the prices that are missing. `different` names the prices that exist with another amount (left alone). */
   ensurePlan(productId: string, plan: StripePlanSpec): Promise<{ created: string[]; different: string[] }>;
+  /** Sets `entitlement_<name>` on the Plan's product for each name it does not have yet (one that is set is left alone). Returns the names added. */
+  ensureEntitlements(productId: string, planKey: string, values: Record<string, boolean | number>): Promise<string[]>;
   /** Turns card, Apple Pay and Google Pay on in the default payment method configuration. */
   ensurePaymentMethods(): Promise<"updated" | "unchanged">;
   /** The Customer Portal configuration of the Product (payment method, invoices, cancel). */
