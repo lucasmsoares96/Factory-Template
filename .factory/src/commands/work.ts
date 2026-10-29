@@ -1,7 +1,9 @@
 import { cp, mkdir, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { issueBranch } from "../config.ts";
+import { countCriteria } from "../criteria.ts";
 import { Git } from "../git.ts";
+import { messages } from "../messages.ts";
 import { CHECK_LOG_LINES, type ChecksRead, developmentPrompt, prFeedbackPrompt, pullRequestPrompt, reviewPrompt, updateBranchPrompt } from "../prompts.ts";
 import {
   BUNDLE_FILE,
@@ -312,6 +314,13 @@ export async function work(ctx: CommandContext, number: number | null, options: 
     ready = false;
     reason = "needs-human";
   }
+  // A Review that skipped a criterion judged nothing about it: a verdict for every checkbox, or the run is not ready.
+  const expected = countCriteria(issue.body);
+  if (ready && verdicts.length < expected && flow?.kind !== "update-branch") {
+    ready = false;
+    reason = "needs-human";
+    question = messages(config.language).verdictsMissing(expected - verdicts.length, expected);
+  }
 
   const head = (await git.countCommits(base, "HEAD")) > 0 ? await git.head() : null;
   if (head) await git.run("bundle", "create", "--quiet", join(options.out, BUNDLE_FILE), `refs/heads/${branch}`, `^${base}`);
@@ -396,7 +405,7 @@ async function subject(ctx: CommandContext, number: number | null, flow: WorkFlo
   if (flow?.kind !== "update-branch") throw new Error("Only update-branch runs without an issue (keyed by --pr).");
   const pr = await ctx.codeHost.pullRequest(flow.pr);
   if (!pr) throw new Error(`Pull request #${flow.pr} does not exist.`);
-  const issue: Issue = { number: pr.number, title: `Pull request #${pr.number}`, body: PR_SUBJECT_BODY, state: "open", labels: [], parent: null, children: [], comments: [] };
+  const issue: Issue = { number: pr.number, title: `Pull request #${pr.number}`, body: PR_SUBJECT_BODY, state: "open", stateReason: null, labels: [], parent: null, children: [], comments: [] };
   return { issue, branch: pr.branch };
 }
 

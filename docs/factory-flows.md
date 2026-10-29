@@ -49,7 +49,7 @@ The detail of the Factory's flows on the forge: which workflow runs which jobs, 
 2. `image`: the reusable image job.
 3. `work`: the image, `contents: read` + `issues: read`, only Claude's secrets, `runs-on: vars.FACTORY_RUNNER || ubuntu-latest`, 350 min. Uploads `work-out`: bundle, `result.json`, prints, `stream-json`, 14 days.
    - It reads the issue with its read-only job token, which the Agent's env allowlist never passes on.
-   - The final Review gives a verdict on each acceptance criterion (`criteria`: criterion, `met`, `proof`). One that is not met turns a green run into an Escalation `needs-human`; `publish` appends the verdicts to the PR body, after the Pull Request Stage text, and the Escalation comment names each unmet criterion and why.
+   - The final Review gives a verdict on each acceptance criterion (`criteria`: criterion, `met`, `proof`). A criterion with no verdict (fewer verdicts than checkboxes in the issue's `## Acceptance criteria`, except in an `update-branch` round) or one that is not met turns a green run into an Escalation `needs-human`; `publish` appends the verdicts to the PR body, after the Pull Request Stage text, and the Escalation comment names each unmet criterion and why.
    - An agent session that fails (`AgentSessionError`) ends the run without failing the job: `result.json` keeps the branch bundle and the session's own message (`session`). At the agent's usage limit (`SessionLimitError`) the outcome is `paused`; any other failure is an Escalation `infra` whose comment shows that message, and whose retry continues from the kept commits (`<!-- factory:continue <sha> -->`). See [Session limit](#session-limit).
 4. `publish`: fresh VM, `FACTORY_TOKEN`, the default branch's harness, `if: always()`: no artifact means Escalation "infra". Outputs `outcome` and `url`. The job token, with `actions: write`, dispatches the Retro of an Escalation. Its last step is `working off` with the job token.
 5. `notify`: the Merge Gate notice, `pnpm factory notify <N> --outcome ready|escalated [--updated] --url --to`.
@@ -97,6 +97,7 @@ The detail of the Factory's flows on the forge: which workflow runs which jobs, 
 
 - `pnpm factory unblock` with the job token (`actions: write`, no secret) sweeps the open `ready-for-agent` issues, runs the guard on each and dispatches `factory-issue.yml` for those it accepts.
 - Before the sweep, `--issue N` (the closed issue of the event, a hint: the forge says if it is closed) removes `in-progress` from it, so a merged Factory PR does not leave the label behind; the job has `issues: write` for that.
+- With `--issue N`, a closed issue (`state_reason` `completed`) whose `factory/issue-N` pull request merged into the base branch gets the `- [ ]` of its `## Acceptance criteria` section checked, and nothing else changes (the body is written verbatim, no marker). The body is read again right before the write; if it changed, the edit is redone on the new body (5 tries), so a concurrent edit is kept. An issue closed as not planned, or with no merged Factory PR, is not touched.
 - Still-blocked ones get no comment (the guard wrote "Waiting on…" on `labeled`); other refusals are left to `claim`.
 - A failed dispatch does not stop the sweep (exit 1 at the end).
 
