@@ -1,4 +1,4 @@
-import { cp, readdir, writeFile } from "node:fs/promises";
+import { cp, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -95,13 +95,27 @@ describe("prompt templates", () => {
   });
 
   it("calls the skills each Stage follows by name", () => {
-    expect(prompts.development).toMatch(/`implement` skill[\s\S]*`tdd` skill/);
+    expect(prompts.development).toMatch(/`\.agents\/skills\/implement\/SKILL\.md`[\s\S]*`tdd` skill/);
     expect(prompts.review).toContain("`code-review` skill");
-    expect(prompts.triage).toContain("`triage` skill");
+    expect(prompts.triage).toContain("`.agents/skills/triage/SKILL.md`");
     expect(prompts["pull-request"]).toContain("`pr` skill");
     expect(prompts["pr-feedback"]).toMatch(/Address, Decline or Defer/);
     expect(prompts["update-branch"]).toContain("Preserve both intents, do not invent new behaviour.");
     expect(prompts.retro).toContain("`.agents/skills/retro/SKILL.md`");
+  });
+
+  it("reads by path every skill the templates cite that the model cannot invoke (disable-model-invocation)", async () => {
+    const skillsDir = join(PROMPTS_DIR, "..", "..", ".agents", "skills");
+    const offenders: string[] = [];
+    for (const [stage, prompt] of Object.entries(prompts)) {
+      const cited = new Set([...prompt.matchAll(/`([a-z][a-z0-9-]*)` skill/g)].map((m) => m[1]!));
+      for (const name of cited) {
+        const frontmatter = (await readFile(join(skillsDir, name, "SKILL.md"), "utf8")).match(/^---\n([\s\S]*?)\n---/)?.[1] ?? "";
+        const blocked = /^disable-model-invocation:\s*true\s*$/m.test(frontmatter);
+        if (blocked && !prompt.includes(`.agents/skills/${name}/SKILL.md`)) offenders.push(`${stage}: ${name}`);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 
   it("tells the Triage to check and locate every symbol its approach cites", () => {
