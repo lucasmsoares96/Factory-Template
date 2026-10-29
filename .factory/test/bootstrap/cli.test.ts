@@ -40,8 +40,8 @@ describe("bootstrap CLI", () => {
     await expect(loadProduct("../etc")).rejects.toThrow(/not a Product id/);
   });
 
-  it("`pnpm bootstrap domain` without an id or with an unknown Product fails before any API call", async () => {
+  it("`pnpm bootstrap` without a terminal and without --repo fails before any API call", async () => {
     const root = resolve(import.meta.dirname, "../../..");
-    await expect(exec("pnpm", ["--silent", "bootstrap", "domain", "ghost"], { cwd: root })).rejects.toMatchObject({ stdout: expect.stringContaining("No Product at apps/ghost") });
+    await expect(exec("pnpm", ["--silent", "bootstrap", "domain", "ghost"], { cwd: root })).rejects.toMatchObject({ stdout: expect.stringContaining("--repo") });
   });
 });
