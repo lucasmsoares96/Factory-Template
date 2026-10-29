@@ -6,6 +6,7 @@ import { getCompanyHandler, getCompanyHandlerResponse404 } from "../../src/gen/m
 import { getLastCompanyHandler, getLastCompanyHandlerResponse404 } from "../../src/gen/msw/getLastCompanyHandler.ts";
 import { getMeHandler } from "../../src/gen/msw/getMeHandler.ts";
 import { getNavHandler } from "../../src/gen/msw/getNavHandler.ts";
+import { getSeatsHandler } from "../../src/gen/msw/getSeatsHandler.ts";
 import { leaveCompanyHandler, leaveCompanyHandlerResponse409 } from "../../src/gen/msw/leaveCompanyHandler.ts";
 import { listCompaniesHandler } from "../../src/gen/msw/listCompaniesHandler.ts";
 import { listInvitationsHandler } from "../../src/gen/msw/listInvitationsHandler.ts";
@@ -426,4 +427,18 @@ test("a transfer the API refuses is shown translated, and the user stays Owner",
 
   await expect.element(screen.getByRole("alert")).toHaveTextContent(t.errors.CONFIRMATION_MISMATCH);
   await expect.element(screen.getByTestId("company-role")).toHaveTextContent(format(t.companies.page.role, { role: t.companies.roles.owner }));
+});
+
+test("the Company page shows the Owner how many Seats are used, with a link to the plan, and shows a Member nothing", async ({ worker }) => {
+  worker.use(...companiesApi([acme, globex]).handlers);
+  worker.use(getSeatsHandler({ used: 6, total: 15, companies: [] }));
+  const { screen, router, t } = await renderSpa({ path: `/c/${acme.id}` });
+
+  await expect.element(screen.getByTestId("company-seats-usage")).toHaveTextContent(format(t.billing.seatsUsage, { used: "6", total: "15" }));
+  await screen.getByRole("link", { name: t.billing.seatsManage }).click();
+  expect(router.state.location.pathname).toBe("/account/plan");
+
+  await router.navigate({ to: `/c/${globex.id}` });
+  await expect.element(screen.getByRole("heading", { level: 1, name: globex.name })).toBeVisible();
+  await expect.element(screen.getByTestId("company-seats")).not.toBeInTheDocument();
 });

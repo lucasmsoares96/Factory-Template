@@ -9,6 +9,7 @@ import { Label } from "#ui/label";
 import { listInvitations } from "../../gen/clients/listInvitations.ts";
 import { useCancelInvitation } from "../../gen/hooks/useCancelInvitation.ts";
 import { useCreateInvitation } from "../../gen/hooks/useCreateInvitation.ts";
+import { getSeatsQueryKey } from "../../gen/hooks/useGetSeats.ts";
 import { listInvitationsQueryKey } from "../../gen/hooks/useListInvitations.ts";
 import { useResendInvitation } from "../../gen/hooks/useResendInvitation.ts";
 import type { Invitation } from "../../gen/types/Invitation.ts";
@@ -35,7 +36,11 @@ export function InvitationsSection({ companyId }: { companyId: string }) {
     getNextPageParam: (page) => page.nextCursor ?? undefined,
   });
   const [done, setDone] = useState<string | null>(null);
-  const refresh = { onSettled: () => queryClient.invalidateQueries({ queryKey: listInvitationsQueryKey({ path }) }) };
+  // A pending Invitation holds a Seat, so the Company page's count follows it.
+  const refresh = {
+    onSettled: () =>
+      Promise.all([queryClient.invalidateQueries({ queryKey: listInvitationsQueryKey({ path }) }), queryClient.invalidateQueries({ queryKey: getSeatsQueryKey() })]),
+  };
   const create = useCreateInvitation({ mutation: refresh });
   const resend = useResendInvitation({ mutation: refresh });
   const cancel = useCancelInvitation({ mutation: refresh });

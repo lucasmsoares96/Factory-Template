@@ -3,6 +3,7 @@ import { Alert, AlertDescription } from "#ui/alert";
 import { Button, buttonVariants } from "#ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "#ui/card";
 import { useGetPlan } from "../../../gen/hooks/useGetPlan.ts";
+import { useGetSeats } from "../../../gen/hooks/useGetSeats.ts";
 import { useSubscribePlan } from "../../../gen/hooks/useSubscribePlan.ts";
 import type { Plan } from "../../../gen/types/Plan.ts";
 import { useErrorMessage, useMessages } from "../../../client/i18n.tsx";
@@ -22,6 +23,7 @@ function PlanPage() {
   const errorMessage = useErrorMessage();
   const state = useGetPlan();
   const subscribe = useSubscribePlan();
+  const seatsState = useGetSeats();
   const language = document.documentElement.lang || undefined;
   const money = (price: NonNullable<Plan["price"]>) =>
     format(m.perMonth, { amount: new Intl.NumberFormat(language, { style: "currency", currency: price.currency }).format(price.amount / 100) });
@@ -83,6 +85,38 @@ function PlanPage() {
           </Link>
         </CardContent>
       </Card>
+      {seatsState.isSuccess ? (
+        <section aria-labelledby="seats" data-testid="seats" className="flex flex-col gap-3">
+          <h2 id="seats" className="text-lg font-medium">
+            {m.seatsTitle}
+          </h2>
+          <p className="text-muted-foreground text-sm">{m.seatsDescription}</p>
+          <p className="text-sm font-medium" data-testid="seats-usage">
+            {seatsState.data.total === null
+              ? format(m.seatsUsageUnlimited, { used: String(seatsState.data.used) })
+              : format(m.seatsUsage, { used: String(seatsState.data.used), total: String(seatsState.data.total) })}
+          </p>
+          {seatsState.data.companies.map((company) => (
+            <Card key={company.id} data-testid={`seats-company-${company.id}`}>
+              <CardHeader>
+                <CardTitle>
+                  <h3>{company.name}</h3>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ul className="flex flex-col gap-1 text-sm">
+                  {company.people.map((person) => (
+                    <li key={`${person.status}-${person.email}`} className="flex flex-wrap justify-between gap-2" data-testid="seats-person">
+                      <span>{person.name ? `${person.name} · ${person.email}` : person.email}</span>
+                      <span className="text-muted-foreground">{m.person[person.status]}</span>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          ))}
+        </section>
+      ) : null}
       {state.isSuccess ? (
         <section aria-labelledby="available-plans" className="flex flex-col gap-3">
           <h2 id="available-plans" className="text-lg font-medium">
