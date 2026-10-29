@@ -23,6 +23,10 @@ import {
   type ResendClient,
   type ResendDnsRecord,
   type ResendDomain,
+  type StripeClient,
+  type StripePlanSpec,
+  type StripePlanState,
+  type StripeWebhook,
   type WorkerDomain,
 } from "../clients.ts";
 
@@ -650,6 +654,116 @@ export class FakeTokens {
         const access = this.tokens.get(token);
         if (!access) throw new Error("GitHub rejected the token (401 Bad credentials).");
         return access;
+      },
+    };
+  }
+}
+
+/** One Stripe account (the sandbox or the real one) in memory. */
+export class FakeStripeAccount {
+  readonly plans = new Map<string, StripePlanSpec & { productId: string }>();
+  /** Amounts the prices were made with, by lookup key (a price never changes). */
+  readonly prices = new Map<string, { amount: number; currency: string; interval: string }>();
+  readonly webhooks: (StripeWebhook & { productId: string; secret: string })[] = [];
+  readonly portals = new Set<string>();
+  paymentMethodsOn = false;
+  writes = 0;
+}
+
+/**
+ * Two fake Stripe accounts, told apart by the key's prefix (`_test_` is the sandbox). A key is valid when listed in
+ * `keys`; `lacking` gives the permissions a key does not have.
+ */
+export class FakeStripe {
+  readonly sandbox = new FakeStripeAccount();
+  readonly live = new FakeStripeAccount();
+  readonly keys = new Set<string>();
+  /** Permissions a key lacks, by key. */
+  readonly lacking = new Map<string, string[]>();
+  private webhookCount = 0;
+
+  accountOf(key: string): FakeStripeAccount {
+    return key.includes("_test_") ? this.sandbox : this.live;
+  }
+
+  forKey(key: string): StripeClient {
+    const account = this.accountOf(key);
+    const check = () => {
+      if (!this.keys.has(key)) throw new Error("Invalid API Key provided (401).");
+    };
+    return {
+      missingPermissions: async () => {
+        check();
+        return this.lacking.get(key) ?? [];
+      },
+      listPlans: async (productId): Promise<StripePlanState[]> => {
+        check();
+        return [...account.plans.values()]
+          .filter((plan) => plan.productId === productId)
+          .map((plan) => ({
+            key: plan.key,
+            name: plan.name,
+            kind: plan.kind,
+            seats: plan.seats,
+            prices: plan.prices
+              .map((price) => ({ lookupKey: price.lookupKey, ...account.prices.get(price.lookupKey)! }))
+              .sort((a, b) => a.lookupKey.localeCompare(b.lookupKey)),
+          }))
+          .sort((a, b) => a.key.localeCompare(b.key));
+      },
+      ensurePlan: async (productId, plan) => {
+        check();
+        const created: string[] = [];
+        const different: string[] = [];
+        const id = `${productId}/${plan.key}`;
+        if (!account.plans.has(id)) {
+          account.plans.set(id, { ...plan, productId, prices: [] });
+          account.writes++;
+          created.push(`product ${plan.key}`);
+        }
+        for (const price of plan.prices) {
+          const found = account.prices.get(price.lookupKey);
+          if (found) {
+            if (found.amount !== price.amount || found.currency !== plan.currency) different.push(price.lookupKey);
+            continue;
+          }
+          account.prices.set(price.lookupKey, { amount: price.amount, currency: plan.currency, interval: price.interval });
+          account.plans.get(id)!.prices.push(price);
+          account.writes++;
+          created.push(`price ${price.lookupKey}`);
+        }
+        return { created, different };
+      },
+      ensurePaymentMethods: async () => {
+        check();
+        if (account.paymentMethodsOn) return "unchanged";
+        account.paymentMethodsOn = true;
+        account.writes++;
+        return "updated";
+      },
+      ensurePortal: async (productId) => {
+        check();
+        if (account.portals.has(productId)) return "unchanged";
+        account.portals.add(productId);
+        account.writes++;
+        return "created";
+      },
+      listWebhooks: async (productId) => {
+        check();
+        return account.webhooks.filter((hook) => hook.productId === productId).map(({ id, url }) => ({ id, url }));
+      },
+      createWebhook: async (productId, url) => {
+        check();
+        account.writes++;
+        const hook = { id: `we_${++this.webhookCount}`, url, productId, secret: `whsec_fake_${this.webhookCount}` };
+        account.webhooks.push(hook);
+        return { id: hook.id, secret: hook.secret };
+      },
+      deleteWebhook: async (id) => {
+        check();
+        account.writes++;
+        const at = account.webhooks.findIndex((hook) => hook.id === id);
+        if (at >= 0) account.webhooks.splice(at, 1);
       },
     };
   }
