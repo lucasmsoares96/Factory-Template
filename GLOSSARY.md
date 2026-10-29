@@ -135,6 +135,10 @@ _Avoid_: Blocked, inactive, removed
 A person's agreement to pay for one Plan, kept in sync with Stripe: active, past due or canceled. It covers every Company the person owns; a person without one is on the Product's free Plan.
 _Avoid_: Billing (when the agreement itself is meant), membership, a Company's subscription
 
+**Archived account**:
+An account whose owner confirmed its deletion: it has no sessions or Connections and waits 30 days before it is deleted for good, which the Worker's daily cron does. Signing in during those 30 days cancels the deletion. Only an account in no Company can be archived, and an active Subscription must be canceled first; a canceled one with paid days left ends in Stripe when the account is deleted.
+_Avoid_: Soft-deleted, suspended (a Suspended Member is another thing)
+
 ### Reference App
 
 **Manager**:

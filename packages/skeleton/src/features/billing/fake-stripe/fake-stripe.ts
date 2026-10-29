@@ -110,6 +110,11 @@ export class FakeStripe {
     if (route === "POST /v1/billing_portal/sessions") {
       return json({ id: id("bps"), object: "billing_portal.session", customer: params.customer, url: params.return_url });
     }
+    const cancel = /^DELETE \/v1\/subscriptions\/([^/]+)$/.exec(route);
+    if (cancel) {
+      const ended = await this.cancel(decodeURIComponent(cancel[1]!));
+      return ended ? json(ended) : missing("subscription", cancel[1]!);
+    }
     const one = /^(GET|POST) \/v1\/(customers|prices|subscriptions|checkout\/sessions)\/([^/]+)$/.exec(route);
     if (one) {
       const [, method, resource, objectId] = one as unknown as [string, string, string, string];
@@ -279,6 +284,34 @@ export class FakeStripe {
         await this.emit("customer.subscription.updated", await this.store.put("subscription", { ...sub, status: "active", items: { ...sub.items, data: items } }));
       }
     }
+  }
+
+  /** The customer asked to cancel: the Subscription stays active until its period ends (what the Billing Portal does). */
+  async cancelAtPeriodEnd(subscriptionId: string) {
+    const sub = await this.store.get<Obj>("subscription", subscriptionId);
+    if (!sub) return undefined;
+    const now = await this.now();
+    const periodEnd = sub.items.data[0]?.current_period_end ?? now;
+    const updated = await this.store.put("subscription", { ...sub, cancel_at_period_end: true, cancel_at: periodEnd, canceled_at: now });
+    await this.emit("customer.subscription.updated", updated);
+    return updated;
+  }
+
+  /** The Subscription ends now, whatever days are left (Stripe's `DELETE /v1/subscriptions/{id}`). */
+  async cancel(subscriptionId: string) {
+    const sub = await this.store.get<Obj>("subscription", subscriptionId);
+    if (!sub) return undefined;
+    if (sub.status === "canceled") return sub;
+    const now = await this.now();
+    const ended = await this.store.put("subscription", { ...sub, status: "canceled", ended_at: now, canceled_at: sub.canceled_at ?? now });
+    await this.emit("customer.subscription.deleted", ended);
+    return ended;
+  }
+
+  /** The Subscriptions as Stripe holds them: their id, status and whether they cancel at the period's end. */
+  async subscriptions(): Promise<{ id: string; status: string; cancelAtPeriodEnd: boolean }[]> {
+    const all = await this.store.list<Obj>("subscription");
+    return all.map((sub) => ({ id: sub.id, status: sub.status, cancelAtPeriodEnd: sub.cancel_at_period_end }));
   }
 
   async setFailing(on: boolean) {

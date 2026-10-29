@@ -9,6 +9,7 @@ import { forgetPlans } from "./plans.ts";
 
 const Advance = z.object({ seconds: z.number().int().positive(), paymentFails: z.boolean().optional() });
 const Failing = z.object({ on: z.boolean() });
+const Cancel = z.object({ subscription: z.string().min(1) });
 const Event = z.object({ type: z.string().min(1), object: z.record(z.string(), z.unknown()) });
 
 /**
@@ -63,6 +64,14 @@ export function fakeStripeRoutes(entitlements: readonly string[]) {
     if (!body.success) return c.json(apiError("VALIDATION_FAILED"), 400);
     return c.json({ webhookStatus: await fake(c).emit(body.data.type, body.data.object) });
   });
+  router.post("/fake-stripe/control/cancel", async (c) => {
+    const body = Cancel.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json(apiError("VALIDATION_FAILED"), 400);
+    const updated = await fake(c).cancelAtPeriodEnd(body.data.subscription);
+    if (!updated) return c.json(apiError("NOT_FOUND"), 404);
+    return c.json({ subscription: body.data.subscription });
+  });
+  router.get("/fake-stripe/control/subscriptions", async (c) => c.json({ subscriptions: await fake(c).subscriptions() }));
   router.get("/fake-stripe/control/requests", async (c) => c.json({ requests: await fake(c).requests() }));
   router.post("/fake-stripe/control/reset", async (c) => {
     await fake(c).reset();
