@@ -121,6 +121,7 @@ export async function doctor(
   }
 
   if (sections.factory) await factoryChecks(ctx, secrets, variables, (status, name, detail) => add("Factory", status, name, detail));
+  await resumeSweepCheck(ctx, (status, name, detail) => add("Factory", status, name, detail));
 
   // The doctor never opens a browser: it uses what this machine already has (memory, env, wrangler's saved login).
   let token: string | undefined;
@@ -218,6 +219,17 @@ async function factoryChecks(
   if (claude.length === 2) add("warn", "Claude auth", "both exist: ANTHROPIC_API_KEY wins; delete one");
   else if (claude.length === 1) add("ok", "Claude auth", claude[0]);
   else add("missing", "Claude auth", "export CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`) or ANTHROPIC_API_KEY and " + redo);
+}
+
+/** The resume sweep runs every 30 minutes and is meant to be on only while an item is paused. Nothing is shown for a repo without it. */
+async function resumeSweepCheck(ctx: StepContext, add: (status: CheckStatus, name: string, detail?: string) => void): Promise<void> {
+  const redo = "run `pnpm bootstrap factory`";
+  const sweep = await ctx.github.resumeSweepEnabled();
+  if (sweep === null) return;
+  const paused = await ctx.github.countLabeled(ctx.config.labels.sessionLimit);
+  if (sweep && paused === 0) add("warn", "Resume sweep", `on with nothing paused: each run costs Actions minutes for nothing; ${redo}`);
+  else if (!sweep && paused > 0) add("warn", "Resume sweep", `off with ${paused} paused item(s): they wait until factory-resume.yml is run by hand; ${redo}`);
+  else add("ok", "Resume sweep", sweep ? `on, ${paused} paused item(s)` : "off, nothing paused");
 }
 
 /**
