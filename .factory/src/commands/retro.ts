@@ -8,6 +8,9 @@ import { parseRetro, retroExtraction, retroFailure, retroIssueBody, retroMarker,
 import type { ReviewThread, SubmittedReview } from "../seams/code-host.ts";
 import type { Issue, IssueComment } from "../seams/tracker.ts";
 import type { CommandContext } from "./context.ts";
+import { SessionLimitError, type AgentRun } from "../seams/agent.ts";
+import { armResumeSweep, sessionFailure, sessionFailureSchema, sessionLimitComment, type SessionFailure } from "../session-limit.ts";
+import { z } from "zod";
 import { issueOfBranch } from "./pr-threads.ts";
 import { startWorking } from "./working.ts";
 
@@ -112,14 +115,24 @@ export async function retroCollect(ctx: CommandContext, options: CollectOptions)
  * `retro` skill and ends with a `<retro>` block. Writes `retro.json` into `out`; with no valid block it throws, so
  * nothing is published.
  */
-export async function retro(ctx: CommandContext, options: { in: string; out: string }): Promise<RetroResult> {
+export async function retro(ctx: CommandContext, options: { in: string; out: string }): Promise<RetroResult | RetroPaused> {
   const { agent, config } = ctx;
   const sources = JSON.parse(await readFile(join(options.in, SOURCES_FILE), "utf8")) as RetroSources;
-  const run = await agent.run("retro", retroPrompt({ sources, dir: options.in, base: config.baseBranch, language: config.language }), {
-    timeoutMs: config.timeouts.retro * MINUTE,
-    model: config.models.retro,
-    extract: retroExtraction,
-  });
+  let run: AgentRun;
+  try {
+    run = await agent.run("retro", retroPrompt({ sources, dir: options.in, base: config.baseBranch, language: config.language }), {
+      timeoutMs: config.timeouts.retro * MINUTE,
+      model: config.models.retro,
+      extract: retroExtraction,
+    });
+  } catch (error) {
+    if (!(error instanceof SessionLimitError)) throw error;
+    // No answer yet: `retro-publish` leaves the wait on the origin issue and the Retro starts again after the reset.
+    const paused: RetroPaused = { issue: sources.issue, pr: sources.pr, session: sessionFailure("retro", error, ctx.now()) };
+    await mkdir(options.out, { recursive: true });
+    await writeFile(join(options.out, PAUSED_FILE), `${JSON.stringify(paused, null, 2)}\n`);
+    return paused;
+  }
   const block = run.timedOut ? null : parseRetro(run.output);
   if (block === null) throw new Error(retroFailure(run.timedOut));
   const result: RetroResult = { ...block, issue: sources.issue, pr: sources.pr, title: sources.title, usage: run.usage, retries: run.retries };
@@ -130,18 +143,33 @@ export async function retro(ctx: CommandContext, options: { in: string; out: str
 
 export type RetroPublishResult =
   | { issue: number; outcome: "created" | "updated"; retro: number }
-  | { issue: number; outcome: "no-candidates" };
+  | { issue: number; outcome: "no-candidates" }
+  | { issue: number; outcome: "paused"; reason: "session-limit"; resumeAt: string };
+
+/** `retro-paused.json`: the Retro session stopped at the agent's usage limit, written instead of `retro.json`. */
+const PAUSED_FILE = "retro-paused.json";
+const retroPausedSchema = z.object({ issue: z.number().int().positive(), pr: z.number().int().positive().nullable(), session: sessionFailureSchema });
+export type RetroPaused = { issue: number; pr: number | null; session: SessionFailure };
 
 /**
  * The write job (forge token). Trusts nothing in `retro.json` but its shape. With candidates: the one Retro issue of
  * the origin, created with `needs-triage` and `retro`, or edited in place when an open one carries its marker. With
  * none: a short comment where the Retro started. It never applies `ready-for-agent`: a person decides.
  */
-export async function retroPublish(ctx: CommandContext, options: { in: string; runUrl: string | null }): Promise<RetroPublishResult> {
+export async function retroPublish(ctx: CommandContext, options: { in: string; runUrl: string | null; armResume?: () => Promise<void> }): Promise<RetroPublishResult> {
   const { tracker, codeHost, config } = ctx;
+  const m = messages(config.language);
+  const pausedText = await readFile(join(options.in, PAUSED_FILE), "utf8").catch(() => null);
+  if (pausedText !== null) {
+    const { issue, pr, session } = retroPausedSchema.parse(JSON.parse(pausedText));
+    const resumeAt = session.limit?.resumeAt ?? new Date(ctx.now()).toISOString();
+    await tracker.addLabel(issue, config.labels.sessionLimit);
+    const armed = await armResumeSweep(ctx, options.armResume);
+    await tracker.comment(issue, sessionLimitComment({ wait: { flow: "retro", resumeAt, head: null, pr }, failure: session, next: m.sessionLimitRetro(), runUrl: options.runUrl, armed }, config));
+    return { issue, outcome: "paused", reason: "session-limit", resumeAt };
+  }
   const result = retroResultSchema.parse(JSON.parse(await readFile(join(options.in, RETRO_FILE), "utf8")));
   const number = result.issue;
-  const m = messages(config.language);
 
   if (result.candidates.length === 0) {
     const text = m.retroNoCandidates(options.runUrl);

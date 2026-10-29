@@ -6,13 +6,15 @@
 #   image / work / publish          as in factory-issue.yml, on the branch of the open PR: merge the base branch first,
 #                                   Address / Decline / Defer / Answer per thread -> Development -> Review -> E2E -> prints;
 #                                   publish's last step takes factory:working off with the job token (if: always())
+# `factory-resume.yml` dispatches it (input `pr`) to start a round paused at the agent's usage limit again: the same
+# claim, with no actor check (only writers and the job token may dispatch) and no wait.
 # Never resolves a thread. The agent never sees FACTORY_TOKEN. Off until `pnpm bootstrap factory` sets FACTORY_ENABLED.
 # `pull_request_review*` and `issue_comment` events run the default branch's workflow.
 name: Factory PR feedback
 # `PR #N` in the run's title is how a run is matched to its PR (the scan keeps factory:working while one is queued or going).
 # An event `wait`'s cheap filter skips (the Factory's own marked texts, which every publish writes) names no PR, or
 # the end of the run that wrote them would keep the label for a run that never takes it off.
-run-name: "${{ (!contains(github.event.comment.body, '<!-- factory -->') && !contains(github.event.review.body, '<!-- factory -->') && (github.event_name == 'issue_comment' && github.event.issue.pull_request || startsWith(github.event.pull_request.head.ref, 'factory/issue-'))) && format('PR #{0} feedback', github.event.pull_request.number || github.event.issue.number) || 'Factory PR feedback: not for the Factory' }}"
+run-name: "${{ (github.event_name == 'workflow_dispatch' || (!contains(github.event.comment.body, '<!-- factory -->') && !contains(github.event.review.body, '<!-- factory -->') && (github.event_name == 'issue_comment' && github.event.issue.pull_request || startsWith(github.event.pull_request.head.ref, 'factory/issue-')))) && format('PR #{0} feedback', github.event.pull_request.number || github.event.issue.number || inputs.pr) || 'Factory PR feedback: not for the Factory' }}"
 
 on:
   pull_request_review:
@@ -21,24 +23,30 @@ on:
     types: [created]
   issue_comment:
     types: [created]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number (the round `resume` starts again)
+        type: string
+        required: true
 
 permissions: {}
 
 env:
-  PR: ${{ github.event.pull_request.number || github.event.issue.number }}
+  PR: ${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
   FACTORY_ADAPTERS: github
 
 jobs:
   wait:
     # Cheap filters only; the real ones (author permission, branch, open threads, the Factory marker) are `claim`'s, read from the forge.
-    if: ${{ vars.FACTORY_ENABLED == 'true' && !contains(github.event.comment.body, '<!-- factory -->') && !contains(github.event.review.body, '<!-- factory -->') && (github.event_name == 'issue_comment' && github.event.issue.pull_request || startsWith(github.event.pull_request.head.ref, 'factory/issue-')) }}
+    if: ${{ vars.FACTORY_ENABLED == 'true' && (github.event_name == 'workflow_dispatch' || (!contains(github.event.comment.body, '<!-- factory -->') && !contains(github.event.review.body, '<!-- factory -->') && (github.event_name == 'issue_comment' && github.event.issue.pull_request || startsWith(github.event.pull_request.head.ref, 'factory/issue-')))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     concurrency:
-      group: factory-feedback-${{ github.event.pull_request.number || github.event.issue.number }}
+      group: factory-feedback-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
       cancel-in-progress: true
     steps:
-      - if: ${{ github.event_name != 'pull_request_review' }}
+      - if: ${{ github.event_name != 'pull_request_review' && github.event_name != 'workflow_dispatch' }}
         run: sleep 180
 
   claim:

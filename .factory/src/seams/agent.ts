@@ -40,3 +40,25 @@ export interface AgentRun {
 export interface Agent {
   run(stage: Stage, prompt: string, options: { timeoutMs: number; model: string; extract?: Extraction }): Promise<AgentRun>;
 }
+
+/**
+ * A session that ended in error, not at its timeout. The caller keeps what the session committed and reports
+ * `message`, the agent's own words, instead of failing the job.
+ */
+export class AgentSessionError extends Error {
+  override name = "AgentSessionError";
+}
+
+/**
+ * The agent's account hit its usage limit (Claude Code: "You've hit your session limit · resets 3:20pm (UTC)").
+ * `resetsAt` is the reset time as the agent wrote it, null when it gave none: the run waits for it and starts again.
+ */
+export class SessionLimitError extends AgentSessionError {
+  override name = "SessionLimitError";
+  readonly resetsAt: string | null;
+
+  constructor(message: string, resetsAt: string | null) {
+    super(message);
+    this.resetsAt = resetsAt;
+  }
+}
