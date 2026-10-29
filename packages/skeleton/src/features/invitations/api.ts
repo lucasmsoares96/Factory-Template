@@ -4,6 +4,7 @@ import { invitations, users } from "../../db/schema.ts";
 import { apiError, createRouter, errorResponse } from "../../platform/errors.ts";
 import { requireIdentity, resolveIdentity, unauthenticatedResponse } from "../../platform/identity.ts";
 import { CompanyParams, companyNotFoundResponse, forbiddenResponse, requireMember, requireOwner } from "../../platform/member.ts";
+import { reconcileSeatsOfCompany } from "../../platform/suspension.ts";
 import { PageQuery, afterPosition, cursorPosition, pageOf, toPage } from "../../platform/pagination.ts";
 import { Company, toCompany } from "../companies/api.ts";
 import { acceptInvitation, createInvitation, invitationByToken, pending, resendInvitation, toInvitation } from "./service.ts";
@@ -226,6 +227,8 @@ export const invitationsApi = createRouter()
       .where(and(eq(invitations.id, c.req.valid("param").invitationId), eq(invitations.companyId, c.var.member.companyId), pending))
       .returning({ id: invitations.id });
     if (!canceled) return c.json(apiError("NOT_FOUND"), 404);
+    // The Seat it held is free: whoever waited longest comes back.
+    await reconcileSeatsOfCompany(c, c.var.member.companyId);
     return c.body(null, 204);
   })
   .openapi(getInvitationByToken, async (c) => {
