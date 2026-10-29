@@ -11,6 +11,7 @@ import { publish, publishPrUpdate } from "./commands/publish.ts";
 import { retro, retroCollect, retroPublish, type RunLogs } from "./commands/retro.ts";
 import { GitHubRunLogs } from "./adapters/github/run-logs.ts";
 import { apply, triage, triageBatch } from "./commands/triage.ts";
+import { resume } from "./commands/resume.ts";
 import { unblock } from "./commands/unblock.ts";
 import { startWorking, stopWorking } from "./commands/working.ts";
 import { resolveBase, work, type WorkFlow } from "./commands/work.ts";
@@ -49,6 +50,7 @@ Commands:
   pr-feedback --pr <n> --actor <login> [--event <name> --comment-id <id>]
                                          Guard a comment on a Factory PR (writer, factory/issue-N, open threads) and print the claim; the pr-feedback workflow then runs work and publish.
                                          --event (issue_comment, pull_request_review_comment, pull_request_review) and --comment-id: the comment that gets 👀 when the claim accepts.
+                                         --event workflow_dispatch: the round \`resume\` starts again after the usage limit; no actor check (only writers dispatch).
   update-branch <issue>                  Guard an update of the Factory branch of an issue (in-progress, open PR).
   update-branch --pr <n>                 Guard an update keyed by PR <n> alone (open, into the base branch, not a fork).
   update-branch --scan [--repo <dir>]    After a push to the base branch: dispatch update-branch for each open PR that is
@@ -73,6 +75,8 @@ Commands:
   apply --in <dir> [--repo <dir>]        Apply triage.json: the marked comment, then agent:explore → ready-for-agent
                                          (easy-call), ready-for-human (needs-a-human) or needs-info (blocked); adds product:<id>.
   unblock [--issue N]                    Drop in-progress from the closed issue N, then sweep the ready-for-agent issues and start the ones whose blockers are all done.
+  resume                                 Start again the work paused at the agent's usage limit (the session-limit label) whose
+                                         reset has passed: the issue flow, the round on its PR, the Triage or the Retro.
   retro-collect [--issue N] [--pr N] --trigger closed|dispatch --out <dir>
                                          The automatic Retro, read-only: for a closed PR (closed), only when a writer left a
                                          thread or review on it. Writes the run's record into <dir>: the issue, the writer-only
@@ -105,7 +109,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
     deps.log(USAGE);
     return command === undefined ? 1 : 0;
   }
-  if (!["claim", "work", "publish", "local", "triage", "apply", "unblock", "pr-feedback", "update-branch", "notify", "retro-collect", "retro", "retro-publish", "working", "merge"].includes(command)) {
+  if (!["claim", "work", "publish", "local", "triage", "apply", "unblock", "pr-feedback", "update-branch", "notify", "retro-collect", "retro", "retro-publish", "working", "resume", "merge"].includes(command)) {
     deps.log(`Unknown command: ${command}\n\n${USAGE}`);
     return 1;
   }
@@ -160,6 +164,8 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
 
   const config = loadConfig(deps.env);
   const ctx: CommandContext = { ...deps.adapters({ config, repo: values.repo }), ...base(config) };
+  // A pause switches the resume sweep on with the job token (`actions: write`); FACTORY_TOKEN cannot.
+  const armResume = async () => await deps.adapters({ config, repo: values.repo, jobToken: true }).codeHost.setResumeSweep(true);
 
   const writeOutputs = async (claim: PrClaim) => {
     if (!deps.env.GITHUB_OUTPUT) return;
@@ -172,7 +178,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
   switch (command) {
     case "pr-feedback": {
       const comment = feedbackComment(values.event, values["comment-id"]);
-      const claim = await claimPrFeedback(ctx, { pr: parseIssue(values.pr), actor: values.actor ?? "", ...(comment ? { comment } : {}) });
+      const claim = await claimPrFeedback(ctx, { pr: parseIssue(values.pr), actor: values.actor ?? "", dispatched: values.event === "workflow_dispatch", ...(comment ? { comment } : {}) });
       deps.log(JSON.stringify(claim));
       await writeOutputs(claim);
       return 0;
@@ -228,7 +234,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
       // `update-branch --pr N` with no issue: keyed by the pull request.
       const issue = positionals[0] === undefined && values.flow === "update-branch" ? null : issueArg();
       const result = await work(ctx, issue, { repo: values.repo, out: required(values.out, "--out"), ...(flowOf(values) ? { flow: flowOf(values)! } : {}) });
-      deps.log(JSON.stringify({ issue, outcome: result.outcome, reason: result.reason, attempts: result.attempts.length }));
+      deps.log(JSON.stringify({ issue, outcome: result.outcome, reason: result.outcome === "paused" ? "session-limit" : result.reason, attempts: result.attempts.length, ...(result.session ? { session: result.session } : {}) }));
       return 0;
     }
     case "triage": {
@@ -237,7 +243,11 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
       return 0;
     }
     case "apply": {
-      const result = await apply(ctx, { in: required(values.in, "--in"), repo: values.repo });
+      const result = await apply(ctx, {
+        in: required(values.in, "--in"),
+        repo: values.repo,
+        armResume,
+      });
       deps.log(JSON.stringify(result));
       return 0;
     }
@@ -257,11 +267,15 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
     }
     case "retro": {
       const result = await retro(ctx, { in: required(values.in, "--in"), out: required(values.out, "--out") });
-      deps.log(JSON.stringify({ issue: result.issue, pr: result.pr, candidates: result.candidates.length, retries: result.retries }));
+      deps.log(JSON.stringify("session" in result ? { issue: result.issue, pr: result.pr, outcome: "paused", reason: "session-limit", session: result.session } : { issue: result.issue, pr: result.pr, candidates: result.candidates.length, retries: result.retries }));
       return 0;
     }
     case "retro-publish": {
-      const result = await retroPublish(ctx, { in: required(values.in, "--in"), runUrl: values["run-url"] || runUrlFromEnv(deps.env) });
+      const result = await retroPublish(ctx, {
+        in: required(values.in, "--in"),
+        runUrl: values["run-url"] || runUrlFromEnv(deps.env),
+        armResume,
+      });
       deps.log(JSON.stringify(result));
       return 0;
     }
@@ -282,6 +296,11 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
       deps.log(JSON.stringify({ working: "off", ...result }));
       return 0;
     }
+    case "resume": {
+      const result = await resume(ctx);
+      deps.log(JSON.stringify(result));
+      return result.failed.length > 0 ? 1 : 0;
+    }
     case "unblock": {
       const result = await unblock(ctx, { closed: values.issue ? parseIssue(values.issue) : undefined });
       deps.log(JSON.stringify(result));
@@ -295,6 +314,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
           in: required(values.in, "--in"),
           startSha: values["start-sha"] || null,
           runUrl: values["run-url"] || runUrlFromEnv(deps.env),
+          armResume,
         });
         deps.log(JSON.stringify(result));
         if (deps.env.GITHUB_OUTPUT) await appendFile(deps.env.GITHUB_OUTPUT, `outcome=${result.outcome}\nurl=${"url" in result ? result.url : ""}\n`);
@@ -312,6 +332,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
         ...(flow ? { flow } : {}),
         markWorking: async (pr) => await jobCodeHost().labelPr(pr, config.labels.working),
         dispatchRetro: async (inputs) => await jobCodeHost().dispatch("retro", inputs),
+        armResume,
       });
       deps.log(JSON.stringify(result));
       if (deps.env.GITHUB_OUTPUT) {

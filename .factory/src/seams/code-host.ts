@@ -55,7 +55,7 @@ export interface ConversationEntry {
 export type ThreadId = string & { readonly __brand: "ThreadId" };
 
 /** A Factory workflow a run may start: `<name>` is `.github/workflows/factory-<name>.yml`. */
-export type FactoryWorkflow = "issue" | "triage" | "retro" | "update-branches";
+export type FactoryWorkflow = "issue" | "triage" | "retro" | "update-branches" | "pr-feedback";
 
 export interface ReviewThread {
   id: ThreadId;
@@ -174,4 +174,9 @@ export interface CodeHost {
   activeRuns(): Promise<ActiveRun[]>;
   /** Starts a Factory workflow run (e.g. `issue` for an unblocked issue). */
   dispatch(workflow: FactoryWorkflow, inputs: Record<string, string>): Promise<void>;
+  /**
+   * Switches the sweep that restarts paused work (`factory-resume.yml`) on or off. It runs on a schedule, and a
+   * scheduled run costs Actions minutes even when nothing waits: it is on only while some item is paused.
+   */
+  setResumeSweep(enabled: boolean): Promise<void>;
 }
