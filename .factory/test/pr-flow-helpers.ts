@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { expect } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
 import type { ConversationEntry, ReviewThread, ThreadId } from "../src/seams/code-host.ts";
-import { commitFile, derivedCheckout, git, HUMAN, lastJson, OWNER, readyIssue, tempDir, world, type World, type WorldOptions } from "./helpers.ts";
+import { commitFile, derivedCheckout, git, HUMAN, lastJson, OWNER, readyIssue, tempDir, world, type World, type WorldOptions, ISSUE_VERDICTS } from "./helpers.ts";
 
 export const BRANCH = "factory/issue-7";
 export const PR = 101;
@@ -43,7 +43,7 @@ export const said = (id: string, body: string, extra: Partial<ConversationEntry>
 export const replies = (...items: { threadId: string; decision: "address" | "decline" | "defer" | "answer"; body: string }[]) =>
   `<replies>${JSON.stringify({ threadReplies: items })}</replies>`;
 
-export const reviewOk: AgentStep = () => ({ output: `<review>${JSON.stringify({ summary: "Fine.", inline: [] })}</review>` });
+export const reviewOk: AgentStep = () => ({ output: `<review>${JSON.stringify({ summary: "Fine.", inline: [], criteria: ISSUE_VERDICTS })}</review>` });
 
 let edits = 0;
 /** A Development session that commits one change and answers like `output`. */
