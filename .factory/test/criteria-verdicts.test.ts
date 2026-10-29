@@ -115,3 +115,27 @@ describe("a verdict for each acceptance criterion", () => {
     expect(comment).toContain("A Review encontrou critérios de aceitação que não foram atendidos.");
   });
 });
+
+describe("the verify criterion belongs to the harness", () => {
+  const verifyCriterion = "`pnpm factory:verify` verde.";
+  const notRun = { criterion: verifyCriterion, met: false, proof: "I did not run the full `pnpm factory:verify` in this session." };
+
+  async function run(verify: WorldOptions["verify"], criteria: object[]) {
+    const repo = await checkout();
+    const out = await tempDir("factory-out-");
+    const w = world({ repo, agent: { development: [develop], review: [reviewing({ criteria })], "pull-request": [writes] }, verify, env: { FACTORY_MAX_ATTEMPTS: "1" } });
+    await w.tracker.swapLabel(7, "ready-for-agent", "in-progress");
+    expect(await w.factory("work", "7", "--repo", repo, "--out", out)).toBe(0);
+    return JSON.parse(await readFile(join(out, "result.json"), "utf8"));
+  }
+
+  it("is ready when the E2E passes, whatever the Review said about it", async () => {
+    expect(await run([{ ok: true }], [notRun, met])).toMatchObject({ outcome: "ready", review: { criteria: [{ met: true }, met] } });
+    expect(await run([{ ok: true }], [met])).toMatchObject({ outcome: "ready" });
+  });
+
+  it("is not ready when the E2E fails, even if the Review said it was met", async () => {
+    const result = await run([{ ok: false, output: "boom" }], [{ ...notRun, met: true }, met]);
+    expect(result.outcome).toBe("escalated");
+  });
+});
