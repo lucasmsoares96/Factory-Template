@@ -103,6 +103,10 @@ describe("prompt templates", () => {
     expect(prompts.retro).toContain("`.agents/skills/retro/SKILL.md`");
   });
 
+  it("asks the pull request Door value in the fixed words the merge gate reads", () => {
+    expect(prompts["pull-request"]).toContain("the Door value always starts with the fixed word `one-way` or `two-way`, in every language");
+  });
+
   it("reads by path every skill the templates cite that the model cannot invoke (disable-model-invocation)", async () => {
     const skillsDir = join(PROMPTS_DIR, "..", "..", ".agents", "skills");
     const offenders: string[] = [];
