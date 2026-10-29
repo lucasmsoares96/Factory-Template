@@ -58,9 +58,7 @@ export const reviewSchema = z.object({
   summary: z.string(),
   inline: z.array(inlineCommentSchema),
   /**
-   * One verdict per acceptance criterion. A criterion that is not met keeps the run from `ready`; a Product run with a
-   * "The Skeleton must grow" follow-up is `ready` only when every criterion is met without the Skeleton change.
-   * `.default([])`: old results stay valid.
+   * One verdict per acceptance criterion. A criterion that is not met keeps the run from `ready`; `.default([])`: old results stay valid.
    */
   criteria: z.array(criterionVerdictSchema).default([]),
 });
@@ -70,25 +68,16 @@ export const evidenceSchema = z.object({
   name: z.string().regex(/^[\w][\w.-]*\.(png|jpe?g|webp)$/),
 });
 
-/** The diff of `packages/skeleton/` that `work` reverted, written next to `result.json`. */
-export const SKELETON_PATCH_FILE = "skeleton.patch";
-
 /**
- * A ticket for a Skeleton change a Product issue needs; `publish` opens it through the Tracker. With a `patch` it also
- * opens the pull request that makes the change, from the base branch.
+ * Results written by older runs: `waiting` (a Product issue waiting on its Skeleton follow-up, ADR 0008) is read as a
+ * needs-human Escalation; `followUps` is dropped by the schema.
  */
-export const followUpSchema = z.object({
-  title: z.string().min(1),
-  body: z.string().min(1),
-  /** Skeleton files the run changed and the Review reverted. */
-  files: z.array(z.string()),
-  /** The `<skeleton-gap>` texts of the run. `.default([])`: old results stay valid. */
-  gaps: z.array(z.string()).default([]),
-  /** The file in the artifacts holding the reverted change; null when the run changed no Skeleton file. */
-  patch: z.literal(SKELETON_PATCH_FILE).nullable().default(null),
-});
+function readLegacyOutcome(raw: unknown): unknown {
+  if (typeof raw !== "object" || raw === null || (raw as { outcome?: unknown }).outcome !== "waiting") return raw;
+  return { ...raw, outcome: "escalated", reason: "needs-human" };
+}
 
-export const resultSchema = z.object({
+const resultObject = z.object({
   version: z.literal(1),
   issue: z.number().int().positive(),
   branch: z.string().min(1),
@@ -97,11 +86,10 @@ export const resultSchema = z.object({
   /** Head of the branch in the bundle; null when the run made no commits. */
   head: sha.nullable(),
   /**
-   * `waiting`: a Product issue that cannot meet its criteria without its Skeleton follow-up; `publish` blocks the issue
-   * on it and puts it back in the queue (no Escalation, no Product pull request). `paused`: a session hit the account's
-   * usage limit (`session.limit`); `publish` keeps the commits and the run starts again after the reset.
+   * `paused`: a session hit the account's usage limit (`session.limit`); `publish` keeps the commits and the run starts
+   * again after the reset.
    */
-  outcome: z.enum(["ready", "escalated", "waiting", "paused"]),
+  outcome: z.enum(["ready", "escalated", "paused"]),
   reason: z.enum(["e2e-failures", "time", "needs-human", "infra"]).nullable(),
   question: z.string().nullable(),
   /** The work the run did: the issue flow, or a round on the issue's open pull request. `.default`: old results stay valid. */
@@ -121,9 +109,9 @@ export const resultSchema = z.object({
   /** Null when the Stage did not apply (no commits). */
   pullRequestStage: pullRequestStageSchema.nullable().default(null),
   evidence: z.array(evidenceSchema),
-  /** Skeleton tickets to open; empty when the issue needs none. */
-  followUps: z.array(followUpSchema).default([]),
 });
+
+export const resultSchema = z.preprocess(readLegacyOutcome, resultObject) as unknown as z.ZodType<z.infer<typeof resultObject>, unknown>;
 
 export type FactoryResult = z.infer<typeof resultSchema>;
 export type PullRequestStageRecord = z.infer<typeof pullRequestStageSchema>;

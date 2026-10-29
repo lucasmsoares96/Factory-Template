@@ -22,8 +22,6 @@ Things the base knowingly lives with. Each says what it is, how likely it bites,
 - **The Triage can claim what it did not check.** In one run it suggested importing a constant the Skeleton does not export. A Triage comment is a plan, not a proof.
 - **A Review can undo a request that a human made in a PR thread**, unless it is shown the thread. Fixed (the Review and the Pull Request Stage receive the round's threads and the Factory's decision); keep it in mind when changing those prompts.
 - **All screenshots of a pr-feedback round enter the PR body**, including screens the change does not touch. Correct by the criterion, noisy to read.
-- **A Product issue that waits on its Skeleton issue stays blocked if that issue is closed as "not planned"** (a human rejects the Skeleton pull request). GitHub counts only a `completed` close as done, so `factory-unblock.yml` finds it still blocked and says nothing. Remove the dependency and re-add `ready-for-agent`, or escalate the Product issue by hand.
-- **The Skeleton pull request is not opened when its branch `factory/issue-<skeleton issue>` already exists**: `publish` never overwrites a branch, logs it, and leaves the `ready-for-human` Skeleton issue (and any Product issue blocked by it) without a pull request. The diff is still in the run's `work-out` artifact (`skeleton.patch`).
 - **A comment by a human that contains `<!-- factory -->` is ignored** by the PR-feedback flow (ADR 0002).
 - **A Product that never published is invisible to a push deploy** until a merge affects it (see `docs/measured-facts.md`).
 - **The Factory's workflow changes cannot be tested from their own PR** (`pull_request_target`, ADR 0006).
