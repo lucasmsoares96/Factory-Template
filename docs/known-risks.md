@@ -13,7 +13,7 @@ Things the base knowingly lives with. Each says what it is, how likely it bites,
 ## Skeleton
 
 - **The Owner check of an account deletion is not atomic with the deletion.** `beforeDelete` (`src/platform/auth-options.ts`) reads the user's Owner rows, then Better Auth deletes the user in a separate statement. A Company the same user creates from another session in that window loses its only Owner when the Members cascade. It takes two concurrent requests by the same user, so it is unlikely; if it matters (an ownership transfer, say), lock the user's Member rows or move the check into a database constraint.
-- **A feature's Better Auth plugin cannot bring tables or fields yet.** `authPlugins` (`src/platform/feature.ts`) joins the plugins to the config, but the Drizzle adapter in `src/platform/auth-options.ts` is given only the Skeleton's four auth tables, and Better Auth's own migrations never run here. A plugin with a `schema` (`@better-auth/stripe` adds a `subscription` table and `users.stripeCustomerId`) fails as soon as it reads or writes those models. Before billing (#87), the Skeleton has to pass the features' auth tables to the adapter and let a migration add the fields.
+- **The Stripe plugin's webhook answers 200 even when it fails to save** (better-auth#10534). If the database write for a Subscription event fails, Stripe sees a success and does not retry, so the Subscription in Postgres can stay behind Stripe's until the next event for it. Billing reads Plans from Stripe, but a person's Subscription comes from this webhook. Unlikely (it takes a failing write at the moment of the event); if it bites, replay the event from the Stripe dashboard. Watch the Worker logs for the plugin's errors.
 
 ## The Factory
 

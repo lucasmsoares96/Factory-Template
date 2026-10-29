@@ -515,6 +515,287 @@
     }
   },
   {
+    "name": "getPlan",
+    "title": "Get the signed-in user's Plan",
+    "description": "Answers the Plan the user is on (`plan`; `null` only when Stripe has no free Plan to fall back to), their Subscription (`null` on the free Plan) and every Plan the Product sells. A person without a Subscription is on the free Plan. The Plans are read from Stripe and kept for 5 minutes. Answers 404 when billing is off.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "plan": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "The Plan's id: what subscribePlan takes.",
+                  "example": "prod_Rk2pQ9vT4mWs1a"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "The Plan's name, as set in Stripe.",
+                  "example": "Pro"
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "What the Plan offers, as set in Stripe.",
+                  "example": "For small teams."
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "free",
+                    "fixed",
+                    "per_seat"
+                  ],
+                  "description": "`free`: no price. `fixed`: one monthly price for a fixed number of Seats. `per_seat`: a monthly price for each Seat.",
+                  "example": "fixed"
+                },
+                "seats": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "description": "The Seats a `free` or `fixed` Plan gives; `null` when each Seat is paid for.",
+                  "example": 3
+                },
+                "price": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "amount": {
+                      "type": "integer",
+                      "description": "The monthly price in the currency's smallest unit (cents).",
+                      "example": 1900
+                    },
+                    "currency": {
+                      "type": "string",
+                      "description": "The lower-case ISO currency code.",
+                      "example": "usd"
+                    },
+                    "interval": {
+                      "type": "string",
+                      "enum": [
+                        "month"
+                      ],
+                      "description": "How often the price is charged."
+                    }
+                  },
+                  "required": [
+                    "amount",
+                    "currency",
+                    "interval"
+                  ],
+                  "description": "The monthly price; `null` for the free Plan."
+                },
+                "entitlements": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ]
+                  },
+                  "description": "What the Plan unlocks, by the Product's Entitlement names: on or off, or up to a number.",
+                  "example": {
+                    "reports": true,
+                    "projects": 10
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "description",
+                "kind",
+                "seats",
+                "price",
+                "entitlements"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "subscription": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "active",
+                "trialing",
+                "past_due"
+              ],
+              "description": "`past_due`: the last payment failed.",
+              "example": "active"
+            },
+            "periodEnd": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time",
+              "description": "When the current period ends and the Subscription renews.",
+              "example": "2026-11-28T12:00:00.000Z"
+            },
+            "cancelAtPeriodEnd": {
+              "type": "boolean",
+              "description": "Whether the Subscription ends when the current period does.",
+              "example": false
+            }
+          },
+          "required": [
+            "status",
+            "periodEnd",
+            "cancelAtPeriodEnd"
+          ],
+          "description": "The person's Subscription; `null` when they are on the free Plan."
+        },
+        "plans": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "The Plan's id: what subscribePlan takes.",
+                "example": "prod_Rk2pQ9vT4mWs1a"
+              },
+              "name": {
+                "type": "string",
+                "description": "The Plan's name, as set in Stripe.",
+                "example": "Pro"
+              },
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "What the Plan offers, as set in Stripe.",
+                "example": "For small teams."
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "free",
+                  "fixed",
+                  "per_seat"
+                ],
+                "description": "`free`: no price. `fixed`: one monthly price for a fixed number of Seats. `per_seat`: a monthly price for each Seat.",
+                "example": "fixed"
+              },
+              "seats": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "The Seats a `free` or `fixed` Plan gives; `null` when each Seat is paid for.",
+                "example": 3
+              },
+              "price": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "amount": {
+                    "type": "integer",
+                    "description": "The monthly price in the currency's smallest unit (cents).",
+                    "example": 1900
+                  },
+                  "currency": {
+                    "type": "string",
+                    "description": "The lower-case ISO currency code.",
+                    "example": "usd"
+                  },
+                  "interval": {
+                    "type": "string",
+                    "enum": [
+                      "month"
+                    ],
+                    "description": "How often the price is charged."
+                  }
+                },
+                "required": [
+                  "amount",
+                  "currency",
+                  "interval"
+                ],
+                "description": "The monthly price; `null` for the free Plan."
+              },
+              "entitlements": {
+                "type": "object",
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                "description": "What the Plan unlocks, by the Product's Entitlement names: on or off, or up to a number.",
+                "example": {
+                  "reports": true,
+                  "projects": 10
+                }
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "description",
+              "kind",
+              "seats",
+              "price",
+              "entitlements"
+            ]
+          },
+          "description": "Every Plan the Product sells, read from Stripe (kept for 5 minutes)."
+        }
+      },
+      "required": [
+        "plan",
+        "subscription",
+        "plans"
+      ]
+    },
+    "annotations": {
+      "title": "Get the signed-in user's Plan",
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "scope": "read",
+    "http": {
+      "method": "GET",
+      "path": "/api/billing/plan",
+      "pathParams": [],
+      "queryParams": [],
+      "body": false,
+      "output": "object"
+    }
+  },
+  {
     "name": "leaveCompany",
     "title": "Leave a Company",
     "description": "The signed-in user stops being a Member of the Company. From the next call on, they get 404 on every route of the Company, their agents included. The Owner cannot leave before transferring the ownership (`OWNER_MUST_TRANSFER`).",
