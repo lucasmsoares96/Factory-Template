@@ -7,7 +7,7 @@ import { authOptions } from "./auth-options.ts";
 import { createEmailSender, emailTransport } from "./email.ts";
 import type { SkeletonEnv } from "./env.ts";
 import { apiError } from "./errors.ts";
-import type { Feature } from "./feature.ts";
+import { emitAccountArchiving, type Feature } from "./feature.ts";
 import { passwordHashing } from "./password.ts";
 import { revokeAccess } from "./revoke-access.ts";
 import { rateLimitStorage } from "./rate-limit.ts";
@@ -45,6 +45,7 @@ export function createAuth(c: Context<SkeletonEnv>, { emailFrom, t, features }: 
       password: passwordHashing(c.env.PASSWORD_HASHER),
       rateLimit: rateLimitStorage(c.env.RATE_LIMITER),
       revokeAccess: (user) => revokeAccess(c, user),
+      accountArchiving: (user) => emitAccountArchiving(features, { c, userId: user.id }),
       defer: c.var.defer,
       plugins: features.flatMap((feature) => feature.authPlugins?.(c) ?? []),
     }),
