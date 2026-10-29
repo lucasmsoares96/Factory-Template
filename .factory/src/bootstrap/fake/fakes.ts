@@ -43,6 +43,12 @@ export class FakeGitHub implements GitHubClient {
   /** Everything a secret was ever set to, by name: lets a test prove a value was never printed or written elsewhere. */
   readonly secretWrites: { name: string; environment?: string }[] = [];
   writes = 0;
+  /** The repo fixed by `target`: what a real call would go to. */
+  targeted: string | undefined;
+  target(fullName: string): void {
+    this.targeted = fullName;
+    this.info = { ...this.info, fullName };
+  }
   /** Simulates a repo whose plan refuses environments (private on Free). */
   refuseEnvironments = false;
   /** Same for rulesets. */
@@ -619,7 +625,10 @@ export class FakePrompter implements Prompter {
   async select<T extends string>(input: { id: string }): Promise<T> {
     return String(this.answer(input.id)) as T;
   }
+  /** Whether the repo confirmation was asked; it is not in `asked`, which lists the questions of the steps. */
+  repoConfirmed: boolean | undefined;
   async confirm(input: { id: string }): Promise<boolean> {
+    if (input.id === "repo-confirm") return (this.repoConfirmed = this.answers[input.id] === true);
     return this.answer(input.id) === true;
   }
   /** Ids of the `choose` prompts shown. An unscripted one, or the answer `cancel`, plays Ctrl-C (its `onCancel`). */
