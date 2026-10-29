@@ -20,11 +20,12 @@ import { productionSteps } from "./product.ts";
 import { PREVIEWS_ENABLED, previewSteps } from "./previews.ts";
 import { ResendApi } from "./resend.ts";
 import { StripeApi } from "./stripe.ts";
-import { BILLING_MISSING_FEATURE, billingEnvironment, billingSteps } from "./billing.ts";
+import { BILLING_MISSING_FEATURE, billingRecorded, billingSteps } from "./billing.ts";
 import { checkAdmin, checkTools } from "./preflight.ts";
 import { ToolsCli } from "./tools.ts";
 import { NeonCli } from "./neon.ts";
 import { WranglerCli } from "./wrangler.ts";
+import { describeVariables, envPrompter, MissingVariables, type Module } from "./questions.ts";
 import { runSteps, type BootstrapDeps, type ProductIdentity, type StepContext } from "./steps.ts";
 
 export type { BootstrapDeps } from "./steps.ts";
@@ -55,7 +56,10 @@ Commands:
                          pre-filled link each; hidden prompt, or STRIPE_SANDBOX_KEY / STRIPE_LIVE_KEY), the plans,
                          payment methods and Customer Portal written to both accounts, and the real account's events
                          endpoint. The deploy hands the key and the endpoint secret to the Worker once all are set.
-  env <id>               Lists the variables, secrets and environment variables of the billing module.
+  env [<id>]             Lists the environment variables that answer the questions (and what each is for): those of the
+                         common part and the Factory module, and with an id also the Product's modules (Production, domain,
+                         Previews, billing). Without a terminal there is no prompt: the command checks them before the first
+                         step and fails listing every required one that is missing. There is no --non-interactive flag.
   all <id>               The Production module, then asks whether to set billing up now.
   factory                The Factory module (after the common part): your own fine-grained token, limited to this
                          repository (the one thing asked, once, hidden; a pre-filled link is printed, and it goes straight
@@ -105,11 +109,53 @@ export async function runBootstrap(argv: string[], deps: BootstrapDeps): Promise
     deps.log(`Unknown command: ${command}\n\n${USAGE}`);
     return 1;
   }
+  // Reads the declaration of the questions and the Product's config only: no repository, no network.
+  if (command === "env") return printEnvironment(positionals[1], deps);
   const target = await resolveTarget(deps, values.repo);
   if (!target || !(await checkTools(deps))) return 1;
   const repo = await confirmTarget(deps, target);
   if (!repo || !checkAdmin(deps, repo)) return 1;
-  return dispatch(positionals, values.redo ?? [], deps);
+  // Without a terminal a question is answered by its variable, never by a person.
+  const run = deps.interactive === false ? { ...deps, prompter: envPrompter(deps.prompter, deps.env) } : deps;
+  try {
+    return await dispatch(positionals, values.redo ?? [], run);
+  } catch (error) {
+    if (!(error instanceof MissingVariables)) throw error;
+    deps.log(error.message);
+    return 1;
+  }
+}
+
+/** `pnpm bootstrap env [<id>]`: the variables that answer the questions of the common part, and with an id those of the Product's modules. */
+async function printEnvironment(productId: string | undefined, deps: BootstrapDeps): Promise<number> {
+  const sections: { title: string; modules: Module[] }[] = [
+    { title: "Common part (pnpm bootstrap)", modules: ["common"] },
+    { title: "Factory module (pnpm bootstrap factory)", modules: ["factory"] },
+  ];
+  let billing = false;
+  if (productId) {
+    let product: ProductIdentity;
+    try {
+      product = await deps.product(productId);
+    } catch (error) {
+      deps.log((error as Error).message);
+      return 1;
+    }
+    billing = product.billing === true;
+    sections.push(
+      { title: `Production module (pnpm bootstrap product ${productId})`, modules: ["product"] },
+      { title: `Domain (pnpm bootstrap domain ${productId})`, modules: ["domain"] },
+      { title: `Previews module (pnpm bootstrap previews ${productId})`, modules: ["previews"] },
+      ...(billing ? [{ title: `Billing module (pnpm bootstrap billing ${productId})`, modules: ["billing" as const] }] : []),
+    );
+  }
+  const lines = ["Without a terminal each question is answered by its variable; the run stops before the first step and lists every required one that is not set.", ""];
+  for (const section of sections) {
+    lines.push(`${section.title}:`, ...describeVariables(section.modules), "");
+  }
+  if (productId && billing) lines.push(...billingRecorded(productId));
+  deps.log(lines.join("\n").trimEnd());
+  return 0;
 }
 
 const COMMANDS = ["destroy", "domain", "env", "billing", "all", "previews", "product", "factory", "doctor"];
@@ -136,14 +182,6 @@ async function dispatch(positionals: string[], redo: string[], deps: BootstrapDe
     const memory: StepContext["memory"] = {};
     await runSteps(domainSteps(product), { ...deps, memory }, values.redo);
     return finish(deps, productId, memory, { production: false, previews: false });
-  }
-  if (command === "env") {
-    if (!productId) {
-      deps.log("Usage: pnpm bootstrap env <id>");
-      return 1;
-    }
-    deps.log(billingEnvironment(productId).join("\n"));
-    return 0;
   }
   if (command === "billing") {
     if (!productId) {

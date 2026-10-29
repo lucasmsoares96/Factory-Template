@@ -1,3 +1,4 @@
+import type { QuestionId } from "./questions.ts";
 /**
  * Clients of the four services the wizard configures. Every one has a real
  * and a fake adapter (`fake/`). Credentials live inside the adapters and are
@@ -386,12 +387,12 @@ export interface Prompter {
   note(message: string): void;
   /** Prints a message and then a URL alone on its own line: no frame, no wrapping, so terminals can detect the link. */
   link(message: string, url: string): void;
-  text(input: { id: string; message: string; initial?: string }): Promise<string>;
-  password(input: { id: string; message: string }): Promise<string>;
-  select<T extends string>(input: { id: string; message: string; options: { value: T; label: string }[] }): Promise<T>;
-  confirm(input: { id: string; message: string; initial?: boolean }): Promise<boolean>;
+  text(input: { id: QuestionId; message: string; initial?: string }): Promise<string>;
+  password(input: { id: QuestionId; message: string }): Promise<string>;
+  select<T extends string>(input: { id: QuestionId; message: string; options: { value: T; label: string }[] }): Promise<T>;
+  confirm(input: { id: QuestionId; message: string; initial?: boolean }): Promise<boolean>;
   /** A `select` where Ctrl-C returns `onCancel` instead of ending the process, so the caller can still clean up. */
-  choose<T extends string>(input: { id: string; message: string; options: { value: T; label: string }[]; onCancel: T }): Promise<T>;
+  choose<T extends string>(input: { id: QuestionId; message: string; options: { value: T; label: string }[]; onCancel: T }): Promise<T>;
   /** A spinner for a long wait; `stop` ends it with a final line. */
   spinner(message: string): { update(message: string): void; stop(message: string): void };
 }

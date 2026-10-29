@@ -6,9 +6,18 @@ The detail of `pnpm bootstrap` (`.factory/src/bootstrap/`): its modules, their s
 
 Before the repository is chosen and before any step or the doctor, `preflight.ts` checks, through the `ToolsClient` (`tools.ts`, fake `FakeTools`): Node and pnpm against `.prototools`, `gh` installed and signed in; then, once the repository is confirmed, that the account is admin on it. With a terminal it offers `proto install gh` and `gh auth login --web`, each after a confirmation (`install-gh`, `login-gh`); a refusal stops the run before any step. Without a terminal nothing is installed or opened, and every gap is listed together. A wrangler that is not installed (`WranglerNotInstalled`) is reported as such, not as "no saved login".
 
+## Without a terminal
+
+The criterion is having a terminal (`deps.interactive`, stdin is a TTY); there is no `--non-interactive` flag. `questions.ts` declares every question by id (`QUESTIONS`): the variable that answers it, what it is for, the module and a kind (`required`, `conditional`, `optional` with an optional `default`, or `terminal` for a question only a person can answer). The `Prompter` takes only declared ids, `pnpm bootstrap env` prints from the same declaration, and `test/bootstrap/terminal.test.ts` fails on a question without a declaration or a variable.
+
+- Without a terminal `runBootstrap` swaps the prompter for `envPrompter`: each question reads its variable (or default); with neither, it stops naming the variable.
+- Before the first step, `runSteps` collects the `required` questions in `Step.asks` of every step with work (not done, or in `--redo`; `Step.needs` overrides "not done") and fails once with `MissingVariables`, listing all of them. A step with nothing to do needs no variable.
+- `pnpm bootstrap env` lists the common part and the Factory module; `env <id>` adds the Production, domain and Previews modules of the Product, and billing when it lists the Feature. It reads no repository and calls no service.
+- A new question needs an entry in `QUESTIONS`; if a step asks a `required` one, list it in the step's `asks`.
+
 ## Layout
 
-- `pnpm bootstrap [doctor [<id>]] [domain <id>] [product <id>] [previews <id>] [factory] [billing <id>] [env <id>] [all <id>] [--redo <step>]`.
+- `pnpm bootstrap [doctor [<id>]] [domain <id>] [product <id>] [previews <id>] [factory] [billing <id>] [env [<id>]] [all <id>] [--redo <step>]`.
 - Wizard steps live in `common.ts` (the common part: `cloudflare-token`, `workers-dev`, `labels`, `language`), `product.ts` (the Production module of `bootstrap product <id>`) and `domain.ts` (per Product: `resend-domain`, `dns-records`, `restricted-resend-key`, `worker-domain`).
   - `resendSteps(product)` is reused by `bootstrap product`. `domainSteps` adds `worker-domain` for `bootstrap domain` only: the Worker does not exist before the first deploy.
 - The steps run over client interfaces (`clients.ts`: GitHub, Cloudflare, Neon, Resend), real adapters (`cloudflare.ts`, `resend.ts`, Zod-validated; `neon.ts` drives `neonctl`) and `fake/`.

@@ -161,6 +161,11 @@ export async function promptMainToken(ctx: StepContext, input: { message: string
 export const cloudflareToken: Step = {
   id: "cloudflare-token",
   title: `Cloudflare token and account (${TOKEN_SECRET}, ${ACCOUNT_SECRET})`,
+  asks: ["cloudflare-token"],
+  // With the token secret in place the credential comes from the environment or wrangler and nothing is asked.
+  async needs(ctx) {
+    return !(await ctx.github.listSecrets()).includes(TOKEN_SECRET);
+  },
   async check(ctx) {
     const secrets = await ctx.github.listSecrets();
     return { done: secrets.includes(TOKEN_SECRET) && secrets.includes(ACCOUNT_SECRET) };
@@ -184,6 +189,12 @@ export const cloudflareToken: Step = {
 export const workersDev: Step = {
   id: "workers-dev",
   title: "workers.dev subdomain",
+  asks: ["workers-dev-subdomain"],
+  // With no credential yet the token step is about to provide one (the subdomain is then unknown); with the secret in place the step is skipped.
+  async needs(ctx) {
+    if (!(await cloudflareCredential(ctx, { login: false }))) return !(await ctx.github.listSecrets()).includes(TOKEN_SECRET);
+    return !(await workersDev.check(ctx)).done;
+  },
   async check(ctx) {
     const token = await cloudflareCredential(ctx, { login: false });
     if (!token) return { done: true, detail: "not verified: no saved Cloudflare login (run `pnpm --filter @factory/harness exec wrangler login`)" };
@@ -224,6 +235,7 @@ const LANGUAGE_LABELS: Record<Language, string> = { en: "English (en)", "pt-BR":
 export const language: Step = {
   id: "language",
   title: `Language of the Factory's public text (${LANGUAGE_VARIABLE})`,
+  asks: ["factory-language"],
   async check(ctx) {
     const value = (await ctx.github.listVariables())[LANGUAGE_VARIABLE];
     return { done: value !== undefined, detail: value };

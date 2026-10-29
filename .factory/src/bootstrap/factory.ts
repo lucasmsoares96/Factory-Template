@@ -50,6 +50,7 @@ async function problem(ctx: StepContext, token: string, repo: string): Promise<s
 export const factoryToken: Step = {
   id: "factory-token",
   title: `Factory token (${FACTORY_TOKEN})`,
+  asks: ["factory-token"],
   async check(ctx) {
     return { done: (await ctx.github.listSecrets()).includes(FACTORY_TOKEN) };
   },
