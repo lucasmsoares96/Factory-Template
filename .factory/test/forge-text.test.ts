@@ -47,7 +47,7 @@ const develop: AgentStep = async ({ cwd }) => {
   return { output: "Done." };
 };
 const review: AgentStep = () => ({
-  output: `<skeleton-gap>The root layout needs a footer slot.</skeleton-gap>\n<review>${JSON.stringify({
+  output: `<review>${JSON.stringify({
     summary: "Looks fine.",
     inline: [{ path: HOME, line: 1, body: "Name the export." }],
     criteria: [{ criterion: "`greet()` returns a greeting.", met: true, proof: "`apps/example/e2e/home.spec.ts` › greets" }],
@@ -56,7 +56,7 @@ const review: AgentStep = () => ({
 const writes: AgentStep = () => ({ output: "<pull-request>## Summary\n\nAdds a footer.</pull-request>" });
 
 describe("one cleaning for all the agent's text that goes to the forge", () => {
-  it("drops closing keywords and attribution lines from the PR body, verdicts, Review, follow-ups, Skeleton PR and Escalation", async () => {
+  it("drops closing keywords and attribution lines from the PR body, verdicts, Review and Escalation", async () => {
     const skeletonCheckout = () => derivedCheckout("forge-text", (dir) => commitFiles(dir, { [LAYOUT]: "export const Layout = 'plain';\n" }, "chore: skeleton"));
     const [workCheckout, publishCheckout] = [await skeletonCheckout(), await skeletonCheckout()];
     const artifacts = await tempDir("factory-artifacts-");
@@ -83,10 +83,6 @@ describe("one cleaning for all the agent's text that goes to the forge", () => {
     expect(product.body).toMatch(/^Closes #7$/m);
     expect(product.reviews[0]!.body).toContain("Looks fine.");
     expect(product.reviews[0]!.comments.map((c) => c.body)).toEqual([expect.stringContaining("Name the export.")]);
-    const skeleton = w.codeHost.prs.find((p) => p.branch === "factory/issue-8")!;
-    expect(skeleton.body).toContain("The root layout needs a footer slot.");
-    expect(skeleton.body).toMatch(/^Closes #8$/m);
-    expect(w.tracker.issues.get(8)!.body).toContain("The root layout needs a footer slot.");
     expect(w.tracker.commentsOn(7).some((c) => c.body.includes("Which footer?"))).toBe(true);
     expectClean(w);
   });
@@ -116,13 +112,11 @@ describe("one cleaning for all the agent's text that goes to the forge", () => {
       threadReplies: [{ threadId: " t1 ", decision: "answer", body: "Done. Co-Authored-By: no" }],
       usage: { development: { inputTokens: 0, outputTokens: 0 }, review: { inputTokens: 0, outputTokens: 0 } },
       evidence: [{ product: "example", name: "home.png" }],
-      followUps: [{ title: "The Skeleton must grow: x", body: "Body.", files: [" packages/skeleton/a.ts"], gaps: ["Gap.\nCo-Authored-By: X"], patch: "skeleton.patch" }],
     });
     const clean = forForge(result);
     expect(clean.attempts).toEqual(result.attempts);
     expect(clean.review.inline).toEqual([{ path: " src/a.ts", line: 1, body: "Ok." }]);
     expect(clean.threadReplies).toEqual([{ threadId: " t1 ", decision: "answer", body: "Done. Co-Authored-By: no" }]);
-    expect(clean.followUps[0]).toMatchObject({ files: [" packages/skeleton/a.ts"], gaps: ["Gap."], patch: "skeleton.patch" });
     expect(clean.evidence).toEqual(result.evidence);
   });
 

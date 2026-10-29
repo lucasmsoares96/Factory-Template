@@ -49,7 +49,7 @@ The detail of the Factory's flows on the forge: which workflow runs which jobs, 
 2. `image`: the reusable image job.
 3. `work`: the image, `contents: read` + `issues: read`, only Claude's secrets, `runs-on: vars.FACTORY_RUNNER || ubuntu-latest`, 350 min. Uploads `work-out`: bundle, `result.json`, prints, `stream-json`, 14 days.
    - It reads the issue with its read-only job token, which the Agent's env allowlist never passes on.
-   - The final Review gives a verdict on each acceptance criterion (`criteria`: criterion, `met`, `proof`). One that is not met turns a green run into an Escalation `needs-human` (or, with a Skeleton follow-up, `waiting`); `publish` appends the verdicts to the PR body, after the Pull Request Stage text, and the Escalation comment names each unmet criterion and why.
+   - The final Review gives a verdict on each acceptance criterion (`criteria`: criterion, `met`, `proof`). One that is not met turns a green run into an Escalation `needs-human`; `publish` appends the verdicts to the PR body, after the Pull Request Stage text, and the Escalation comment names each unmet criterion and why.
    - An agent session that fails (`AgentSessionError`) ends the run without failing the job: `result.json` keeps the branch bundle and the session's own message (`session`). At the agent's usage limit (`SessionLimitError`) the outcome is `paused`; any other failure is an Escalation `infra` whose comment shows that message, and whose retry continues from the kept commits (`<!-- factory:continue <sha> -->`). See [Session limit](#session-limit).
 4. `publish`: fresh VM, `FACTORY_TOKEN`, the default branch's harness, `if: always()`: no artifact means Escalation "infra". Outputs `outcome` and `url`. The job token, with `actions: write`, dispatches the Retro of an Escalation. Its last step is `working off` with the job token.
 5. `notify`: the Merge Gate notice, `pnpm factory notify <N> --outcome ready|escalated [--updated] --url --to`.
@@ -57,16 +57,13 @@ The detail of the Factory's flows on the forge: which workflow runs which jobs, 
 
 ## Skeleton changes in a Product issue
 
-`src/scope.ts`, ADR 0008. A Product issue never changes `packages/skeleton/`.
+`src/scope.ts`, ADR 0017. A Product issue may change `packages/skeleton/` in its own branch.
 
-- `work` takes the Skeleton change as Development left it (the Review may undo it itself), reverts what is left after the Review, and writes it, against the base, to `skeleton.patch` in `out` (a file changed in several attempts keeps its last version).
-- The follow-up in `result.json` names it (`patch`) and carries the `<skeleton-gap>` texts (`gaps`).
-- `publish` applies the patch on the base in a throwaway worktree before anything else and refuses it (Escalation `infra`) if it does not apply or touches anything outside `packages/skeleton/`.
-- Then it opens the "The Skeleton must grow" issue as `ready-for-human` and a pull request of its own (branch `factory/issue-<skeleton issue>` from the base, never a draft, `Closes #<skeleton issue>`, the Product issue and the gaps in the body). A gap with no file is only an issue, `needs-triage`, no PR.
-- A Product issue whose final Review gives a verdict `met` on every criterion without the Skeleton (`criteria`; none at all counts as not met) gets its ready PR as before and blocks on nothing.
-- One that cannot (the issue flow only; a PR round escalates `needs-human`) ends `waiting`: no Pull Request Stage, no Product PR and no Escalation.
-  - `publish` adds each Skeleton issue as a blocker (`Tracker.addBlocker`: GitHub `POST /issues/{n}/dependencies/blocked_by` with the blocker's `id`, the Markdown `Blocked by:` line, the fake in memory), comments once (with the guard's "Waiting on" marker) and swaps `in-progress` → `ready-for-agent`.
-  - The run that label starts is refused by the guard and says nothing more. `factory-unblock.yml` queues the issue again when the Skeleton issue closes (see [Unblock](#unblock)), and that run starts from the base that has the new Skeleton.
+- `work` leaves the branch as it is: the Product, the Skeleton, `pnpm-workspace.yaml` and `pnpm-lock.yaml` go to one pull request, after one `pnpm factory:verify`.
+- When the diff touches `packages/skeleton/`, the Review prompt asks it to check that the change is generic (no behaviour for a single Product, no `if` on a Product id, Skeleton tests of its own) and to fix what is not.
+- `publish` opens the body of that pull request with a `[!WARNING]` that lists the Skeleton files and says the change reaches every Product. Without a Skeleton change there is no warning.
+- The CI runs `verify` and the E2E of every Product when the Skeleton changes (`turbo --affected`), and `packages/skeleton/` is in `PROTECTED_PATHS`, so the Merge Mode `safe` never merges it alone.
+- `result.json` written by the old flow (outcome `waiting`, `followUps`) is still read: `waiting` is read as an `escalated` with reason `needs-human`, and `followUps` is ignored.
 
 ## Triage
 

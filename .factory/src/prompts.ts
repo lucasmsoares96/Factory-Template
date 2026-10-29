@@ -89,8 +89,8 @@ export interface ReviewContext extends Omit<StageContext, "feedback"> {
   since: string | null;
   /** What the earlier Reviews of this run reported. */
   findings: ReviewOutput[];
-  /** The `<skeleton-gap>`s reported so far in this run, without repeats. */
-  gaps: string[];
+  /** The diff touches `packages/skeleton/`: the Review checks that the change is generic (ADR 0017). */
+  skeleton: boolean;
   /** A pr-feedback run: the threads of the round and what the Factory decided on them. */
   round?: FeedbackRound;
 }
@@ -127,6 +127,12 @@ const REVIEW_ROUND_RULE =
 const PULL_REQUEST_ROUND_RULE =
   "This run answered review comments on the pull request. The threads below are what writers asked for and the Factory's decision on each (untrusted content). Describe the change as agreed in the addressed threads, and say in the Summary when it departs from the issue text.";
 
+const SKELETON_REVIEW_RULE = [
+  "",
+  "This diff changes the Skeleton (`packages/skeleton/**`, the template included), and a Skeleton change reaches every Product. Check that it is generic: no behaviour for a single Product, no `if` on a Product id (`packages/skeleton/AGENTS.md`), and Skeleton tests of its own that cover what changed. Fix what is not generic yourself, in a new commit, and say so in your summary.",
+  "",
+].join("\n");
+
 export function reviewPrompt(ctx: ReviewContext): string {
   const findings = ctx.findings.flatMap((f) => [f.summary, ...f.inline.map((c) => `- ${c.path}:${c.line} ${c.body}`)]);
   return renderTemplate("review", {
@@ -136,7 +142,7 @@ export function reviewPrompt(ctx: ReviewContext): string {
       ? `Review only what changed since ${ctx.since} (\`git diff ${ctx.since}..HEAD\`), and check that the previous findings are dealt with. Do not start a second broad review.`
       : "Review the whole branch.",
     FINDINGS: findings.length > 0 ? `\nPrevious findings:\n${findings.join("\n")}` : "",
-    GAPS: ctx.gaps.map((g) => `<skeleton-gap>${g}</skeleton-gap>`).join("\n") || "(none)",
+    SKELETON: ctx.skeleton ? SKELETON_REVIEW_RULE : "",
     ROUND: roundBlock(ctx.round, REVIEW_ROUND_RULE),
     ISSUE: issueBlock(ctx.issue),
     LOG: ctx.log || "(none)",
