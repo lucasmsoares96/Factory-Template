@@ -16,6 +16,8 @@ export interface Issue {
   body: string;
   state: "open" | "closed";
   labels: string[];
+  /** Why a closed issue closed (GitHub `state_reason`, e.g. `completed`, `not_planned`); null while open or when unknown. */
+  stateReason: string | null;
   /** Parent issue (the spec), if any. */
   parent: { number: number; body: string } | null;
   /** Sub-issues; a non-empty list marks a parent spec. */
@@ -59,6 +61,8 @@ export interface Tracker {
   comment(number: number, body: string): Promise<void>;
   /** Replaces the body of the issue. Not available in the Markdown tracker. */
   updateIssue(number: number, body: string): Promise<void>;
+  /** Replaces the body of the issue with `body` exactly: no Factory marker, for an edit of a person's text. Not available in the Markdown tracker. */
+  rewriteIssueBody(number: number, body: string): Promise<void>;
   /** Opens a new issue; returns its number and, when the forge has one, its URL. */
   createIssue(input: NewIssue): Promise<{ number: number; url: string | null }>;
   /** Whether `login` has `write` or higher on the repository. */
