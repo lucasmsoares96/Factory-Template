@@ -28,6 +28,7 @@ jobs:
       contents: read
       pull-requests: write
       actions: read
+      issues: read
     defaults:
       run:
         shell: bash
