@@ -1,5 +1,5 @@
 import type { FactoryConfig } from "../config.ts";
-import type { AccountsClient, CloudflareClient, GitHubClient, NeonClient, Prompter, ResendClient, TokenClient, WranglerAuth } from "./clients.ts";
+import type { AccountsClient, CloudflareClient, GitHubClient, NeonClient, Prompter, ResendClient, StripeClient, TokenClient, WranglerAuth } from "./clients.ts";
 
 /** The part of a Product's identity (ticket 07) the wizard reads; it never rewrites the file. */
 export interface ProductIdentity {
@@ -8,6 +8,8 @@ export interface ProductIdentity {
   emailFrom: string;
   /** Empty until the person sets it in `product.config.ts`. */
   domain: string;
+  /** The Product lists the billing Feature in `src/features/index.ts` (unset: unknown, as in a fake). */
+  billing?: boolean;
 }
 
 export interface BootstrapDeps {
@@ -22,6 +24,8 @@ export interface BootstrapDeps {
   accounts: AccountsClient;
   /** Builds the Resend client once a key is at hand. */
   resend: (key: string) => ResendClient;
+  /** Builds the Stripe client once a key is at hand. */
+  stripe: (key: string) => StripeClient;
   /** Builds the client of the owner's fine-grained token once it is at hand. */
   token: (token: string) => TokenClient;
   /** Reads `apps/<id>/product.config.ts`. */
@@ -48,7 +52,7 @@ export interface BootstrapDeps {
 export interface StepContext extends BootstrapDeps {
   /** The steps named by `--redo` in this run (set by `runSteps`). */
   redo?: string[];
-  memory: { cloudflareToken?: string; accountId?: string; resendKey?: string; resendDeferred?: boolean; noWranglerLogin?: boolean; neon?: NeonClient; neonOrg?: { id?: string }; databaseUrl?: string; neonKeyDeclined?: boolean; previewProject?: Record<string, string> };
+  memory: { cloudflareToken?: string; accountId?: string; resendKey?: string; resendDeferred?: boolean; stripeKeys?: { sandbox?: string; live?: string }; noWranglerLogin?: boolean; neon?: NeonClient; neonOrg?: { id?: string }; databaseUrl?: string; neonKeyDeclined?: boolean; previewProject?: Record<string, string> };
 }
 
 export interface Step {
