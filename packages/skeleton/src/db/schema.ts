@@ -33,6 +33,12 @@ export const users = skeletonSchema.table("users", {
    */
   pendingEmail: text("pending_email"),
   /**
+   * Whether the account was created by signing up from an Invitation's link. Such an
+   * account belongs to the Company: removed from the last one, it is deleted. Not a
+   * Better Auth field: the Skeleton sets it at sign-up (auth-options.ts).
+   */
+  createdByInvitation: boolean("created_by_invitation").notNull().default(false),
+  /**
    * The Stripe customer this person is: the card and the invoices are theirs (ADR 0015).
    * Not a Skeleton field: `@better-auth/stripe` reads and writes it, and only when billing is on.
    */
@@ -134,6 +140,9 @@ export const subscriptions = skeletonSchema.table(
     uniqueIndex("subscriptions_stripe_subscription_id_idx").on(table.stripeSubscriptionId),
   ],
 );
+
+/** The statuses of a Subscription that still counts: the person pays (`past_due`: the last payment failed). */
+export const LIVE_SUBSCRIPTION_STATUSES = ["active", "trialing", "past_due"] as const;
 
 /** The schema the Better Auth Drizzle adapter reads (`usePlural: true`): the core tables and the billing plugin's. */
 export const authSchema = { users, sessions, accounts, verifications, subscriptions };

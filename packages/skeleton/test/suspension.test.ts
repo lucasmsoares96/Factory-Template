@@ -100,11 +100,15 @@ async function suspendedIn(companyId: string, owner: Person) {
 
 const ids = (...list: Person[]) => list.map((person) => person.user.id).sort();
 
-/** Someone joins and leaves: the Owner's Seats are recalculated, as they are whenever the people change. */
-async function somebodyLeaves(companyId: string) {
+/** The Owner removes a Member: their Seats are recalculated, as they are whenever the people change. */
+const removeMember = (companyId: string, owner: Person, member: Person) =>
+  api(`/api/companies/${companyId}/members/${member.user.id}`, { cookie: owner.cookie, method: "DELETE" });
+
+/** Someone joins and is removed: the Owner's Seats are recalculated, as they are whenever the people change. */
+async function somebodyLeaves(companyId: string, owner: Person) {
   const passerby = await signedInUser("Passerby");
   await join(companyId, passerby);
-  expect((await api(`/api/companies/${companyId}/leave`, { cookie: passerby.cookie, method: "POST" })).status).toBe(204);
+  expect((await removeMember(companyId, owner, passerby)).status).toBe(204);
 }
 
 /** The Owner's plan changes in Stripe's books only: nothing is recalculated until an event or a change of people. */
@@ -157,7 +161,7 @@ test("only as many Invitations as needed are canceled, newest first, before anyo
   // Pro has 3 Seats: Ana, Bruno and the first Invitation fit; the newest Invitation does not.
   await setPlan(ana, PRO);
 
-  await somebodyLeaves(company.id);
+  await somebodyLeaves(company.id, ana);
 
   const rows = await db.query<{ email: string; canceled: boolean }>(`SELECT email, canceled_at IS NOT NULL AS canceled FROM skeleton.invitations WHERE company_id = '${company.id}'`);
   expect(rows.find((row) => row.email === first)?.canceled).toBe(false);
@@ -173,7 +177,7 @@ test("the newest are suspended first, and the Owner never is", async () => {
   for (const person of [first, second, third, fourth]) await join(company.id, person);
   await setPlan(ana, PRO);
 
-  await somebodyLeaves(company.id);
+  await somebodyLeaves(company.id, ana);
 
   expect(await suspendedIn(company.id, ana)).toEqual(ids(third, fourth));
   for (const person of [ana, first, second]) expect(await companyStatus(company.id, person)).toBe(200);
@@ -200,10 +204,9 @@ test("a Suspended Member gets a stable error on the Company's routes, and keeps 
   // Dora's own Company and Bruno's other one are unchanged.
   expect(await companyStatus(elsewhere.id, dora)).toBe(200);
   expect(await companyStatus(elsewhere.id, bruno)).toBe(200);
-  // She still sees it in her Companies and may leave it.
+  // She still sees it in her Companies.
   const companies = await api("/api/companies", { cookie: dora.cookie });
   expect(((await companies.json()) as { items: { id: string }[] }).items.map((item) => item.id)).toContain(acme.id);
-  expect((await api(`/api/companies/${acme.id}/leave`, { cookie: dora.cookie, method: "POST" })).status).toBe(204);
 });
 
 test("only the Owner lists the Suspended Members, and can remove one", async () => {
@@ -231,7 +234,7 @@ test("when Seats free up, the longest suspended comes back first, without the Ow
   for (const person of [bruno, carla, dani, edu]) await join(company.id, person);
   // Pro (3 Seats): Dani and Edu go first. Then the Subscription ends (1 Seat): Carla and Bruno follow, later.
   await setPlan(ana, PRO);
-  await somebodyLeaves(company.id);
+  await somebodyLeaves(company.id, ana);
   expect((await suspendedIn(company.id, ana)).sort()).toEqual(ids(dani, edu));
   await new Promise((resolve) => setTimeout(resolve, 20));
   await subscriptionEnds(stripeId);
@@ -239,7 +242,7 @@ test("when Seats free up, the longest suspended comes back first, without the Ow
 
   // Ana is back on Pro: two Seats are free, and they go to Dani and Edu, who have waited the longest.
   await subscribe(ana, PRO);
-  await somebodyLeaves(company.id);
+  await somebodyLeaves(company.id, ana);
 
   expect((await suspendedIn(company.id, ana)).sort()).toEqual(ids(bruno, carla));
   for (const person of [dani, edu]) expect(await companyStatus(company.id, person)).toBe(200);
@@ -271,7 +274,7 @@ test("Stripe ending a Subscription suspends, and buying a bigger Plan through Ch
   for (const guest of guests) expect(await companyStatus(company.id, guest)).toBe(200);
 });
 
-test("a Member who leaves frees a Seat for the person suspended", async () => {
+test("a Member removed frees a Seat for the person suspended", async () => {
   const ana = await signedInUser();
   const [bruno, carla] = (await people(2)) as [Person, Person];
   await subscribe(ana, TEAM);
@@ -280,11 +283,11 @@ test("a Member who leaves frees a Seat for the person suspended", async () => {
   await join(company.id, carla);
   // Back on the free Plan (one Seat): both go.
   await db.query(`DELETE FROM skeleton.subscriptions WHERE reference_id = '${ana.user.id}'`);
-  await somebodyLeaves(company.id);
+  await somebodyLeaves(company.id, ana);
   expect(await suspendedIn(company.id, ana)).toHaveLength(2);
   await subscribe(ana, PRO);
 
-  expect((await api(`/api/companies/${company.id}/leave`, { cookie: bruno.cookie, method: "POST" })).status).toBe(204);
+  expect((await removeMember(company.id, ana, bruno)).status).toBe(204);
 
   expect(await suspendedIn(company.id, ana)).toEqual([]);
   expect(await companyStatus(company.id, carla)).toBe(200);
@@ -320,7 +323,7 @@ test("a person suspended in one of the Owner's Companies is suspended in all of 
   // Back on the free Plan (one Seat): Bruno joined first and goes with Carla, who is in both Companies.
   await db.query(`DELETE FROM skeleton.subscriptions WHERE reference_id = '${ana.user.id}'`);
 
-  await somebodyLeaves(acme.id);
+  await somebodyLeaves(acme.id, ana);
 
   expect(await companyStatus(acme.id, carla)).toBe(403);
   expect(await companyStatus(globex.id, carla)).toBe(403);
