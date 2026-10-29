@@ -74,6 +74,11 @@ export class LocalCodeHost implements CodeHost {
     return pr && pr.state === "open" && pr.branch === branch ? this.view(pr) : null;
   }
 
+  /** Local mode has no merge: a ticket is done when a person says so. */
+  async mergedPrFor(_branch: string): Promise<PullRequest | null> {
+    return null;
+  }
+
   /** Local mode runs one ticket at a time: there is no list of pull requests to keep up to date. */
   async openPullRequests(): Promise<PullRequest[]> {
     return [];
