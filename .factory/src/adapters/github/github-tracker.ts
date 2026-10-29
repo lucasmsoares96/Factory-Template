@@ -47,6 +47,7 @@ export class GitHubTracker implements Tracker {
       title: row.title,
       body: row.body ?? "",
       state: row.state,
+      stateReason: row.state === "closed" ? (row.state_reason ?? null) : null,
       labels: row.labels.map(labelName),
       parent: parent ? { number: parent.number, body: parent.body ?? "" } : null,
       children: children.map((c) => c.number),
@@ -107,6 +108,10 @@ export class GitHubTracker implements Tracker {
 
   async updateIssue(number: number, body: string): Promise<void> {
     await this.api.send("PATCH", this.api.repoPath(`/issues/${number}`), { body: marked(body) });
+  }
+
+  async rewriteIssueBody(number: number, body: string): Promise<void> {
+    await this.api.send("PATCH", this.api.repoPath(`/issues/${number}`), { body });
   }
 
   createIssue(input: NewIssue): Promise<{ number: number; url: string | null }> {

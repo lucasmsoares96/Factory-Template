@@ -5,7 +5,7 @@ import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
 import { AgentSessionError, SessionLimitError } from "../src/seams/agent.ts";
 import { FakeCodeHost } from "../src/adapters/fake/fake-code-host.ts";
 import type { VerifyStep } from "../src/adapters/fake/fake-verify.ts";
-import { checkout, commitFile, commitFiles, git, lastJson, OWNER, tempDir, world, type WorldOptions } from "./helpers.ts";
+import { checkout, commitFile, commitFiles, git, lastJson, OWNER, tempDir, world, type WorldOptions, ISSUE_VERDICTS } from "./helpers.ts";
 
 const RUN_URL = "https://forge.test/actions/runs/42";
 const OLD_SHA = "0123456789abcdef0123456789abcdef01234567";
@@ -18,7 +18,7 @@ const developFile =
   };
 const develop = developFile("src/greet.ts", 'export const greet = () => "hi";\n');
 const review: AgentStep = () => ({
-  output: `<review>${JSON.stringify({ summary: "Reviewed.", inline: [{ path: "src/greet.ts", line: 1, body: "Fine." }] })}</review>`,
+  output: `<review>${JSON.stringify({ summary: "Reviewed.", inline: [{ path: "src/greet.ts", line: 1, body: "Fine." }], criteria: ISSUE_VERDICTS })}</review>`,
   usage: { inputTokens: 5_000, outputTokens: 500 },
 });
 const e2eFails: VerifyStep = { ok: false, failedCommand: "pnpm --filter example test:e2e", output: "x".repeat(6000) + "\nexpected 200, got 500" };

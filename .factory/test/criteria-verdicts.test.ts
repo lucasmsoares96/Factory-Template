@@ -52,15 +52,24 @@ describe("a verdict for each acceptance criterion", () => {
     expect(body.indexOf("## Acceptance criteria verdicts")).toBeLessThan(body.indexOf("Closes #7"));
   });
 
-  it("accepts a Review and a result.json without verdicts, and adds no verdicts section", async () => {
+  it("accepts an old result.json without verdicts at publish, and adds no verdicts section", async () => {
     const { result, pr } = await pipeline({
-      review: reviewing({}),
+      review: reviewing({ criteria: [met] }),
       edit: (r) => (r.review = { summary: "Reviewed.", inline: [], criteriaMetWithoutSkeleton: false }),
     });
 
-    expect(result).toMatchObject({ outcome: "ready", review: { criteria: [] } });
+    expect(result).toMatchObject({ outcome: "ready" });
     expect(pr.draft).toBe(false);
     expect(unmarked(pr.body)).not.toContain("verdicts");
+  });
+
+  it("is not ready when the final Review leaves a criterion without a verdict", async () => {
+    const { result, comments, pr } = await pipeline({ review: reviewing({}) });
+
+    expect(result).toMatchObject({ outcome: "escalated", reason: "needs-human" });
+    expect(result.question).toContain("no verdict for 1 of the 1 acceptance criteria");
+    expect(pr.draft).toBe(true);
+    expect(comments().find((c) => c.includes("factory:escalation"))).toContain("no verdict for 1 of the 1");
   });
 
   it("escalates a criterion that is not met as needs-human: a draft PR, and the issue says which criterion and why", async () => {

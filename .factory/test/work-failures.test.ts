@@ -6,7 +6,7 @@ import { AgentSessionError, SessionLimitError } from "../src/seams/agent.ts";
 import { FACTORY_MARKER } from "../src/marker.ts";
 import { ESCALATION_MARKER } from "../src/report.ts";
 import { continueMarker, waitMarker } from "../src/session-limit.ts";
-import { checkout, commitFile, git, manualClock, OWNER, readyIssue, tempDir, world, type WorldOptions } from "./helpers.ts";
+import { checkout, commitFile, git, manualClock, OWNER, readyIssue, tempDir, world, type WorldOptions, ISSUE_VERDICTS } from "./helpers.ts";
 
 let edits = 0;
 /** A Development session that commits one change. */
@@ -18,7 +18,7 @@ const develop: AgentStep = async ({ cwd }) => {
 
 const reviewSays =
   (summary: string, inline: { path: string; line: number; body: string }[] = []): AgentStep =>
-  () => ({ output: `<review>${JSON.stringify({ summary, inline })}</review>`, usage: { inputTokens: 5_000, outputTokens: 500 } });
+  () => ({ output: `<review>${JSON.stringify({ summary, inline, criteria: ISSUE_VERDICTS })}</review>`, usage: { inputTokens: 5_000, outputTokens: 500 } });
 
 const e2eFails = { ok: false, failedCommand: "pnpm --filter example test:e2e", output: "boom" };
 
