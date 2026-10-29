@@ -79,7 +79,10 @@ export function changePasswordHandler(answer?: Answer) {
   return handler("/change-password", answer ?? ok({ token: "new-session-token", user: { ...user("ana@example.com"), emailVerified: true } }));
 }
 
-/** `POST /api/auth/delete-user`: with the password; the Worker refuses an Owner with `OWNER_OF_COMPANIES` and the Companies. */
-export function deleteUserHandler(answer: Answer = ok({ success: true, message: "User deleted" })) {
+/**
+ * `POST /api/auth/delete-user`: with the password; the Worker archives the account, or refuses an Owner
+ * (`OWNER_OF_COMPANIES`) or a Member (`MEMBER_OF_COMPANIES`) with the Companies, and an active plan (`SUBSCRIPTION_ACTIVE`).
+ */
+export function deleteUserHandler(answer: Answer = ok({ code: "ACCOUNT_ARCHIVED", message: "Archived.", deleteAt: "2026-11-28T00:00:00.000Z" })) {
   return handler("/delete-user", answer);
 }
