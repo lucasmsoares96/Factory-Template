@@ -2,7 +2,11 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
-import { checkout, commitFile, git, manualClock, tempDir, world, type WorldOptions } from "./helpers.ts";
+import { AgentSessionError, SessionLimitError } from "../src/seams/agent.ts";
+import { FACTORY_MARKER } from "../src/marker.ts";
+import { ESCALATION_MARKER } from "../src/report.ts";
+import { continueMarker, waitMarker } from "../src/session-limit.ts";
+import { checkout, commitFile, git, manualClock, OWNER, readyIssue, tempDir, world, type WorldOptions } from "./helpers.ts";
 
 let edits = 0;
 /** A Development session that commits one change. */
@@ -18,7 +22,7 @@ const reviewSays =
 
 const e2eFails = { ok: false, failedCommand: "pnpm --filter example test:e2e", output: "boom" };
 
-async function setup(options: Pick<WorldOptions, "agent" | "verify" | "env" | "now">) {
+async function setup(options: Pick<WorldOptions, "agent" | "verify" | "env" | "now" | "issues">) {
   const repo = await checkout();
   const out = await tempDir("factory-out-");
   const w = world({ repo, ...options });
@@ -199,5 +203,114 @@ describe("factory work, when things go wrong", () => {
     ]);
     // 2 × (10k + 5k) input at $4/MTok + 2 × (1k + 500) output at $20/MTok = $0.12 + $0.06.
     expect(text).toContain("Tokens: 30,000 in / 3,000 out. Estimated cost: $0.18.");
+  });
+});
+
+/** A session that stops at the account's usage limit, as the Sandcastle Agent reports it. */
+const limitHit =
+  (resetsAt: string | null): AgentStep =>
+  () => {
+    throw new SessionLimitError(`Agent session 01-development failed: claude-code exited with code 1:\nYou've hit your session limit${resetsAt ? ` · resets ${resetsAt}` : ""}`, resetsAt);
+  };
+const at = (iso: string) => () => Date.parse(iso);
+
+describe("factory work, when an agent session fails", () => {
+  it("pauses at the session limit, keeping the commits and the reset time", async () => {
+    const { out, w, run } = await setup({
+      agent: { development: [develop, develop], review: [reviewSays("ok"), limitHit("3:20pm (UTC)")] },
+      verify: [e2eFails],
+      now: at("2026-10-28T14:00:00Z"),
+    });
+
+    const result = await run();
+
+    expect(result).toMatchObject({
+      outcome: "paused",
+      reason: null,
+      session: {
+        stage: "review",
+        message: expect.stringContaining("You've hit your session limit · resets 3:20pm (UTC)"),
+        limit: { resetsAt: "3:20pm (UTC)", resumeAt: "2026-10-28T15:20:00.000Z" },
+      },
+    });
+    expect(outline(result)).toEqual(["development:ok review:ok e2e:failed", "development:ok review:failed"]);
+    // The branch with both Development commits is in the bundle; no Pull Request Stage runs on a spent quota.
+    expect(result.head).not.toBeNull();
+    expect(await git(out, "bundle", "list-heads", "branch.bundle")).toContain(result.head);
+    expect(w.agent.calls.map((c) => c.stage)).toEqual(["development", "review", "development", "review"]);
+  });
+
+  it("waits for the next time the reset comes round, in the time zone Claude Code named", async () => {
+    const after = await setup({ agent: { development: [limitHit("3:20pm (UTC)")] }, now: at("2026-10-28T16:00:00Z") });
+    expect((await after.run()).session.limit.resumeAt).toBe("2026-10-29T15:20:00.000Z");
+    const zoned = await setup({ agent: { development: [limitHit("3pm (America/Sao_Paulo)")] }, now: at("2026-10-28T14:00:00Z") });
+    expect((await zoned.run()).session.limit.resumeAt).toBe("2026-10-28T18:00:00.000Z");
+    // A weekly limit names the day.
+    const dated = await setup({ agent: { development: [limitHit("Nov 3, 5pm (UTC)")] }, now: at("2026-10-28T14:00:00Z") });
+    expect((await dated.run()).session.limit.resumeAt).toBe("2026-11-03T17:00:00.000Z");
+  });
+
+  it("tries again an hour later when the reset time cannot be read", async () => {
+    for (const resetsAt of [null, "whenever"]) {
+      const { run } = await setup({ agent: { development: [limitHit(resetsAt)] }, now: at("2026-10-28T14:00:00Z") });
+      const result = await run();
+      expect(result).toMatchObject({ outcome: "paused", head: null, session: { stage: "development", limit: { resetsAt, resumeAt: "2026-10-28T15:00:00.000Z" } } });
+    }
+  });
+
+  it("escalates infra with the session's own message on any other session failure, keeping the commits", async () => {
+    const crash: AgentStep = () => {
+      throw new AgentSessionError("Agent session 02-review failed: claude-code exited with code 1:\nAPI Error: 500");
+    };
+    const { run } = await setup({ agent: { development: [develop], review: [crash] } });
+
+    const result = await run();
+
+    expect(result).toMatchObject({
+      outcome: "escalated",
+      reason: "infra",
+      session: { stage: "review", message: expect.stringContaining("API Error: 500"), limit: null },
+    });
+    expect(result.head).not.toBeNull();
+  });
+});
+
+describe("factory work, after a pause at the usage limit", () => {
+  /** A checkout whose remote branch holds the paused run's commit, and the Factory's comments on the issue. */
+  async function resumed(comments: (head: string) => string[]) {
+    const repo = await checkout();
+    await git(repo, "checkout", "--quiet", "--detach");
+    await commitFile(repo, "src/greet.ts", "export const greet = () => 1;\n", "feat: start greeting #7");
+    const head = await git(repo, "rev-parse", "HEAD");
+    await git(repo, "update-ref", "refs/remotes/origin/factory/issue-7", head);
+    await git(repo, "checkout", "--quiet", "main");
+    const issues = readyIssue({ comments: comments(head).map((body) => ({ author: OWNER, body: `${body}\n\n${FACTORY_MARKER}` })) });
+    const out = await tempDir("factory-out-");
+    const w = world({ repo, issues, agent: { development: [develop], review: [reviewSays("ok")] }, verify: [{ ok: true }] });
+    await w.tracker.swapLabel(7, "ready-for-agent", "in-progress");
+    expect(await w.factory("work", "7", "--out", out, "--repo", repo)).toBe(0);
+    const result = JSON.parse(await readFile(join(out, "result.json"), "utf8"));
+    return { result, repo, w, log: await git(repo, "log", "--format=%s", `${result.base}..${result.head}`) };
+  }
+  const wait = (head: string) => waitMarker({ flow: "issue", resumeAt: "2026-10-28T15:20:00.000Z", head, pr: null });
+
+  it("continues from the commits the paused run kept, not from the base branch", async () => {
+    const { result, log, w } = await resumed((head) => [wait(head)]);
+
+    expect(result.outcome).toBe("ready");
+    expect(log.split("\n")).toEqual([expect.stringMatching(/^feat: greet the user #7/), "feat: start greeting #7"]);
+    expect(w.agent.calls[0]!.prompt).toContain("feat: start greeting #7");
+  });
+
+  it("continues from the commits a failed session's Escalation kept, when the retry comes", async () => {
+    const { log } = await resumed((head) => [`${ESCALATION_MARKER}\n${continueMarker(head)}\n**Factory escalation (\`infra\`):** …`]);
+
+    expect(log).toContain("feat: start greeting #7");
+  });
+
+  it("starts from the base branch when an Escalation came after the pause", async () => {
+    const { log } = await resumed((head) => [wait(head), `${ESCALATION_MARKER}\n**Factory escalation (\`infra\`):** …`]);
+
+    expect(log).not.toContain("feat: start greeting #7");
   });
 });
