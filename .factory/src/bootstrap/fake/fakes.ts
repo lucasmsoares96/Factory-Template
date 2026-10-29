@@ -91,6 +91,20 @@ export class FakeGitHub implements GitHubClient {
     this.issues.set(number, { title, body, labels: [...labels], url: `https://github.com/owner/repo/issues/${number}` });
     return number;
   }
+  /** The state of `factory-resume.yml`; null: the repo has no such workflow. */
+  resumeSweep: boolean | null = null;
+  /** Open items under each label, as `countLabeled` returns them. */
+  readonly labeledCounts = new Map<string, number>();
+  async resumeSweepEnabled(): Promise<boolean | null> {
+    return this.resumeSweep;
+  }
+  async setResumeSweep(enabled: boolean): Promise<void> {
+    this.writes++;
+    this.resumeSweep = enabled;
+  }
+  async countLabeled(label: string): Promise<number> {
+    return this.labeledCounts.get(label) ?? 0;
+  }
   async createIssue(input: { title: string; body: string; labels: string[] }): Promise<IssueRef> {
     this.deleting("create-issue");
     for (const l of input.labels) if (!this.labels.has(l)) throw new Error(`gh issue create failed: label ${l} does not exist (HTTP 422)`);
