@@ -24,6 +24,7 @@ type Json = Record<string, any>;
 type Obj = StoredObject & Json;
 
 const MONTH_PRICE = { currency: "usd", interval: "month" } as const;
+const TRIAL_WARNING = 3 * 24 * 60 * 60;
 const FAILING = "setting_failing";
 const CLOCK = "setting_clock";
 
@@ -213,24 +214,26 @@ export class FakeStripe {
       customerId = customer.id;
     }
     const now = await this.now();
+    const trialDays = Number(session.subscription_data.trial_period_days ?? 0);
+    const trialEnd = trialDays > 0 ? now + trialDays * 24 * 60 * 60 : null;
     const items = [];
     for (const line of session.line_items as { price: string; quantity: number }[]) {
       const price = (await this.store.get<Obj>("price", line.price))!;
-      items.push({ id: id("si"), object: "subscription_item", price, quantity: line.quantity, current_period_start: now, current_period_end: addMonth(now) });
+      items.push({ id: id("si"), object: "subscription_item", price, quantity: line.quantity, current_period_start: now, current_period_end: trialEnd ?? addMonth(now) });
     }
     const subscription: Obj = {
       id: id("sub"),
       object: "subscription",
       customer: customerId,
-      status: "active",
+      status: trialEnd ? "trialing" : "active",
       metadata: session.subscription_data.metadata ?? {},
       items: { object: "list", data: items, has_more: false, url: "/v1/subscription_items" },
       cancel_at_period_end: false,
       cancel_at: null,
       canceled_at: null,
       ended_at: null,
-      trial_start: null,
-      trial_end: null,
+      trial_start: trialEnd ? now : null,
+      trial_end: trialEnd,
       schedule: null,
       created: now,
     };
@@ -263,15 +266,21 @@ export class FakeStripe {
 
   /**
    * Moves Stripe's clock forward and lets every Subscription whose period ended
-   * renew (or end, when it was set to cancel at the period's end). With
+   * renew (or end, when it was set to cancel at the period's end). A trial ends
+   * the same way, with the first charge, and sends `trial_will_end` once its end
+   * is 3 days away. With
    * `paymentFails` the renewals fail instead and the Subscriptions go past due.
    */
   async advance(seconds: number, { paymentFails = false }: { paymentFails?: boolean } = {}) {
     const clock = await this.store.get<Obj>("setting", CLOCK);
     await this.store.put("setting", { id: CLOCK, offset: (clock?.offset ?? 0) + seconds });
     const now = await this.now();
-    for (const sub of await this.store.list<Obj>("subscription")) {
+    for (let sub of await this.store.list<Obj>("subscription")) {
       if (!["active", "trialing", "past_due"].includes(sub.status)) continue;
+      if (sub.status === "trialing" && !sub.trial_warned && sub.trial_end - TRIAL_WARNING <= now) {
+        sub = await this.store.put("subscription", { ...sub, trial_warned: true });
+        await this.emit("customer.subscription.trial_will_end", sub);
+      }
       const item = sub.items.data[0];
       if (!item || item.current_period_end > now) continue;
       if (sub.cancel_at_period_end) {
@@ -312,6 +321,15 @@ export class FakeStripe {
   async subscriptions(): Promise<{ id: string; status: string; cancelAtPeriodEnd: boolean }[]> {
     const all = await this.store.list<Obj>("subscription");
     return all.map((sub) => ({ id: sub.id, status: sub.status, cancelAtPeriodEnd: sub.cancel_at_period_end }));
+  }
+
+  /** Merges `metadata` into a product, as an operator editing a Plan in the dashboard. Answers whether the product exists. */
+  async patchProduct(productId: string, metadata: Record<string, string>) {
+    await this.seedCatalog();
+    const product = await this.store.get<Obj>("product", productId);
+    if (!product) return false;
+    await this.store.put("product", { ...product, metadata: { ...product.metadata, ...metadata } });
+    return true;
   }
 
   async setFailing(on: boolean) {
