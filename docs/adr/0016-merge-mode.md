@@ -3,7 +3,7 @@
 Every Factory pull request waited for a person at the Merge Gate, the low-risk ones too, and a merge into `main` deploys to production. How much of that to hand over is now the owner's explicit choice, the Merge Mode, kept in the `FACTORY_MERGE_MODE` variable:
 
 - `human` (the default): the Factory merges nothing. A person merges at the Merge Gate, as before.
-- `safe`: the Factory merges a ready pull request of a `factory/issue-N` branch, up to date with `main`, only when every condition holds: no file of its diff is in the protected list, `verify` passed, no preview job failed (a pull request without a preview has nothing to smoke), every acceptance criterion has a met verdict in the body, and the last deploy of `main` did not fail.
+- `safe`: the Factory merges a ready pull request of a `factory/issue-N` branch, up to date with `main`, only when every condition holds: no file of its diff is in the protected list, `verify` passed, no preview job failed (a pull request without a preview has nothing to smoke), every acceptance criterion has a met verdict in the body, and the last deploy of `main` did not fail. A door declared `one-way` also holds the merge: the `**Door:**` field of the pull request's Merge Danger section, or the door of the issue's Triage comment (`<!-- factory:triage -->`). It can only make `safe` more cautious: a wrong "two-way" is still caught by the protected list.
 
 How it is built:
 
@@ -22,7 +22,7 @@ How it is built:
 
 ## Consequences
 
-- In `safe`, a pull request that touches only Product code reaches production with no person looking. The Review, `verify`, the preview smoke and the verdicts are the brakes; a person still reviews everything protected, which covers the one-way doors (migrations, dependencies, the Skeleton) and the Factory's own rules.
+- In `safe`, a pull request that touches only Product code reaches production with no person looking. The Review, `verify`, the preview smoke and the verdicts are the brakes; a person still reviews everything protected, which covers the one-way doors (migrations, dependencies, the Skeleton) and the Factory's own rules; a one-way door in Product code is covered only when the pull request or the Triage declares it.
 - The verdicts are read from the pull request body: a person who edits them there decides for the Factory.
 - `FACTORY_TOKEN` acts as the owner, an admin who bypasses the ruleset, so the command itself refuses a head behind `main`; the update-branch scan brings it up to date, its checks run again, and the decision is made again on the new head.
 - The verdicts are read from the last verdicts section of the body, the one `publish` writes after the agent's text, so a heading in that text cannot stand in for them.
