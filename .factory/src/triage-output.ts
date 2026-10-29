@@ -5,6 +5,7 @@ import type { FactoryConfig } from "./config.ts";
 import { TRIAGE_MARKER } from "./guard.ts";
 import { messages, type Language } from "./messages.ts";
 import { MAX_EXTRACTION_RETRIES, type Extraction } from "./seams/agent.ts";
+import { sessionFailureSchema } from "./session-limit.ts";
 
 /**
  * The Triage session ends its final message with
@@ -57,6 +58,8 @@ export const triageResultSchema = z.object({
   issues: z.array(verdictSchema),
   usage: z.object({ inputTokens: z.number().int().nonnegative(), outputTokens: z.number().int().nonnegative() }),
   retries: z.number().int().nonnegative(),
+  /** The session stopped at the agent's usage limit: these issues stay in Triage until the reset. `.default`: old files stay valid. */
+  paused: z.object({ issues: z.array(z.number().int().positive()), session: sessionFailureSchema }).nullable().default(null),
 });
 export type TriageResult = z.infer<typeof triageResultSchema>;
 export const TRIAGE_FILE = "triage.json";
