@@ -2,6 +2,7 @@ import type { FactoryConfig } from "./config.ts";
 import type { CriterionVerdict, FactoryResult, StageRecord } from "./result.ts";
 import { messages, type Language } from "./messages.ts";
 import type { Usage } from "./seams/agent.ts";
+import { continueMarker, stageName } from "./session-limit.ts";
 
 /**
  * Human-readable reports of a run: the job summary, the attempt lines of an
@@ -67,7 +68,15 @@ export function costFooter(result: FactoryResult, pricing: FactoryConfig["pricin
 
 /** Job summary: one row per attempt and Stage, then the token/cost line. It is the run's page, not public text: always English. */
 export function summaryMarkdown(result: FactoryResult, config: FactoryConfig): string {
-  const verdict = result.outcome === "escalated" ? `escalated (${result.reason})` : result.outcome === "waiting" ? "waiting on the Skeleton" : "ready";
+  const limit = result.session?.limit;
+  const verdict =
+    result.outcome === "escalated"
+      ? `escalated (${result.reason})`
+      : result.outcome === "waiting"
+        ? "waiting on the Skeleton"
+        : result.outcome === "paused"
+          ? `paused at the session limit (resets ${limit?.resetsAt ?? "at an unknown time"}; starts again after ${limit?.resumeAt})`
+          : "ready";
   const rows = result.attempts.flatMap((a) =>
     a.stages.map((s) =>
       [a.number, STAGE[s.stage], stageOutcome(s, "en"), duration(s.durationMs), s.commits ?? "", s.usage ? tokens(s.usage) : ""].join(" | "),
@@ -174,12 +183,16 @@ export function escalationComment(report: EscalationReport, config: FactoryConfi
   const { result } = report;
   const { language } = config;
   const m = messages(language);
-  const lines = [ESCALATION_MARKER, m.escalationTitle(report.reason, headline(report, config))];
+  // A failed session is no verdict on the work: the retry of an issue run continues from its commits.
+  const kept = result?.session && result.head && result.flow === "issue" ? result.head : null;
+  const lines = [ESCALATION_MARKER, ...(kept ? [continueMarker(kept)] : []), m.escalationTitle(report.reason, headline(report, config))];
   if (result?.question) lines.push("", m.question(result.question));
   const unmet = unmetCriteria(result);
   if (unmet.length > 0) lines.push("", m.criteriaUnmet(), ...unmet.map((v) => `- ${verdictText(v)}`));
   if (report.followUps?.length) lines.push("", followUpComment(report.followUps, language));
   if (report.detail) lines.push("", fence(report.detail, "text"));
+  // A session that failed outside the attempts (resolving a merge) has no Stage output to show its message.
+  if (result?.session && !result.attempts.some((a) => a.stages.some((s) => s.failedCommand === "agent session"))) lines.push("", fence(result.session.message, "text"));
   if (result && result.attempts.length > 0) {
     lines.push("", m.attempts(), ...result.attempts.map((a) => `- ${attemptLine(a, language)}`));
     if (result.pullRequestStage) lines.push(m.pullRequestStageLine(pullRequestOutcome(result.pullRequestStage)));
@@ -194,7 +207,7 @@ export function escalationComment(report: EscalationReport, config: FactoryConfi
   if (report.runUrl) lines.push(m.workflowRun(report.runUrl));
   // A round keeps its ready PR: re-adding ready-for-agent would close it and start over from the base branch.
   if (round) lines.push("", m.retryRound(round.number, config.labels.inProgress, config.labels.readyForHuman));
-  else lines.push("", m.retry(config.labels.readyForAgent, config.baseBranch));
+  else lines.push("", kept ? m.retryContinue(config.labels.readyForAgent, result!.branch) : m.retry(config.labels.readyForAgent, config.baseBranch));
   if (result) lines.push("", costFooter(result, config.pricing, language));
   return lines.join("\n");
 }
@@ -210,7 +223,7 @@ function headline(report: EscalationReport, config: FactoryConfig): string {
       // No question from a Stage: the run stopped on the Review's verdicts.
       return !report.result?.question && unmetCriteria(report.result).length > 0 ? m.headlineCriteriaUnmet() : m.headlineNeedsHuman();
     case "infra":
-      return m.headlineInfra();
+      return report.result?.session ? m.headlineSessionFailed(stageName(report.result.session.stage)) : m.headlineInfra();
   }
 }
 
