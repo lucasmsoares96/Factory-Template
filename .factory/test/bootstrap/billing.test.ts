@@ -6,7 +6,8 @@ import { TOKEN, world } from "./helpers.ts";
 
 const SANDBOX = "rk_test_sandbox1";
 const LIVE = "rk_live_real1";
-const ENV = { CLOUDFLARE_API_TOKEN: TOKEN, CLOUDFLARE_ACCOUNT_ID: "acc-1", STRIPE_SANDBOX_KEY: SANDBOX, STRIPE_LIVE_KEY: LIVE };
+const CI = "rk_test_ci1";
+const ENV = { CLOUDFLARE_API_TOKEN: TOKEN, CLOUDFLARE_ACCOUNT_ID: "acc-1", STRIPE_SANDBOX_KEY: SANDBOX, STRIPE_LIVE_KEY: LIVE, STRIPE_CI_KEY: CI };
 
 const answers = (): Record<string, string | boolean | string[]> => ({
   "billing-currency": "usd",
@@ -30,7 +31,7 @@ function billingWorld(extra: Record<string, string | boolean | string[]> = {}, e
   for (const label of labelSpecs(w.deps.config)) w.github.labels.set(label.name, label);
   w.github.environments.set("example-production", "main");
   w.github.environments.set("example-preview", "main");
-  w.stripe.keys.add(SANDBOX).add(LIVE);
+  w.stripe.keys.add(SANDBOX).add(LIVE).add(CI);
   return w;
 }
 
@@ -106,26 +107,28 @@ describe("pnpm bootstrap billing", () => {
   });
 
   it("prints a creation link per key with the name and every permission, and asks for the keys hidden", async () => {
-    const w = billingWorld({ "stripe-sandbox-key": SANDBOX, "stripe-live-key": LIVE }, { ...ENV, STRIPE_SANDBOX_KEY: undefined, STRIPE_LIVE_KEY: undefined });
+    const w = billingWorld({ "stripe-sandbox-key": SANDBOX, "stripe-live-key": LIVE, "stripe-ci-key": CI }, { ...ENV, STRIPE_SANDBOX_KEY: undefined, STRIPE_LIVE_KEY: undefined, STRIPE_CI_KEY: undefined });
 
     const { code } = await w.run("billing", "example");
 
     expect(code).toBe(0);
     const links = w.prompter.printed.filter((line) => line.startsWith("https://dashboard.stripe.com/"));
-    expect(links).toHaveLength(2);
+    expect(links).toHaveLength(3);
     for (const link of links) {
-      expect(link).toMatch(/\/apikeys\/create\?name=example-billing-(sandbox|live)&/);
+      expect(link).toMatch(/\/apikeys\/create\?name=example-billing-(sandbox|live|ci)&/);
       for (const permission of BILLING_PERMISSIONS) expect(link).toContain(`permissions[]=${permission}`);
     }
     expect(links[0]).toContain("/test/apikeys");
     expect(links[1]).not.toContain("/test/");
+    expect(links[2]).toContain("/test/apikeys");
+    expect(links[2]).toContain("name=example-billing-ci&");
     expect(everythingShown(w)).not.toContain(LIVE);
   });
 
   it("refuses a key of the other account or one lacking a permission, and asks again", async () => {
     const w = billingWorld(
-      { "stripe-sandbox-key": [LIVE, "rk_test_narrow", SANDBOX], "stripe-live-key": LIVE },
-      { ...ENV, STRIPE_SANDBOX_KEY: undefined, STRIPE_LIVE_KEY: undefined },
+      { "stripe-sandbox-key": [LIVE, "rk_test_narrow", SANDBOX], "stripe-live-key": LIVE, "stripe-ci-key": [SANDBOX, CI] },
+      { ...ENV, STRIPE_SANDBOX_KEY: undefined, STRIPE_LIVE_KEY: undefined, STRIPE_CI_KEY: undefined },
     );
     w.stripe.keys.add("rk_test_narrow");
     w.stripe.lacking.set("rk_test_narrow", ["rak_webhook_write"]);
@@ -136,6 +139,8 @@ describe("pnpm bootstrap billing", () => {
     expect(output).toContain("That is a live key; this one must be from the sandbox");
     expect(output).toContain("The key lacks rak_webhook_write");
     expect(w.github.environmentSecrets.get("example-preview")!.get("EXAMPLE_PREVIEW_STRIPE_SECRET_KEY")).toBe(SANDBOX);
+    expect(output).toContain("the CI sandbox must be another one");
+    expect(w.github.secrets.get("STRIPE_CI_KEY")).toBe(CI);
   });
 
   it("asks nothing and writes nothing on a rerun", async () => {
@@ -256,7 +261,7 @@ describe("pnpm bootstrap doctor: billing", () => {
   });
 
   it("reports a partly set up module as missing, and skips what needs a key it does not have", async () => {
-    const w = billingWorld({}, { ...ENV, STRIPE_SANDBOX_KEY: undefined, STRIPE_LIVE_KEY: undefined });
+    const w = billingWorld({}, { ...ENV, STRIPE_SANDBOX_KEY: undefined, STRIPE_LIVE_KEY: undefined, STRIPE_CI_KEY: undefined });
     w.deps.interactive = false;
     w.github.environmentSecrets.set("example-production", new Map([["EXAMPLE_STRIPE_SECRET_KEY", LIVE]]));
 
@@ -268,6 +273,62 @@ describe("pnpm bootstrap doctor: billing", () => {
   });
 });
 
+describe("the CI sandbox key (contract test)", () => {
+  it("is stored once as a repo secret, not in an environment, and never shown", async () => {
+    const w = billingWorld();
+
+    const { code } = await w.run("billing", "example");
+
+    expect(code).toBe(0);
+    expect(w.github.secrets.get("STRIPE_CI_KEY")).toBe(CI);
+    for (const env of w.github.environmentSecrets.values()) expect(env.has("STRIPE_CI_KEY")).toBe(false);
+    expect(everythingShown(w)).not.toContain(CI);
+  });
+
+  it("is asked only when the repo secret does not exist: not on a rerun, and not for a second Product", async () => {
+    const w = billingWorld({}, { ...ENV, STRIPE_CI_KEY: undefined });
+    w.github.secrets.set("STRIPE_CI_KEY", CI);
+
+    const { code } = await w.run("billing", "example");
+
+    expect(code).toBe(0);
+    expect(w.prompter.asked).not.toContain("stripe-ci-key");
+    expect(w.github.secrets.get("STRIPE_CI_KEY")).toBe(CI);
+  });
+
+  it("asks for it when the secret is missing, with a link to a sandbox key, and refuses the key Previews use", async () => {
+    const w = billingWorld({ "stripe-ci-key": [SANDBOX, CI] }, { ...ENV, STRIPE_CI_KEY: undefined });
+
+    const { code, output } = await w.run("billing", "example");
+
+    expect(code).toBe(0);
+    expect(w.prompter.asked.filter((id) => id === "stripe-ci-key")).toHaveLength(2);
+    expect(output).toContain("the CI sandbox must be another one");
+    expect(w.github.secrets.get("STRIPE_CI_KEY")).toBe(CI);
+  });
+
+  it("is made again by --redo ci-key", async () => {
+    const w = billingWorld();
+    await w.run("billing", "example");
+    w.github.secrets.set("STRIPE_CI_KEY", "old");
+
+    const { code } = await w.run("billing", "example", "--redo", "ci-key");
+
+    expect(code).toBe(0);
+    expect(w.github.secrets.get("STRIPE_CI_KEY")).toBe(CI);
+  });
+
+  it("is a warning in the doctor when missing", async () => {
+    const w = billingWorld();
+    await w.run("billing", "example");
+    w.github.secrets.delete("STRIPE_CI_KEY");
+
+    const { output } = await w.run("doctor", "example");
+
+    expect(output).toMatch(/warn\s+STRIPE_CI_KEY/);
+  });
+});
+
 describe("pnpm bootstrap env and all", () => {
   it("env lists the variables of the module", async () => {
     const w = billingWorld();
@@ -275,7 +336,7 @@ describe("pnpm bootstrap env and all", () => {
     const { code, output } = await w.run("env", "example");
 
     expect(code).toBe(0);
-    for (const name of ["STRIPE_SANDBOX_KEY", "STRIPE_LIVE_KEY", "EXAMPLE_STRIPE_SECRET_KEY", "EXAMPLE_STRIPE_WEBHOOK_SECRET", "EXAMPLE_PREVIEW_STRIPE_SECRET_KEY", "EXAMPLE_BILLING_PLANS", "EXAMPLE_BILLING_SYNCED"]) {
+    for (const name of ["STRIPE_SANDBOX_KEY", "STRIPE_LIVE_KEY", "STRIPE_CI_KEY", "EXAMPLE_STRIPE_SECRET_KEY", "EXAMPLE_STRIPE_WEBHOOK_SECRET", "EXAMPLE_PREVIEW_STRIPE_SECRET_KEY", "EXAMPLE_BILLING_PLANS", "EXAMPLE_BILLING_SYNCED"]) {
       expect(output).toContain(name);
     }
   });

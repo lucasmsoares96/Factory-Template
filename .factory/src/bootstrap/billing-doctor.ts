@@ -1,4 +1,4 @@
-import { billingNames, webhookUrl } from "./billing.ts";
+import { billingNames, CI_KEY_SECRET, webhookUrl } from "./billing.ts";
 import { keyMode, type KeyMode } from "./billing-permissions.ts";
 import type { StripeClient, StripePlanState } from "./clients.ts";
 import { secretScope } from "./domain.ts";
@@ -54,6 +54,7 @@ export async function billingChecks(
   const redo = `run \`pnpm bootstrap billing ${id}\``;
   const have = await visibleSecrets(ctx, id);
   for (const name of [names.sandboxKey, names.liveKey, names.webhookSecret]) add(have.has(name) ? "ok" : "missing", name, have.has(name) ? undefined : redo);
+  add(have.has(CI_KEY_SECRET) ? "ok" : "warn", CI_KEY_SECRET, have.has(CI_KEY_SECRET) ? undefined : `${redo} --redo ci-key (the weekly Stripe contract test has no key)`);
   add(variables[names.plans] ? "ok" : "missing", names.plans, variables[names.plans] ? undefined : redo);
   add(variables[names.synced] === "true" ? "ok" : "missing", names.synced, variables[names.synced] === "true" ? undefined : `${redo} (writes the plans)`);
 
