@@ -32,6 +32,8 @@ export interface BootstrapDeps {
   product: (id: string) => Promise<ProductIdentity>;
   /** The ids of the Products in `apps/`, sorted. */
   listProducts: () => Promise<string[]>;
+  /** `owner/name` of the `origin` remote of the clone, `undefined` when there is none. */
+  origin?: () => Promise<string | undefined>;
   sleep: (ms: number) => Promise<void>;
   prompter: Prompter;
   env: Record<string, string | undefined>;
