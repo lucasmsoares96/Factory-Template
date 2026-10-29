@@ -16,8 +16,8 @@ import { clackPrompter } from "./prompter.ts";
 import { domainSteps } from "./domain.ts";
 import { FACTORY_ENABLED, factorySteps } from "./factory.ts";
 import { offerExample } from "./example.ts";
-import { productionSteps } from "./product.ts";
-import { PREVIEWS_ENABLED, previewSteps } from "./previews.ts";
+import { DEPLOY_PRODUCTS, parseProductList, productionSteps } from "./product.ts";
+import { PREVIEW_PRODUCTS, PREVIEWS_ENABLED, previewSteps } from "./previews.ts";
 import { ResendApi } from "./resend.ts";
 import { StripeApi } from "./stripe.ts";
 import { BILLING_MISSING_FEATURE, billingEnvironment, billingSteps } from "./billing.ts";
@@ -41,7 +41,7 @@ Commands:
                          in as it), the Resend domain (deferrable), the ruleset on main and the id
                          in DEPLOY_PRODUCTS.
                          Neon signs in through your browser (or NEON_API_KEY in the environment); the login
-                         is temporary and removed when the command ends. Turns DEPLOY_ENABLED on once the
+                         is kept (Neon's saved login stays on this machine). Turns DEPLOY_ENABLED on once the
                          doctor of the Product passes.
   previews <id>          Per Product, the Previews module (needs the Production module first): the Neon project
                          <id>-preview with default branch base, a Neon API key limited to it (minted with your
@@ -54,7 +54,9 @@ Commands:
                          payment methods and Customer Portal written to both accounts, and the real account's events
                          endpoint. The deploy hands the key and the endpoint secret to the Worker once all are set.
   env <id>               Lists the variables, secrets and environment variables of the billing module.
-  all <id>               The Production module, then asks whether to set billing up now.
+  all <id>               The whole setup in order: the common part, product, previews and factory, then asks whether
+                         to set the domain up (optional) and, if the Product lists the billing Feature, billing. Stops
+                         at the first module whose doctor fails; run it again after fixing what the doctor lists.
   factory                The Factory module (after the common part): your own fine-grained token, limited to this
                          repository (the one thing asked, once, hidden; a pre-filled link is printed, and it goes straight
                          to the FACTORY_TOKEN secret), and Claude's auth taken from CLAUDE_CODE_OAUTH_TOKEN or
@@ -85,7 +87,8 @@ Options:
                          for the factory command: labels, factory-token (asks for the token again), claude-auth, auto-merge,
                          merge-mode (asks the Merge Mode again).
 
-The wizard ends by running the doctor with the credentials it already holds, so one run is enough.
+The wizard ends by running the doctor with the credentials it already holds, so one run is enough, and
+every command ends with a "next: ..." line naming the command to run next (none when everything is done).
 Run \`pnpm bootstrap doctor [<id>]\` on its own whenever something looks off; it checks Cloudflare with
 wrangler's saved login (or CLOUDFLARE_API_TOKEN) and never opens a browser; with no RESEND_API_KEY it asks once, hidden and not stored.
 Only \`gh\` (logged in with \`gh auth login\`) must be installed. Nothing is written to disk, secrets included.`;
@@ -104,14 +107,15 @@ export async function runBootstrap(argv: string[], deps: BootstrapDeps): Promise
     return 1;
   }
   if (!(await chooseTarget(deps, values.repo))) return 1;
-  return dispatch(positionals, values.redo ?? [], deps);
+  return dispatch(positionals, values.redo ?? [], deps, true);
 }
 
 const COMMANDS = ["destroy", "domain", "env", "billing", "all", "previews", "product", "factory", "doctor"];
 
-async function dispatch(positionals: string[], redo: string[], deps: BootstrapDeps): Promise<number> {
+async function dispatch(positionals: string[], redo: string[], deps: BootstrapDeps, announce = false): Promise<number> {
   const [command, productId] = positionals;
   const values = { redo };
+  const ran = announce ? positionals.filter(Boolean).join(" ") : undefined;
 
   if (command === "destroy") {
     const memory: StepContext["memory"] = {};
@@ -130,7 +134,7 @@ async function dispatch(positionals: string[], redo: string[], deps: BootstrapDe
     if (!product) return 1;
     const memory: StepContext["memory"] = {};
     await runSteps(domainSteps(product), { ...deps, memory }, values.redo);
-    return finish(deps, productId, memory, { production: false, previews: false });
+    return finish(deps, productId, memory, { production: false, previews: false }, undefined, ran);
   }
   if (command === "env") {
     if (!productId) {
@@ -147,22 +151,14 @@ async function dispatch(positionals: string[], redo: string[], deps: BootstrapDe
     }
     const product = await productOrAsk(deps, productId);
     if (!product) return 1;
-    return runBilling(deps, product, values.redo);
+    return runBilling(deps, product, values.redo, ran);
   }
   if (command === "all") {
     if (!productId) {
       deps.log(`Usage: pnpm bootstrap all <id>`);
       return 1;
     }
-    const code = await dispatch(["product", productId], values.redo, deps);
-    if (code !== 0 || !deps.interactive) return code;
-    const product = await productOrAsk(deps, productId);
-    if (!product?.billing) return code;
-    if (!(await deps.prompter.confirm({ id: "billing-setup", message: `Set up billing for ${productId} now (Stripe keys, plans, events endpoint)?`, initial: false }))) {
-      deps.log(`Billing skipped. Run when you want it: pnpm bootstrap billing ${productId}`);
-      return code;
-    }
-    return runBilling(deps, product, []);
+    return runAll(deps, productId, values.redo);
   }
   if (command === "previews") {
     if (!productId) {
@@ -174,7 +170,7 @@ async function dispatch(positionals: string[], redo: string[], deps: BootstrapDe
     const memory: StepContext["memory"] = {};
     try {
       await runSteps(previewSteps(product), { ...deps, memory }, values.redo);
-      return await finish(deps, productId, memory, { production: false, domain: false, previews: true }, PREVIEWS_ENABLED);
+      return await finish(deps, productId, memory, { production: false, domain: false, previews: true }, PREVIEWS_ENABLED, ran);
     } finally {
       await memory.neon?.close();
     }
@@ -189,7 +185,7 @@ async function dispatch(positionals: string[], redo: string[], deps: BootstrapDe
     const memory: StepContext["memory"] = {};
     try {
       await runSteps(productionSteps(product), { ...deps, memory }, values.redo);
-      const code = await finish(deps, productId, memory, { production: true, previews: false }, "DEPLOY_ENABLED");
+      const code = await finish(deps, productId, memory, { production: true, previews: false }, "DEPLOY_ENABLED", ran);
       deps.log(`After the first deploy, attach the domain with: pnpm bootstrap domain ${productId} --redo worker-domain`);
       return code;
     } finally {
@@ -199,7 +195,7 @@ async function dispatch(positionals: string[], redo: string[], deps: BootstrapDe
   if (command === "factory") {
     const memory: StepContext["memory"] = {};
     await runSteps(factorySteps, { ...deps, memory }, values.redo);
-    const code = await finish(deps, undefined, memory, { production: false, domain: false, previews: false, factory: true, cloudflare: false }, FACTORY_ENABLED);
+    const code = await finish(deps, undefined, memory, { production: false, domain: false, previews: false, factory: true, cloudflare: false }, FACTORY_ENABLED, ran);
     // Only a Factory that passed the doctor and is switched on can solve an example issue.
     if (code !== 0 || !deps.interactive || (await deps.github.listVariables())[FACTORY_ENABLED] !== "true") return code;
     return offerExample({ ...deps, memory });
@@ -217,18 +213,18 @@ async function dispatch(positionals: string[], redo: string[], deps: BootstrapDe
 
   const memory: StepContext["memory"] = {};
   await runSteps(commonSteps, { ...deps, memory }, values.redo);
-  return finish(deps, undefined, memory);
+  return finish(deps, undefined, memory, undefined, undefined, ran);
 }
 
 /** The billing module: steps, then the doctor of the Product with the keys the run holds. */
-async function runBilling(deps: BootstrapDeps, product: ProductIdentity, redo: string[]): Promise<number> {
+async function runBilling(deps: BootstrapDeps, product: ProductIdentity, redo: string[], ran?: string): Promise<number> {
   if (!product.billing) {
     deps.log(BILLING_MISSING_FEATURE(product.id));
     return 1;
   }
   const memory: StepContext["memory"] = {};
   await runSteps(billingSteps(product), { ...deps, memory }, redo);
-  return finish(deps, product.id, memory, { production: false, domain: false, previews: false, billing: true, cloudflare: false });
+  return finish(deps, product.id, memory, { production: false, domain: false, previews: false, billing: true, cloudflare: false }, undefined, ran);
 }
 
 /** The Product's identity; an empty `domain` is asked for (for this run only). `undefined` when the Product does not exist. */
@@ -255,6 +251,8 @@ async function finish(
   sections: Sections = { production: true },
   /** The module switch to turn on when the doctor passes (`DEPLOY_ENABLED` or `PREVIEWS_ENABLED`). */
   enable?: "DEPLOY_ENABLED" | "PREVIEWS_ENABLED" | "FACTORY_ENABLED",
+  /** The command line that ran (`product example`): when set, the run ends with the "next:" line. `all` sets none and prints its own. */
+  ran?: string,
 ): Promise<number> {
   deps.log("\nChecking everything:\n");
   let report = await doctor(deps, productId, memory, sections, { prompt: false });
@@ -283,7 +281,65 @@ async function finish(
     if (switchedOn) deps.log("FACTORY_ENABLED=true: an issue labelled ready-for-agent by someone with write access now becomes a pull request.");
     else if (!report.ok) deps.log("FACTORY_ENABLED stays off: fix what the doctor lists as missing and run this command again.");
   }
+  if (ran !== undefined) await logNext(deps, productId, report.ok ? undefined : ran);
   return report.ok ? 0 : 1;
+}
+
+/**
+ * The "next:" line: the command to run after this one, from the state of the repository. When the doctor of the
+ * command failed (`again`), it is the same command, once what the doctor lists is fixed. Nothing when all is done.
+ */
+async function logNext(deps: BootstrapDeps, productId: string | undefined, again?: string): Promise<void> {
+  const next = again !== undefined ? `pnpm bootstrap ${again}`.trim() : await nextCommand(deps, productId);
+  if (next) deps.log(`next: ${next}`);
+}
+
+async function nextCommand(deps: BootstrapDeps, productId: string | undefined): Promise<string | undefined> {
+  const [secrets, variables] = await Promise.all([deps.github.listSecrets(), deps.github.listVariables()]);
+  const id = productId ?? "<id>";
+  const listed = (name: string) => productId !== undefined && parseProductList(variables[name]).includes(productId);
+  if (!secrets.includes("CLOUDFLARE_API_TOKEN") || !secrets.includes("CLOUDFLARE_ACCOUNT_ID")) return "pnpm bootstrap";
+  if (variables.DEPLOY_ENABLED !== "true" || (productId !== undefined && !listed(DEPLOY_PRODUCTS))) return `pnpm bootstrap product ${id}`;
+  if (variables[PREVIEWS_ENABLED] !== "true" || (productId !== undefined && !listed(PREVIEW_PRODUCTS))) return `pnpm bootstrap previews ${id}`;
+  if (variables[FACTORY_ENABLED] !== "true") return "pnpm bootstrap factory";
+  return undefined;
+}
+
+/** `all <id>`: the common part, product, previews and factory in order, then the optional domain and billing. Stops at the first failure. */
+async function runAll(deps: BootstrapDeps, productId: string, redo: string[]): Promise<number> {
+  for (const command of [[], ["product", productId], ["previews", productId], ["factory"]]) {
+    const code = await dispatch(command, redo, deps);
+    if (code !== 0) {
+      await logNext(deps, productId, ["all", productId].join(" "));
+      return code;
+    }
+  }
+  if (!deps.interactive) {
+    await logNext(deps, productId);
+    return 0;
+  }
+  const product = await productOrAsk(deps, productId);
+  if (!product) return 1;
+  let code = 0;
+  if (await deps.prompter.confirm({ id: "domain-setup", message: `Set up the domain of ${productId} now (Resend, DNS records, Custom Domain)? It is optional.`, initial: false })) {
+    code = await dispatch(["domain", productId], redo, deps);
+    if (code !== 0) {
+      await logNext(deps, productId, `domain ${productId}`);
+      return code;
+    }
+  } else {
+    deps.log(`Domain skipped. Run when you want it: pnpm bootstrap domain ${productId}`);
+  }
+  if (product.billing) {
+    if (await deps.prompter.confirm({ id: "billing-setup", message: `Set up billing for ${productId} now (Stripe keys, plans, events endpoint)?`, initial: false })) {
+      code = await runBilling(deps, product, []);
+      if (code !== 0) return code;
+    } else {
+      deps.log(`Billing skipped. Run when you want it: pnpm bootstrap billing ${productId}`);
+    }
+  }
+  await logNext(deps, productId);
+  return code;
 }
 
 /** Ids of the directories of `apps/` that hold a `product.config.ts`. */
