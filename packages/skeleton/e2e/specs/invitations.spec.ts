@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { format } from "../../src/i18n/index.ts";
-import { expect, linkIn, test } from "../index.ts";
+import { buyPlan, expect, linkIn, test } from "../index.ts";
 
 test("the Owner invites someone by email and sees the pending Invitation", { tag: "@evidence" }, async ({ page, baseURL, t, mailbox, evidence }) => {
   const email = `owner-${randomUUID()}@example.com`;
@@ -19,6 +19,9 @@ test("the Owner invites someone by email and sees the pending Invitation", { tag
   await page.getByLabel(t.auth.signIn.email).fill(email);
   await page.getByLabel(t.auth.signIn.password).fill(password);
   await page.getByRole("button", { name: t.auth.signIn.submit }).click();
+  // Seats come with a Plan: where the Product has billing, the Owner buys one first.
+  await expect(page.getByLabel(t.companies.create.name)).toBeVisible();
+  await buyPlan(page.request, baseURL!);
   await page.getByLabel(t.companies.create.name).fill("Acme");
   await page.getByRole("button", { name: t.companies.create.submit }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Acme" })).toBeVisible();
@@ -60,6 +63,7 @@ test(
     const ownerVerification = await mailbox.latest(owner, { subject: t.emails.verifyEmail.subject });
     expect((await page.request.get(linkIn(ownerVerification.html, "/api/auth/verify-email"))).ok()).toBe(true);
     expect((await page.request.post("/api/auth/sign-in/email", { headers, data: { email: owner, password } })).ok()).toBe(true);
+    await buyPlan(page.request, baseURL!);
     const company = (await (await page.request.post("/api/companies", { headers, data: { name: "Acme" } })).json()) as { id: string };
     const invited = await page.request.post(`/api/companies/${company.id}/invitations`, { headers, data: { email: guest, role: "employee" } });
     expect(invited.status()).toBe(201);
