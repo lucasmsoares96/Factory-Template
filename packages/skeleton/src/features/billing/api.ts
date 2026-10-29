@@ -7,6 +7,7 @@ import type { SkeletonEnv } from "../../platform/env.ts";
 import { apiError, createRouter, errorResponse } from "../../platform/errors.ts";
 import { requireIdentity, unauthenticatedResponse } from "../../platform/identity.ts";
 import { billingFor, type Billing } from "./context.ts";
+import { LIVE_STATUSES as LIVE, planOf } from "./entitlements.ts";
 import type { Plan } from "./plans.ts";
 
 /** The SPA page a person returns to from Checkout. */
@@ -62,8 +63,6 @@ const billingOn = (entitlements: readonly string[]): MiddlewareHandler<SkeletonE
     if (!billingFor(c, entitlements)) return c.json(apiError("NOT_FOUND"), 404);
     await next();
   });
-
-const LIVE = ["active", "trialing", "past_due"] as const;
 
 const getPlanRoute = (on: MiddlewareHandler<SkeletonEnv>) =>
   createRoute({
@@ -137,14 +136,7 @@ export function billingApi(entitlements: readonly string[]) {
       const billing = billingFor(c, entitlements)!;
       const catalog = await readCatalog(billing);
       if (!catalog) return c.json(apiError("BILLING_UNAVAILABLE"), 502);
-      const owned = await c.var.db.select().from(subscriptions).where(eq(subscriptions.referenceId, c.var.identity.user.id));
-      const live = owned
-        .filter((row) => (LIVE as readonly string[]).includes(row.status))
-        .sort((a, b) => (b.periodStart?.getTime() ?? 0) - (a.periodStart?.getTime() ?? 0))[0];
-      // The Subscription keeps the Plan's id lower-cased (the plugin lower-cases names).
-      const subscribed = live && catalog.plans.find((plan) => plan.id.toLowerCase() === live.plan);
-      const free = catalog.plans.find((plan) => plan.kind === "free");
-      const plan = subscribed ?? free ?? null;
+      const { plan, live } = await planOf(c.var.db, catalog, c.var.identity.user.id);
       return c.json(
         {
           plan,
