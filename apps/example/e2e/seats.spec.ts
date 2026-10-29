@@ -1,15 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { format } from "../../src/i18n/index.ts";
-import { buyPlan, expect, linkIn, test } from "../index.ts";
+import { buyPlan, expect, linkIn, test } from "@workspace/skeleton/e2e";
+import { format } from "@workspace/skeleton/i18n";
 
 test("the Owner on the free Plan is refused an Invitation, then buys a Plan and sees how many Seats are used", { tag: "@evidence" }, async ({ page, baseURL, t, mailbox, evidence }) => {
   const email = `owner-${randomUUID()}@example.com`;
   const guest = `guest-${randomUUID()}@example.com`;
   const password = "correct horse battery";
   const headers = { origin: baseURL! };
-
-  // Seats belong to billing: a Product without it has none to show.
-  test.skip((await page.request.get("/api/billing/plan")).status() === 404, "this Product has no billing");
 
   expect((await page.request.post("/api/auth/sign-up/email", { headers, data: { name: "Ana Souza", email, password } })).ok()).toBe(true);
   const verification = await mailbox.latest(email, { subject: t.emails.verifyEmail.subject });
