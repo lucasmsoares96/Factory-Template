@@ -1,0 +1,30 @@
+# proto plugin for the GitHub CLI: downloads the official release of cli/cli and checks its checksum.
+# The community plugin is not used on purpose (see README.md).
+name = "gh"
+type = "cli"
+
+[resolve]
+git-url = "https://github.com/cli/cli"
+version-pattern = "^v?((?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+))$"
+
+[install]
+download-url = "https://github.com/cli/cli/releases/download/v{version}/{download_file}"
+checksum-url = "https://github.com/cli/cli/releases/download/v{version}/{checksum_file}"
+
+[install.arch]
+x86_64 = "amd64"
+aarch64 = "arm64"
+
+[install.exes.gh]
+exe-path = "bin/gh"
+primary = true
+
+[platform.linux]
+download-file = "gh_{version}_linux_{arch}.tar.gz"
+checksum-file = "gh_{version}_checksums.txt"
+archive-prefix = "gh_{version}_linux_{arch}"
+
+[platform.macos]
+download-file = "gh_{version}_macOS_{arch}.zip"
+checksum-file = "gh_{version}_checksums.txt"
+archive-prefix = "gh_{version}_macOS_{arch}"
