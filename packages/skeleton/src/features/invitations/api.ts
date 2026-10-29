@@ -51,7 +51,7 @@ const createInvitationRoute = createRoute({
   operationId: "createInvitation",
   summary: "Invite someone to a Company",
   description:
-    "The Owner invites an email address to the Company with a role (never `owner`). The Invitation lasts 7 days, and an email with its link goes to the address. Refused with 409 when the address is already a Member, or already has a pending Invitation (resend that one instead).",
+    "The Owner invites an email address to the Company with a role (never `owner`). The Invitation lasts 7 days, and an email with its link goes to the address. Refused with 409 when the address is already a Member, already has a pending Invitation (resend that one instead), or the Owner has no free Seat: remove someone, cancel an Invitation or upgrade the Plan (`NO_FREE_SEAT`; only where billing is on).",
   middleware: [requireIdentity, requireMember, requireOwner] as const,
   request: {
     params: CompanyParams,
@@ -64,9 +64,10 @@ const createInvitationRoute = createRoute({
     403: forbiddenResponse,
     404: companyNotFoundResponse,
     409: errorResponse(
-      "The address is already a Member (`ALREADY_A_MEMBER`), or already has a pending Invitation to the Company (`INVITATION_PENDING`).",
+      "The address is already a Member (`ALREADY_A_MEMBER`), already has a pending Invitation to the Company (`INVITATION_PENDING`), or the Owner has no free Seat (`NO_FREE_SEAT`).",
       "ALREADY_A_MEMBER",
       "INVITATION_PENDING",
+      "NO_FREE_SEAT",
     ),
   },
 });
@@ -165,7 +166,7 @@ const acceptInvitationRoute = createRoute({
   operationId: "acceptInvitation",
   summary: "Accept an Invitation",
   description:
-    "The signed-in user, whose email must be the invited address, becomes a Member of the Company with the Invitation's role, and the Invitation leaves the pending list. Answers the Company. A user who is already a Member gets the Company, and nothing changes.",
+    "The signed-in user, whose email must be the invited address, becomes a Member of the Company with the Invitation's role, and the Invitation leaves the pending list. Answers the Company. A user who is already a Member gets the Company, and nothing changes. Refused with 409 `NO_FREE_SEAT` when the Owner has no free Seat (only where billing is on).",
   "x-mcp": false,
   middleware: [requireIdentity] as const,
   request: { params: TokenParams },
@@ -174,6 +175,7 @@ const acceptInvitationRoute = createRoute({
     401: unauthenticatedResponse,
     403: errorResponse("The signed-in user's email is not the invited address.", "INVITATION_EMAIL_MISMATCH"),
     404: unknownToken,
+    409: errorResponse("The Company's Owner has no free Seat (`NO_FREE_SEAT`).", "NO_FREE_SEAT"),
     410: invitationGone,
   },
 });
@@ -238,5 +240,6 @@ export const invitationsApi = createRouter()
     if ("company" in result) return c.json(toCompany(result.company), 200);
     if (result.refused === "NOT_FOUND") return c.json(apiError(result.refused), 404);
     if (result.refused === "INVITATION_EMAIL_MISMATCH") return c.json(apiError(result.refused), 403);
+    if (result.refused === "NO_FREE_SEAT") return c.json(apiError(result.refused), 409);
     return c.json(apiError(result.refused), 410);
   });
