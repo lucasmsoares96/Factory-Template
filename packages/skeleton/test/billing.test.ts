@@ -291,6 +291,7 @@ test("without a Stripe key (or the fake) no billing route answers and the accoun
     ["GET", "/api/auth/subscription/list"],
     ["POST", "/api/auth/subscription/upgrade"],
     ["GET", "/api/fake-stripe/control/requests"],
+    ["POST", "/api/fake-stripe/control/end-subscriptions"],
   ];
 
   for (const [method, path] of routes) {

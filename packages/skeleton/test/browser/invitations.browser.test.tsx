@@ -40,7 +40,7 @@ function companyApi(pending: Invitation[], { role = "owner", t = messagesFor("en
       getNavHandler({ entries: [{ label: t.account.nav, to: "/account" }], companyPage: [], accountPage: [] }),
       listCompaniesHandler({ items: [company], nextCursor: null }),
       getCompanyHandler(company),
-      listMembersHandler({ items: [{ userId: ana.id, name: ana.name, email: ana.email, role }], nextCursor: null }),
+      listMembersHandler({ items: [{ userId: ana.id, name: ana.name, email: ana.email, role, suspended: false }], nextCursor: null }),
       // The Owner's settings look for an open ownership offer (none here).
       getOwnershipOfferHandler(() => getOwnershipOfferHandlerResponse404({ code: "NOT_FOUND", message: "Not found." })),
       listInvitationsHandler(() => HttpResponse.json({ items: pending, nextCursor: null })),
