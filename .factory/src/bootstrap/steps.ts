@@ -1,5 +1,5 @@
 import type { FactoryConfig } from "../config.ts";
-import type { AccountsClient, CloudflareClient, GitHubClient, NeonClient, Prompter, ResendClient, StripeClient, TokenClient, WranglerAuth } from "./clients.ts";
+import type { AccountsClient, CloudflareClient, GitHubClient, NeonClient, Prompter, ResendClient, StripeClient, TokenClient, ToolsClient, WranglerAuth } from "./clients.ts";
 
 /** The part of a Product's identity (ticket 07) the wizard reads; it never rewrites the file. */
 export interface ProductIdentity {
@@ -16,6 +16,8 @@ export interface ProductIdentity {
 
 export interface BootstrapDeps {
   github: GitHubClient;
+  /** Node, pnpm and `gh` on this machine, checked before any step. */
+  tools: ToolsClient;
   /** Builds the Cloudflare client once a token is at hand. */
   cloudflare: (token: string) => CloudflareClient;
   /** wrangler's saved login: the Cloudflare credential on this machine once the CI secret is set. */
