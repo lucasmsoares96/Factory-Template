@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { WranglerNotInstalled } from "../../src/bootstrap/clients.ts";
 import { parsePrototools, ToolsCli } from "../../src/bootstrap/tools.ts";
-import { WranglerCli } from "../../src/bootstrap/wrangler.ts";
+import { WranglerCli, wranglerMissing } from "../../src/bootstrap/wrangler.ts";
 import { world } from "./helpers.ts";
 
 describe("bootstrap preflight", () => {
@@ -142,6 +142,12 @@ describe("wrangler not installed", () => {
     await expect(missing.savedToken()).rejects.toThrow("wrangler is not installed");
     const noLogin = new WranglerCli({ env: {}, run: async () => { throw new Error("not logged in"); } });
     expect(await noLogin.savedToken()).toBeUndefined();
+  });
+
+  it("reads pnpm's missing-binary output as not installed, but a wrangler that failed as a plain failure", () => {
+    expect(wranglerMissing('ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command "wrangler" not found')).toBe(true);
+    expect(wranglerMissing("No projects matched the filters")).toBe(true);
+    expect(wranglerMissing("ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: wrangler auth token")).toBe(false);
   });
 
   it("the doctor says wrangler is not installed instead of 'no saved login'", async () => {
