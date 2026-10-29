@@ -409,7 +409,7 @@ test("every Invitation route is described in the OpenAPI document", async () => 
       ["resendInvitation", "/api/companies/{companyId}/invitations/{invitationId}/resend", ["200", "401", "403", "404"]],
       ["cancelInvitation", "/api/companies/{companyId}/invitations/{invitationId}", ["204", "401", "403", "404"]],
       ["getInvitationByToken", "/api/invitations/{token}", ["200", "404", "410"]],
-      ["acceptInvitation", "/api/invitations/{token}/accept", ["200", "401", "403", "404", "410"]],
+      ["acceptInvitation", "/api/invitations/{token}/accept", ["200", "401", "403", "404", "409", "410"]],
     ]),
   );
 });

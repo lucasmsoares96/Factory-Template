@@ -7,6 +7,7 @@ import type { SkeletonEnv } from "../../platform/env.ts";
 import { apiError, createRouter, errorResponse } from "../../platform/errors.ts";
 import { requireIdentity, unauthenticatedResponse } from "../../platform/identity.ts";
 import { billingFor, type Billing } from "./context.ts";
+import { countSeats, seatPeople } from "../../platform/seats.ts";
 import { LIVE_STATUSES as LIVE, planOf } from "./entitlements.ts";
 import type { Plan } from "./plans.ts";
 
@@ -133,6 +134,50 @@ async function readCatalog(billing: Billing) {
   }
 }
 
+/** The Seats the Plan gives: its number, 1 on the free Plan unless it says more, `null` when each Seat is paid for. */
+export function seatsOf(plan: Plan | null): number | null {
+  if (!plan) return 1;
+  if (plan.kind === "per_seat") return null;
+  return plan.seats ?? (plan.kind === "free" ? 1 : null);
+}
+
+const SeatsSchema = z
+  .object({
+    used: z.number().int().openapi({ description: "The Seats taken: each distinct person in the Companies the user owns, once.", example: 6 }),
+    total: z.number().int().nullable().openapi({ description: "The Seats the Plan gives; `null` when there is no limit.", example: 15 }),
+    companies: z.array(
+      z.object({
+        id: z.string().openapi({ description: "The Company's id.", example: "2f1c6a0e-8d1b-4a51-9f3e-6b0c1d2e3f40" }),
+        name: z.string().openapi({ description: "Its name.", example: "Acme" }),
+        people: z.array(
+          z.object({
+            name: z.string().nullable().openapi({ description: "Their name; `null` for an address that was only invited.", example: "Ana Souza" }),
+            email: z.string().openapi({ description: "Their email.", example: "ana@example.com" }),
+            status: z.enum(["owner", "member", "invited"]).openapi({ description: "`invited`: a pending Invitation.", example: "member" }),
+          }),
+        ),
+      }),
+    ).openapi({ description: "The people of each Company the user owns. A person in two of them appears in both and takes one Seat." }),
+  })
+  .openapi("Seats");
+
+const getSeatsRoute = (on: MiddlewareHandler<SkeletonEnv>) =>
+  createRoute({
+    method: "get",
+    path: "/billing/seats",
+    operationId: "getSeats",
+    summary: "Get the Seats the signed-in user uses",
+    description:
+      "Answers how many Seats the user's Plan gives (`total`; `null` when there is no limit), how many are taken (`used`) and the people of each Company the user owns. The Owner, each Member and each pending Invitation take a Seat, counted once per person across the user's Companies. A user who owns no Company uses 1. Answers 404 when billing is off.",
+    middleware: [on, requireIdentity] as const,
+    responses: {
+      200: { description: "The user's Seats.", content: { "application/json": { schema: SeatsSchema } } },
+      401: unauthenticatedResponse,
+      404: errorResponse("Billing is off: the Worker has no Stripe key.", "NOT_FOUND"),
+      502: errorResponse("Stripe did not answer.", "BILLING_UNAVAILABLE"),
+    },
+  });
+
 export function billingApi(entitlements: readonly string[]) {
   const on = billingOn(entitlements);
   return createRouter()
@@ -155,6 +200,22 @@ export function billingApi(entitlements: readonly string[]) {
         },
         200,
       );
+    })
+    .openapi(getSeatsRoute(on), async (c) => {
+      const billing = billingFor(c, entitlements)!;
+      const catalog = await readCatalog(billing);
+      if (!catalog) return c.json(apiError("BILLING_UNAVAILABLE"), 502);
+      const { user } = c.var.identity;
+      const { plan } = await planOf(c.var.db, catalog, user.id);
+      const people = await seatPeople(c.var.db, user.id);
+      const companies = new Map<string, { id: string; name: string; people: { name: string | null; email: string; status: "owner" | "member" | "invited" }[] }>();
+      for (const person of people) {
+        const company = companies.get(person.companyId) ?? { id: person.companyId, name: person.companyName, people: [] };
+        company.people.push({ name: person.name, email: person.email, status: person.status });
+        companies.set(person.companyId, company);
+      }
+      // Whoever owns nothing still holds the one Seat of their own account.
+      return c.json({ used: Math.max(countSeats(people), 1), total: seatsOf(plan), companies: [...companies.values()] }, 200);
     })
     .openapi(subscribeRoute(on), async (c) => {
       const billing = billingFor(c, entitlements)!;
