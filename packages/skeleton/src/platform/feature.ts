@@ -88,6 +88,12 @@ export type Feature = {
   /** Inserts the feature's demo data; used for preview databases and the E2E. Must be safe to run twice. */
   seed?(db: Database): Promise<void>;
   events?: FeatureEvents;
+  /**
+   * How many Seats the person has, across every Company they own: a number, or `null` for no limit. Answers `undefined`
+   * when the feature sets no limit (billing off): the Seats are then not checked. Creating and accepting an Invitation
+   * are refused (`NO_FREE_SEAT`) when they would take more.
+   */
+  seatLimit?(c: Context<SkeletonEnv>, ownerId: string): Promise<number | null | undefined>;
 };
 
 /** Types a feature (identity at runtime). */
@@ -127,4 +133,17 @@ export async function emitCompanyDeleting(
   event: Parameters<NonNullable<FeatureEvents["companyDeleting"]>>[0],
 ) {
   for (const feature of features) await feature.events?.companyDeleting?.(event);
+}
+
+/**
+ * The Seats `ownerId` has: the first feature that sets a limit decides. `undefined` means no feature limits Seats
+ * (they are not checked), `null` that the limit is none.
+ */
+export async function seatLimitOf(c: Context<SkeletonEnv>, ownerId: string): Promise<number | null | undefined> {
+  for (const feature of c.var.features) {
+    if (feature.enabled && !feature.enabled(c.env)) continue;
+    const limit = await feature.seatLimit?.(c, ownerId);
+    if (limit !== undefined) return limit;
+  }
+  return undefined;
 }

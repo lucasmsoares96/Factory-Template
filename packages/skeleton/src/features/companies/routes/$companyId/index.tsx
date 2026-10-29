@@ -3,6 +3,7 @@ import { Alert, AlertDescription } from "#ui/alert";
 import { buttonVariants } from "#ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "#ui/card";
 import { useGetCompany } from "../../../../gen/hooks/useGetCompany.ts";
+import { useGetSeats } from "../../../../gen/hooks/useGetSeats.ts";
 import { useGetNav } from "../../../../gen/hooks/useGetNav.ts";
 import { useErrorMessage, useMessages } from "../../../../client/i18n.tsx";
 import { format } from "../../../../i18n/index.ts";
@@ -28,6 +29,9 @@ function CompanyPage() {
   const { companyId } = Route.useParams();
   const company = useGetCompany({ path: { companyId } });
   const nav = useGetNav();
+  const isOwner = company.data?.role === "owner";
+  // Billing is off (404) where the Worker has no Stripe key: then there is no Seat to show.
+  const seats = useGetSeats({ query: { enabled: isOwner, retry: false } });
 
   if (company.isError) {
     return (
@@ -48,6 +52,18 @@ function CompanyPage() {
           </CardTitle>
           <CardDescription data-testid="company-role">{format(t.companies.page.role, { role: roleLabel(company.data.role) })}</CardDescription>
         </CardHeader>
+        {isOwner && seats.data ? (
+          <CardContent data-testid="company-seats" className="flex flex-wrap items-center gap-2 text-sm">
+            <span data-testid="company-seats-usage">
+              {seats.data.total === null
+                ? format(t.billing.seatsUsageUnlimited, { used: String(seats.data.used) })
+                : format(t.billing.seatsUsage, { used: String(seats.data.used), total: String(seats.data.total) })}
+            </span>
+            <Link to="/account/plan" className={buttonVariants({ variant: "link", size: "sm" })}>
+              {t.billing.seatsManage}
+            </Link>
+          </CardContent>
+        ) : null}
         {sections.length > 0 ? (
           <CardContent>
             <nav aria-label={t.companies.page.sections} className="flex flex-wrap gap-1">

@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "#ui/card";
 import { listMembers } from "../../gen/clients/listMembers.ts";
 import { useGetMe } from "../../gen/hooks/useGetMe.ts";
 import { listMembersQueryKey } from "../../gen/hooks/useListMembers.ts";
+import { getSeatsQueryKey } from "../../gen/hooks/useGetSeats.ts";
 import { useChangeMemberRole } from "../../gen/hooks/useChangeMemberRole.ts";
 import { useRemoveMember } from "../../gen/hooks/useRemoveMember.ts";
 import type { CompanyMember } from "../../gen/types/CompanyMember.ts";
@@ -44,7 +45,10 @@ export function Members({ companyId, isOwner }: { companyId: string; isOwner: bo
   const path = { companyId };
   const members = useMembers(companyId);
   const [done, setDone] = useState<string | null>(null);
-  const refresh = { onSettled: () => queryClient.invalidateQueries({ queryKey: listMembersQueryKey({ path }) }) };
+  const refresh = {
+    onSettled: () =>
+      Promise.all([queryClient.invalidateQueries({ queryKey: listMembersQueryKey({ path }) }), queryClient.invalidateQueries({ queryKey: getSeatsQueryKey() })]),
+  };
   const changeRole = useChangeMemberRole({ mutation: refresh });
   const remove = useRemoveMember({ mutation: refresh });
   const failed = [members, changeRole, remove].find((query) => query.isError);
