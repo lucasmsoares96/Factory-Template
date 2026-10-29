@@ -66,7 +66,8 @@ Options:
                          for the domain command: resend-domain, dns-records, restricted-resend-key, worker-domain;
                          for the product command: neon-project, github-environment, database-secrets, auth-secret,
                          default-account (asks again, resets the password and the secret), the four domain steps, main-ruleset, deploy-products;
-                         for the previews command: preview-environment, preview-neon-project, preview-neon-key, preview-kv, preview-products;
+                         for the previews command: preview-environment, preview-neon-project, preview-neon-key, preview-kv,
+                         preview-account (asks again, replaces the password), preview-products;
                          for the factory command: labels, factory-token (asks for the token again), claude-auth, auto-merge,
                          merge-mode (asks the Merge Mode again).
 
