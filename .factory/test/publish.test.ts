@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
-import { checkout, commitFile, git, lastJson, tempDir, unmarked, world } from "./helpers.ts";
+import { checkout, commitFile, git, lastJson, tempDir, unmarked, world, ISSUE_VERDICTS } from "./helpers.ts";
 
 const develop: AgentStep = async ({ cwd }) => {
   await commitFile(cwd, "src/greet.ts", 'export const greet = () => "hi";\n', "feat: greet the user #7");
@@ -19,6 +19,7 @@ const review: AgentStep = () => {
       { path: "src/app.ts", line: 25, body: "Far from any change." },
       { path: "README.md", line: 1, body: "Not in the diff at all." },
     ],
+    criteria: ISSUE_VERDICTS,
   };
   return { output: `<review>${JSON.stringify(findings)}</review>` };
 };
