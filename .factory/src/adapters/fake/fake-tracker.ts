@@ -15,6 +15,8 @@ export interface FakeIssueInput {
   blockedBy?: number[];
   /** For blockers: whether the issue counts as `done`. */
   done?: boolean;
+  /** `state_reason` of a closed issue (`completed`, `not_planned`). */
+  reason?: string;
 }
 
 interface FakeIssue {
@@ -28,6 +30,7 @@ interface FakeIssue {
   comments: IssueComment[];
   blockedBy: number[];
   done: boolean;
+  reason: string | null;
   relatedTo: number | null;
 }
 
@@ -57,6 +60,7 @@ export class FakeTracker implements Tracker {
       comments: (input.comments ?? []).map((c) => ({ id: `c${this.nextCommentId++}`, ...c })),
       blockedBy: input.blockedBy ?? [],
       done: input.done ?? false,
+      reason: input.reason ?? null,
       relatedTo: null,
     });
   }
@@ -83,6 +87,7 @@ export class FakeTracker implements Tracker {
       title: issue.title,
       body: issue.body,
       state: issue.state,
+      stateReason: issue.reason,
       labels: [...issue.labels.keys()],
       parent: parent && { number: parent.number, body: parent.body },
       children: [...this.issues.values()].filter((i) => i.parent === number).map((i) => i.number),
@@ -141,6 +146,10 @@ export class FakeTracker implements Tracker {
 
   async updateIssue(number: number, body: string): Promise<void> {
     this.get(number).body = marked(body);
+  }
+
+  async rewriteIssueBody(number: number, body: string): Promise<void> {
+    this.get(number).body = body;
   }
 
   async createIssue(input: NewIssue): Promise<{ number: number; url: string | null }> {
