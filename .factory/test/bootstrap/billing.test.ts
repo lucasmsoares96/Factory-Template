@@ -32,6 +32,7 @@ function billingWorld(extra: Record<string, string | boolean | string[]> = {}, e
   w.github.environments.set("example-production", "main");
   w.github.environments.set("example-preview", "main");
   w.stripe.keys.add(SANDBOX).add(LIVE).add(CI);
+  w.tokens.add("github_pat_owner_token", { push: true });
   return w;
 }
 
@@ -342,7 +343,7 @@ describe("pnpm bootstrap env and all", () => {
   });
 
   it("all asks whether to set billing up, and skips it on no", async () => {
-    const w = billingWorld({ "resend-setup": "skip", "default-account-email": "a@example.com", "default-account-password": "admin password 123", "default-account-password-confirm": "admin password 123", "billing-setup": false });
+    const w = billingWorld({ "resend-setup": "skip", "default-account-email": "a@example.com", "default-account-password": "admin password 123", "default-account-password-confirm": "admin password 123", "preview-account-password": "preview password 123", "preview-account-password-confirm": "preview password 123", "factory-token": "github_pat_owner_token", "domain-setup": false, "billing-setup": false }, { ...ENV, CLAUDE_CODE_OAUTH_TOKEN: "x" });
 
     const { code, output } = await w.run("all", "example");
 
@@ -353,7 +354,7 @@ describe("pnpm bootstrap env and all", () => {
   });
 
   it("all sets billing up on yes", async () => {
-    const w = billingWorld({ "resend-setup": "skip", "default-account-email": "a@example.com", "default-account-password": "admin password 123", "default-account-password-confirm": "admin password 123", "billing-setup": true });
+    const w = billingWorld({ "resend-setup": "skip", "default-account-email": "a@example.com", "default-account-password": "admin password 123", "default-account-password-confirm": "admin password 123", "preview-account-password": "preview password 123", "preview-account-password-confirm": "preview password 123", "factory-token": "github_pat_owner_token", "domain-setup": false, "billing-setup": true }, { ...ENV, CLAUDE_CODE_OAUTH_TOKEN: "x" });
 
     const { code } = await w.run("all", "example");
 
