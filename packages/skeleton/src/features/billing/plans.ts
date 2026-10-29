@@ -23,7 +23,8 @@ export type Plan = {
 /** A Plan with the Stripe price that Checkout charges. */
 export type StripePlan = Plan & { priceId: string; lookupKey: string | null };
 
-export type PlanCatalog = { plans: Plan[]; priced: StripePlan[] };
+/** `granted`: the Entitlement names some Plan's metadata sets; one in no Plan is unset (see `entitlementFor`). */
+export type PlanCatalog = { plans: Plan[]; priced: StripePlan[]; granted: ReadonlySet<string> };
 
 const KINDS = ["free", "fixed", "per_seat"] as const;
 
@@ -49,6 +50,7 @@ export async function readPlans(
   ]);
   const plans: Plan[] = [];
   const priced: StripePlan[] = [];
+  const granted = new Set<string>();
   for (const product of products.data) {
     const { productId: owner, kind, seats } = product.metadata;
     const known = KINDS.find((candidate) => candidate === kind);
@@ -67,10 +69,11 @@ export async function readPlans(
       price: price && known !== "free" ? { amount: price.unit_amount!, currency: price.currency, interval: "month" } : null,
       entitlements: Object.fromEntries(entitlements.map((name) => [name, entitlementValue(product.metadata[`entitlement_${name}`])])),
     };
+    for (const name of entitlements) if (`entitlement_${name}` in product.metadata) granted.add(name);
     plans.push(plan);
     if (price && known !== "free") priced.push({ ...plan, priceId: price.id, lookupKey: price.lookup_key });
   }
-  return { plans, priced };
+  return { plans, priced, granted };
 }
 
 /** How long a reading of Stripe's Plans is kept. */
