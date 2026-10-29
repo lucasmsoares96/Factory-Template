@@ -46,6 +46,11 @@ export interface PublishOptions {
    * dispatch workflows. Without it, the run's code host dispatches.
    */
   dispatchRetro?: (inputs: { issue: string; pr: string }) => Promise<void>;
+  /**
+   * Result of the workflow's `work` job (`needs.work.result`). A PR round (or update-branch) whose `work` was
+   * cancelled and left no result.json publishes nothing: it only says so in the log.
+   */
+  workResult?: string | null;
   /** This run is the pr-feedback round started again after a discard: a second discard comments on the PR instead. */
   retry?: boolean;
   /**
@@ -82,6 +87,11 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
   try {
     result = forForge(await loadArtifacts(git, number, branch, options.in));
   } catch (error) {
+    if (options.workResult === "cancelled" && (options.pr !== null || quietMoved)) {
+      const reason = `work was cancelled: nothing to publish for #${number}`;
+      ctx.log(messages("en").discarded(reason));
+      return { issue: number, outcome: "discarded", reason };
+    }
     return escalate(ctx, issue, { reason: "infra", result: null, detail: (error as Error).message, pr: null, runUrl: options.runUrl }, round, options.dispatchRetro);
   }
   if (result.outcome === "paused") return pause(ctx, issue, result, options);
@@ -140,6 +150,11 @@ export async function publishPrUpdate(ctx: CommandContext, number: number, optio
   try {
     result = forForge(await loadArtifacts(git, number, pr.branch, options.in));
   } catch (error) {
+    if (options.workResult === "cancelled") {
+      const reason = `work was cancelled: nothing to publish for pull request #${number}`;
+      ctx.log(messages("en").discarded(reason));
+      return { pr: number, outcome: "discarded", reason };
+    }
     const detail = (error as Error).message;
     return stop("infra", m.updateNoResult(config.baseBranch, detail) + runLine(options.runUrl, config.language));
   }
