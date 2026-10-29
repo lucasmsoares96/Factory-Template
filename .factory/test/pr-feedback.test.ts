@@ -6,8 +6,8 @@ import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
 import { SessionLimitError } from "../src/seams/agent.ts";
 import { escalationComment } from "../src/report.ts";
 import type { ThreadId } from "../src/seams/code-host.ts";
-import { git, HUMAN, lastJson, OWNER, unmarked } from "./helpers.ts";
-import { BRANCH, PR, commits, feedbackRound, finishRound, prWorld, replies, reviewOk, said, thread, type PrWorld } from "./pr-flow-helpers.ts";
+import { commitFile, git, HUMAN, lastJson, OWNER, unmarked } from "./helpers.ts";
+import { BRANCH, PR, commits, finishRound, feedbackRound, prWorld, replies, reviewOk, said, thread, type PrWorld } from "./pr-flow-helpers.ts";
 
 const claimReason = async (options: Parameters<typeof prWorld>[0], actor: string) => {
   const p = await prWorld(options);
@@ -317,6 +317,50 @@ describe("factory pr-feedback: a round", () => {
     expect(p.w.codeHost.pushes).toEqual([]);
     expect(p.w.codeHost.pr(PR).threads[0]!.replies).toEqual([]);
     expect(p.w.tracker.issues.get(7)!.comments.at(-1)!.body).toContain("Run discarded");
+  });
+
+  it("starts the round again once from the new head when the branch moved; a second discard comments on the PR", async () => {
+    const mk = () =>
+      prWorld({
+        main: "none",
+        threads: [thread("t1", "fix it")],
+        agent: { development: [commits(replies({ threadId: "t1", decision: "address", body: "Done." }))], review: [reviewOk] },
+        verify: [{ ok: true }],
+      });
+    const first = await mk();
+    await feedbackRound(first, { beforePublish: () => void first.w.codeHost.branches.set(BRANCH, "f".repeat(40)) });
+    expect(first.w.codeHost.dispatches).toEqual([{ workflow: "pr-feedback", inputs: { pr: String(PR), retry: "true" } }]);
+    expect(first.w.codeHost.pr(PR).comments).toEqual([]);
+
+    const second = await mk();
+    second.w.codeHost.branches.set(BRANCH, second.head);
+    expect(await second.w.factory("pr-feedback", "--pr", String(PR), "--actor", HUMAN)).toBe(0);
+    expect(await second.w.factory("work", "7", "--flow", "pr-feedback", "--pr", String(PR), "--out", second.out, "--repo", second.workRepo)).toBe(0);
+    second.w.codeHost.branches.set(BRANCH, "e".repeat(40));
+    expect(await second.w.factory("publish", "7", "--pr", String(PR), "--in", second.out, "--repo", second.publishRepo, "--retry")).toBe(0);
+    expect(second.w.codeHost.dispatches).toEqual([]);
+    expect(second.w.codeHost.pr(PR).comments.join("\n")).toContain("moved since the run started");
+  });
+
+  it("a round queued behind another starts from the head the first one published, and publishes", async () => {
+    const p = await prWorld({
+      main: "none",
+      threads: [thread("t1", "fix it")],
+      agent: { development: [commits(replies({ threadId: "t1", decision: "address", body: "Done." }))], review: [reviewOk] },
+      verify: [{ ok: true }],
+    });
+    const { claim } = await feedbackRoundClaimOnly(p);
+    // The run ahead published after this claim: the branch is one commit further when `work` takes the lock.
+    await git(p.workRepo, "checkout", "--quiet", BRANCH);
+    await commitFile(p.workRepo, "src/ahead.ts", "export const ahead = true;\n", "feat: first run #7");
+    const ahead = await git(p.workRepo, "rev-parse", "HEAD");
+    p.w.codeHost.branches.set(BRANCH, ahead);
+
+    await finishRound(p, ["--flow", "pr-feedback"], claim.startSha!);
+
+    expect(p.w.codeHost.pushes).toHaveLength(1);
+    expect(p.w.codeHost.pushes[0]!.expectedSha).toBe(ahead);
+    expect(p.w.codeHost.dispatches).toEqual([]);
   });
 });
 
@@ -641,3 +685,8 @@ describe("factory pr-feedback: a round paused at the agent's usage limit", () =>
     expect(lastJson(p.w.logs)).toEqual({ claimed: false, reason: "actor-cannot-write" });
   });
 });
+
+async function feedbackRoundClaimOnly(p: PrWorld) {
+  expect(await p.w.factory("pr-feedback", "--pr", String(PR), "--actor", HUMAN)).toBe(0);
+  return { claim: lastJson(p.w.logs) as { claimed: boolean; startSha?: string } };
+}

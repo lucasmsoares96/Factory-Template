@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { readFile, writeFile } from "node:fs/promises";
 import { z } from "zod";
 import { sessionFailureSchema } from "./session-limit.ts";
@@ -83,6 +84,11 @@ const resultObject = z.object({
   branch: z.string().min(1),
   /** Commit of the base branch the run started from. */
   base: sha,
+  /**
+   * Head of the branch the run started from, read by `work` after it took the issue's lock and fetched the branch.
+   * `publish` leases its push against it. Null in the issue flow (its claim holds the lock) and in old results.
+   */
+  startSha: sha.nullable().default(null),
   /** Head of the branch in the bundle; null when the run made no commits. */
   head: sha.nullable(),
   /**
@@ -139,4 +145,9 @@ export async function readResult(path: string): Promise<FactoryResult> {
   const parsed = resultSchema.safeParse(raw);
   if (!parsed.success) throw new InvalidResultError(`Invalid ${path}: ${z.prettifyError(parsed.error)}`);
   return parsed.data;
+}
+
+/** The `startSha` a `work` job recorded in `<dir>/result.json`; null when the file is missing, invalid or has none. */
+export async function readStartSha(dir: string): Promise<string | null> {
+  return await readResult(join(dir, RESULT_FILE)).then((r) => r.startSha, () => null);
 }
