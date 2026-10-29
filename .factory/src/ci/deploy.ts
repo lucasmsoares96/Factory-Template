@@ -98,12 +98,20 @@ export function deployConfig(built: Record<string, unknown>, id: string): Record
   return { ...rest, name: id };
 }
 
-/** The Worker secrets the deploy sets, from the environment of the job; `RESEND_API_KEY` only when the domain exists. */
+/**
+ * The Worker secrets the deploy sets, from the environment of the job; `RESEND_API_KEY` only when the domain exists, and the
+ * Stripe key with the events secret only when both are set (a key without the secret would turn billing on with a webhook
+ * that rejects every event).
+ */
 export function workerSecrets(env: Record<string, string | undefined>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [name, from] of [["DATABASE_URL", "POOLED_DATABASE_URL"], ["BETTER_AUTH_SECRET", "AUTH_SECRET"], ["RESEND_API_KEY", "RESEND_KEY"]] as const) {
     const value = env[from];
     if (value) out[name] = value;
+  }
+  if (env.STRIPE_KEY && env.STRIPE_WEBHOOK) {
+    out.STRIPE_SECRET_KEY = env.STRIPE_KEY;
+    out.STRIPE_WEBHOOK_SECRET = env.STRIPE_WEBHOOK;
   }
   for (const required of ["DATABASE_URL", "BETTER_AUTH_SECRET"]) if (!out[required]) throw new Error(`The deploy has no ${required}: run \`pnpm bootstrap product <id>\`.`);
   return out;
