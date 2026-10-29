@@ -822,6 +822,16 @@ describe.each([["factory-pr-feedback.yml", "pr-feedback"], ["factory-update-bran
     expect(concurrencyOf(work!)).toEqual({ group, "cancel-in-progress": false, queue: "max" });
   });
 
+  it("`publish` is in the same group as `work`, so the next `work` of the queue reads the branch only after this push", () => {
+    expect(concurrencyOf(publish!)).toEqual(concurrencyOf(work!));
+  });
+
+  it("`work` fetches the branch inside the group, and `publish` reads the start sha from its result.json", () => {
+    const text = steps(work!).map((step) => step.run ?? "").join("\n");
+    expect(text).toContain('git fetch --no-tags origin "+refs/heads/$BRANCH:refs/heads/$BRANCH"');
+    expect(text.indexOf("git fetch")).toBeLessThan(text.indexOf("pnpm factory work"));
+  });
+
   it("`claim` writes only with the job token, on a fresh VM; only `publish` holds FACTORY_TOKEN, and runs even when `work` failed", () => {
     expect(claim!["runs-on"]).toBe("ubuntu-latest");
     // The one write: factory:working on the PR and its issue (and the 👀 of a feedback round).
@@ -882,7 +892,12 @@ describe("Factory PR feedback workflow", () => {
       pull_request_review: { types: ["submitted"] },
       pull_request_review_comment: { types: ["created"] },
       issue_comment: { types: ["created"] },
-      workflow_dispatch: { inputs: { pr: { description: "Pull request number (the round `resume` starts again)", type: "string", required: true } } },
+      workflow_dispatch: {
+        inputs: {
+          pr: { description: "Pull request number (the round `resume` starts again)", type: "string", required: true },
+          retry: { description: "The round started again by `publish` after a discard (a second discard comments on the PR)", type: "boolean", required: false, default: false },
+        },
+      },
     });
     expect(feedback.jobs.wait!.if).toContain("github.event_name == 'workflow_dispatch'");
     expect((feedback as unknown as { env: Record<string, string> }).env.PR).toBe("${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}");
