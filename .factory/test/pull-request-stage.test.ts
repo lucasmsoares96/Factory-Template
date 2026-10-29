@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
-import { checkout, commitFile, git, manualClock, tempDir, world, type WorldOptions } from "./helpers.ts";
+import { checkout, commitFile, git, manualClock, tempDir, world, type WorldOptions, ISSUE_VERDICTS } from "./helpers.ts";
 
 let edits = 0;
 const develop: AgentStep = async ({ cwd }) => {
@@ -11,7 +11,7 @@ const develop: AgentStep = async ({ cwd }) => {
   return { usage: { inputTokens: 10_000, outputTokens: 1_000 } };
 };
 const reviewOk: AgentStep = () => ({
-  output: `<review>${JSON.stringify({ summary: "ok", inline: [] })}</review>`,
+  output: `<review>${JSON.stringify({ summary: "ok", inline: [], criteria: ISSUE_VERDICTS })}</review>`,
   usage: { inputTokens: 5_000, outputTokens: 500 },
 });
 const usage = { inputTokens: 2_000, outputTokens: 300 };
