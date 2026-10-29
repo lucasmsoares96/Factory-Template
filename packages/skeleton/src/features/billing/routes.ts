@@ -9,11 +9,12 @@ import { forgetPlans } from "./plans.ts";
 
 const Advance = z.object({ seconds: z.number().int().positive(), paymentFails: z.boolean().optional() });
 const Failing = z.object({ on: z.boolean() });
+const Product = z.object({ id: z.string().min(1), metadata: z.record(z.string(), z.string()) });
 const Event = z.object({ type: z.string().min(1), object: z.record(z.string(), z.unknown()) });
 
 /**
  * The fake Stripe's own routes, `/api/fake-stripe/*`: the Checkout page and the
- * controls tests use (advance the clock, make Stripe fail, send an event, read
+ * controls tests use (advance the clock, edit a Plan's metadata, make Stripe fail, send an event, read
  * the calls, start over). They answer only where the fake runs (`STRIPE_FAKE`);
  * anywhere else they are a 404. Plain routes: no OpenAPI, no MCP.
  */
@@ -62,6 +63,13 @@ export function fakeStripeRoutes(entitlements: readonly string[]) {
     const body = Event.safeParse(await c.req.json().catch(() => null));
     if (!body.success) return c.json(apiError("VALIDATION_FAILED"), 400);
     return c.json({ webhookStatus: await fake(c).emit(body.data.type, body.data.object) });
+  });
+  router.post("/fake-stripe/control/products", async (c) => {
+    const body = Product.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json(apiError("VALIDATION_FAILED"), 400);
+    if (!(await fake(c).patchProduct(body.data.id, body.data.metadata))) return c.json(apiError("NOT_FOUND"), 404);
+    forgetPlans();
+    return c.json({ updated: true });
   });
   router.get("/fake-stripe/control/requests", async (c) => c.json({ requests: await fake(c).requests() }));
   router.post("/fake-stripe/control/reset", async (c) => {

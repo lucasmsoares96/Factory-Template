@@ -31,6 +31,10 @@ const PlanSchema = z
       })
       .nullable()
       .openapi({ description: "The monthly price; `null` for the free Plan." }),
+    trialDays: z
+      .number()
+      .int()
+      .openapi({ description: "The days of free trial a person's first Subscription to this Plan gets; 0 when there is none. Only a `fixed` Plan has one, and a person has one trial ever.", example: 14 }),
     entitlements: z
       .record(z.string(), z.union([z.boolean(), z.number()]))
       .openapi({ description: "What the Plan unlocks, by the Product's Entitlement names: on or off, or up to a number.", example: { reports: true, projects: 10 } }),
