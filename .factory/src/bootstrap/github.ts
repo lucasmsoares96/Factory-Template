@@ -4,8 +4,8 @@ import { pick } from "../env.ts";
 import type { GitHubClient, IssueRef, LabelSpec, PullRequestInfo, RepoInfo, RulesetInfo, RulesetSpec, WorkflowRun } from "./clients.ts";
 
 /**
- * The only module of the bootstrap that calls `gh`. The repo is the one of the current
- * directory (`gh` reads the git remote), so nothing is hard-coded. Secret
+ * The only module of the bootstrap that calls `gh`. The repo is the one `target` fixes
+ * (`origin` or `--repo`), never left to `gh`, which could pick `upstream`. Secret
  * values travel through stdin, never through the arguments. `gh` gets the base
  * variables, its own sign-in ones (`gh auth login` lives under HOME) and the
  * proxy and CA ones, not the rest of the owner's environment.
@@ -19,12 +19,23 @@ export class GhCli implements GitHubClient {
     this.env = childEnv(parent, pick(parent, [...GH_AUTH_ENV, ...GH_NETWORK_ENV]));
   }
 
+  private repoName: string | undefined;
+
+  target(fullName: string): void {
+    this.repoName = fullName;
+  }
+
+  /** Every call carries the target repo: `{owner}/{repo}` filled in for `gh api`, `--repo` for the other commands. */
   private gh(args: string[], input?: string): Promise<string> {
-    return this.run(args, { env: this.env, input });
+    const repo = this.repoName;
+    if (repo === undefined) return this.run(args, { env: this.env, input });
+    const [owner, name] = repo.split("/") as [string, string];
+    const withRepo = args[0] === "api" ? args.map((a) => a.replaceAll("{owner}", owner).replaceAll("{repo}", name)) : args[0] === "repo" ? args : [...args, "--repo", repo];
+    return this.run(withRepo, { env: { ...this.env, GH_REPO: repo }, input });
   }
 
   async repo(): Promise<RepoInfo> {
-    const raw = JSON.parse(await this.gh(["repo", "view", "--json", "nameWithOwner,visibility,viewerPermission,defaultBranchRef"]));
+    const raw = JSON.parse(await this.gh(["repo", "view", ...(this.repoName ? [this.repoName] : []), "--json", "nameWithOwner,visibility,viewerPermission,defaultBranchRef"]));
     return {
       fullName: raw.nameWithOwner,
       visibility: String(raw.visibility).toLowerCase() as RepoInfo["visibility"],
