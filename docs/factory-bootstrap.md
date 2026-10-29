@@ -4,7 +4,7 @@ The detail of `pnpm bootstrap` (`.factory/src/bootstrap/`): its modules, their s
 
 ## Layout
 
-- `pnpm bootstrap [doctor [<id>]] [domain <id>] [product <id>] [previews <id>] [factory] [--redo <step>]`.
+- `pnpm bootstrap [doctor [<id>]] [domain <id>] [product <id>] [previews <id>] [factory] [billing <id>] [env <id>] [all <id>] [--redo <step>]`.
 - Wizard steps live in `common.ts` (the common part: `cloudflare-token`, `workers-dev`, `labels`, `language`), `product.ts` (the Production module of `bootstrap product <id>`) and `domain.ts` (per Product: `resend-domain`, `dns-records`, `restricted-resend-key`, `worker-domain`).
   - `resendSteps(product)` is reused by `bootstrap product`. `domainSteps` adds `worker-domain` for `bootstrap domain` only: the Worker does not exist before the first deploy.
 - The steps run over client interfaces (`clients.ts`: GitHub, Cloudflare, Neon, Resend), real adapters (`cloudflare.ts`, `resend.ts`, Zod-validated; `neon.ts` drives `neonctl`) and `fake/`.
@@ -50,6 +50,19 @@ Optional, after Production.
 - Needs `RESEND_API_KEY` (full access, or it is asked) and the one Cloudflare token (template URL in `common.ts`: Workers Scripts Edit, Workers KV Storage Edit, Account Settings Read, DNS Edit, Zone Read; no Workers Routes, the Custom Domain needs only Workers Scripts Write; older tokens must be recreated).
 - A pasted token is checked with read-only calls (verify, scripts, KV, account, zones, DNS records) and a refused one is named and asked again without being stored; the probes cannot tell edit from read, the first real write does.
 - Without the zone in the account, DNS records are printed as plain lines; without the Worker, the Custom Domain waits for the first deploy.
+
+## `pnpm bootstrap billing <id>`: the billing module
+
+Optional, after `product`; `billing.ts`, `billing-doctor.ts`, `billing-permissions.ts`, `stripe.ts` (real `StripeClient` on the Stripe SDK; `fake/fakes.ts` has the fake). `pnpm bootstrap env <id>` lists its variables, secrets and environment variables; `pnpm bootstrap all <id>` runs the Production module and then asks (`billing-setup`, default no) whether to set billing up.
+
+- Stops with an explanation unless `apps/<id>/src/features/index.ts` calls `billing(...)` (`loadProduct` reads it as text).
+- Steps `keys`, `plans`, `webhook`; then the doctor of the Product (Billing section). `--redo keys|plans|webhook` redoes one.
+  - `keys`: for the sandbox that Previews use and for the real account, a pre-filled link (`dashboard.stripe.com/apikeys/create?name=...&permissions[]=rak_...`, format not documented by Stripe, used by PostHog and Swetrix; the permissions are `BILLING_PERMISSIONS`), then one hidden prompt each (or `STRIPE_SANDBOX_KEY` / `STRIPE_LIVE_KEY` in the env). A key of the other account, or one that lacks a permission (read probes; Stripe's refusal names the permission), is named and asked again. The same key serves the bootstrap and the Worker. The live key is `<ID>_STRIPE_SECRET_KEY` in the production environment, the sandbox key `<ID>_PREVIEW_STRIPE_SECRET_KEY` in the preview environment (repo level when they do not exist).
+  - `plans`: asks the currency (no default), the fixed plans (name, Seats, monthly price), the per-Seat price (its minimum Seats is one above the biggest fixed plan), the Free plan, yearly plans with one discount, and the trial days. The answers are recorded in `<ID>_BILLING_PLANS` (no secret in it), so a rerun asks nothing; the plans, payment methods (card, Apple Pay, Google Pay) and the Customer Portal are then written to both accounts, and `<ID>_BILLING_SYNCED=true` is set. A Stripe product is tagged `productId`, `plan`, `kind`, `seats`, `min_seats`, `trial_days`; a price's lookup key and nickname are `<id>_<plan>_<monthly|yearly>`. Existing products, prices and portals are never changed (a price cannot be).
+  - `webhook`: the real account's endpoint `https://<domain>/api/auth/stripe/webhook`; Stripe shows its signing secret once, so the step (and a redo) creates a new endpoint, stores `<ID>_STRIPE_WEBHOOK_SECRET` and then deletes the Product's older ones.
+- The deploy (`workerSecrets`) hands the Worker `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` only when both secrets exist.
+- The doctor shows the Billing section for a Product with any trace of it. Required: the three secrets and the two variables, a key that has every permission (named when not), and an events endpoint that points to the Product's address. A difference between the plans of the two accounts is a warning. Stripe checks need a key from the memory of the run, the env or one optional hidden prompt.
+- Not confirmed yet: the exact `rak_` names and the way the link opens a sandbox (see `billing-permissions.ts`); check them once with a real sandbox key.
 
 ## `pnpm bootstrap factory`: the Factory module
 
