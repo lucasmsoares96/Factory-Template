@@ -249,6 +249,23 @@ describe.each([[WORKFLOWS_DIR]])("deploy workflow in %s", (dir) => {
     expect(runs(jobs.smoke!).join("\n")).toContain(".factory/src/ci/smoke.ts");
   });
 
+  it("the deploy hands the Entitlement names to a notice job that holds no secret and may only comment on PRs", () => {
+    const check = steps(jobs.deploy!).find((step) => step.name === "entitlements without a plan");
+    expect(check?.["continue-on-error"]).toBe(true);
+    expect(check?.run).toContain("entitlements.ts check");
+    expect(check?.env?.STRIPE_KEY).toContain("STRIPE_SECRET_KEY");
+    const upload = steps(jobs.deploy!).filter((step) => step.uses?.startsWith("actions/upload-artifact@")).find((step) => String(step.with?.name).startsWith("entitlements-"));
+    expect(upload?.with).toMatchObject({ "if-no-files-found": "ignore" });
+    const notice = jobs["entitlements-notice"]!;
+    expect(notice.needs).toEqual(["plan", "deploy"]);
+    expect(notice.if).toContain("needs.deploy.result == 'success'");
+    expect(notice.permissions).toEqual({ contents: "read", "pull-requests": "write" });
+    expect(textOf(notice)).not.toMatch(/secrets[.[]|CLOUDFLARE|DATABASE_URL|STRIPE/);
+    expect(runs(notice).join("\n")).toContain("entitlements.ts notice");
+    expect(steps(notice).find((step) => step.name === "comment")?.env).toMatchObject({ SHA: "${{ github.sha }}", GH_TOKEN: "${{ github.token }}" });
+    expect(String(notice["runs-on"])).toBe("ubuntu-latest");
+  });
+
   it("only the build takes vars.FACTORY_RUNNER; the deploy and the smoke never run on it", () => {
     for (const id of ["plan", "deploy", "smoke"]) expect(runsOn(jobs[id]!), id).not.toContain("FACTORY_RUNNER");
   });
