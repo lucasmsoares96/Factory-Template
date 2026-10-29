@@ -1,15 +1,16 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import { eq } from "drizzle-orm";
-import type { MiddlewareHandler } from "hono";
+import type { Context, MiddlewareHandler } from "hono";
 import { createMiddleware } from "hono/factory";
 import { subscriptions } from "../../db/schema.ts";
 import type { SkeletonEnv } from "../../platform/env.ts";
 import { apiError, createRouter, errorResponse } from "../../platform/errors.ts";
 import { requireIdentity, unauthenticatedResponse } from "../../platform/identity.ts";
 import { billingFor, type Billing } from "./context.ts";
-import { countSeats, seatPeople } from "../../platform/seats.ts";
+import { countLosingAccess, countSeats, seatPeople } from "../../platform/seats.ts";
 import { LIVE_STATUSES as LIVE, planOf } from "./entitlements.ts";
-import type { Plan } from "./plans.ts";
+import { decideChange, hasInterval, seatsToBuy, standingOf, type Interval } from "./plan-change.ts";
+import type { Plan, PlanCatalog } from "./plans.ts";
 
 /** The SPA page a person returns to from Checkout. */
 export const PLAN_PAGE = "/account/plan";
@@ -32,6 +33,19 @@ const PlanSchema = z
       })
       .nullable()
       .openapi({ description: "The monthly price; `null` for the free Plan." }),
+    yearlyPrice: z
+      .object({
+        amount: z.number().int().openapi({ description: "The yearly price in the currency's smallest unit (cents). For a Plan priced per Seat it is per Seat.", example: 19000 }),
+        currency: z.string().openapi({ description: "The lower-case ISO currency code.", example: "usd" }),
+        interval: z.literal("year").openapi({ description: "How often the price is charged." }),
+      })
+      .nullable()
+      .openapi({ description: "The yearly price; `null` when the Plan is not sold by the year." }),
+    minSeats: z
+      .number()
+      .int()
+      .nullable()
+      .openapi({ description: "The fewest Seats a `per_seat` Plan sells: one more than the biggest fixed Plan gives. `null` for the other kinds.", example: 11 }),
     trialDays: z
       .number()
       .int()
@@ -51,6 +65,17 @@ const CurrentPlan = z
         status: z.enum(["active", "trialing", "past_due"]).openapi({ description: "`past_due`: the last payment failed.", example: "active" }),
         periodEnd: z.iso.datetime().nullable().openapi({ description: "When the current period ends and the Subscription renews.", example: "2026-11-28T12:00:00.000Z" }),
         cancelAtPeriodEnd: z.boolean().openapi({ description: "Whether the Subscription ends when the current period does.", example: false }),
+        interval: z.enum(["month", "year"]).openapi({ description: "How often the person pays.", example: "month" }),
+        seats: z.number().int().nullable().openapi({ description: "The Seats bought, for a Plan priced per Seat; `null` for the others.", example: 12 }),
+        scheduledChange: z
+          .object({
+            plan: z.string().openapi({ description: "The id of the Plan the Subscription moves to.", example: "prod_Rk2pQ9vT4mWs1a" }),
+            interval: z.enum(["month", "year"]).openapi({ description: "How often the person pays after the change.", example: "month" }),
+            seats: z.number().int().nullable().openapi({ description: "The Seats bought after the change, for a Plan priced per Seat.", example: 12 }),
+            at: z.iso.datetime().nullable().openapi({ description: "When the change applies: the end of the paid period.", example: "2026-11-28T12:00:00.000Z" }),
+          })
+          .nullable()
+          .openapi({ description: "A change the person scheduled for the end of the paid period; `null` when there is none." }),
       })
       .nullable()
       .openapi({ description: "The person's Subscription; `null` when they are on the free Plan." }),
@@ -91,9 +116,9 @@ const subscribeRoute = (on: MiddlewareHandler<SkeletonEnv>) =>
     method: "post",
     path: "/billing/subscribe",
     operationId: "subscribePlan",
-    summary: "Subscribe to a fixed monthly Plan",
+    summary: "Subscribe to a Plan",
     description:
-      "Opens Stripe's Checkout for a fixed monthly Plan and answers its URL; the SPA sends the user there. The Subscription changes when Stripe's event arrives, never by this call.",
+      "Opens Stripe's Checkout for a fixed Plan, or for a Plan priced per Seat with the Seats chosen (at least its `minSeats`), monthly or yearly, and answers its URL; the SPA sends the user there. The Subscription changes when Stripe's event arrives, never by this call.",
     // Sends a person to a payment page: nothing an agent does for them.
     "x-mcp": false,
     middleware: [on, requireIdentity] as const,
@@ -102,17 +127,94 @@ const subscribeRoute = (on: MiddlewareHandler<SkeletonEnv>) =>
         required: true,
         content: {
           "application/json": {
-            schema: z.object({ plan: z.string().min(1).openapi({ description: "The Plan's id, from getPlan.", example: "prod_Rk2pQ9vT4mWs1a" }) }).openapi("SubscribePlan"),
+            schema: z
+              .object({
+                plan: z.string().min(1).openapi({ description: "The Plan's id, from getPlan.", example: "prod_Rk2pQ9vT4mWs1a" }),
+                interval: z.enum(["month", "year"]).default("month").openapi({ description: "How often to pay. The Plan needs a price for it.", example: "month" }),
+                seats: z.number().int().min(1).optional().openapi({ description: "The Seats to buy, for a Plan priced per Seat (default: its minimum). Ignored for a fixed Plan.", example: 12 }),
+              })
+              .openapi("SubscribePlan"),
           },
         },
       },
     },
     responses: {
       200: { description: "Checkout is open.", content: { "application/json": { schema: Checkout } } },
-      400: errorResponse("The request is invalid.", "VALIDATION_FAILED"),
+      400: errorResponse("The request is invalid, the Plan has no price at this interval, or the Seats are below the Plan's minimum.", "VALIDATION_FAILED", "SEATS_BELOW_MINIMUM"),
       401: unauthenticatedResponse,
-      404: errorResponse("Billing is off, or the Product has no fixed monthly Plan with this id.", "NOT_FOUND"),
+      404: errorResponse("Billing is off, or the Product has no paid Plan with this id.", "NOT_FOUND"),
       409: errorResponse("The user already has a Subscription.", "ALREADY_SUBSCRIBED"),
+      502: errorResponse("Stripe did not answer.", "BILLING_UNAVAILABLE"),
+    },
+  });
+
+const ChangeBody = z
+  .object({
+    plan: z.string().min(1).openapi({ description: "The id of the Plan to move to, from getPlan. It may be the current one.", example: "prod_Rk2pQ9vT4mWs1a" }),
+    interval: z.enum(["month", "year"]).optional().openapi({ description: "How often to pay after the change (default: as now). The Plan needs a price for it.", example: "year" }),
+    seats: z.number().int().min(1).optional().openapi({ description: "The Seats to buy, for a Plan priced per Seat (default: the ones bought now, else its minimum).", example: 12 }),
+  })
+  .openapi("PlanChangeRequest");
+
+const PlanChange = z
+  .object({
+    timing: z.enum(["now", "period_end"]).openapi({
+      description: "`now`: a rise, which applies as soon as the payment is confirmed. `period_end`: a drop (or a mix), which applies when the paid period ends.",
+      example: "now",
+    }),
+    effectiveAt: z.iso.datetime().nullable().openapi({ description: "When a `period_end` change applies; `null` for `now`.", example: "2026-11-28T12:00:00.000Z" }),
+    seatsAfter: z.number().int().nullable().openapi({ description: "The Seats the person has once the change applies; `null` for no limit.", example: 3 }),
+    used: z.number().int().openapi({ description: "The Seats taken today.", example: 6 }),
+    peopleLosingAccess: z.number().int().openapi({ description: "How many people are suspended once the change applies and the Seats fall short (pending Invitations are canceled first).", example: 2 }),
+  })
+  .openapi("PlanChangePreview");
+
+const PlanChangeDone = z
+  .object({
+    url: z.string().openapi({ description: "Where to send the person: Stripe's confirmation page for a `now` change (it shows the prorated amount), the Plan page for a `period_end` one.", example: "https://billing.stripe.com/p/session/test_a1" }),
+    timing: z.enum(["now", "period_end"]).openapi({ description: "When the change applies; as in the preview.", example: "now" }),
+    effectiveAt: z.iso.datetime().nullable().openapi({ description: "When a `period_end` change applies; `null` for `now`.", example: "2026-11-28T12:00:00.000Z" }),
+  })
+  .openapi("PlanChangeResult");
+
+const previewChangeRoute = (on: MiddlewareHandler<SkeletonEnv>) =>
+  createRoute({
+    method: "post",
+    path: "/billing/change/impact",
+    operationId: "previewPlanChange",
+    summary: "Preview a change of Plan",
+    description:
+      "Says when a change of Plan would apply and what it does to the Seats, without changing anything: a rise applies now, a drop at the end of the paid period (`effectiveAt`), with how many people would lose access then. A POST because the request is a body, not because it writes.",
+    "x-mcp": false,
+    middleware: [on, requireIdentity] as const,
+    request: { body: { required: true, content: { "application/json": { schema: ChangeBody } } } },
+    responses: {
+      200: { description: "What the change would do.", content: { "application/json": { schema: PlanChange } } },
+      400: errorResponse("The request is invalid, the Plan has no price at this interval, or the Seats are below the Plan's minimum.", "VALIDATION_FAILED", "SEATS_BELOW_MINIMUM"),
+      401: unauthenticatedResponse,
+      404: errorResponse("Billing is off, or the Product has no paid Plan with this id.", "NOT_FOUND"),
+      409: errorResponse("The user has no paid Subscription to change, or already has what they ask for.", "NOT_SUBSCRIBED", "ALREADY_ON_PLAN"),
+      502: errorResponse("Stripe did not answer.", "BILLING_UNAVAILABLE"),
+    },
+  });
+
+const changePlanRoute = (on: MiddlewareHandler<SkeletonEnv>) =>
+  createRoute({
+    method: "post",
+    path: "/billing/change",
+    operationId: "changePlan",
+    summary: "Change the Plan, its interval or its Seats",
+    description:
+      "Moves a paying user to another Plan, interval (monthly or yearly) or number of Seats. A rise answers the URL of Stripe's confirmation page, which shows the prorated amount; the Seats rise only when Stripe's event says the payment was confirmed (a bank confirmation pending keeps them as they are). A drop is scheduled for the end of the paid period and the Seats fall then, when the suspension acts.",
+    "x-mcp": false,
+    middleware: [on, requireIdentity] as const,
+    request: { body: { required: true, content: { "application/json": { schema: ChangeBody } } } },
+    responses: {
+      200: { description: "The change is under way.", content: { "application/json": { schema: PlanChangeDone } } },
+      400: errorResponse("The request is invalid, the Plan has no price at this interval, or the Seats are below the Plan's minimum.", "VALIDATION_FAILED", "SEATS_BELOW_MINIMUM"),
+      401: unauthenticatedResponse,
+      404: errorResponse("Billing is off, or the Product has no paid Plan with this id.", "NOT_FOUND"),
+      409: errorResponse("The user has no paid Subscription to change, or already has what they ask for.", "NOT_SUBSCRIBED", "ALREADY_ON_PLAN"),
       502: errorResponse("Stripe did not answer.", "BILLING_UNAVAILABLE"),
     },
   });
@@ -121,7 +223,18 @@ const subscribeRoute = (on: MiddlewareHandler<SkeletonEnv>) =>
 type PluginApi = {
   upgradeSubscription(options: {
     headers: Headers;
-    body: { plan: string; successUrl: string; cancelUrl: string; disableRedirect: boolean; metadata: Record<string, string> };
+    body: {
+      plan: string;
+      annual?: boolean;
+      seats?: number;
+      subscriptionId?: string;
+      scheduleAtPeriodEnd?: boolean;
+      successUrl: string;
+      cancelUrl: string;
+      returnUrl?: string;
+      disableRedirect: boolean;
+      metadata: Record<string, string>;
+    };
   }): Promise<{ url?: string }>;
 };
 
@@ -134,10 +247,13 @@ async function readCatalog(billing: Billing) {
   }
 }
 
-/** The Seats the Plan gives: its number, 1 on the free Plan unless it says more, `null` when each Seat is paid for. */
-export function seatsOf(plan: Plan | null): number | null {
+/**
+ * The Seats the Plan gives: its number, 1 on the free Plan unless it says more; on a Plan priced per Seat the ones the
+ * Subscription bought (`null` when it does not say).
+ */
+export function seatsOf(plan: Plan | null, live?: { seats: number | null }): number | null {
   if (!plan) return 1;
-  if (plan.kind === "per_seat") return null;
+  if (plan.kind === "per_seat") return live?.seats ?? null;
   return plan.seats ?? (plan.kind === "free" ? 1 : null);
 }
 
@@ -178,6 +294,57 @@ const getSeatsRoute = (on: MiddlewareHandler<SkeletonEnv>) =>
     },
   });
 
+
+/**
+ * The change the person scheduled for the end of the paid period, read from the Subscription's schedule in Stripe: its
+ * second phase. `null` when there is none, or when Stripe does not answer (the page then shows no schedule).
+ */
+async function scheduledChangeOf(billing: Billing, catalog: PlanCatalog, live: { stripeScheduleId: string | null; periodEnd: Date | null }) {
+  if (!live.stripeScheduleId) return null;
+  try {
+    const schedule = await billing.stripe.subscriptionSchedules.retrieve(live.stripeScheduleId);
+    if (schedule.status !== "active") return null;
+    const item = schedule.phases[1]?.items[0];
+    if (!item) return null;
+    const priceId = typeof item.price === "string" ? item.price : item.price.id;
+    const plan = catalog.priced.find((candidate) => candidate.priceId === priceId || candidate.yearly?.priceId === priceId);
+    if (!plan) return null;
+    return {
+      plan: plan.id,
+      interval: plan.yearly?.priceId === priceId ? ("year" as const) : ("month" as const),
+      seats: plan.kind === "per_seat" ? (item.quantity ?? null) : null,
+      at: live.periodEnd?.toISOString() ?? null,
+    };
+  } catch (error) {
+    console.error("Reading the scheduled change from Stripe failed:", error);
+    return null;
+  }
+}
+
+type Resolved = Awaited<ReturnType<typeof planOf>>;
+
+/** The Subscription row's Stripe id, the live one the plugin changes. */
+const stripeIdOf = (live: NonNullable<Resolved["live"]>) => live.stripeSubscriptionId ?? undefined;
+
+/** A change as the routes answer it: the codes of `Change` on their status. */
+function changeFailure(c: Context<SkeletonEnv>, error: "NOT_FOUND" | "VALIDATION_FAILED" | "ALREADY_ON_PLAN" | "SEATS_BELOW_MINIMUM" | "NOT_SUBSCRIBED") {
+  if (error === "NOT_FOUND") return c.json(apiError("NOT_FOUND"), 404);
+  if (error === "ALREADY_ON_PLAN" || error === "NOT_SUBSCRIBED") return c.json(apiError(error), 409);
+  return c.json(apiError(error), 400);
+}
+
+/** The steps both change routes share: the Plans, the person's Plan and the decision. */
+async function decide(c: Context<SkeletonEnv>, billing: Billing, request: { plan: string; interval?: Interval; seats?: number }) {
+  const catalog = await readCatalog(billing);
+  if (!catalog) return { failure: c.json(apiError("BILLING_UNAVAILABLE"), 502) };
+  const { plan, live } = await planOf(c.var.db, catalog, c.var.identity.user.id);
+  const standing = standingOf(plan, live);
+  if (!standing || !live) return { failure: changeFailure(c, "NOT_SUBSCRIBED") };
+  const change = decideChange(catalog, standing, request);
+  if (change.error) return { failure: changeFailure(c, change.error) };
+  return { change, live };
+}
+
 export function billingApi(entitlements: readonly string[]) {
   const on = billingOn(entitlements);
   return createRouter()
@@ -194,6 +361,9 @@ export function billingApi(entitlements: readonly string[]) {
                 status: live.status as (typeof LIVE)[number],
                 periodEnd: live.periodEnd?.toISOString() ?? null,
                 cancelAtPeriodEnd: live.cancelAtPeriodEnd ?? false,
+                interval: live.billingInterval === "year" ? ("year" as const) : ("month" as const),
+                seats: plan?.kind === "per_seat" ? live.seats : null,
+                scheduledChange: await scheduledChangeOf(billing, catalog, live),
               }
             : null,
           plans: catalog.plans satisfies Plan[],
@@ -206,7 +376,7 @@ export function billingApi(entitlements: readonly string[]) {
       const catalog = await readCatalog(billing);
       if (!catalog) return c.json(apiError("BILLING_UNAVAILABLE"), 502);
       const { user } = c.var.identity;
-      const { plan } = await planOf(c.var.db, catalog, user.id);
+      const { plan, live } = await planOf(c.var.db, catalog, user.id);
       const people = await seatPeople(c.var.db, user.id);
       const companies = new Map<string, { id: string; name: string; people: { name: string | null; email: string; status: "owner" | "member" | "invited" }[] }>();
       for (const person of people) {
@@ -215,15 +385,18 @@ export function billingApi(entitlements: readonly string[]) {
         companies.set(person.companyId, company);
       }
       // Whoever owns nothing still holds the one Seat of their own account.
-      return c.json({ used: Math.max(countSeats(people), 1), total: seatsOf(plan), companies: [...companies.values()] }, 200);
+      return c.json({ used: Math.max(countSeats(people), 1), total: seatsOf(plan, live), companies: [...companies.values()] }, 200);
     })
     .openapi(subscribeRoute(on), async (c) => {
       const billing = billingFor(c, entitlements)!;
-      const { plan: planId } = c.req.valid("json");
+      const { plan: planId, interval, seats: requested } = c.req.valid("json");
       const catalog = await readCatalog(billing);
       if (!catalog) return c.json(apiError("BILLING_UNAVAILABLE"), 502);
-      const plan = catalog.priced.find((candidate) => candidate.id === planId && candidate.kind === "fixed");
+      const plan = catalog.priced.find((candidate) => candidate.id === planId);
       if (!plan) return c.json(apiError("NOT_FOUND"), 404);
+      if (!hasInterval(plan, interval)) return c.json(apiError("VALIDATION_FAILED"), 400);
+      const bought = seatsToBuy(plan, requested, null);
+      if ("error" in bought) return c.json(apiError(bought.error), 400);
       const owned = await c.var.db.select({ status: subscriptions.status }).from(subscriptions).where(eq(subscriptions.referenceId, c.var.identity.user.id));
       if (owned.some((row) => (LIVE as readonly string[]).includes(row.status))) return c.json(apiError("ALREADY_SUBSCRIBED"), 409);
       try {
@@ -231,11 +404,67 @@ export function billingApi(entitlements: readonly string[]) {
         const session = await api.upgradeSubscription({
           headers: c.req.raw.headers,
           // Every customer and Subscription Stripe creates here carries the Product's id.
-          body: { plan: plan.id, successUrl: PLAN_PAGE, cancelUrl: PLAN_PAGE, disableRedirect: true, metadata: { productId: billing.productId } },
+          body: {
+            plan: plan.id,
+            annual: interval === "year",
+            ...(bought.seats !== null ? { seats: bought.seats } : {}),
+            successUrl: PLAN_PAGE,
+            cancelUrl: PLAN_PAGE,
+            disableRedirect: true,
+            metadata: { productId: billing.productId },
+          },
         });
         if (session.url) return c.json({ url: session.url }, 200);
       } catch (error) {
         console.error("Opening Checkout failed:", error);
+      }
+      return c.json(apiError("BILLING_UNAVAILABLE"), 502);
+    })
+    .openapi(previewChangeRoute(on), async (c) => {
+      const billing = billingFor(c, entitlements)!;
+      const decided = await decide(c, billing, c.req.valid("json"));
+      if (decided.failure) return decided.failure;
+      const { change, live } = decided;
+      const people = await seatPeople(c.var.db, c.var.identity.user.id);
+      return c.json(
+        {
+          timing: change.timing,
+          effectiveAt: change.timing === "period_end" ? (live.periodEnd?.toISOString() ?? null) : null,
+          seatsAfter: change.seatsAfter,
+          used: Math.max(countSeats(people), 1),
+          // A rise never takes Seats away; only what a drop leaves short is counted.
+          peopleLosingAccess: change.timing === "period_end" ? countLosingAccess(people, change.seatsAfter) : 0,
+        },
+        200,
+      );
+    })
+    .openapi(changePlanRoute(on), async (c) => {
+      const billing = billingFor(c, entitlements)!;
+      const decided = await decide(c, billing, c.req.valid("json"));
+      if (decided.failure) return decided.failure;
+      const { change, live } = decided;
+      try {
+        const api = c.var.auth().api as unknown as PluginApi;
+        const session = await api.upgradeSubscription({
+          headers: c.req.raw.headers,
+          body: {
+            plan: change.target.id,
+            annual: change.interval === "year",
+            ...(change.seats !== null ? { seats: change.seats } : {}),
+            subscriptionId: stripeIdOf(live),
+            scheduleAtPeriodEnd: change.timing === "period_end",
+            successUrl: PLAN_PAGE,
+            cancelUrl: PLAN_PAGE,
+            returnUrl: PLAN_PAGE,
+            disableRedirect: true,
+            metadata: { productId: billing.productId },
+          },
+        });
+        if (session.url) {
+          return c.json({ url: session.url, timing: change.timing, effectiveAt: change.timing === "period_end" ? (live.periodEnd?.toISOString() ?? null) : null }, 200);
+        }
+      } catch (error) {
+        console.error("Changing the Plan failed:", error);
       }
       return c.json(apiError("BILLING_UNAVAILABLE"), 502);
     });
