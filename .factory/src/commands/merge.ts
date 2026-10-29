@@ -87,7 +87,8 @@ async function decide(ctx: CommandContext, input: MergeInput, pr: PullRequest, d
 
 /** The Door field of a line, in every language of the catalog: `**Door:**` or `**Porta:**`. */
 const DOOR_FIELD = /\*\*(?:Door|Porta):\*\*(.*)/i;
-const ONE_WAY = /one-way/i;
+/** `one-way` is the fixed word the prompts ask for; the Portuguese terms are a net for a value the model translated. */
+const ONE_WAY = /one-way|mão única|sem volta/i;
 
 /**
  * Whether the pull request declares a one-way door: in the Door field of its Merge Danger section (the `pr` skill's
