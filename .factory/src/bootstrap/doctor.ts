@@ -1,8 +1,7 @@
 import { accountNames } from "./accounts.ts";
 import { cloudflareAccountId, cloudflareCredential, LANGUAGE_VARIABLE } from "./common.ts";
 import { labelSpecs } from "./labels.ts";
-import { LANGUAGES } from "../messages.ts";
-import { MERGE_MODES } from "../config.ts";
+import { closedVariables, type FactoryConfig } from "../config.ts";
 import { MERGE_MODE_VARIABLE } from "./factory.ts";
 import { NO_DNS, NO_LOGIN, deployFirstMessage, productionEnvironment, productSecretName, readDnsState, readWorkerDomainState } from "./domain.ts";
 import { hasPreviewTrace, previewEnvironment, previewNames, previewProjectName, previewSecretPresent, PREVIEW_PRODUCTS, BASE_BRANCH } from "./previews.ts";
@@ -42,6 +41,12 @@ const MODULE_SWITCHES = [
   ["PREVIEWS_ENABLED", "PR previews"],
   ["FACTORY_ENABLED", "the Factory"],
 ] as const;
+
+/** What the doctor says about a closed setting that a bootstrap step asks, unset or with a value outside its list. */
+const CLOSED_VARIABLE_TEXTS: Record<string, { unset: (config: FactoryConfig) => string; redo: string }> = {
+  [LANGUAGE_VARIABLE]: { unset: (config) => `the Factory writes in ${config.language}; \`pnpm bootstrap\` asks it`, redo: "run `pnpm bootstrap --redo language`" },
+  [MERGE_MODE_VARIABLE]: { unset: () => "human, every Factory pull request waits for a person; `pnpm bootstrap factory` asks it", redo: "run `pnpm bootstrap factory --redo merge-mode`" },
+};
 
 /**
  * Read-only: lists and reads, never creates or sets anything. The credentials come from `memory` (what this run already
@@ -92,16 +97,15 @@ export async function doctor(
     const on = variables[name] === "true";
     add("Variables", on ? "ok" : "off", name, on ? undefined : `${what} is switched off`);
   }
-  const language = variables[LANGUAGE_VARIABLE];
-  // Unset is no fault: the Factory writes in the default language. A value it does not know stops every job.
-  if (language === undefined) add("Variables", "ok", LANGUAGE_VARIABLE, `not set: the Factory writes in ${config.language}; \`pnpm bootstrap\` asks it`);
-  else if ((LANGUAGES as readonly string[]).includes(language)) add("Variables", "ok", LANGUAGE_VARIABLE, language);
-  else add("Variables", "warn", LANGUAGE_VARIABLE, `${language} is not one of ${LANGUAGES.join(", ")}: every Factory job fails; run \`pnpm bootstrap --redo language\``);
-  const mergeMode = variables[MERGE_MODE_VARIABLE];
-  if (mergeMode === undefined) add("Variables", "ok", MERGE_MODE_VARIABLE, "not set: human, every Factory pull request waits for a person; `pnpm bootstrap factory` asks it");
-  else if (mergeMode === "all") add("Variables", "warn", MERGE_MODE_VARIABLE, "all: nothing requires a human review; the Factory merges every pull request once its checks pass, changes to its own rules included");
-  else if ((MERGE_MODES as readonly string[]).includes(mergeMode)) add("Variables", "ok", MERGE_MODE_VARIABLE, mergeMode);
-  else add("Variables", "warn", MERGE_MODE_VARIABLE, `${mergeMode} is not one of ${MERGE_MODES.join(", ")}: every Factory job fails; run \`pnpm bootstrap factory --redo merge-mode\``);
+  // Unset is no fault: the Factory uses the default. A value outside the closed list stops every job (`loadConfig`).
+  for (const { name, values, fallback } of closedVariables()) {
+    const value = variables[name];
+    const text = CLOSED_VARIABLE_TEXTS[name];
+    if (value === undefined || value === "") add("Variables", "ok", name, `not set: ${text?.unset(config) ?? fallback}`);
+    else if (name === MERGE_MODE_VARIABLE && value === "all") add("Variables", "warn", name, "all: nothing requires a human review; the Factory merges every pull request once its checks pass, changes to its own rules included");
+    else if (values.includes(value)) add("Variables", "ok", name, value);
+    else add("Variables", "warn", name, `${value} is not one of ${values.join(", ")}: every Factory job fails; ${text?.redo ?? "fix or delete the variable"}`);
+  }
   if (variables.FACTORY_USE_ENVIRONMENTS === "false") {
     add("Variables", "off", "Environments", "secrets live at repo level: the plan or visibility refused environments or the ruleset; rerun the wizard after upgrading");
   }
