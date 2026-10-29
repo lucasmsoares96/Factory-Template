@@ -1245,7 +1245,7 @@ describe("Factory merge workflow (Merge Mode)", () => {
   });
 
   it("reads and labels with the job token and merges with FACTORY_TOKEN, taking nothing from the event", () => {
-    expect(job.permissions).toEqual({ contents: "read", "pull-requests": "write", actions: "read" });
+    expect(job.permissions).toEqual({ contents: "read", "pull-requests": "write", actions: "read", issues: "read" });
     expect(step.run).toBe("pnpm factory merge");
     expect(step.env).toEqual({ FACTORY_ADAPTERS: "github", GITHUB_TOKEN: "${{ github.token }}", FACTORY_TOKEN: "${{ secrets.FACTORY_TOKEN }}" });
     expect(steps(job).filter((s) => JSON.stringify(s).includes("secrets."))).toEqual([step]);
