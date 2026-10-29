@@ -1,9 +1,9 @@
-import type { QuestionId } from "./questions.ts";
 /**
  * Clients of the four services the wizard configures. Every one has a real
  * and a fake adapter (`fake/`). Credentials live inside the adapters and are
  * never written to disk; the interfaces only move values in memory.
  */
+import type { QuestionId } from "./questions.ts";
 
 export interface RepoInfo {
   fullName: string;
