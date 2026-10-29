@@ -61,7 +61,7 @@ describe("one run is enough", () => {
     const { code, output } = await w.run();
 
     expect(code).toBe(1);
-    expect(output).toMatch(/missing\s+Repo permission/);
+    expect(output).toContain("needs admin");
   });
 
   it("`domain <id>` ends with the doctor too, using the Resend key and token it was given", async () => {

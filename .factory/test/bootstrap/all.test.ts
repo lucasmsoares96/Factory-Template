@@ -21,6 +21,18 @@ function allWorld(answers: Record<string, string | boolean | string[]> = {}) {
   return w;
 }
 
+/** The preflight (target and admin check) reads the repository twice, before anything is written; later reads (the doctor) see a lost permission. */
+function demoteAfterPreflight(w: ReturnType<typeof allWorld>) {
+  let info = w.github.info;
+  let reads = 0;
+  Object.defineProperty(w.github, "info", {
+    get: () => ({ ...info, viewerPermission: reads++ < 2 ? "ADMIN" : "WRITE" }),
+    set: (value) => {
+      info = value;
+    },
+  });
+}
+
 const state = (w: ReturnType<typeof allWorld>) => ({
   secrets: [...w.github.secrets.keys()].sort(),
   variables: Object.fromEntries([...w.github.variables.entries()].sort()),
@@ -60,7 +72,7 @@ describe("pnpm bootstrap all <id>", () => {
   it("stops at the first module whose doctor fails", async () => {
     const w = allWorld();
     w.deps.interactive = true;
-    w.github.info = { ...w.github.info, viewerPermission: "WRITE" };
+    demoteAfterPreflight(w);
 
     const { code, output } = await w.run("all", "example");
 
@@ -84,7 +96,7 @@ describe("the next line", () => {
 
   it("asks to run the same command again when its doctor fails", async () => {
     const w = allWorld();
-    w.github.info = { ...w.github.info, viewerPermission: "WRITE" };
+    demoteAfterPreflight(w);
 
     const { code, output } = await w.run();
 
