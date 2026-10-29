@@ -120,6 +120,14 @@ When Claude Code stops at the account's usage limit ("You've hit your session li
 
 - `publish` pushes with `FACTORY_TOKEN`, so the PR's CI runs again (the `GITHUB_TOKEN` that step holds only dispatches the Retro of an Escalation). The guarantee is the lease: `Run discarded` on the issue when the branch moved. An update of a branch (`publish --flow update-branch`, and every PR-keyed run) writes that discard to the log only: the newer update that moved the branch is on its way. Any other discard still comments.
 
+### The queue of a branch
+
+A feedback round and an update of the same branch share one queue: the concurrency group `factory-<N>` (`factory-pr-<N>` for a PR-keyed update), `cancel-in-progress: false`, `queue: max`. Both `work` and `publish` of a run are in it, so one run's push is not interleaved with another run's `work`.
+
+- `work` fetches the branch with the job token once it holds the group, checks it out and writes that head as `startSha` in `result.json`. `publish` leases its push against that value (`--start-sha`, from the claim, is only the fallback when there is no `result.json`).
+- A feedback round and an update dispatched for the same issue are never skipped or cancelled by each other: the second waits in the queue and starts from the head the first one published, so the branch ends with the feedback applied and the new base merged (a branch that already contains the base ends as `up-to-date`). GitHub orders the queue by entry: if the second `work` is already waiting when the first run's `publish` enters, it may read the branch first; the lease then discards it, and the rule below applies.
+- A round discarded because the branch moved (a push outside the queue, or the case above) is dispatched again once (`factory-pr-feedback.yml`, inputs `pr` and `retry`), from the new head. The retried round, if it is discarded too, comments on the PR with the reason. Every discard also comments on the issue; none is silent (an update of a branch only logs it).
+
 ### PR feedback
 
 `.github/workflows/factory-pr-feedback.yml` (`pull_request_review: submitted`, `pull_request_review_comment`, `issue_comment`; run `PR #N feedback`).
