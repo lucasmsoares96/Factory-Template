@@ -19,6 +19,7 @@ import {
   type RepoInfo,
   type RulesetInfo,
   type RulesetSpec,
+  type ToolsClient,
   type WranglerAuth,
   type ResendClient,
   type ResendDnsRecord,
@@ -386,6 +387,43 @@ export class FakeCloudflare {
         this.workerDomains.push({ hostname: domain.hostname, service: domain.service, zoneId: domain.zoneId });
       },
     };
+  }
+}
+
+/** Node, pnpm and `gh` on this machine: set the fields to play a missing or wrong tool. The installs fix what they are told to. */
+export class FakeTools implements ToolsClient {
+  pins: { node?: string; pnpm?: string } = { node: "24.22.0", pnpm: "12.14.0" };
+  node = "24.22.0";
+  pnpm: string | undefined = "12.14.0";
+  gh = true;
+  loggedIn = true;
+  /** `installGh` / `loginGh` leave the tool in place (false: the install or the login fails silently). */
+  installWorks = true;
+  loginWorks = true;
+  installs = 0;
+  logins = 0;
+  async pinned() {
+    return this.pins;
+  }
+  async nodeVersion() {
+    return this.node;
+  }
+  async pnpmVersion() {
+    return this.pnpm;
+  }
+  async ghInstalled() {
+    return this.gh;
+  }
+  async ghAuthenticated() {
+    return this.loggedIn;
+  }
+  async installGh() {
+    this.installs++;
+    this.gh = this.installWorks;
+  }
+  async loginGh() {
+    this.logins++;
+    this.loggedIn = this.loginWorks;
   }
 }
 
