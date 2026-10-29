@@ -8,6 +8,7 @@ import { entitlementFor, planOf } from "./entitlements.ts";
 import { billingEnabled, billingFor } from "./context.ts";
 import { sendPriceChange } from "./price-change.ts";
 import { sendTrialEnding } from "./trial-ending.ts";
+import { sendSubscriptionNotices } from "./notices.ts";
 import { reconcileOnSubscriptionEvent } from "./suspension.ts";
 import { productFilter } from "./product-filter.ts";
 import { fakeStripeRoutes } from "./routes.ts";
@@ -63,6 +64,7 @@ export function billing<const Name extends string>({ entitlements }: { entitleme
           onEvent: async (event) => {
             await sendTrialEnding(c, on, event);
             await sendPriceChange(c, on, event);
+            await sendSubscriptionNotices(c, on, event);
             await reconcileOnSubscriptionEvent(c, event);
           },
         }),
