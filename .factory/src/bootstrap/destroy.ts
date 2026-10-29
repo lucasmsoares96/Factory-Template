@@ -286,6 +286,7 @@ async function planPreviews(_ctx: StepContext, plan: Plan, services: Services, i
   }
   repo.dropEnvironment(previewEnvironment(id));
   repo.dropSecret(names.neonKey);
+  repo.dropSecret(names.accountPassword);
   repo.dropVariable(names.neonProject);
   repo.dropVariable(names.kv);
 }

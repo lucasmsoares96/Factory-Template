@@ -218,9 +218,9 @@ async function createAccount(ctx: StepContext, url: string, product: ProductIden
 const PASSWORD_ATTEMPTS = 3;
 
 /** Asks twice (hidden) and applies the sign-up's password rules. The answer lives in the caller's frame only. */
-async function askPassword(ctx: StepContext, id: string): Promise<string> {
+export async function askPassword(ctx: StepContext, id: string, message = "Password of the default account (hidden; kept only as the deploy secret)"): Promise<string> {
   for (let attempt = 1; attempt <= PASSWORD_ATTEMPTS; attempt++) {
-    const password = await ctx.prompter.password({ id, message: "Password of the default account (hidden; kept only as the deploy secret)" });
+    const password = await ctx.prompter.password({ id, message });
     const problem = passwordProblem(password);
     if (problem) ctx.log(`  ${problem}`);
     else if ((await ctx.prompter.password({ id: `${id}-confirm`, message: "Type it again" })) === password) return password;
