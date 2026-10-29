@@ -194,14 +194,15 @@ jobs:
           if-no-files-found: ignore
 
   publish:
-    needs: [claim, work]
+    needs: [claim, image, work]
     # The group of `work` (and of the update of this issue's branch): the push is not interleaved with another run's
     # `work`, which reads the branch once it holds the group. Never cancelled: a run that did the work publishes it.
     concurrency:
       group: factory-${{ needs.claim.outputs.issue }}
       cancel-in-progress: false
       queue: max
-    # Also when `work` failed, timed out or was cancelled: with no result.json it escalates "infra".
+    # Also when `work` failed or timed out: with no result.json it escalates "infra". A run cancelled in `claim`, `image` or
+    # `work` publishes nothing and only takes factory:working off.
     if: ${{ always() && needs.claim.outputs.claimed == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -235,22 +236,25 @@ jobs:
           VARS_JSON: ${{ toJSON(vars) }}
         run: node .factory/src/ci/vars.ts
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: ${{ always() && !contains(needs.*.result, 'cancelled') }}
         continue-on-error: true
         with:
           name: work-out
           path: ${{ runner.temp }}/out
       - name: publish
         id: publish
+        if: ${{ always() && !contains(needs.*.result, 'cancelled') }}
         # GITHUB_TOKEN only dispatches the Retro of an Escalation; FACTORY_TOKEN does every write.
         env:
           FACTORY_TOKEN: ${{ secrets.FACTORY_TOKEN }}
           GITHUB_TOKEN: ${{ github.token }}
           START_SHA: ${{ needs.claim.outputs.start_sha }}
           PR: ${{ needs.claim.outputs.pr }}
+          WORK_RESULT: ${{ needs.work.result }}
         run: |
           mkdir -p "$RUNNER_TEMP/out"
           gh --version | head -1
-          pnpm factory publish "$ISSUE" --in "$RUNNER_TEMP/out" --pr "$PR" --start-sha "$START_SHA" ${RETRY:+--retry}
+          pnpm factory publish "$ISSUE" --in "$RUNNER_TEMP/out" --pr "$PR" --start-sha "$START_SHA" --work-result "$WORK_RESULT" ${RETRY:+--retry}
       # The end of the run, whatever happened: never with FACTORY_TOKEN, whose label events would start workflows.
       - name: working off
         if: always()
