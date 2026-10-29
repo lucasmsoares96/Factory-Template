@@ -75,7 +75,8 @@ Options:
                          for the domain command: resend-domain, dns-records, restricted-resend-key, worker-domain;
                          for the product command: neon-project, github-environment, database-secrets, auth-secret,
                          default-account (asks again, resets the password and the secret), the four domain steps, main-ruleset, deploy-products;
-                         for the billing command: keys (makes both keys again), plans (asks the plans again), webhook (a new endpoint and secret);
+                         for the billing command: keys (makes both keys again), plans (asks the plans again), webhook (a new endpoint and secret),
+                         existing (shows and confirms again what happens to the accounts that already exist);
                          for the previews command: preview-environment, preview-neon-project, preview-neon-key, preview-kv,
                          preview-account (asks again, replaces the password), preview-products;
                          for the factory command: labels, factory-token (asks for the token again), claude-auth, auto-merge,
@@ -124,7 +125,7 @@ export async function runBootstrap(argv: string[], deps: BootstrapDeps): Promise
   }
   if (command === "billing") {
     if (!productId) {
-      deps.log(`Usage: pnpm bootstrap billing <id> [--redo keys|plans|webhook]`);
+      deps.log(`Usage: pnpm bootstrap billing <id> [--redo keys|plans|webhook|existing]`);
       return 1;
     }
     const product = await productOrAsk(deps, productId);
