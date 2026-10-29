@@ -9,6 +9,7 @@ import { apiError, createRouter, errorResponse } from "../../platform/errors.ts"
 import { requireIdentity, unauthenticatedResponse } from "../../platform/identity.ts";
 import { billingFor, type Billing } from "./context.ts";
 import { countSeats, seatPeople } from "../../platform/seats.ts";
+import { LIVE_STATUSES as LIVE, planOf } from "./entitlements.ts";
 import type { Plan, PlanCatalog } from "./plans.ts";
 
 /** The SPA page a person returns to from Checkout. */
@@ -64,8 +65,6 @@ const billingOn = (entitlements: readonly string[]): MiddlewareHandler<SkeletonE
     if (!billingFor(c, entitlements)) return c.json(apiError("NOT_FOUND"), 404);
     await next();
   });
-
-const LIVE = ["active", "trialing", "past_due"] as const;
 
 const getPlanRoute = (on: MiddlewareHandler<SkeletonEnv>) =>
   createRoute({
@@ -132,18 +131,6 @@ async function readCatalog(billing: Billing) {
   }
 }
 
-/** The Plan the person is on, and their live Subscription: the free Plan (or `null` when Stripe has none) without one. */
-export async function planOf(db: Database, catalog: PlanCatalog, userId: string) {
-  const owned = await db.select().from(subscriptions).where(eq(subscriptions.referenceId, userId));
-  const live = owned
-    .filter((row) => (LIVE as readonly string[]).includes(row.status))
-    .sort((a, b) => (b.periodStart?.getTime() ?? 0) - (a.periodStart?.getTime() ?? 0))[0];
-  // The Subscription keeps the Plan's id lower-cased (the plugin lower-cases names).
-  const subscribed = live && catalog.plans.find((plan) => plan.id.toLowerCase() === live.plan);
-  const free = catalog.plans.find((plan) => plan.kind === "free");
-  return { live, plan: subscribed ?? free ?? null };
-}
-
 /** The Seats the Plan gives: its number, 1 on the free Plan unless it says more, `null` when each Seat is paid for. */
 export function seatsOf(plan: Plan | null): number | null {
   if (!plan) return 1;
@@ -195,7 +182,7 @@ export function billingApi(entitlements: readonly string[]) {
       const billing = billingFor(c, entitlements)!;
       const catalog = await readCatalog(billing);
       if (!catalog) return c.json(apiError("BILLING_UNAVAILABLE"), 502);
-      const { live, plan } = await planOf(c.var.db, catalog, c.var.identity.user.id);
+      const { plan, live } = await planOf(c.var.db, catalog, c.var.identity.user.id);
       return c.json(
         {
           plan,
