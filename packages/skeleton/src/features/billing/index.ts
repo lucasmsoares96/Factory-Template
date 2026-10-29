@@ -2,6 +2,7 @@ import { stripe } from "@better-auth/stripe";
 import { defineFeature, type Feature } from "../../platform/feature.ts";
 import { billingApi } from "./api.ts";
 import { billingEnabled, billingFor } from "./context.ts";
+import { sendTrialEnding } from "./trial-ending.ts";
 import { productFilter } from "./product-filter.ts";
 import { fakeStripeRoutes } from "./routes.ts";
 
@@ -34,7 +35,15 @@ export function billing({ entitlements }: { entitlements: readonly string[] }): 
         stripe({
           stripeClient: on.stripe,
           stripeWebhookSecret: on.webhookSecret,
-          subscription: { enabled: true, requireEmailVerification: true, plans: async () => (await on.plans()).priced.map(({ id, priceId, lookupKey }) => ({ name: id, ...(lookupKey ? { lookupKey } : { priceId }) })) },
+          subscription: { enabled: true, requireEmailVerification: true, plans: async () =>
+              (await on.plans()).priced.map(({ id, priceId, lookupKey, trialDays }) => ({
+                name: id,
+                ...(lookupKey ? { lookupKey } : { priceId }),
+                // The plugin gives the trial to a person's first Subscription only (any past trial refuses it).
+                ...(trialDays > 0 ? { freeTrial: { days: trialDays } } : {}),
+              })),
+          },
+          onEvent: (event) => sendTrialEnding(c, on, event),
         }),
       ];
     },
