@@ -225,6 +225,7 @@ describe("factory merge: the Merge Mode's decision", () => {
   it("decides on every open Factory PR, whatever run ended", async () => {
     const w = mergeWorld();
     const other = "c".repeat(40);
+    w.tracker.add({ number: 8, title: "Other", body: "Other" });
     w.codeHost.add({ number: 102, branch: "factory/issue-8", headSha: other, body: ALL_MET, files: ["package.json"] });
     w.codeHost.checksAt.set(other, GREEN);
 
@@ -399,6 +400,13 @@ describe("factory merge: the Merge Mode's decision", () => {
       w.tracker.commentsOn(7).push({ id: "c9", author: "x", body: "**Door:** one-way" });
       await run(w);
       expect(merged(w)).toBe(true);
+    });
+
+    it("holds a PR whose issue cannot be read, since the Triage door is unknown", async () => {
+      const w = mergeWorld({ pr: { branch: "factory/issue-999" } });
+      await run(w);
+      expect(merged(w)).toBe(false);
+      expect(decision(w)).toMatchObject({ unmet: ["door"] });
     });
 
     it("in all, ignores the declared door", async () => {
