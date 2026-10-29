@@ -72,11 +72,9 @@ export function summaryMarkdown(result: FactoryResult, config: FactoryConfig): s
   const verdict =
     result.outcome === "escalated"
       ? `escalated (${result.reason})`
-      : result.outcome === "waiting"
-        ? "waiting on the Skeleton"
-        : result.outcome === "paused"
-          ? `paused at the session limit (resets ${limit?.resetsAt ?? "at an unknown time"}; starts again after ${limit?.resumeAt})`
-          : "ready";
+      : result.outcome === "paused"
+        ? `paused at the session limit (resets ${limit?.resetsAt ?? "at an unknown time"}; starts again after ${limit?.resumeAt})`
+        : "ready";
   const rows = result.attempts.flatMap((a) =>
     a.stages.map((s) =>
       [a.number, STAGE[s.stage], stageOutcome(s, "en"), duration(s.durationMs), s.commits ?? "", s.usage ? tokens(s.usage) : ""].join(" | "),
@@ -127,35 +125,6 @@ export interface EscalationReport {
   /** The open pull request a PR round (pr-feedback, update-branch) continues; absent in the issue flow. */
   round?: { number: number; url: string } | null;
   runUrl: string | null;
-  /** Skeleton tickets opened for this run. */
-  followUps?: FollowUpRef[];
-}
-
-export interface FollowUpRef {
-  number: number;
-  title: string;
-  /** The pull request that makes the Skeleton change; null when there was no file to put in one. */
-  pr: { number: number; url: string } | null;
-}
-
-/** Tells the issue (and the PR) that the Skeleton change it needs was split into other tickets and pull requests. */
-export function followUpComment(followUps: FollowUpRef[], language: Language): string {
-  const m = messages(language);
-  return [m.followUpIntro(), ...followUps.map((f) => m.followUpItem(f.number, f.title, f.pr?.number ?? null))].join("\n");
-}
-
-/**
- * The one comment of a Product issue that waits on its Skeleton issues: it is back in the queue, blocked by them.
- * `marker` is the guard's "Waiting on" marker, so the run the label starts does not say it again.
- */
-export function waitingComment(followUps: FollowUpRef[], config: FactoryConfig, marker: string): string {
-  const blockers = followUps.map((f) => `#${f.number}`).join(", ");
-  return [
-    marker,
-    followUpComment(followUps, config.language),
-    "",
-    messages(config.language).waitingOnSkeleton(blockers, config.labels.readyForAgent, config.baseBranch, followUps.length === 1),
-  ].join("\n");
 }
 
 /** The verdicts the final Review gave, for the pull request: each criterion checked when met, with its proof. Empty without verdicts. */
@@ -189,7 +158,6 @@ export function escalationComment(report: EscalationReport, config: FactoryConfi
   if (result?.question) lines.push("", m.question(result.question));
   const unmet = unmetCriteria(result);
   if (unmet.length > 0) lines.push("", m.criteriaUnmet(), ...unmet.map((v) => `- ${verdictText(v)}`));
-  if (report.followUps?.length) lines.push("", followUpComment(report.followUps, language));
   if (report.detail) lines.push("", fence(report.detail, "text"));
   // A session that failed outside the attempts (resolving a merge) has no Stage output to show its message.
   if (result?.session && !result.attempts.some((a) => a.stages.some((s) => s.failedCommand === "agent session"))) lines.push("", fence(result.session.message, "text"));

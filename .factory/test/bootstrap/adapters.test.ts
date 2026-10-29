@@ -2,7 +2,6 @@ import { WranglerCli } from "../../src/bootstrap/wrangler.ts";
 import { describe, expect, it } from "vitest";
 import { NeonCli } from "../../src/bootstrap/neon.ts";
 import { GhCli } from "../../src/bootstrap/github.ts";
-import { followUpTicket } from "../../src/scope.ts";
 import { CloudflareRefused } from "../../src/bootstrap/clients.ts";
 import { CloudflareApi } from "../../src/bootstrap/cloudflare.ts";
 import { ResendApi } from "../../src/bootstrap/resend.ts";
@@ -566,7 +565,7 @@ describe("GhCli: the example issue (command construction, no gh process)", () =>
   });
 
   it("finds a follow-up the Factory wrote in pt-BR: its title stays in English and its body mentions the issue", async () => {
-    const ticket = followUpTicket({ number: 7, title: "Footer" }, "example", [], ["A footer slot."], null, "pt-BR");
+    const ticket = { title: "The Skeleton must grow: Footer", body: "The Skeleton must grow: o Product `example` precisa de uma mudança em `packages/skeleton/` para concluir #7 (Footer)." };
     const gh = new GhCli(async (args) => {
       if (args.join(" ").startsWith("issue list")) return JSON.stringify([{ number: 9, url: "u9", title: ticket.title, body: ticket.body }]);
       return "";
