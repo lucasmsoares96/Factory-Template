@@ -291,6 +291,64 @@ export interface ResendClient {
   deleteDomain(id: string): Promise<void>;
 }
 
+/** A price of a Plan as the wizard writes it. Its `lookupKey` (also the nickname) is `<product>_<plan>_<monthly|yearly>`. */
+export interface StripePriceSpec {
+  lookupKey: string;
+  /** In the currency's smallest unit; per Seat for a per-Seat Plan. */
+  amount: number;
+  interval: "month" | "year";
+}
+
+/** A Plan as the wizard writes it: one Stripe product (tagged with the Product's id) and its prices. */
+export interface StripePlanSpec {
+  /** Slug of the name; the middle of every lookup key. */
+  key: string;
+  name: string;
+  kind: "free" | "fixed" | "per_seat";
+  /** Seats a free or fixed Plan gives; `null` when each Seat is paid for. */
+  seats: number | null;
+  /** The fewest Seats a per-Seat Plan sells. */
+  minSeats?: number;
+  trialDays: number;
+  currency: string;
+  prices: StripePriceSpec[];
+}
+
+/** A Plan as Stripe holds it. */
+export interface StripePlanState {
+  key: string;
+  name: string;
+  kind: string;
+  seats: number | null;
+  prices: { lookupKey: string; amount: number; currency: string; interval: string }[];
+}
+
+export interface StripeWebhook {
+  id: string;
+  url: string;
+}
+
+/**
+ * Stripe (a sandbox or the real account) through one restricted key, held in memory. Every write only adds: a Plan, a price,
+ * a portal or an endpoint that exists is left as it is (a price cannot change in Stripe).
+ */
+export interface StripeClient {
+  /** The `rak_` permissions the key lacks, found by read probes (a read probe cannot tell Write from Read). Empty when none. */
+  missingPermissions(): Promise<string[]>;
+  /** The active products tagged with `productId`, with their active prices. */
+  listPlans(productId: string): Promise<StripePlanState[]>;
+  /** Creates the product and the prices that are missing. `different` names the prices that exist with another amount (left alone). */
+  ensurePlan(productId: string, plan: StripePlanSpec): Promise<{ created: string[]; different: string[] }>;
+  /** Turns card, Apple Pay and Google Pay on in the default payment method configuration. */
+  ensurePaymentMethods(): Promise<"updated" | "unchanged">;
+  /** The Customer Portal configuration of the Product (payment method, invoices, cancel). */
+  ensurePortal(productId: string): Promise<"created" | "unchanged">;
+  listWebhooks(productId: string): Promise<StripeWebhook[]>;
+  /** The signing secret is returned by Stripe only now. */
+  createWebhook(productId: string, url: string): Promise<{ id: string; secret: string }>;
+  deleteWebhook(id: string): Promise<void>;
+}
+
 /** What a wizard step asks of the person. Answers are never logged. */
 export interface Prompter {
   note(message: string): void;

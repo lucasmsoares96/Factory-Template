@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
@@ -18,6 +18,8 @@ import { offerExample } from "./example.ts";
 import { productionSteps } from "./product.ts";
 import { PREVIEWS_ENABLED, previewSteps } from "./previews.ts";
 import { ResendApi } from "./resend.ts";
+import { StripeApi } from "./stripe.ts";
+import { BILLING_MISSING_FEATURE, billingEnvironment, billingSteps } from "./billing.ts";
 import { NeonCli } from "./neon.ts";
 import { WranglerCli } from "./wrangler.ts";
 import { runSteps, type BootstrapDeps, type ProductIdentity, type StepContext } from "./steps.ts";
@@ -45,6 +47,13 @@ Commands:
                          login, or pasted once if Neon refuses), the preview KV, the <id>-preview environment and the id
                          in PREVIEW_PRODUCTS. One Neon login per run, only when there is Neon work. Turns
                          PREVIEWS_ENABLED on once the doctor of the previews passes.
+  billing <id>           Per Product, the optional billing module (after product; the Product must list the billing
+                         Feature): a restricted Stripe key for the Previews sandbox and one for the real account (a
+                         pre-filled link each; hidden prompt, or STRIPE_SANDBOX_KEY / STRIPE_LIVE_KEY), the plans,
+                         payment methods and Customer Portal written to both accounts, and the real account's events
+                         endpoint. The deploy hands the key and the endpoint secret to the Worker once all are set.
+  env <id>               Lists the variables, secrets and environment variables of the billing module.
+  all <id>               The Production module, then asks whether to set billing up now.
   factory                The Factory module (after the common part): your own fine-grained token, limited to this
                          repository (the one thing asked, once, hidden; a pre-filled link is printed, and it goes straight
                          to the FACTORY_TOKEN secret), and Claude's auth taken from CLAUDE_CODE_OAUTH_TOKEN or
@@ -66,6 +75,7 @@ Options:
                          for the domain command: resend-domain, dns-records, restricted-resend-key, worker-domain;
                          for the product command: neon-project, github-environment, database-secrets, auth-secret,
                          default-account (asks again, resets the password and the secret), the four domain steps, main-ruleset, deploy-products;
+                         for the billing command: keys (makes both keys again), plans (asks the plans again), webhook (a new endpoint and secret);
                          for the previews command: preview-environment, preview-neon-project, preview-neon-key, preview-kv, preview-products;
                          for the factory command: labels, factory-token (asks for the token again), claude-auth, auto-merge,
                          merge-mode (asks the Merge Mode again).
@@ -102,6 +112,38 @@ export async function runBootstrap(argv: string[], deps: BootstrapDeps): Promise
     const memory: StepContext["memory"] = {};
     await runSteps(domainSteps(product), { ...deps, memory }, values.redo ?? []);
     return finish(deps, productId, memory, { production: false, previews: false });
+  }
+  if (command === "env") {
+    if (!productId) {
+      deps.log("Usage: pnpm bootstrap env <id>");
+      return 1;
+    }
+    deps.log(billingEnvironment(productId).join("\n"));
+    return 0;
+  }
+  if (command === "billing") {
+    if (!productId) {
+      deps.log(`Usage: pnpm bootstrap billing <id> [--redo keys|plans|webhook]`);
+      return 1;
+    }
+    const product = await productOrAsk(deps, productId);
+    if (!product) return 1;
+    return runBilling(deps, product, values.redo ?? []);
+  }
+  if (command === "all") {
+    if (!productId) {
+      deps.log(`Usage: pnpm bootstrap all <id>`);
+      return 1;
+    }
+    const code = await runBootstrap(["product", productId, ...(values.redo ?? []).flatMap((step) => ["--redo", step])], deps);
+    if (code !== 0 || !deps.interactive) return code;
+    const product = await productOrAsk(deps, productId);
+    if (!product?.billing) return code;
+    if (!(await deps.prompter.confirm({ id: "billing-setup", message: `Set up billing for ${productId} now (Stripe keys, plans, events endpoint)?`, initial: false }))) {
+      deps.log(`Billing skipped. Run when you want it: pnpm bootstrap billing ${productId}`);
+      return code;
+    }
+    return runBilling(deps, product, []);
   }
   if (command === "previews") {
     if (!productId) {
@@ -161,6 +203,17 @@ export async function runBootstrap(argv: string[], deps: BootstrapDeps): Promise
   const memory: StepContext["memory"] = {};
   await runSteps(commonSteps, { ...deps, memory }, values.redo ?? []);
   return finish(deps, undefined, memory);
+}
+
+/** The billing module: steps, then the doctor of the Product with the keys the run holds. */
+async function runBilling(deps: BootstrapDeps, product: ProductIdentity, redo: string[]): Promise<number> {
+  if (!product.billing) {
+    deps.log(BILLING_MISSING_FEATURE(product.id));
+    return 1;
+  }
+  const memory: StepContext["memory"] = {};
+  await runSteps(billingSteps(product), { ...deps, memory }, redo);
+  return finish(deps, product.id, memory, { production: false, domain: false, previews: false, billing: true, cloudflare: false });
 }
 
 /** The Product's identity; an empty `domain` is asked for (for this run only). `undefined` when the Product does not exist. */
@@ -236,7 +289,15 @@ export async function loadProduct(id: string): Promise<ProductIdentity> {
   if (!existsSync(file)) throw new Error(`No Product at apps/${id}/product.config.ts`);
   const parsed = ProductFile.safeParse((await import(pathToFileURL(file).href)).default);
   if (!parsed.success) throw new Error(`apps/${id}/product.config.ts does not export a valid Product: ${parsed.error.message}`);
-  return parsed.data;
+  return { ...parsed.data, billing: listsBilling(id) };
+}
+
+/** Whether `apps/<id>/src/features/index.ts` calls `billing(...)` (comments cut away): the file is TSX-free but imports workspace packages, so it is read as text. */
+function listsBilling(id: string): boolean {
+  const file = resolve(import.meta.dirname, "../../../apps", id, "src/features/index.ts");
+  if (!existsSync(file)) return false;
+  const code = readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  return /\bbilling\s*\(/.test(code);
 }
 
 if (import.meta.main) {
@@ -266,6 +327,7 @@ if (import.meta.main) {
       accounts: new SkeletonAccounts(),
       token: (token) => new GitHubTokenApi(token),
       resend: (key) => new ResendApi(key),
+      stripe: (key) => new StripeApi(key),
       product: loadProduct,
       listProducts,
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
