@@ -1,7 +1,7 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import type { Messages } from "../i18n/index.ts";
 import { createRouter } from "./errors.ts";
-import type { Feature, FeatureCompanyPage, FeatureNav } from "./feature.ts";
+import type { Feature, FeatureAccountPage, FeatureCompanyPage, FeatureNav } from "./feature.ts";
 import { requireIdentity, unauthenticatedResponse } from "./identity.ts";
 
 const NavEntry = z
@@ -22,6 +22,10 @@ const Nav = z
         "The features' `companyPage` sections, in mount order: `to` is under the Company's page (`/c/<companyId>` + `to`).",
       example: [{ label: "Projects", to: "/projects" }],
     }),
+    accountPage: z.array(NavEntry).openapi({
+      description: "The features' `accountPage` links, in mount order: pages under the account page (`/account` + `to`).",
+      example: [{ label: "Plan", to: "/account/plan" }],
+    }),
   })
   .openapi("Nav");
 
@@ -31,7 +35,7 @@ const getNav = createRoute({
   operationId: "getNav",
   summary: "Get the signed-in navigation",
   description:
-    "Answers the entries of the signed-in navigation, one per feature that declares `nav`, and the sections of the Company page, one per feature that declares `companyPage`.",
+    "Answers the entries of the signed-in navigation, one per feature that declares `nav`, the sections of the Company page, one per feature that declares `companyPage`, and the links of the account page, one per feature that declares `accountPage`. A feature that is off in this deployment declares none.",
   // What the SPA's shell renders, not something an agent acts on.
   "x-mcp": false,
   middleware: [requireIdentity] as const,
@@ -48,10 +52,19 @@ const getNav = createRoute({
  * the build's texts; any other label is shown as is.
  */
 export function navRoutes({ features, t }: { features: readonly Feature[]; t: Messages }) {
-  const translated = (entry: FeatureNav | FeatureCompanyPage | undefined) => (entry ? [{ label: translate(entry.label, t), to: entry.to }] : []);
-  const entries = features.flatMap(({ nav }) => translated(nav));
-  const companyPage = features.flatMap(({ companyPage }) => translated(companyPage));
-  return createRouter().openapi(getNav, (c) => c.json({ entries, companyPage }, 200));
+  const translated = (entry: FeatureNav | FeatureCompanyPage | FeatureAccountPage | undefined) =>
+    entry ? [{ label: translate(entry.label, t), to: entry.to }] : [];
+  return createRouter().openapi(getNav, (c) => {
+    const on = features.filter((feature) => feature.enabled?.(c.env) ?? true);
+    return c.json(
+      {
+        entries: on.flatMap(({ nav }) => translated(nav)),
+        companyPage: on.flatMap(({ companyPage }) => translated(companyPage)),
+        accountPage: on.flatMap(({ accountPage }) => translated(accountPage)),
+      },
+      200,
+    );
+  });
 }
 
 function translate(label: string, t: Messages): string {

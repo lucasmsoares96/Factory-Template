@@ -56,5 +56,6 @@ export {
   type Invitation,
   type InvitationRefusal,
 } from "./features/invitations/service.ts";
+export { billing } from "./features/billing/index.ts";
 export { defineProduct, type ProductConfig } from "./product.ts";
 export type { JsonSchema, McpScope, McpTool } from "./platform/mcp/tool.ts";

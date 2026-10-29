@@ -74,6 +74,8 @@ export function routerConfig({ dir, routeTree, routes = [], publicRoutes = [] }:
       layout("_signed-in", skeleton("client/signed-in.tsx"), [
         physical(skeleton("features/home/routes")),
         physical("/account", skeleton("features/account/routes")),
+        // Account › Plan: the account page links to it only where billing is on (`accountPage` in `GET /api/nav`).
+        physical("/account/plan", skeleton("features/billing/routes")),
         physical("/c", skeleton("features/companies/routes")),
         ...routes,
       ]),

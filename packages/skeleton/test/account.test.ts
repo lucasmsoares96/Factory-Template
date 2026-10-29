@@ -115,6 +115,8 @@ test("GET /api/nav answers the account page's entry, translated, then each Produ
       { label: "Notes", to: "/notes" },
     ],
     companyPage: [{ label: "Notes", to: "/notes" }],
+    // Billing is in the composition but off without a Stripe key: no link to the Plan page.
+    accountPage: [],
   });
 });
 
