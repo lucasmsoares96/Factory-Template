@@ -1,3 +1,4 @@
+import { PAYMENT_RETRY_DAYS } from "../grace.ts";
 import { parseForm } from "./form.ts";
 import { stripeSignature } from "./sign.ts";
 import type { FakeStripeStore, StoredObject } from "./store.ts";
@@ -25,6 +26,9 @@ type Obj = StoredObject & Json;
 
 const CURRENCY = "usd";
 const TRIAL_WARNING = 3 * 24 * 60 * 60;
+/** How long the fake keeps retrying a failed renewal before it gives up and ends the Subscription. */
+export const RETRY_DAYS = PAYMENT_RETRY_DAYS;
+const PORTAL_CONFIGURATION = "bpc_fake_portal";
 const FAILING = "setting_failing";
 const CLOCK = "setting_clock";
 
@@ -111,6 +115,10 @@ export class FakeStripe {
       );
       return list(subs, path);
     }
+    if (route === "GET /v1/billing_portal/configurations") {
+      const configurations = (await this.store.list<Obj>("portal")).filter((p) => p.object === "billing_portal.configuration" && (params.active === undefined || String(p.active) === params.active));
+      return list(configurations, path);
+    }
     if (route === "POST /v1/billing_portal/sessions") return this.createPortalSession(params);
     if (route === "GET /v1/subscription_schedules") {
       const schedules = (await this.store.list<Obj>("schedule")).filter((schedule) => !params.customer || schedule.customer === params.customer);
@@ -125,6 +133,11 @@ export class FakeStripe {
       if (release) return json(await this.releaseSchedule(schedule));
       if (method === "GET") return json(schedule);
       return json(await this.updateSchedule(schedule, params));
+    }
+    const update = /^POST \/v1\/subscriptions\/([^/]+)$/.exec(route);
+    if (update && params.cancel_at_period_end !== undefined) {
+      const updated = await this.setCancelAtPeriodEnd(decodeURIComponent(update[1]!), String(params.cancel_at_period_end) === "true");
+      return updated ? json(updated) : missing("subscription", update[1]!);
     }
     const cancel = /^DELETE \/v1\/subscriptions\/([^/]+)$/.exec(route);
     if (cancel) {
@@ -202,10 +215,11 @@ export class FakeStripe {
    * any other session just points back to the app.
    */
   private async createPortalSession(params: Json) {
+    if (params.configuration && !(await this.store.get("portal", params.configuration))) return missing("billing portal configuration", params.configuration);
     const sessionId = id("bps");
     const confirm = params.flow_data?.type === "subscription_update_confirm" ? params.flow_data.subscription_update_confirm : undefined;
     const returnUrl = params.flow_data?.after_completion?.redirect?.return_url ?? params.return_url;
-    if (!confirm) return json({ id: sessionId, object: "billing_portal.session", customer: params.customer, url: params.return_url });
+    if (!confirm) return json({ id: sessionId, object: "billing_portal.session", customer: params.customer, configuration: params.configuration ?? PORTAL_CONFIGURATION, url: params.return_url });
     const sub = await this.store.get<Obj>("subscription", confirm.subscription);
     if (!sub) return missing("subscription", confirm.subscription);
     const items: Json[] = Object.values(confirm.items ?? {});
@@ -216,6 +230,7 @@ export class FakeStripe {
       id: sessionId,
       object: "billing_portal.session",
       customer: params.customer,
+      configuration: params.configuration ?? PORTAL_CONFIGURATION,
       subscription: sub.id,
       items: items.map((item) => ({ id: item.id, price: item.price, quantity: Number(item.quantity ?? 1) })),
       status: "open",
@@ -423,8 +438,17 @@ export class FakeStripe {
   }
 
   /** Sends a signed event to the app's webhook, as Stripe does; answers the webhook's status. */
-  async emit(type: string, object: unknown): Promise<number> {
-    const event = { id: id("evt"), object: "event", api_version: "fake", created: await this.now(), livemode: false, pending_webhooks: 1, type, data: { object } };
+  async emit(type: string, object: unknown, previous?: Json): Promise<number> {
+    const event = {
+      id: id("evt"),
+      object: "event",
+      api_version: "fake",
+      created: await this.now(),
+      livemode: false,
+      pending_webhooks: 1,
+      type,
+      data: { object, ...(previous ? { previous_attributes: previous } : {}) },
+    };
     await this.store.put("event", event);
     const payload = JSON.stringify(event);
     const response = await this.deps.deliver(
@@ -456,7 +480,16 @@ export class FakeStripe {
         await this.emit("customer.subscription.trial_will_end", sub);
       }
       const item = sub.items.data[0];
-      if (!item || item.current_period_end > now) continue;
+      if (!item) continue;
+      if (sub.status === "past_due") {
+        // Stripe retries the charge for a while, then gives up and ends the Subscription.
+        if (item.current_period_start + RETRY_DAYS * 24 * 60 * 60 <= now) {
+          const ended = await this.store.put("subscription", { ...sub, status: "canceled", ended_at: now, canceled_at: sub.canceled_at ?? now });
+          await this.emit("customer.subscription.deleted", ended);
+        }
+        continue;
+      }
+      if (item.current_period_end > now) continue;
       const schedule = sub.schedule ? await this.store.get<Obj>("schedule", sub.schedule) : undefined;
       const next = schedule?.status === "active" ? schedule.phases[1] : undefined;
       if (next && !sub.cancel_at_period_end && !paymentFails) {
@@ -467,17 +500,19 @@ export class FakeStripe {
           items.push({ id: id("si"), object: "subscription_item", price, quantity: line.quantity, current_period_start: next.start_date, current_period_end: addInterval(next.start_date, intervalOf(price)) });
         }
         await this.store.put("schedule", { ...schedule!, status: "completed" });
-        await this.emit("customer.subscription.updated", await this.store.put("subscription", { ...sub, status: "active", schedule: null, items: { ...sub.items, data: items } }));
+        await this.emit("customer.subscription.updated", await this.store.put("subscription", { ...sub, status: "active", schedule: null, items: { ...sub.items, data: items } }), { status: sub.status });
         continue;
       }
       if (sub.cancel_at_period_end) {
         const ended = await this.store.put("subscription", { ...sub, status: "canceled", ended_at: now, canceled_at: sub.canceled_at ?? now });
         await this.emit("customer.subscription.deleted", ended);
       } else if (paymentFails) {
-        await this.emit("customer.subscription.updated", await this.store.put("subscription", { ...sub, status: "past_due" }));
+        // The new period starts at the failed charge; the Subscription stays past due while Stripe retries.
+        const items = sub.items.data.map((i: Json) => ({ ...i, current_period_start: i.current_period_end, current_period_end: addInterval(i.current_period_end, intervalOf(i.price)) }));
+        await this.emit("customer.subscription.updated", await this.store.put("subscription", { ...sub, status: "past_due", items: { ...sub.items, data: items } }), { status: sub.status });
       } else {
         const items = sub.items.data.map((i: Json) => ({ ...i, current_period_start: i.current_period_end, current_period_end: addInterval(i.current_period_end, intervalOf(i.price)) }));
-        await this.emit("customer.subscription.updated", await this.store.put("subscription", { ...sub, status: "active", items: { ...sub.items, data: items } }));
+        await this.emit("customer.subscription.updated", await this.store.put("subscription", { ...sub, status: "active", items: { ...sub.items, data: items } }), { status: sub.status });
       }
     }
   }
@@ -499,14 +534,41 @@ export class FakeStripe {
     return ended;
   }
 
+  /**
+   * The charge of the customers with this email fails now, whatever days are left: their live Subscriptions go past due and
+   * a new period starts at the failed charge, as Stripe does. Answers how many it changed.
+   */
+  async failPayment(email: string) {
+    const customers = new Set((await this.store.list<Obj>("customer")).filter((c) => c.email === email).map((c) => c.id));
+    const now = await this.now();
+    let failed = 0;
+    for (const sub of await this.store.list<Obj>("subscription")) {
+      if (!customers.has(sub.customer) || !["active", "trialing"].includes(sub.status)) continue;
+      const items = sub.items.data.map((i: Json) => ({ ...i, current_period_start: now, current_period_end: addInterval(now, intervalOf(i.price)) }));
+      await this.emit("customer.subscription.updated", await this.store.put("subscription", { ...sub, status: "past_due", items: { ...sub.items, data: items } }), { status: sub.status });
+      failed += 1;
+    }
+    return failed;
+  }
+
   /** The customer asked to cancel: the Subscription stays active until its period ends (what the Billing Portal does). */
   async cancelAtPeriodEnd(subscriptionId: string) {
+    return this.setCancelAtPeriodEnd(subscriptionId, true);
+  }
+
+  /** Sets or clears the cancellation at the period's end and sends `customer.subscription.updated` with the previous value. */
+  private async setCancelAtPeriodEnd(subscriptionId: string, cancel: boolean) {
     const sub = await this.store.get<Obj>("subscription", subscriptionId);
     if (!sub) return undefined;
     const now = await this.now();
     const periodEnd = sub.items.data[0]?.current_period_end ?? now;
-    const updated = await this.store.put("subscription", { ...sub, cancel_at_period_end: true, cancel_at: periodEnd, canceled_at: now });
-    await this.emit("customer.subscription.updated", updated);
+    const updated = await this.store.put("subscription", {
+      ...sub,
+      cancel_at_period_end: cancel,
+      cancel_at: cancel ? periodEnd : null,
+      canceled_at: cancel ? now : null,
+    });
+    if (sub.cancel_at_period_end !== cancel) await this.emit("customer.subscription.updated", updated, { cancel_at_period_end: sub.cancel_at_period_end });
     return updated;
   }
 
@@ -542,17 +604,26 @@ export class FakeStripe {
   }
 
   /** The Stripe API calls the app made (`GET /v1/products`, ...), oldest first. */
-  async requests(): Promise<{ method: string; path: string }[]> {
+  async requests(): Promise<{ method: string; path: string; params: Json }[]> {
     const calls = await this.store.list<Obj>("request");
-    return calls.reverse().map(({ method, path }) => ({ method, path }));
+    return calls.reverse().map(({ method, path, params }) => ({ method, path, params }));
   }
 
   /** The plans the fake starts with: Free (no price, 1 Seat), Pro and Team (fixed, monthly), with `reports` and `projects` Entitlements. */
   private async seedCatalog() {
-    // The last thing seeded is the marker, so a concurrent request never reads a half-seeded catalog.
-    if (await this.store.get("price", "price_fake_team_yearly")) return;
     const { productId, seed } = this.deps;
     const created = Math.floor(Date.now() / 1000);
+    // The Customer Portal configuration `pnpm bootstrap` writes: no plan switch, cancel at the period's end.
+    if (!(await this.store.get("portal", PORTAL_CONFIGURATION))) await this.store.put("portal", {
+      id: PORTAL_CONFIGURATION,
+      object: "billing_portal.configuration",
+      active: true,
+      metadata: { productId },
+      features: { payment_method_update: { enabled: true }, invoice_history: { enabled: true }, subscription_cancel: { enabled: true, mode: "at_period_end" }, subscription_update: { enabled: false } },
+      created,
+    });
+    // The last thing seeded is the marker, so a concurrent request never reads a half-seeded catalog.
+    if (await this.store.get("price", "price_fake_team_yearly")) return;
     const plans = [
       { key: "free", seats: 1, amount: null, yearly: null, reports: "false", projects: "1" },
       { key: "pro", seats: 3, amount: 1900, yearly: 19000, reports: "true", projects: "5" },
