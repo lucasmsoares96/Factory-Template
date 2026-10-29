@@ -11,6 +11,7 @@
 //   smoke-result  the smoke's verdict as `smoke.json`
 //   cleanup-plan  (PR closed) every Product in PREVIEW_PRODUCTS
 //   comment   the one PR comment listing every Product's preview (edited, never duplicated)
+//   account   (deploy job, after the migrations) the Default account in the PR's branch: verified user, hash only
 //   base      (deploy of `main`) `base` exists, recreated when missing, and is migrated with the artifact's migrations
 //   cleanup   (PR closed) the Neon branch of the PR is deleted
 import { randomBytes } from "node:crypto";
@@ -299,7 +300,7 @@ const INTEGER = /^[1-9]\d{0,8}$/;
 if (import.meta.main) {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
-    options: { product: { type: "string" }, pr: { type: "string" }, dir: { type: "string" }, out: { type: "string" }, file: { type: "string" }, status: { type: "string" }, "kv-id": { type: "string" }, results: { type: "string" } },
+    options: { product: { type: "string" }, pr: { type: "string" }, dir: { type: "string" }, out: { type: "string" }, file: { type: "string" }, status: { type: "string" }, "kv-id": { type: "string" }, results: { type: "string" }, "url-file": { type: "string" } },
   });
   const [command] = positionals;
   const need = (value: string | undefined, name: string) => {
@@ -360,6 +361,17 @@ if (import.meta.main) {
       writeFileSync(join(out, "worker-env.json"), JSON.stringify({ DATABASE_URL: result.pooledUrl, BETTER_AUTH_SECRET: randomBytes(32).toString("base64url") }), { mode: 0o600 });
       console.log(`Neon branch ${previewBranchName(prNumber())} ${result.created ? "created from base" : "reused"}`);
     }
+  } else if (command === "account") {
+    // The email and the previews' own password come from the environment of this one step; both empty means no account.
+    const email = process.env.ACCOUNT_EMAIL?.trim();
+    const password = process.env.ACCOUNT_PASSWORD;
+    if (!email || !password) console.log("no Default account for the preview (email or password not set)");
+    else {
+      const databaseUrl = readFileSync(resolve(need(values["url-file"], "url-file")), "utf8").trim();
+      const { upsertVerifiedUser } = await import("../../../packages/skeleton/src/node/accounts.ts");
+      const result = await upsertVerifiedUser({ databaseUrl, email, name: email.split("@")[0]!, password });
+      console.log(`Default account ${result === "created" ? "created" : "password reset"}`);
+    }
   } else if (command === "config") {
     const [configFile] = builtConfigs(resolve(need(values.dir, "dir")));
     if (!configFile) throw new Error("No worker/<name>/wrangler.json in the artifact.");
@@ -419,6 +431,6 @@ if (import.meta.main) {
   } else if (command === "cleanup") {
     console.log((await removeDatabase({ db: neon(), pr: prNumber() })) ? `deleted ${previewBranchName(prNumber())}` : `no Neon branch for pr-${prNumber()}`);
   } else {
-    throw new Error("Usage: previews.ts <gate|bindings|database|config|url|result|status|smoke-result|comment|base|cleanup|cleanup-plan>");
+    throw new Error("Usage: previews.ts <gate|bindings|database|account|config|url|result|status|smoke-result|comment|base|cleanup|cleanup-plan>");
   }
 }
