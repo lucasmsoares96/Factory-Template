@@ -12,6 +12,8 @@
 #                                   then E2E, and the normal loop if it fails. The PR body is left alone. A run keyed by the
 #                                   PR changes no label but factory:working, opens no PR and comments only on the PR.
 #                                   `claim` puts factory:working on the PR (and the issue); publish's last step takes it off.
+# A feedback round going on the same issue is never cancelled by this workflow: the update's `work` and `publish` wait in
+# the issue's queue (group `factory-<issue>`), then start from the head the round published.
 # A newer dispatch for the same issue or PR cancels the run going (it would merge an older base branch): cancelled while
 # it works (`claim`, `image`, `work`), the run only takes factory:working off; once in `publish`, it finishes, and a run
 # discarded because the branch moved only says so in the log, for the newer one is on its way.
@@ -193,7 +195,9 @@ jobs:
     env:
       ISSUE: ${{ needs.claim.outputs.issue }}
       PR: ${{ needs.claim.outputs.pr }}
-    # The same group as the issue flow: one run per issue (or per PR when keyed by it) at a time. The guarantee is the lease of `publish`.
+    # The same group as the issue flow and as `publish` below: one run per issue (or per PR when keyed by it) at a time.
+    # `work` reads the branch (the `startSha` of its result.json) only after it holds the group; the lease of `publish`
+    # is the safety net.
     concurrency:
       group: ${{ needs.claim.outputs.issue && format('factory-{0}', needs.claim.outputs.issue) || format('factory-pr-{0}', needs.claim.outputs.pr) }}
       cancel-in-progress: false
@@ -273,6 +277,12 @@ jobs:
 
   publish:
     needs: [claim, image, work]
+    # The group of `work` (and of a feedback round on the same issue or PR): the push is not interleaved with another
+    # run's `work`, which reads the branch once it holds the group. Never cancelled: a run that did the work publishes it.
+    concurrency:
+      group: ${{ needs.claim.outputs.issue && format('factory-{0}', needs.claim.outputs.issue) || format('factory-pr-{0}', needs.claim.outputs.pr) }}
+      cancel-in-progress: false
+      queue: max
     # Also when `work` failed or timed out: with no result.json it escalates "infra". A run cancelled during `claim`,
     # `image` or `work` publishes nothing and only takes factory:working off; cancelled during `publish`, `always()`
     # keeps the job and its steps going (GitHub re-evaluates their `if` on a cancel), so it finishes.

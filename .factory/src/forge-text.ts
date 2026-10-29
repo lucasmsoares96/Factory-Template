@@ -11,6 +11,7 @@ const STRUCTURAL_KEYS: ReadonlySet<string> = new Set([
   "branch",
   "base",
   "head",
+  "startSha",
   "outcome",
   "reason",
   "attempts",
