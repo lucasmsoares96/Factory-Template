@@ -71,6 +71,7 @@ export function fakeStripeRoutes(entitlements: readonly string[]) {
     forgetPlans();
     return c.json({ updated: true });
   });
+  router.get("/fake-stripe/control/events", async (c) => c.json({ events: await fake(c).events() }));
   router.get("/fake-stripe/control/requests", async (c) => c.json({ requests: await fake(c).requests() }));
   router.post("/fake-stripe/control/reset", async (c) => {
     await fake(c).reset();

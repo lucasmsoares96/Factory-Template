@@ -52,7 +52,7 @@ export interface BootstrapDeps {
 export interface StepContext extends BootstrapDeps {
   /** The steps named by `--redo` in this run (set by `runSteps`). */
   redo?: string[];
-  memory: { cloudflareToken?: string; accountId?: string; resendKey?: string; resendDeferred?: boolean; stripeKeys?: { sandbox?: string; live?: string }; noWranglerLogin?: boolean; neon?: NeonClient; neonOrg?: { id?: string }; databaseUrl?: string; neonKeyDeclined?: boolean; previewProject?: Record<string, string> };
+  memory: { cloudflareToken?: string; accountId?: string; resendKey?: string; resendDeferred?: boolean; stripeKeys?: { sandbox?: string; live?: string; ci?: string }; noWranglerLogin?: boolean; neon?: NeonClient; neonOrg?: { id?: string }; databaseUrl?: string; neonKeyDeclined?: boolean; previewProject?: Record<string, string> };
 }
 
 export interface Step {
