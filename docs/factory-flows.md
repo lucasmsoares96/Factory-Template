@@ -175,6 +175,7 @@ What `publish` does:
    - Allowlist check, bindings against `apps/<id>/wrangler.jsonc` of `main`.
    - Neon branch `preview/pr-N` from `base`, or "preview skipped: limit reached" at `FACTORY_PREVIEW_LIMIT` (9) open previews.
    - Migrations, the Skeleton's and the Product's, both from the artifact: `bundle` copies `packages/skeleton/drizzle` to `migrations/skeleton`; an artifact without it fails `migrate`, push again to rebuild it. The deploy of `main` and `previews.ts base` read them the same way.
+   - `previews.ts account`, right after the migrations: upserts the verified Default account (`<ID>_ACCOUNT_EMAIL`, password `<ID>_PREVIEW_ACCOUNT_PASSWORD`, hash only) into the PR's branch. It is the one step that sees that secret; no other job references it.
    - `wrangler preview --name pr-N --worker-name <id> --config <preview config> --secrets-file --ignore-base-config`.
 4. `smoke`: no secrets. Real sign-up, the email read at `GET /api/preview/outbox?to=`, sign-in, `/api/me`, `/mcp` 401.
 5. `preview-comment`: one comment, edited (found by `<!-- factory-previews -->`), in `FACTORY_LANGUAGE`.
