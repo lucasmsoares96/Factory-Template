@@ -8,6 +8,7 @@ import { entitlementFor, planOf } from "./entitlements.ts";
 import { billingEnabled, billingFor } from "./context.ts";
 import { sendPriceChange } from "./price-change.ts";
 import { sendTrialEnding } from "./trial-ending.ts";
+import { reconcileOnSubscriptionEvent } from "./suspension.ts";
 import { productFilter } from "./product-filter.ts";
 import { fakeStripeRoutes } from "./routes.ts";
 
@@ -62,6 +63,7 @@ export function billing<const Name extends string>({ entitlements }: { entitleme
           onEvent: async (event) => {
             await sendTrialEnding(c, on, event);
             await sendPriceChange(c, on, event);
+            await reconcileOnSubscriptionEvent(c, event);
           },
         }),
       ];
@@ -70,12 +72,13 @@ export function billing<const Name extends string>({ entitlements }: { entitleme
       accountArchiving: (event) => refuseActiveSubscription(event, entitlements),
       accountPurging: (event) => endSubscriptions(event, entitlements),
     },
-    async seatLimit(c, ownerId) {
+    async seatLimit(c, ownerId, options) {
       const on = billingFor(c, entitlements);
       if (!on) return undefined;
       try {
         return seatsOf((await planOf(c.var.db, await on.plans(), ownerId)).plan);
       } catch (error) {
+        if (options?.strict) throw error;
         // Stripe is down: keep the Owner at the free Plan's one Seat rather than let the limit lapse.
         console.error("Reading the Plans from Stripe failed:", error);
         return 1;
