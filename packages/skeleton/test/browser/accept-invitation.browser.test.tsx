@@ -34,7 +34,7 @@ const companyPage = [
   listCompaniesHandler({ items: [acme], nextCursor: null }),
   getCompanyHandler(acme),
   getOwnershipOfferHandler(() => getOwnershipOfferHandlerResponse404({ code: "NOT_FOUND", message: "Not found." })),
-  listMembersHandler({ items: [{ userId: bruno.id, name: bruno.name, email: bruno.email, role: "employee" }], nextCursor: null }),
+  listMembersHandler({ items: [{ userId: bruno.id, name: bruno.name, email: bruno.email, role: "employee", suspended: false }], nextCursor: null }),
 ];
 
 test("a visitor sees the Company and the role, and signs up or signs in to come back to the link", async ({ worker }) => {
