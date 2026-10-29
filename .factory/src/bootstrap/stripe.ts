@@ -1,20 +1,19 @@
 import Stripe from "stripe";
 import type { StripeClient, StripePlanSpec, StripePlanState, StripeWebhook } from "./clients.ts";
-import { BILLING_PERMISSIONS } from "./billing-permissions.ts";
+import { BILLING_PERMISSIONS, PORTAL_WRITE_FALLBACK } from "./billing-permissions.ts";
 
 /** The events the Better Auth Stripe plugin handles at `/api/auth/stripe/webhook`. */
 export const WEBHOOK_EVENTS = ["checkout.session.completed", "customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"];
 
-/** One read per permission: a key that lacks it is refused with a 403. */
-const PROBES: Record<string, (stripe: Stripe) => Promise<unknown>> = {
-  product: (stripe) => stripe.products.list({ limit: 1 }),
-  price: (stripe) => stripe.prices.list({ limit: 1 }),
-  customer: (stripe) => stripe.customers.list({ limit: 1 }),
-  checkout_session: (stripe) => stripe.checkout.sessions.list({ limit: 1 }),
-  subscription: (stripe) => stripe.subscriptions.list({ limit: 1 }),
-  billing_portal_configuration: (stripe) => stripe.billingPortal.configurations.list({ limit: 1 }),
-  webhook: (stripe) => stripe.webhookEndpoints.list({ limit: 1 }),
-  payment_method_configuration: (stripe) => stripe.paymentMethodConfigurations.list({ limit: 1 }),
+/** One read per permission in the key link: a key that lacks it is refused with a 403. */
+const PROBES: Record<(typeof BILLING_PERMISSIONS)[number], (stripe: Stripe) => Promise<unknown>> = {
+  rak_product_write: (stripe) => stripe.products.list({ limit: 1 }),
+  rak_plan_write: (stripe) => stripe.prices.list({ limit: 1 }),
+  rak_customer_write: (stripe) => stripe.customers.list({ limit: 1 }),
+  rak_checkout_session_write: (stripe) => stripe.checkout.sessions.list({ limit: 1 }),
+  rak_subscription_write: (stripe) => stripe.subscriptions.list({ limit: 1 }),
+  rak_webhook_write: (stripe) => stripe.webhookEndpoints.list({ limit: 1 }),
+  rak_payment_method_configurations_write: (stripe) => stripe.paymentMethodConfigurations.list({ limit: 1 }),
 };
 
 function isPermissionError(error: unknown): error is Error {
@@ -38,13 +37,23 @@ export class StripeApi implements StripeClient {
   async missingPermissions(): Promise<string[]> {
     const missing: string[] = [];
     for (const permission of BILLING_PERMISSIONS) {
-      const resource = permission.replace(/^rak_/, "").replace(/_write$/, "");
       try {
-        await PROBES[resource]!(this.stripe);
+        await PROBES[permission](this.stripe);
       } catch (error) {
         if (!isPermissionError(error)) throw error;
         missing.push(permissionIn(error.message) ?? permission);
       }
+    }
+    // The Customer Portal permission is not in the key link (unconfirmed), so the write is tried: create a configuration, then deactivate it.
+    try {
+      const probe = await this.stripe.billingPortal.configurations.create({
+        name: "factory-doctor-probe",
+        features: { invoice_history: { enabled: true } },
+      });
+      await this.stripe.billingPortal.configurations.update(probe.id, { active: false });
+    } catch (error) {
+      if (!isPermissionError(error)) throw error;
+      missing.push(permissionIn(error.message) ?? PORTAL_WRITE_FALLBACK);
     }
     return missing;
   }

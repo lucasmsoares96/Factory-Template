@@ -3,20 +3,23 @@
  * the Plans it reads, the Customer Portal) and the bootstrap (products, prices, payment methods, the events endpoint).
  * Write includes Read.
  *
- * NOT YET CONFIRMED against a real key: the names come from the dashboard's pre-filled link format (not documented by
- * Stripe), and nobody has made a key in a sandbox from it yet. The doctor does not depend on them being right: Stripe's
- * refusal names the permission it wants, and that name is the one the doctor prints.
+ * Checked against a real key made from the link in a Stripe sandbox on 2026-10-29. The dashboard silently ignores a wrong
+ * name, so two were fixed from Stripe's own refusals (`rak_plan_write` for Prices, `rak_payment_method_configurations_write`,
+ * plural). The Customer Portal permission is still pending: the link does not tick it, so it is not in this list and the
+ * doctor tries a portal write instead (`PORTAL_WRITE_FALLBACK` names it only when Stripe's refusal does not).
  */
 export const BILLING_PERMISSIONS = [
   "rak_product_write",
-  "rak_price_write",
+  "rak_plan_write",
   "rak_customer_write",
   "rak_checkout_session_write",
   "rak_subscription_write",
-  "rak_billing_portal_configuration_write",
   "rak_webhook_write",
-  "rak_payment_method_configuration_write",
+  "rak_payment_method_configurations_write",
 ] as const;
+
+/** What the doctor reports when a portal write is refused and Stripe names no permission. Not confirmed. */
+export const PORTAL_WRITE_FALLBACK = "rak_billing_portal_configuration_write";
 
 export type KeyMode = "sandbox" | "live";
 

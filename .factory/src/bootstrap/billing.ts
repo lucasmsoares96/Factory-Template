@@ -149,7 +149,7 @@ export async function stripeKey(ctx: StepContext, product: ProductIdentity, mode
     let key = attempt === 1 ? fromEnv : undefined;
     if (!key) {
       if (!announced) {
-        ctx.prompter.link(`Create a restricted key in ${label} (name and permissions are filled in; only click Create key, then copy it):`, keyCreationUrl(`${product.id} billing${mode === "sandbox" ? " (sandbox)" : ""}`, mode));
+        ctx.prompter.link(`Create a restricted key in ${label} (name and permissions are filled in; only click Create key, then copy it):`, keyCreationUrl(`${product.id}-billing-${mode === "sandbox" ? "sandbox" : "live"}`, mode));
         announced = true;
       }
       key = (await ctx.prompter.password({ id: `stripe-${mode}-key`, message: `Paste the ${mode} key (hidden; stored only as a secret)` })).trim();

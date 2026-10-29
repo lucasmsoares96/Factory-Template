@@ -114,7 +114,7 @@ describe("pnpm bootstrap billing", () => {
     const links = w.prompter.printed.filter((line) => line.startsWith("https://dashboard.stripe.com/"));
     expect(links).toHaveLength(2);
     for (const link of links) {
-      expect(link).toContain("/apikeys/create?name=example%20billing");
+      expect(link).toMatch(/\/apikeys\/create\?name=example-billing-(sandbox|live)&/);
       for (const permission of BILLING_PERMISSIONS) expect(link).toContain(`permissions[]=${permission}`);
     }
     expect(links[0]).toContain("/test/apikeys");
