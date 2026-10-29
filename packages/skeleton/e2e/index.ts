@@ -1,13 +1,31 @@
 import { mkdir, readFile, readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { defineConfig, devices, test as base } from "@playwright/test";
+import { defineConfig, devices, test as base, type APIRequestContext } from "@playwright/test";
 import { messagesFor, resolveLocale, type MessageOverrides, type Messages } from "../src/i18n/index.ts";
 import { linkIn } from "../src/node/email-link.ts";
 import type { SentEmail } from "../src/node/resend-mock.ts";
 
 export { expect } from "@playwright/test";
 export { linkIn };
+
+/**
+ * Puts the signed-in user on the Product's biggest fixed Plan through the local Checkout, so they
+ * have Seats to invite with. Does nothing where the Product has no billing (`GET /api/billing/plan` answers 404).
+ */
+export async function buyPlan(request: APIRequestContext, origin: string) {
+  const state = await request.get("/api/billing/plan");
+  if (state.status() === 404) return;
+  if (!state.ok()) throw new Error(`Reading the Plan answered ${state.status()}: is the user signed in?`);
+  const { plans } = (await state.json()) as { plans: { id: string; kind: string; seats: number | null }[] };
+  const biggest = plans.filter((plan) => plan.kind === "fixed").sort((a, b) => (b.seats ?? 0) - (a.seats ?? 0))[0];
+  if (!biggest) throw new Error("The Product sells no fixed Plan to buy Seats with.");
+  const checkout = await request.post("/api/billing/subscribe", { headers: { origin }, data: { plan: biggest.id } });
+  if (!checkout.ok()) throw new Error(`Opening Checkout failed with ${checkout.status()}.`);
+  const { url } = (await checkout.json()) as { url: string };
+  const paid = await request.post(`${new URL(url).pathname}/pay`, { maxRedirects: 0 });
+  if (paid.status() !== 303) throw new Error(`Paying in Checkout answered ${paid.status()}.`);
+}
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { format } from "../../src/i18n/index.ts";
-import { expect, linkIn, test } from "../index.ts";
+import { buyPlan, expect, linkIn, test } from "../index.ts";
 
 test(
   "the Owner transfers the ownership to a Member who joined by Invitation",
@@ -21,6 +21,7 @@ test(
 
     // Ana creates Acme and invites Bruno, who accepts the Invitation from its link.
     await signUpAndSignIn("Ana Souza", owner);
+    await buyPlan(page.request, baseURL!);
     const company = (await (await page.request.post("/api/companies", { headers, data: { name: "Acme" } })).json()) as { id: string };
     const invited = await page.request.post(`/api/companies/${company.id}/invitations`, { headers, data: { email: guest, role: "employee" } });
     expect(invited.status()).toBe(201);
