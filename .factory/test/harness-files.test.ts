@@ -294,3 +294,21 @@ describe(".factory/image/setup.sh", () => {
     expect(setup).toMatch(/^python3 --version$/m);
   });
 });
+
+describe("a Product issue may change the Skeleton (ADR 0017)", () => {
+  it("has no Skeleton gap in the glossary and marks ADR 0008 as superseded by the ADR that exists", () => {
+    expect(read("GLOSSARY.md")).not.toContain("Skeleton gap");
+    expect(read("GLOSSARY.md")).not.toContain("never edits it");
+    expect(read("docs/adr/0008-product-issue-never-changes-the-skeleton.md")).toContain("superseded by ADR-0017");
+    expect(existsSync(join(repo, "docs/adr/0017-product-issue-may-change-the-skeleton.md"))).toBe(true);
+  });
+
+  it("no longer talks about the split in the prompts and docs", () => {
+    const files = ["AGENTS.md", ".factory/AGENTS.md", "docs/factory-flows.md", "docs/adr/0003-several-products-one-repo-skeleton-as-a-package.md", ...readdirSync(join(repo, ".factory/prompts")).map((f) => `.factory/prompts/${f}`)];
+    for (const file of files) {
+      expect(read(file), file).not.toContain("skeleton-gap");
+      expect(read(file), file).not.toContain("skeleton.patch");
+      expect(read(file), file).not.toContain("never edits `packages/skeleton/`");
+    }
+  });
+});
