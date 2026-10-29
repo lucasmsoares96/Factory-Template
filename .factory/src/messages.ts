@@ -427,6 +427,14 @@ export const catalog = {
     "pt-BR": (sha) => `Commit ${sha}. O preview e o banco de dados dele são apagados quando o PR fecha.`,
   }),
 
+  // The comment on the merged PR when a deploy of the default branch finds Entitlements in no production plan (`src/ci/entitlements.ts`).
+  entitlementsMissing: text({
+    en: (product: string, names: string[]) =>
+      `${names.length === 1 ? `The Entitlement ${list(names)} is` : `The Entitlements ${list(names)} are`} not in any plan yet; run \`pnpm bootstrap billing ${product} --redo entitlements\`.`,
+    "pt-BR": (product, names) =>
+      `${names.length === 1 ? `O Entitlement ${list(names)} ainda não está` : `Os Entitlements ${list(names)} ainda não estão`} em nenhum plano; rode \`pnpm bootstrap billing ${product} --redo entitlements\`.`,
+  }),
+
   // The example issue of `pnpm bootstrap factory` (`src/bootstrap/example.ts`): a parent spec and its child.
   exampleParentTitle: text({
     en: (title: string) => `Example: change the ${title} sign-in title`,
