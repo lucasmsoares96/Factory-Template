@@ -4,7 +4,7 @@ import { APIError, createAuthMiddleware, getSessionFromCtx, isAPIError } from "b
 import { and, asc, eq } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { decode, verify } from "hono/jwt";
-import { authSchema, companies, members, users } from "../db/schema.ts";
+import { authSchema, companies, members, sessions, users } from "../db/schema.ts";
 import { changeEmailEmail } from "../emails/change-email.tsx";
 import { resetPasswordEmail } from "../emails/reset-password.tsx";
 import { verificationEmail } from "../emails/verify-email.tsx";
@@ -18,6 +18,8 @@ export { AUTH_BASE_PATH };
 
 /** Better Auth's route for a signed-in user's password change (current plus new password). */
 const CHANGE_PASSWORD_PATH = "/change-password";
+/** Better Auth's route for signing in with an email and a password. */
+const SIGN_IN_PATH = "/sign-in/email";
 /** Better Auth's route for a signed-in user's account deletion. */
 const DELETE_USER_PATH = "/delete-user";
 
@@ -41,6 +43,12 @@ export type AuthOptionsInput = {
    * the sessions, which Better Auth deletes itself. The Worker passes `revokeAccess`.
    */
   revokeAccess?: (user: { id: string }) => Promise<void>;
+  /**
+   * Lets the features refuse an account's deletion (`Feature.events.accountArchiving`): it
+   * throws a Better Auth `APIError` to refuse. Runs after the Company checks, before the
+   * account is archived.
+   */
+  accountArchiving?: (user: { id: string }) => Promise<void>;
   /** Runs work (emails) after the response, so a new and an existing email answer alike. */
   defer?: (task: Promise<unknown>) => void;
   /** The features' Better Auth plugins (`Feature.authPlugins`), added to the Skeleton's options. */
@@ -114,6 +122,7 @@ export function authOptions({
   password,
   rateLimit,
   revokeAccess,
+  accountArchiving,
   defer,
   plugins = [],
 }: AuthOptionsInput) {
@@ -139,14 +148,22 @@ export function authOptions({
     },
     user: {
       // The account page deletes the account, confirming with the password (the
-      // before hook requires it). Better Auth checks the password, runs
-      // `beforeDelete`, then deletes the user and their sessions; the database
-      // deletes their Members and keeps the Invitations they sent.
+      // before hook requires it). Better Auth checks the password, then runs
+      // `beforeDelete`, which never lets it delete: an account in no Company and
+      // with no active Subscription is archived instead (`archiveAccount`) and
+      // goes for good 30 days later (`purgeArchivedAccounts`).
       deleteUser: {
         enabled: true,
         beforeDelete: async (user) => {
-          await refuseOwner(db, user);
+          await refuseCompanies(db, user);
+          await accountArchiving?.(user);
+          await archiveAccount(db, user);
           await revokeAccess?.(user);
+          throw new APIError("OK", {
+            code: "ACCOUNT_ARCHIVED",
+            message: "The account is archived and will be deleted in 30 days. Signing in before then cancels the deletion.",
+            deleteAt: new Date(Date.now() + ARCHIVE_DAYS * DAY_MS).toISOString(),
+          });
         },
       },
       // The verification email goes to the new address; until its link is opened
@@ -230,6 +247,13 @@ export function authOptions({
         }
       }),
       after: createAuthMiddleware(async (ctx) => {
+        // Signing in to an archived account cancels its deletion.
+        if (ctx.path === SIGN_IN_PATH) {
+          const returned: unknown = ctx.context.returned;
+          if (isAPIError(returned) || !hasUser(returned)) return;
+          await db.update(users).set({ archivedAt: null }).where(eq(users.id, returned.user.id));
+          return;
+        }
         // After a password change, as after a reset, the rest of the user's access goes too.
         if (ctx.path === CHANGE_PASSWORD_PATH) {
           const returned: unknown = ctx.context.returned;
@@ -272,19 +296,37 @@ function hasPassword(body: unknown): boolean {
 }
 
 /**
- * Refuses to delete the account of an Owner, so no Company is left without one:
- * 409 `OWNER_OF_COMPANIES` with the Companies the user owns (by name), to
- * transfer or delete first. Nothing has changed yet when it throws.
+ * Refuses to delete the account of someone who is in a Company, so none is left
+ * without an Owner or with a Member nobody knows about: an Owner gets 409
+ * `OWNER_OF_COMPANIES` with the Companies (by name), to transfer or delete
+ * first; a Member gets 409 `MEMBER_OF_COMPANIES`, to be removed by their
+ * Owners. Nothing has changed yet when it throws.
  */
-async function refuseOwner(db: NodePgDatabase, user: { id: string }) {
-  const owned = await db
-    .select({ id: companies.id, name: companies.name })
+async function refuseCompanies(db: NodePgDatabase, user: { id: string }) {
+  const belonging = await db
+    .select({ id: companies.id, name: companies.name, role: members.role })
     .from(members)
     .innerJoin(companies, eq(companies.id, members.companyId))
-    .where(and(eq(members.userId, user.id), eq(members.role, "owner")))
+    .where(eq(members.userId, user.id))
     .orderBy(asc(companies.name), asc(companies.id));
-  if (owned.length === 0) return;
-  throw new APIError("CONFLICT", { code: "OWNER_OF_COMPANIES", message: errorMessages.OWNER_OF_COMPANIES, companies: owned });
+  const owned = belonging.filter((company) => company.role === "owner").map(({ id, name }) => ({ id, name }));
+  if (owned.length > 0) {
+    throw new APIError("CONFLICT", { code: "OWNER_OF_COMPANIES", message: errorMessages.OWNER_OF_COMPANIES, companies: owned });
+  }
+  if (belonging.length > 0) {
+    const joined = belonging.map(({ id, name }) => ({ id, name }));
+    throw new APIError("CONFLICT", { code: "MEMBER_OF_COMPANIES", message: errorMessages.MEMBER_OF_COMPANIES, companies: joined });
+  }
+}
+
+/** How long an archived account waits before it goes for good. */
+export const ARCHIVE_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Archives the account: its sessions end now, and `purgeArchivedAccounts` deletes it after `ARCHIVE_DAYS`. */
+async function archiveAccount(db: NodePgDatabase, user: { id: string }) {
+  await db.delete(sessions).where(eq(sessions.userId, user.id));
+  await db.update(users).set({ archivedAt: new Date() }).where(eq(users.id, user.id));
 }
 
 /** What `/change-password` answers on success: `{ token, user }`. */
