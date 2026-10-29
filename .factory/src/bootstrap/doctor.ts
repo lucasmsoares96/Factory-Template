@@ -228,6 +228,8 @@ async function previewChecks(
   const names = previewNames(id);
   const key = await previewSecretPresent(ctx, id, names.neonKey);
   add(key ? "ok" : "missing", names.neonKey, key ? undefined : redo);
+  const account = await previewSecretPresent(ctx, id, names.accountPassword);
+  add(account ? "ok" : "missing", names.accountPassword, account ? undefined : `${redo} (asks the password of the Default account in the previews)`);
   for (const name of [names.neonProject, names.kv]) add(variables[name] ? "ok" : "missing", name, variables[name] ?? redo);
   const listed = parseProductList(variables[PREVIEW_PRODUCTS]).includes(id);
   add(listed ? "ok" : "missing", `${id} in ${PREVIEW_PRODUCTS}`, listed ? undefined : redo);

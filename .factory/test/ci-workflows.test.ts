@@ -285,7 +285,13 @@ describe.each([[WORKFLOWS_DIR]])("PR previews in %s", (dir) => {
     const withSecrets = Object.entries(jobs).filter(([, job]) => /secrets[.[]/.test(textOf(job))).map(([id]) => id);
     expect(withSecrets).toEqual(["deploy"]);
     const text = textOf(jobs.deploy!);
-    expect(text.match(/secrets\[[^\]]*\]|secrets\.\w+/g)?.sort()).toEqual(["secrets.CLOUDFLARE_ACCOUNT_ID", "secrets.CLOUDFLARE_API_TOKEN", "secrets[format('{0}PREVIEW_NEON_API_KEY', matrix.prefix)]"].sort());
+    expect(text.match(/secrets\[[^\]]*\]|secrets\.\w+/g)?.sort()).toEqual(["secrets.CLOUDFLARE_ACCOUNT_ID", "secrets.CLOUDFLARE_API_TOKEN", "secrets[format('{0}PREVIEW_NEON_API_KEY', matrix.prefix)]", "secrets[format('{0}PREVIEW_ACCOUNT_PASSWORD', matrix.prefix)]"].sort());
+    // The previews' account password is in the environment of the one step that upserts the account, after the migrations.
+    const holders = steps(jobs.deploy!).filter((step) => JSON.stringify(step).includes("PREVIEW_ACCOUNT_PASSWORD"));
+    expect(holders.map((step) => step.name)).toEqual(["default account"]);
+    expect(Object.entries(jobs).filter(([, job]) => textOf(job).includes("PREVIEW_ACCOUNT_PASSWORD")).map(([id]) => id)).toEqual(["deploy"]);
+    const script = runs(jobs.deploy!).join("\n");
+    expect(script.indexOf("deploy.ts migrate")).toBeLessThan(script.indexOf("previews.ts account"));
     expect(Object.entries(jobs).filter(([, job]) => /CLOUDFLARE|NEON_API_KEY|wrangler/.test(textOf(job))).map(([id]) => id)).toEqual(["deploy"]);
   });
 
@@ -389,7 +395,7 @@ describe.each([[WORKFLOWS_DIR]])("PR previews in %s", (dir) => {
     for (const workflow of [pr, cleanup, checkWorkflows(dir).deploy]) {
       for (const job of Object.values(workflow.jobs)) for (const script of runs(job)) for (const m of script.matchAll(/previews\.ts (\S+)/g)) called.add(m[1]!);
     }
-    expect([...called].sort()).toEqual(["base", "bindings", "cleanup", "cleanup-plan", "comment", "config", "database", "gate", "result", "smoke-result", "status", "url"]);
+    expect([...called].sort()).toEqual(["account", "base", "bindings", "cleanup", "cleanup-plan", "comment", "config", "database", "gate", "result", "smoke-result", "status", "url"]);
     for (const command of called) expect(source, command).toContain(`command === "${command}"`);
   });
 });

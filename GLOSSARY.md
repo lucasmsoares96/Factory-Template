@@ -81,7 +81,7 @@ What a Product issue needs that the Skeleton lacks. The factory reverts any Skel
 _Avoid_: Workaround
 
 **Default account**:
-The one verified account `bootstrap product` creates in a Product's production database. The person uses it without signing up, and the post-deploy smoke test signs in with it.
+The one verified account `bootstrap product` creates in a Product's production database. The person uses it without signing up, and the post-deploy smoke test signs in with it. Previews have it too: the same email, with a password of their own, so a pull request that captures the password at a Preview sign-in gains no access to production.
 _Avoid_: Admin user, test user
 
 **Harness change**:
