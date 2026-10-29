@@ -19,7 +19,7 @@ import { productionSteps } from "./product.ts";
 import { PREVIEWS_ENABLED, previewSteps } from "./previews.ts";
 import { ResendApi } from "./resend.ts";
 import { StripeApi } from "./stripe.ts";
-import { BILLING_MISSING_FEATURE, billingEnvironment, billingSteps } from "./billing.ts";
+import { BILLING_MISSING_FEATURE, billingEnvironment, billingSteps, migratePrices } from "./billing.ts";
 import { NeonCli } from "./neon.ts";
 import { WranglerCli } from "./wrangler.ts";
 import { runSteps, type BootstrapDeps, type ProductIdentity, type StepContext } from "./steps.ts";
@@ -52,6 +52,10 @@ Commands:
                          pre-filled link each; hidden prompt, or STRIPE_SANDBOX_KEY / STRIPE_LIVE_KEY), the plans,
                          payment methods and Customer Portal written to both accounts, and the real account's events
                          endpoint. The deploy hands the key and the endpoint secret to the Worker once all are set.
+  billing <id> migrate-prices
+                         After --redo plans changed a price: shows how many Subscriptions of the real account are still on
+                         the old one, asks, and schedules the new price for each one's next renewal. The Worker emails each
+                         Owner the old price, the new one and the date.
   env <id>               Lists the variables, secrets and environment variables of the billing module.
   all <id>               The Production module, then asks whether to set billing up now.
   factory                The Factory module (after the common part): your own fine-grained token, limited to this
@@ -75,7 +79,7 @@ Options:
                          for the domain command: resend-domain, dns-records, restricted-resend-key, worker-domain;
                          for the product command: neon-project, github-environment, database-secrets, auth-secret,
                          default-account (asks again, resets the password and the secret), the four domain steps, main-ruleset, deploy-products;
-                         for the billing command: keys (makes both keys again), plans (asks the plans again), webhook (a new endpoint and secret);
+                         for the billing command: keys (makes both keys again), plans (asks the plans again; a changed amount becomes a new price with the old nickname and the old one is archived, new plans are added and removed ones archived, in both accounts), webhook (a new endpoint and secret);
                          for the previews command: preview-environment, preview-neon-project, preview-neon-key, preview-kv,
                          preview-account (asks again, replaces the password), preview-products;
                          for the factory command: labels, factory-token (asks for the token again), claude-auth, auto-merge,
@@ -124,11 +128,16 @@ export async function runBootstrap(argv: string[], deps: BootstrapDeps): Promise
   }
   if (command === "billing") {
     if (!productId) {
-      deps.log(`Usage: pnpm bootstrap billing <id> [--redo keys|plans|webhook]`);
+      deps.log(`Usage: pnpm bootstrap billing <id> [migrate-prices] [--redo keys|plans|webhook]`);
       return 1;
     }
     const product = await productOrAsk(deps, productId);
     if (!product) return 1;
+    if (positionals[2] === "migrate-prices") return runMigratePrices(deps, product);
+    if (positionals[2]) {
+      deps.log(`Unknown billing action: ${positionals[2]}. Use \`migrate-prices\` or no action.`);
+      return 1;
+    }
     return runBilling(deps, product, values.redo ?? []);
   }
   if (command === "all") {
@@ -215,6 +224,16 @@ async function runBilling(deps: BootstrapDeps, product: ProductIdentity, redo: s
   const memory: StepContext["memory"] = {};
   await runSteps(billingSteps(product), { ...deps, memory }, redo);
   return finish(deps, product.id, memory, { production: false, domain: false, previews: false, billing: true, cloudflare: false });
+}
+
+/** `billing <id> migrate-prices`: the real account's Subscriptions on an archived price move to the new one at their renewal. */
+async function runMigratePrices(deps: BootstrapDeps, product: ProductIdentity): Promise<number> {
+  if (!product.billing) {
+    deps.log(BILLING_MISSING_FEATURE(product.id));
+    return 1;
+  }
+  const memory: StepContext["memory"] = {};
+  return migratePrices({ ...deps, memory }, product);
 }
 
 /** The Product's identity; an empty `domain` is asked for (for this run only). `undefined` when the Product does not exist. */

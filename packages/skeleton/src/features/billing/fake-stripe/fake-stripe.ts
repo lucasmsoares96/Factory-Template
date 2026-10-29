@@ -244,8 +244,8 @@ export class FakeStripe {
   }
 
   /** Sends a signed event to the app's webhook, as Stripe does; answers the webhook's status. */
-  async emit(type: string, object: unknown): Promise<number> {
-    const event = { id: id("evt"), object: "event", api_version: "fake", created: await this.now(), livemode: false, pending_webhooks: 1, type, data: { object } };
+  async emit(type: string, object: unknown, previousAttributes?: unknown): Promise<number> {
+    const event = { id: id("evt"), object: "event", api_version: "fake", created: await this.now(), livemode: false, pending_webhooks: 1, type, data: { object, ...(previousAttributes ? { previous_attributes: previousAttributes } : {}) } };
     await this.store.put("event", event);
     const payload = JSON.stringify(event);
     const response = await this.deps.deliver(
