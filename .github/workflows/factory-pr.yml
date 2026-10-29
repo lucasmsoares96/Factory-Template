@@ -325,6 +325,13 @@ jobs:
       - name: migrate
         if: steps.bindings.outputs.changed == 'false' && steps.database.outputs.skipped == ''
         run: node .factory/src/ci/deploy.ts migrate --dir "$RUNNER_TEMP/artifact" --url-file "$RUNNER_TEMP/preview/direct-url"
+      # The Default account in the PR's branch, with the password of the previews (not production's). Only this step sees it.
+      - name: default account
+        if: steps.bindings.outputs.changed == 'false' && steps.database.outputs.skipped == ''
+        env:
+          ACCOUNT_EMAIL: ${{ vars[format('{0}ACCOUNT_EMAIL', matrix.prefix)] }}
+          ACCOUNT_PASSWORD: ${{ secrets[format('{0}PREVIEW_ACCOUNT_PASSWORD', matrix.prefix)] }}
+        run: node .factory/src/ci/previews.ts account --url-file "$RUNNER_TEMP/preview/direct-url"
       # Worker Previews (open beta, wrangler >= 4.135): `wrangler preview --name pr-N` makes or updates the Preview `pr-N` of the Worker.
       # wrangler is a dependency of @factory/harness, not of the root: run it from that package (its folder is `main`'s).
       # --ignore-base-config: only the config of `main` and the secrets file count, not the dashboard's base config.
