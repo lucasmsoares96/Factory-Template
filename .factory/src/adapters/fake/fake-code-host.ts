@@ -244,6 +244,19 @@ export class FakeCodeHost implements CodeHost {
     this.dispatches.push({ workflow, inputs: { ...inputs } });
     this.writes.push(`dispatch ${workflow}`);
   }
+
+  /** Whether the resume sweep is on; every change, in order, is in `sweepChanges`. */
+  resumeSweep = false;
+  readonly sweepChanges: boolean[] = [];
+  /** When set, `setResumeSweep` throws with this message. */
+  resumeSweepError: string | undefined;
+
+  async setResumeSweep(enabled: boolean): Promise<void> {
+    if (this.resumeSweepError) throw new Error(this.resumeSweepError);
+    this.resumeSweep = enabled;
+    this.sweepChanges.push(enabled);
+    this.writes.push(`resume sweep ${enabled ? "on" : "off"}`);
+  }
 }
 
 /** Where the fake "uploads" a print. */
