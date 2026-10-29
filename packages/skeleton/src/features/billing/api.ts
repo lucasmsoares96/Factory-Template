@@ -1,0 +1,185 @@
+import { createRoute, z } from "@hono/zod-openapi";
+import { eq } from "drizzle-orm";
+import type { MiddlewareHandler } from "hono";
+import { createMiddleware } from "hono/factory";
+import { subscriptions } from "../../db/schema.ts";
+import type { SkeletonEnv } from "../../platform/env.ts";
+import { apiError, createRouter, errorResponse } from "../../platform/errors.ts";
+import { requireIdentity, unauthenticatedResponse } from "../../platform/identity.ts";
+import { billingFor, type Billing } from "./context.ts";
+import type { Plan } from "./plans.ts";
+
+/** The SPA page a person returns to from Checkout. */
+export const PLAN_PAGE = "/account/plan";
+
+const PlanSchema = z
+  .object({
+    id: z.string().openapi({ description: "The Plan's id: what subscribePlan takes.", example: "prod_Rk2pQ9vT4mWs1a" }),
+    name: z.string().openapi({ description: "The Plan's name, as set in Stripe.", example: "Pro" }),
+    description: z.string().nullable().openapi({ description: "What the Plan offers, as set in Stripe.", example: "For small teams." }),
+    kind: z.enum(["free", "fixed", "per_seat"]).openapi({
+      description: "`free`: no price. `fixed`: one monthly price for a fixed number of Seats. `per_seat`: a monthly price for each Seat.",
+      example: "fixed",
+    }),
+    seats: z.number().int().nullable().openapi({ description: "The Seats a `free` or `fixed` Plan gives; `null` when each Seat is paid for.", example: 3 }),
+    price: z
+      .object({
+        amount: z.number().int().openapi({ description: "The monthly price in the currency's smallest unit (cents).", example: 1900 }),
+        currency: z.string().openapi({ description: "The lower-case ISO currency code.", example: "usd" }),
+        interval: z.literal("month").openapi({ description: "How often the price is charged." }),
+      })
+      .nullable()
+      .openapi({ description: "The monthly price; `null` for the free Plan." }),
+    entitlements: z
+      .record(z.string(), z.union([z.boolean(), z.number()]))
+      .openapi({ description: "What the Plan unlocks, by the Product's Entitlement names: on or off, or up to a number.", example: { reports: true, projects: 10 } }),
+  })
+  .openapi("Plan");
+
+const CurrentPlan = z
+  .object({
+    // A union, not `.nullable()`: that would turn the shared `Plan` schema itself into a nullable one.
+    plan: z.union([PlanSchema, z.null()]),
+    subscription: z
+      .object({
+        status: z.enum(["active", "trialing", "past_due"]).openapi({ description: "`past_due`: the last payment failed.", example: "active" }),
+        periodEnd: z.iso.datetime().nullable().openapi({ description: "When the current period ends and the Subscription renews.", example: "2026-11-28T12:00:00.000Z" }),
+        cancelAtPeriodEnd: z.boolean().openapi({ description: "Whether the Subscription ends when the current period does.", example: false }),
+      })
+      .nullable()
+      .openapi({ description: "The person's Subscription; `null` when they are on the free Plan." }),
+    plans: z.array(PlanSchema).openapi({ description: "Every Plan the Product sells, read from Stripe (kept for 5 minutes)." }),
+  })
+  .openapi("CurrentPlan");
+
+const Checkout = z
+  .object({ url: z.string().openapi({ description: "Where to send the person to pay: Stripe's Checkout page.", example: "https://checkout.stripe.com/c/pay/cs_test_a1" }) })
+  .openapi("Checkout");
+
+/** Answers 404 `NOT_FOUND` when the Worker has no Stripe key: no billing route answers then. */
+const billingOn = (entitlements: readonly string[]): MiddlewareHandler<SkeletonEnv> =>
+  createMiddleware<SkeletonEnv>(async (c, next) => {
+    if (!billingFor(c, entitlements)) return c.json(apiError("NOT_FOUND"), 404);
+    await next();
+  });
+
+const LIVE = ["active", "trialing", "past_due"] as const;
+
+const getPlanRoute = (on: MiddlewareHandler<SkeletonEnv>) =>
+  createRoute({
+    method: "get",
+    path: "/billing/plan",
+    operationId: "getPlan",
+    summary: "Get the signed-in user's Plan",
+    description:
+      "Answers the Plan the user is on (`plan`; `null` only when Stripe has no free Plan to fall back to), their Subscription (`null` on the free Plan) and every Plan the Product sells. A person without a Subscription is on the free Plan. The Plans are read from Stripe and kept for 5 minutes. Answers 404 when billing is off.",
+    middleware: [on, requireIdentity] as const,
+    responses: {
+      200: { description: "The user's Plan and the available Plans.", content: { "application/json": { schema: CurrentPlan } } },
+      401: unauthenticatedResponse,
+      404: errorResponse("Billing is off: the Worker has no Stripe key.", "NOT_FOUND"),
+      502: errorResponse("Stripe did not answer.", "BILLING_UNAVAILABLE"),
+    },
+  });
+
+const subscribeRoute = (on: MiddlewareHandler<SkeletonEnv>) =>
+  createRoute({
+    method: "post",
+    path: "/billing/subscribe",
+    operationId: "subscribePlan",
+    summary: "Subscribe to a fixed monthly Plan",
+    description:
+      "Opens Stripe's Checkout for a fixed monthly Plan and answers its URL; the SPA sends the user there. The Subscription changes when Stripe's event arrives, never by this call.",
+    // Sends a person to a payment page: nothing an agent does for them.
+    "x-mcp": false,
+    middleware: [on, requireIdentity] as const,
+    request: {
+      body: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: z.object({ plan: z.string().min(1).openapi({ description: "The Plan's id, from getPlan.", example: "prod_Rk2pQ9vT4mWs1a" }) }).openapi("SubscribePlan"),
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: "Checkout is open.", content: { "application/json": { schema: Checkout } } },
+      400: errorResponse("The request is invalid.", "VALIDATION_FAILED"),
+      401: unauthenticatedResponse,
+      404: errorResponse("Billing is off, or the Product has no fixed monthly Plan with this id.", "NOT_FOUND"),
+      409: errorResponse("The user already has a Subscription.", "ALREADY_SUBSCRIBED"),
+      502: errorResponse("Stripe did not answer.", "BILLING_UNAVAILABLE"),
+    },
+  });
+
+/** The `upgradeSubscription` endpoint `@better-auth/stripe` adds to the auth API (the plugins are not typed in `Auth`). */
+type PluginApi = {
+  upgradeSubscription(options: {
+    headers: Headers;
+    body: { plan: string; successUrl: string; cancelUrl: string; disableRedirect: boolean; metadata: Record<string, string> };
+  }): Promise<{ url?: string }>;
+};
+
+async function readCatalog(billing: Billing) {
+  try {
+    return await billing.plans();
+  } catch (error) {
+    console.error("Reading the Plans from Stripe failed:", error);
+    return undefined;
+  }
+}
+
+export function billingApi(entitlements: readonly string[]) {
+  const on = billingOn(entitlements);
+  return createRouter()
+    .openapi(getPlanRoute(on), async (c) => {
+      const billing = billingFor(c, entitlements)!;
+      const catalog = await readCatalog(billing);
+      if (!catalog) return c.json(apiError("BILLING_UNAVAILABLE"), 502);
+      const owned = await c.var.db.select().from(subscriptions).where(eq(subscriptions.referenceId, c.var.identity.user.id));
+      const live = owned
+        .filter((row) => (LIVE as readonly string[]).includes(row.status))
+        .sort((a, b) => (b.periodStart?.getTime() ?? 0) - (a.periodStart?.getTime() ?? 0))[0];
+      // The Subscription keeps the Plan's id lower-cased (the plugin lower-cases names).
+      const subscribed = live && catalog.plans.find((plan) => plan.id.toLowerCase() === live.plan);
+      const free = catalog.plans.find((plan) => plan.kind === "free");
+      const plan = subscribed ?? free ?? null;
+      return c.json(
+        {
+          plan,
+          subscription: live
+            ? {
+                status: live.status as (typeof LIVE)[number],
+                periodEnd: live.periodEnd?.toISOString() ?? null,
+                cancelAtPeriodEnd: live.cancelAtPeriodEnd ?? false,
+              }
+            : null,
+          plans: catalog.plans satisfies Plan[],
+        },
+        200,
+      );
+    })
+    .openapi(subscribeRoute(on), async (c) => {
+      const billing = billingFor(c, entitlements)!;
+      const { plan: planId } = c.req.valid("json");
+      const catalog = await readCatalog(billing);
+      if (!catalog) return c.json(apiError("BILLING_UNAVAILABLE"), 502);
+      const plan = catalog.priced.find((candidate) => candidate.id === planId && candidate.kind === "fixed");
+      if (!plan) return c.json(apiError("NOT_FOUND"), 404);
+      const owned = await c.var.db.select({ status: subscriptions.status }).from(subscriptions).where(eq(subscriptions.referenceId, c.var.identity.user.id));
+      if (owned.some((row) => (LIVE as readonly string[]).includes(row.status))) return c.json(apiError("ALREADY_SUBSCRIBED"), 409);
+      try {
+        const api = c.var.auth().api as unknown as PluginApi;
+        const session = await api.upgradeSubscription({
+          headers: c.req.raw.headers,
+          // Every customer and Subscription Stripe creates here carries the Product's id.
+          body: { plan: plan.id, successUrl: PLAN_PAGE, cancelUrl: PLAN_PAGE, disableRedirect: true, metadata: { productId: billing.productId } },
+        });
+        if (session.url) return c.json({ url: session.url }, 200);
+      } catch (error) {
+        console.error("Opening Checkout failed:", error);
+      }
+      return c.json(apiError("BILLING_UNAVAILABLE"), 502);
+    });
+}

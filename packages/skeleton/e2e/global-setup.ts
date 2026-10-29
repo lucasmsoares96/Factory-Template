@@ -35,6 +35,8 @@ export default async function setup() {
       workers: [
         {
           configPath: builtWorkerConfig(dir),
+          // Billing (a Product that has the feature) runs on the fake Stripe inside the Worker.
+          vars: { STRIPE_FAKE: "true" },
           secrets: {
             DATABASE_URL: postgres.url,
             BETTER_AUTH_SECRET: `e2e-${randomUUID()}`,
