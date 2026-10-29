@@ -4,6 +4,7 @@ import { createInvitationHandler, createInvitationHandlerResponse409 } from "../
 import { getCompanyHandler } from "../../src/gen/msw/getCompanyHandler.ts";
 import { getMeHandler } from "../../src/gen/msw/getMeHandler.ts";
 import { getNavHandler } from "../../src/gen/msw/getNavHandler.ts";
+import { getOwnershipOfferHandler, getOwnershipOfferHandlerResponse404 } from "../../src/gen/msw/getOwnershipOfferHandler.ts";
 import { listCompaniesHandler } from "../../src/gen/msw/listCompaniesHandler.ts";
 import { listInvitationsHandler } from "../../src/gen/msw/listInvitationsHandler.ts";
 import { listMembersHandler } from "../../src/gen/msw/listMembersHandler.ts";
@@ -40,6 +41,8 @@ function companyApi(pending: Invitation[], { role = "owner", t = messagesFor("en
       listCompaniesHandler({ items: [company], nextCursor: null }),
       getCompanyHandler(company),
       listMembersHandler({ items: [{ userId: ana.id, name: ana.name, email: ana.email, role }], nextCursor: null }),
+      // The Owner's settings look for an open ownership offer (none here).
+      getOwnershipOfferHandler(() => getOwnershipOfferHandlerResponse404({ code: "NOT_FOUND", message: "Not found." })),
       listInvitationsHandler(() => HttpResponse.json({ items: pending, nextCursor: null })),
       createInvitationHandler(async ({ request, params }) => {
         const body = await request.json();

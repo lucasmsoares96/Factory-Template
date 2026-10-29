@@ -228,3 +228,37 @@ export const invitations = skeletonSchema.table(
     check("invitations_not_owner", sql`${table.role} <> 'owner'`),
   ],
 );
+
+/**
+ * An offer to make a Member of a Company its Owner. The Owner who offers stays
+ * the Owner, and the people stay in their Seats, until the recipient accepts
+ * (accepting needs free Seats for the people the recipient does not already
+ * seat). Open means neither accepted nor canceled, and not past `expiresAt`;
+ * the database keeps one such pending offer per Company. It belongs to the
+ * Company and goes with the recipient's account (`offeredBy` becomes null when
+ * the Owner's account goes). `createdAt` keeps milliseconds only.
+ */
+export const ownershipOffers = skeletonSchema.table(
+  "ownership_offers",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    companyId: text("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    recipientId: text("recipient_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    offeredBy: text("offered_by").references(() => users.id, { onDelete: "set null" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true, precision: 3 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, precision: 3 }).notNull().defaultNow(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true, precision: 3 }),
+    canceledAt: timestamp("canceled_at", { withTimezone: true, precision: 3 }),
+  },
+  (table) => [
+    uniqueIndex("ownership_offers_one_pending_idx")
+      .on(table.companyId)
+      .where(sql`${table.acceptedAt} is null and ${table.canceledAt} is null`),
+  ],
+);

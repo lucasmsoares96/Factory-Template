@@ -13,7 +13,9 @@ import { listCompaniesQueryKey } from "../../gen/hooks/useListCompanies.ts";
 import { listMembersQueryKey } from "../../gen/hooks/useListMembers.ts";
 import { useDeleteCompany } from "../../gen/hooks/useDeleteCompany.ts";
 import { useRenameCompany } from "../../gen/hooks/useRenameCompany.ts";
-import { useTransferOwnership } from "../../gen/hooks/useTransferOwnership.ts";
+import { getOwnershipOfferQueryKey, useGetOwnershipOffer } from "../../gen/hooks/useGetOwnershipOffer.ts";
+import { useCancelOwnershipOffer } from "../../gen/hooks/useCancelOwnershipOffer.ts";
+import { useCreateOwnershipOffer } from "../../gen/hooks/useCreateOwnershipOffer.ts";
 import { useErrorMessage, useMessages } from "../../client/i18n.tsx";
 import { format } from "../../i18n/index.ts";
 import { useMembers } from "./members.tsx";
@@ -21,8 +23,8 @@ import { useMembers } from "./members.tsx";
 type Company = { id: string; name: string };
 
 /**
- * The Owner's actions on the Company page: rename it, transfer its ownership
- * and delete it. The page shows them to the Owner only; the API refuses anyone
+ * The Owner's actions on the Company page: rename it, offer its ownership to a
+ * Member and delete it. The page shows them to the Owner only; the API refuses anyone
  * else (403 `FORBIDDEN`).
  */
 export function CompanySettings({ company }: { company: Company }) {
@@ -129,10 +131,10 @@ function RenameCompany({ company }: { company: Company }) {
 }
 
 /**
- * Makes another Member the Owner once the Owner picks them and types the
- * Company's name (the API checks it again: `CONFIRMATION_MISMATCH`). The API
- * answers the Company with the user's new role, which hides these settings, and
- * the Members table reloads with the new roles.
+ * Offers the Company to another Member once the Owner picks them and types the
+ * Company's name (the API checks it again: `CONFIRMATION_MISMATCH`). Until they
+ * accept, nothing changes: the open offer shows here, with the Owner's way to
+ * cancel it.
  */
 function TransferOwnership({ company }: { company: Company }) {
   const t = useMessages().companies.settings.transfer;
@@ -140,23 +142,53 @@ function TransferOwnership({ company }: { company: Company }) {
   const queryClient = useQueryClient();
   const path = { companyId: company.id };
   const members = useMembers(company.id);
+  const offer = useGetOwnershipOffer({ path }, { query: { retry: false } });
   // The Owner is the caller: every other Member may receive the Company.
   const candidates = (members.data?.pages ?? []).flatMap((page) => page.items).filter((member) => member.role !== "owner");
-  const transferOwnership = useTransferOwnership({
+  const createOffer = useCreateOwnershipOffer({
     mutation: {
-      onSuccess: async (transferred) => {
-        queryClient.setQueryData(getCompanyQueryKey({ path }), transferred);
-        await queryClient.invalidateQueries({ queryKey: listMembersQueryKey({ path }) });
-        await queryClient.invalidateQueries({ queryKey: listCompaniesQueryKey() });
+      onSuccess: async (created) => {
+        queryClient.setQueryData(getOwnershipOfferQueryKey({ path }), created);
       },
     },
+  });
+  const cancelOffer = useCancelOwnershipOffer({
+    mutation: { onSuccess: () => queryClient.removeQueries({ queryKey: getOwnershipOfferQueryKey({ path }) }) },
   });
   const form = useForm({
     defaultValues: { userId: "", name: "" },
     onSubmit: async ({ value }) => {
-      await transferOwnership.mutateAsync({ path, body: { userId: value.userId, name: value.name } }).catch(() => undefined);
+      await createOffer.mutateAsync({ path, body: { userId: value.userId, name: value.name } }).catch(() => undefined);
     },
   });
+
+  if (offer.data) {
+    const date = new Intl.DateTimeFormat(document.documentElement.lang || undefined, { dateStyle: "medium" });
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-1">
+          <h3 className="font-medium">{t.title}</h3>
+          <p role="status" data-testid="ownership-offer-pending" className="text-sm">
+            {format(t.pending, { name: offer.data.recipient.name, email: offer.data.recipient.email, expires: date.format(new Date(offer.data.expiresAt)) })}
+          </p>
+        </div>
+        {cancelOffer.isError ? (
+          <Alert variant="destructive">
+            <AlertDescription>{errorMessage(cancelOffer.error)}</AlertDescription>
+          </Alert>
+        ) : null}
+        <Button
+          type="button"
+          variant="outline"
+          className="self-start"
+          disabled={cancelOffer.isPending}
+          onClick={() => cancelOffer.mutate({ path })}
+        >
+          {cancelOffer.isPending ? t.canceling : t.cancel}
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <form
@@ -207,16 +239,16 @@ function TransferOwnership({ company }: { company: Company }) {
           </div>
         )}
       </form.Field>
-      {transferOwnership.isError ? (
+      {createOffer.isError ? (
         <Alert variant="destructive">
-          <AlertDescription>{errorMessage(transferOwnership.error)}</AlertDescription>
+          <AlertDescription>{errorMessage(createOffer.error)}</AlertDescription>
         </Alert>
       ) : null}
       <form.Subscribe
         selector={(state) => [state.isSubmitting, state.values.userId !== "" && state.values.name.trim() === company.name] as const}
       >
         {([isSubmitting, ready]) => (
-          <Button type="submit" variant="destructive" className="self-start" disabled={isSubmitting || !ready}>
+          <Button type="submit" className="self-start" disabled={isSubmitting || !ready}>
             {isSubmitting ? t.submitting : t.submit}
           </Button>
         )}
