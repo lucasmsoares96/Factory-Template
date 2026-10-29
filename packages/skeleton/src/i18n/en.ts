@@ -174,12 +174,6 @@ export const en = {
       description:
         "The Owner's plan does not have a Seat for everyone in their Companies, and the people who joined last lose access first. You come back on your own, without the Owner doing anything, when a Seat is free. Your other Companies are not affected.",
     },
-    leave: {
-      title: "Leave the Company",
-      description: "You stop being a Member and lose access to it right away, your agents included. Only a new Invitation brings you back.",
-      submit: "Leave Company",
-      submitting: "Leaving…",
-    },
     settings: {
       title: "Company settings",
       description: "Only the Owner sees these actions.",
@@ -364,6 +358,14 @@ export const en = {
       button: "Choose a new password",
       fallback: "If the button does not work, open this link:",
       ignore: "If you did not ask for this, you can ignore this email: your password stays the same.",
+    },
+    accountRemoved: {
+      subject: "Your {appName} account was deleted",
+      preview: "{companyName} removed you, so your account is gone.",
+      heading: "Your account was deleted",
+      greeting: "Hi {name},",
+      body: "Your {appName} account belonged to {companyName}, and you were removed from it. With no Company left, your account and its data were deleted.",
+      ignore: "You can sign up again if you are invited to another Company.",
     },
     trialEnding: {
       subject: "Your {planName} trial ends on {endsOn}",
