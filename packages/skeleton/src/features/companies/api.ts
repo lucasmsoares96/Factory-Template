@@ -1,5 +1,5 @@
 import { createRoute, z } from "@hono/zod-openapi";
-import { and, asc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
+import { and, asc, eq, isNotNull, ne, sql } from "drizzle-orm";
 import { companies, memberRoles, members, users } from "../../db/schema.ts";
 import { apiError, createRouter, errorResponse } from "../../platform/errors.ts";
 import { emitCompanyDeleting, emitMemberJoined } from "../../platform/feature.ts";
@@ -12,7 +12,6 @@ import {
   requireMember,
   requireMemberEvenSuspended,
   requireOwner,
-  skeletonRole,
 } from "../../platform/member.ts";
 import { PageQuery, afterPosition, cursorPosition, pageOf, toPage } from "../../platform/pagination.ts";
 import { reconcileSeats, reconcileSeatsOfCompany } from "../../platform/suspension.ts";
@@ -49,13 +48,6 @@ const confirmationName = z.string().trim().openapi({
 });
 
 const DeleteCompany = z.object({ name: confirmationName }).openapi("DeleteCompany");
-
-const TransferOwnership = z
-  .object({
-    userId: z.string().openapi({ description: "The user id of the Member who becomes the Owner.", example: "8yW1kQfV0d3sLx9bTq2nZ" }),
-    name: confirmationName,
-  })
-  .openapi("TransferOwnership");
 
 const CompanyPage = pageOf(Company, "CompanyPage");
 
@@ -233,33 +225,6 @@ const deleteCompany = createRoute({
     401: unauthenticatedResponse,
     403: forbiddenResponse,
     404: companyNotFoundResponse,
-  },
-});
-
-const transferOwnership = createRoute({
-  method: "post",
-  path: "/companies/{companyId}/transfer-ownership",
-  operationId: "transferOwnership",
-  summary: "Transfer a Company's ownership",
-  description:
-    "Makes another Member the Company's Owner, without them having to accept, and its Owner an Employee, in one step: the Company always has exactly one Owner. Only its Owner may, confirming with the Company's current name. Answers the Company with the caller's new role, `employee`.",
-  // Giving a Company away needs a person's confirmation: never an agent's call.
-  "x-mcp": false,
-  middleware: [requireIdentity, requireMember, requireOwner] as const,
-  request: {
-    params: CompanyParams,
-    body: { required: true, content: { "application/json": { schema: TransferOwnership } } },
-  },
-  responses: {
-    200: { description: "The Company, with the caller's new role `employee`.", content: { "application/json": { schema: Company } } },
-    400: errorResponse(
-      "The recipient or the confirmation is missing, or the recipient is the Owner themself (`VALIDATION_FAILED`), or the confirmation is not the Company's current name (`CONFIRMATION_MISMATCH`).",
-      "VALIDATION_FAILED",
-      "CONFIRMATION_MISMATCH",
-    ),
-    401: unauthenticatedResponse,
-    403: forbiddenResponse,
-    404: errorResponse("No such Company, the signed-in user is not one of its Members, or the recipient is not one.", "NOT_FOUND"),
   },
 });
 
@@ -480,44 +445,6 @@ export const companiesApi = createRouter()
     // Its people no longer take Seats: whoever waited comes back.
     await reconcileSeats(c, userId);
     return c.body(null, 204);
-  })
-  .openapi(transferOwnership, async (c) => {
-    const { companyId, userId } = c.var.member;
-    const { userId: recipientId, name } = c.req.valid("json");
-    if (recipientId === userId) return c.json(apiError("VALIDATION_FAILED"), 400);
-    // One transaction, so the Company never has two Owners or none. The row lock
-    // queues a concurrent transfer or rename behind this one, which then reads
-    // the roles and the name as they are after it.
-    const outcome = await c.var.db.transaction(async (tx) => {
-      const [company] = await tx
-        .select({ id: companies.id, name: companies.name, createdAt: companies.createdAt })
-        .from(companies)
-        .where(eq(companies.id, companyId))
-        .for("update");
-      // Deleted after `requireMember` found the Member.
-      if (!company) return "NOT_FOUND" as const;
-      const roles = await tx
-        .select({ userId: members.userId, role: members.role })
-        .from(members)
-        .where(and(eq(members.companyId, companyId), inArray(members.userId, [userId, recipientId])))
-        // Neither can leave, or be removed, halfway through.
-        .for("update");
-      const caller = roles.find((member) => member.userId === userId);
-      // A transfer that went first made the caller an Employee, or they left.
-      if (!caller) return "NOT_FOUND" as const;
-      if (skeletonRole(caller.role) !== "owner") return "FORBIDDEN" as const;
-      if (name !== company.name) return "CONFIRMATION_MISMATCH" as const;
-      if (!roles.some((member) => member.userId === recipientId)) return "NOT_FOUND" as const;
-      // The former Owner steps down first: the database allows one Owner per Company.
-      await tx.update(members).set({ role: "employee" }).where(and(eq(members.companyId, companyId), eq(members.userId, userId)));
-      // The Owner is never suspended.
-      await tx.update(members).set({ role: "owner", suspendedAt: null }).where(and(eq(members.companyId, companyId), eq(members.userId, recipientId)));
-      return company;
-    });
-    if (outcome === "NOT_FOUND") return c.json(apiError("NOT_FOUND"), 404);
-    if (outcome === "FORBIDDEN") return c.json(apiError("FORBIDDEN"), 403);
-    if (outcome === "CONFIRMATION_MISMATCH") return c.json(apiError("CONFIRMATION_MISMATCH"), 400);
-    return c.json(toCompany({ ...outcome, role: "employee" }), 200);
   })
   .openapi(changeMemberRole, async (c) => {
     const { companyId, userId: callerId } = c.var.member;

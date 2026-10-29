@@ -3,6 +3,7 @@ import { getCompanyHandler } from "../../src/gen/msw/getCompanyHandler.ts";
 import { getInvitationByTokenHandler, getInvitationByTokenHandlerResponse410 } from "../../src/gen/msw/getInvitationByTokenHandler.ts";
 import { getMeHandler, getMeHandlerResponse401 } from "../../src/gen/msw/getMeHandler.ts";
 import { getNavHandler } from "../../src/gen/msw/getNavHandler.ts";
+import { getOwnershipOfferHandler, getOwnershipOfferHandlerResponse404 } from "../../src/gen/msw/getOwnershipOfferHandler.ts";
 import { listCompaniesHandler } from "../../src/gen/msw/listCompaniesHandler.ts";
 import { listMembersHandler } from "../../src/gen/msw/listMembersHandler.ts";
 import { format, messagesFor } from "../../src/i18n/index.ts";
@@ -32,6 +33,7 @@ const companyPage = [
   getNavHandler({ entries: [], companyPage: [], accountPage: [] }),
   listCompaniesHandler({ items: [acme], nextCursor: null }),
   getCompanyHandler(acme),
+  getOwnershipOfferHandler(() => getOwnershipOfferHandlerResponse404({ code: "NOT_FOUND", message: "Not found." })),
   listMembersHandler({ items: [{ userId: bruno.id, name: bruno.name, email: bruno.email, role: "employee", suspended: false }], nextCursor: null }),
 ];
 
