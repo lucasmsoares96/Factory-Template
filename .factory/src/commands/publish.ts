@@ -5,21 +5,19 @@ import { forForge } from "../forge-text.ts";
 import { Git } from "../git.ts";
 import { messages, type Language, type Messages } from "../messages.ts";
 import { isHarnessPath, isSensitivePath } from "../paths.ts";
-import { attemptLine, costFooter, escalationComment, fence, followUpComment, lastFailure, verdictsSection, waitingComment, type EscalationReason, type FollowUpRef } from "../report.ts";
+import { attemptLine, costFooter, escalationComment, fence, lastFailure, verdictsSection, type EscalationReason } from "../report.ts";
 import { BUNDLE_FILE, EVIDENCE_DIR, RESULT_FILE, readResult, type CriterionVerdict, type FactoryResult } from "../result.ts";
-import { gapsSection, SKELETON_PATH, skeletonCommit } from "../scope.ts";
+import { skeletonPaths } from "../scope.ts";
 import { fromTouchedSpecs, isSpecPath, shownIn, withEvidence, type TouchedSpec } from "../pull-request-evidence.ts";
 import type { EvidenceImage, PullRequest } from "../seams/code-host.ts";
 import type { Issue } from "../seams/tracker.ts";
 import { armResumeSweep, sessionLimitComment, utcMinute, type Wait } from "../session-limit.ts";
-import { WAITING_MARKER } from "./claim.ts";
 import type { CommandContext } from "./context.ts";
 
 export type PublishResult =
   | { issue: number; outcome: "ready"; pr: number; url: string }
   | { issue: number; outcome: "escalated"; reason: EscalationReason; pr: number | null; url: string | null }
   | { issue: number; outcome: "discarded"; reason: string }
-  | { issue: number; outcome: "waiting"; blockedBy: number[] }
   | { issue: number; outcome: "paused"; reason: "session-limit"; resetsAt: string | null; resumeAt: string };
 
 export interface PublishOptions {
@@ -79,40 +77,27 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
   } catch (error) {
     return escalate(ctx, issue, { reason: "infra", result: null, detail: (error as Error).message, pr: null, runUrl: options.runUrl }, round, options.dispatchRetro);
   }
-  // Built before anything is written: a patch that cannot be the Skeleton pull request stops the run.
-  let skeletonSha: string | null;
-  try {
-    skeletonSha = await skeletonChange(git, issue, result, options.in);
-  } catch (error) {
-    return escalate(ctx, issue, { reason: "infra", result, detail: (error as Error).message, pr: null, runUrl: options.runUrl }, round, options.dispatchRetro);
-  }
   if (result.outcome === "paused") return pause(ctx, issue, result, options);
-  if (result.outcome === "waiting" && options.pr === null) return waitOnSkeleton(ctx, issue, await openFollowUps(ctx, issue, result, skeletonSha));
 
   const head = result.head;
   const changed = head ? await changedFiles(git, result.base, head) : [];
-  if (!head) {
-    const followUps = await openFollowUps(ctx, issue, result, skeletonSha);
-    return escalate(ctx, issue, { reason: escalationReason(result), result, pr: null, runUrl: options.runUrl, followUps }, round, options.dispatchRetro);
-  }
+  if (!head) return escalate(ctx, issue, { reason: escalationReason(result), result, pr: null, runUrl: options.runUrl }, round, options.dispatchRetro);
 
   const push = await ctx.codeHost.push({ branch, sha: head, expectedSha: options.startSha });
   if (!push.ok) return discard(ctx, number, (m) => m.branchMoved(branch), quietMoved);
 
-  const followUps = await openFollowUps(ctx, issue, result, skeletonSha);
   const lines = await diffLines(git, result.base, head);
   const sensitivePaths = changed.filter(isSensitivePath);
   const harnessPaths = changed.filter((path) => isHarnessPath(path) && !isSensitivePath(path));
   const escalated = result.outcome === "ready" ? null : escalationReason(result);
-  const pr = await pullRequest(ctx, issue, { branch, openPr, continues: options.pr !== null, sensitivePaths, harnessPaths, escalated, followUps, text: result.pullRequestBody, criteria: result.review.criteria, images: evidenceImages(result, options.in), appendable: fromTouchedSpecs(await touchedSpecs(git, head, changed)), markWorking: options.markWorking });
+  const pr = await pullRequest(ctx, issue, { branch, openPr, continues: options.pr !== null, sensitivePaths, harnessPaths, skeletonFiles: skeletonPaths(changed), escalated, text: result.pullRequestBody, criteria: result.review.criteria, images: evidenceImages(result, options.in), appendable: fromTouchedSpecs(await touchedSpecs(git, head, changed)), markWorking: options.markWorking });
   if (!escalated || result.review.summary !== "") {
     // A PR round without a Review (update-branch, a round that only answers) leaves no empty review behind.
     if (options.pr === null || result.review.summary !== "") await submitReview(ctx, pr.number, result, lines);
   }
   if (options.pr !== null) await postReplies(ctx, pr.number, result.threadReplies);
 
-  if (escalated) return escalate(ctx, issue, { reason: escalated, result, pr, runUrl: options.runUrl, followUps }, round, options.dispatchRetro);
-  if (followUps.length > 0) await ctx.tracker.comment(number, followUpComment(followUps, config.language));
+  if (escalated) return escalate(ctx, issue, { reason: escalated, result, pr, runUrl: options.runUrl }, round, options.dispatchRetro);
   if (pr.draft) await ctx.codeHost.markReady(pr.number);
   return { issue: number, outcome: "ready", pr: pr.number, url: pr.url };
 }
@@ -260,7 +245,7 @@ async function touchedSpecs(git: Git, head: string, changed: string[]): Promise<
 async function pullRequest(
   ctx: CommandContext,
   issue: Issue,
-  input: { branch: string; openPr: PullRequest | null; continues: boolean; sensitivePaths: string[]; harnessPaths: string[]; escalated: EscalationReason | null; followUps: FollowUpRef[]; text: string | null; criteria: CriterionVerdict[]; images: EvidenceImage[]; appendable: (image: EvidenceImage) => boolean; markWorking?: PublishOptions["markWorking"] },
+  input: { branch: string; openPr: PullRequest | null; continues: boolean; sensitivePaths: string[]; harnessPaths: string[]; skeletonFiles: string[]; escalated: EscalationReason | null; text: string | null; criteria: CriterionVerdict[]; images: EvidenceImage[]; appendable: (image: EvidenceImage) => boolean; markWorking?: PublishOptions["markWorking"] },
 ): Promise<PullRequest> {
   const { codeHost, config } = ctx;
   let pr: PullRequest;
@@ -291,13 +276,13 @@ async function pullRequest(
 }
 
 /**
- * The body in four parts (the print references swapped by `withEvidence`): the warnings and the follow-up note (deterministic),
+ * The body in four parts (the print references swapped by `withEvidence`): the warnings (deterministic),
  * the Pull Request Stage text (or the minimal sentence), the final Review's verdict on each acceptance criterion, `Closes #N`.
  * The agent never writes the first and last parts; its text and verdicts come cleaned by `forForge`.
  */
 function prBody(
   issue: Issue,
-  input: { continues: boolean; sensitivePaths: string[]; harnessPaths: string[]; escalated: EscalationReason | null; followUps: FollowUpRef[]; text: string | null; criteria: CriterionVerdict[]; images: EvidenceImage[]; appendable: (image: EvidenceImage) => boolean },
+  input: { continues: boolean; sensitivePaths: string[]; harnessPaths: string[]; skeletonFiles: string[]; escalated: EscalationReason | null; text: string | null; criteria: CriterionVerdict[]; images: EvidenceImage[]; appendable: (image: EvidenceImage) => boolean },
   language: Language,
 ): string {
   const m = messages(language);
@@ -312,7 +297,7 @@ function prBody(
   if (input.harnessPaths.length > 0) {
     warnings.push("> [!CAUTION]", `> ${m.harnessFiles(input.harnessPaths)}`, "");
   }
-  if (input.followUps.length > 0) warnings.push("> [!NOTE]", `> ${followUpComment(input.followUps, language).replaceAll("\n", "\n> ")}`, "");
+  if (input.skeletonFiles.length > 0) warnings.push("> [!WARNING]", `> ${m.skeletonFiles(input.skeletonFiles)}`, "");
   const middle = withEvidence(input.text || m.minimalBody(), input.images, input.appendable);
   const verdicts = verdictsSection(input.criteria, language);
   return [...warnings, middle, ...(verdicts.length > 0 ? ["", ...verdicts] : []), "", `Closes #${issue.number}`].join("\n");
@@ -327,84 +312,9 @@ async function submitReview(ctx: CommandContext, pr: number, result: FactoryResu
   });
 }
 
-/** Why a run that is not ready escalates. `waiting` only comes from an issue run; anywhere else it is a needs-human Escalation. */
+/** Why a run that is not ready escalates. */
 function escalationReason(result: FactoryResult): EscalationReason {
-  return result.reason ?? (result.outcome === "waiting" ? "needs-human" : "infra");
-}
-
-/** The commit of the reverted Skeleton change on the base, or null when the run reverted none. Throws on a bad patch. */
-async function skeletonChange(git: Git, issue: Issue, result: FactoryResult, dir: string): Promise<string | null> {
-  const patch = result.followUps.find((f) => f.patch !== null)?.patch;
-  if (!patch) return null;
-  return skeletonCommit(git, result.base, join(dir, patch), `feat: grow the Skeleton for Product issue #${issue.number}`);
-}
-
-/**
- * Opens the Skeleton tickets the run asked for, linked to the issue. One with the reverted change (`skeletonSha`) is
- * `ready-for-human` and gets the pull request that makes it; a gap alone waits for triage.
- */
-async function openFollowUps(ctx: CommandContext, issue: Issue, result: FactoryResult, skeletonSha: string | null): Promise<FollowUpRef[]> {
-  const { labels } = ctx.config;
-  const refs: FollowUpRef[] = [];
-  for (const followUp of result.followUps) {
-    const withChange = skeletonSha !== null && followUp.patch !== null;
-    const created = await ctx.tracker.createIssue({
-      title: followUp.title,
-      body: followUp.body,
-      labels: [withChange ? labels.readyForHuman : labels.needsTriage],
-      relatedTo: issue.number,
-    });
-    const pr = withChange ? await skeletonPullRequest(ctx, issue, followUp, created.number, skeletonSha) : null;
-    refs.push({ number: created.number, title: followUp.title, pr });
-  }
-  return refs;
-}
-
-/**
- * The Skeleton pull request: `sha` (the base plus the reverted change, nothing else) on a new branch, opened ready for
- * review, closing the Skeleton issue. A branch that already exists is never overwritten: the issue stays without one.
- */
-async function skeletonPullRequest(
-  ctx: CommandContext,
-  issue: Issue,
-  followUp: FactoryResult["followUps"][number],
-  skeletonIssue: number,
-  sha: string,
-): Promise<{ number: number; url: string } | null> {
-  const { codeHost, config } = ctx;
-  const branch = issueBranch(config, skeletonIssue);
-  const push = await codeHost.push({ branch, sha, expectedSha: null });
-  if (!push.ok) {
-    ctx.log(`The Skeleton pull request for #${skeletonIssue} was not opened: branch ${branch} already exists.`);
-    return null;
-  }
-  const m = messages(config.language);
-  const body = [
-    m.skeletonPullRequestIntro(issue.number, issue.title, SKELETON_PATH, config.baseBranch),
-    ...gapsSection(followUp.gaps, config.language),
-    "",
-    m.filesHeading(),
-    "",
-    ...followUp.files.map((f) => `- \`${f}\``),
-    "",
-    `Closes #${skeletonIssue}`,
-  ].join("\n");
-  const pr = await codeHost.openDraftPr({ branch, base: config.baseBranch, title: followUp.title, body });
-  await codeHost.markReady(pr.number);
-  return { number: pr.number, url: pr.url };
-}
-
-/**
- * A Product issue that cannot finish without its Skeleton issues: blocked by them and back in `ready-for-agent`, with no
- * Escalation and no Product pull request. The blockers go first, so the run the label starts finds it blocked; when
- * they close, `factory-unblock.yml` queues it again and the new run starts from the base that has the new Skeleton.
- */
-async function waitOnSkeleton(ctx: CommandContext, issue: Issue, followUps: FollowUpRef[]): Promise<PublishResult> {
-  const { tracker, config } = ctx;
-  for (const followUp of followUps) await tracker.addBlocker(issue.number, followUp.number);
-  await tracker.comment(issue.number, waitingComment(followUps, config, WAITING_MARKER));
-  await tracker.swapLabel(issue.number, config.labels.inProgress, config.labels.readyForAgent);
-  return { issue: issue.number, outcome: "waiting", blockedBy: followUps.map((f) => f.number) };
+  return result.reason ?? "infra";
 }
 
 /**
