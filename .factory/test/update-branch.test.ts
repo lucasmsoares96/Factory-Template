@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
 import { FORK_UPDATE_TAG } from "../src/commands/pr-claim.ts";
 import { marked } from "../src/marker.ts";
+import { SessionLimitError } from "../src/seams/agent.ts";
 import { commitFile, git, HUMAN, lastJson, OWNER, unmarked } from "./helpers.ts";
 import { BRANCH, PR, finishRound, prWorld, reviewOk, commits, type MainChange, type PrWorld } from "./pr-flow-helpers.ts";
 
@@ -476,5 +477,39 @@ describe("factory update-branch", () => {
     p.w.codeHost.pr(PR).state = "closed";
     await p.w.factory("update-branch", "7");
     expect(lastJson(p.w.logs)).toEqual({ claimed: false, reason: "no-open-pr" });
+  });
+});
+
+describe("factory update-branch: paused at the agent's usage limit", () => {
+  const limitHit: AgentStep = () => {
+    throw new SessionLimitError("Agent session 01-development failed: claude-code exited with code 1:\nYou've hit your session limit · resets 3:20pm (UTC)", "3:20pm (UTC)");
+  };
+
+  it("an issue's update pushes nothing, keeps the lock and waits to run the same update again", async () => {
+    const p = await updateRound("conflict", { agent: { development: [limitHit] } });
+
+    expect(p.w.codeHost.pushes).toEqual([]);
+    expect(p.w.tracker.labelsOf(7).sort()).toEqual(["factory:session-limit", "in-progress"]);
+    const wait = p.w.tracker.commentsOn(7).at(-1)!.body;
+    expect(wait).toContain('"flow":"update-branch"');
+    expect(wait).toContain("The update of pull request #101 with `main` starts again; nothing was pushed.");
+    expect(p.w.codeHost.dispatches).toEqual([]);
+  });
+
+  it("a person's PR gets the wait on itself, labelled, and no issue is touched", async () => {
+    const { p, publish, untouched } = await humanRound("clean", { agent: { development: [limitHit] }, verify: [{ ok: false, failedCommand: "pnpm test", output: "broken" }] });
+
+    expect(publish).toMatchObject({ pr: HUMAN_PR, outcome: "paused", reason: "session-limit" });
+    expect(p.w.codeHost.pushes).toEqual([]);
+    const pr = p.w.codeHost.pr(HUMAN_PR);
+    expect(pr.labels).toEqual(["factory:session-limit"]);
+    expect(p.w.codeHost.sweepChanges).toEqual([true]);
+    expect(pr.comments.at(-1)).toContain('"flow":"update-pr"');
+    untouched();
+
+    // A push to main before the reset finds the PR still behind: its update waits for `resume`, never runs early.
+    expect(await p.w.factory("update-branch", "--pr", String(HUMAN_PR))).toBe(0);
+    expect(lastJson(p.w.logs)).toEqual({ claimed: false, reason: "session-limit" });
+    expect(pr.labels).toEqual(["factory:session-limit"]);
   });
 });
