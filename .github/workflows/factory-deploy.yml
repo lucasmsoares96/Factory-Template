@@ -171,6 +171,9 @@ jobs:
           POOLED_DATABASE_URL: ${{ secrets[format('{0}DATABASE_URL_POOLED', matrix.prefix)] }}
           AUTH_SECRET: ${{ secrets[format('{0}BETTER_AUTH_SECRET', matrix.prefix)] }}
           RESEND_KEY: ${{ secrets[format('{0}RESEND_API_KEY', matrix.prefix)] }}
+          # Billing: handed to the Worker only when both exist (`pnpm bootstrap billing <id>`).
+          STRIPE_KEY: ${{ secrets[format('{0}STRIPE_SECRET_KEY', matrix.prefix)] }}
+          STRIPE_WEBHOOK: ${{ secrets[format('{0}STRIPE_WEBHOOK_SECRET', matrix.prefix)] }}
           WRANGLER_CONFIG: ${{ steps.config.outputs.path }}
           WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-output.ndjson
         run: |
