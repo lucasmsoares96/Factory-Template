@@ -135,6 +135,7 @@ export const PROTECTED_PATHS = [
   ".npmrc",
   ".node-version",
   ".prototools",
+  ".proto/",
   // The Skeleton reaches every Product.
   "packages/skeleton/",
 ] as const;
