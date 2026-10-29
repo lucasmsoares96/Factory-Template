@@ -194,7 +194,10 @@ test("two accepts at once with one free Seat end in one accept", async () => {
     accept(tokenSentTo(second.email), second.cookie),
   ]);
 
-  expect(results.map((response) => response.status).sort()).toEqual([200, 409]);
+  // The loser gets 409 when it reaches the Seat check first, or 410 when the winner's reconcile already canceled its Invitation.
+  const statuses = results.map((response) => response.status).sort();
+  expect(statuses[0]).toBe(200);
+  expect([409, 410]).toContain(statuses[1]);
   const [row] = await db.query<{ count: string }>(`SELECT count(*) FROM skeleton.members WHERE company_id = '${company.id}'`);
   expect(Number(row?.count)).toBe(3);
 });
