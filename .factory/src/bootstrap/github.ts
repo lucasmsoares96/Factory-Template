@@ -181,6 +181,25 @@ export class GhCli implements GitHubClient {
     }
   }
 
+  async resumeSweepEnabled(): Promise<boolean | null> {
+    try {
+      return (await this.gh(["api", "repos/{owner}/{repo}/actions/workflows/factory-resume.yml", "--jq", ".state"])).trim() === "active";
+    } catch (error) {
+      if (/HTTP 404/.test((error as Error).message)) return null;
+      throw error;
+    }
+  }
+
+  async setResumeSweep(enabled: boolean): Promise<void> {
+    await this.gh(["api", "-X", "PUT", `repos/{owner}/{repo}/actions/workflows/factory-resume.yml/${enabled ? "enable" : "disable"}`]);
+  }
+
+  async countLabeled(label: string): Promise<number> {
+    // The issues endpoint lists pull requests too.
+    const out = await this.gh(["api", "--method", "GET", "repos/{owner}/{repo}/issues", "-f", `labels=${label}`, "-f", "state=open", "-F", "per_page=100", "--paginate", "--jq", ".[].number"]);
+    return out.split("\n").filter((line) => line.trim() !== "").length;
+  }
+
   async createIssue(input: { title: string; body: string; labels: string[] }): Promise<IssueRef> {
     const raw = issueRef.parse(JSON.parse(await this.gh(["api", "-X", "POST", "repos/{owner}/{repo}/issues", "--input", "-"], JSON.stringify(input))));
     return { number: raw.number, url: raw.html_url };

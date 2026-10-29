@@ -86,6 +86,8 @@ export const defaultConfig = {
     inProgress: "in-progress",
     /** On an issue or pull request only while a Factory run works on it; `in-progress` is the lock, held until merge. */
     working: "factory:working",
+    /** On an issue or pull request whose run stopped at the agent's usage limit: `resume` starts it again after the reset. */
+    sessionLimit: "factory:session-limit",
     agentExplore: "agent:explore",
     harnessChange: "harness-change",
     preview: "preview",
@@ -176,6 +178,7 @@ export const configSchema = z.object({
     wontfix: nonEmpty,
     inProgress: nonEmpty,
     working: nonEmpty,
+    sessionLimit: nonEmpty,
     agentExplore: nonEmpty,
     harnessChange: nonEmpty,
     preview: nonEmpty,

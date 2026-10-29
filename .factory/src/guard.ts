@@ -11,6 +11,7 @@ export type Refusal =
   | "open-pr"
   | "missing-acceptance-criteria"
   | "missing-seams"
+  | "session-limit"
   | "blocked";
 
 export type GuardDecision =
@@ -38,6 +39,8 @@ export async function guard(
 
   if (issue.state !== "open") return refuse("not-open");
   if (!issue.labels.includes(config.labels.readyForAgent)) return refuse("not-ready");
+  // Paused at the agent's usage limit: `resume` takes the label off after the reset and starts it.
+  if (issue.labels.includes(config.labels.sessionLimit)) return refuse("session-limit");
   const actor = await tracker.labelActor(number, config.labels.readyForAgent);
   if (actor === null || !(await tracker.canWrite(actor))) return refuse("label-actor-cannot-write");
   if (issue.children.length > 0) return refuse("parent-spec");

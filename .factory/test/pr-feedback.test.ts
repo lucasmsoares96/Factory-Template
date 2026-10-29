@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { rmSync } from "node:fs";
 import { loadConfig } from "../src/config.ts";
 import { FACTORY_MARKER, marked } from "../src/marker.ts";
+import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
+import { SessionLimitError } from "../src/seams/agent.ts";
 import { escalationComment } from "../src/report.ts";
 import type { ThreadId } from "../src/seams/code-host.ts";
 import { git, HUMAN, lastJson, OWNER, unmarked } from "./helpers.ts";
@@ -592,5 +594,50 @@ describe("factory pr-feedback: factory:working and 👀", () => {
     expect(await p.w.factory("working", "off", "7", "--pr", String(PR))).toBe(0);
     expect(p.w.tracker.labelsOf(7)).toEqual(["in-progress"]);
     expect(p.w.codeHost.pr(PR).labels).toEqual([]);
+  });
+});
+
+describe("factory pr-feedback: a round paused at the agent's usage limit", () => {
+  const limitHit: AgentStep = () => {
+    throw new SessionLimitError("Agent session 02-review failed: claude-code exited with code 1:\nYou've hit your session limit · resets 3:20pm (UTC)", "3:20pm (UTC)");
+  };
+
+  it("pushes the round's commits, keeps the lock, and leaves the wait on the issue and a note on the PR", async () => {
+    const p = await prWorld({ main: "none", threads: [thread("t1", "rename this")], agent: { development: [commits(replies({ threadId: "t1", decision: "address", body: "Renamed." }))], review: [limitHit] } });
+
+    await feedbackRound(p);
+
+    const labels = p.w.tracker.labelsOf(7);
+    expect(labels).toContain("in-progress");
+    expect(labels).toContain("factory:session-limit");
+    expect(labels).not.toContain("ready-for-human");
+    expect(p.w.codeHost.pushes).toEqual([{ branch: BRANCH, sha: await git(p.workRepo, "rev-parse", BRANCH), expectedSha: p.head }]);
+    const wait = p.w.tracker.commentsOn(7).at(-1)!.body;
+    expect(wait).toContain('"flow":"pr-feedback"');
+    expect(wait).toContain('"pr":101');
+    expect(wait).toContain("The same round on pull request #101 starts again, from the commits pushed to its branch.");
+    expect(unmarked(p.w.codeHost.pr(PR).conversation.at(-1)!.body)).toContain("The Factory paused this round at the agent's usage limit");
+    // Not answered yet: the round that starts again answers the same threads.
+    expect(p.w.codeHost.pr(PR).threads[0]!.replies).toEqual([]);
+    expect(p.w.codeHost.dispatches).toEqual([]);
+  });
+
+  it("starts no round while the issue waits for the reset: the round `resume` starts answers every open thread", async () => {
+    const p = await prWorld({ main: "none", threads: [thread("t1", "rename this")] });
+    await p.w.tracker.addLabel(7, "factory:session-limit");
+
+    expect(await p.w.factory("pr-feedback", "--pr", String(PR), "--actor", HUMAN)).toBe(0);
+    expect(lastJson(p.w.logs)).toEqual({ claimed: false, reason: "session-limit" });
+    expect(await p.w.factory("update-branch", "7")).toBe(0);
+    expect(lastJson(p.w.logs)).toEqual({ claimed: false, reason: "session-limit" });
+  });
+
+  it("starts the round again when dispatched, with no writer's comment: only who may dispatch can start it", async () => {
+    const p = await prWorld({ main: "none", threads: [thread("t1", "rename this")] });
+    expect(await p.w.factory("pr-feedback", "--pr", String(PR), "--actor", "github-actions[bot]", "--event", "workflow_dispatch")).toBe(0);
+    expect(lastJson(p.w.logs)).toMatchObject({ claimed: true, issue: 7, pr: PR });
+
+    expect(await p.w.factory("pr-feedback", "--pr", String(PR), "--actor", "github-actions[bot]", "--event", "issue_comment")).toBe(0);
+    expect(lastJson(p.w.logs)).toEqual({ claimed: false, reason: "actor-cannot-write" });
   });
 });

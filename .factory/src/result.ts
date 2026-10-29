@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { z } from "zod";
+import { sessionFailureSchema } from "./session-limit.ts";
 
 /**
  * `result.json`: the only thing, besides the branch bundle and the prints,
@@ -97,11 +98,16 @@ export const resultSchema = z.object({
   head: sha.nullable(),
   /**
    * `waiting`: a Product issue that cannot meet its criteria without its Skeleton follow-up; `publish` blocks the issue
-   * on it and puts it back in the queue (no Escalation, no Product pull request).
+   * on it and puts it back in the queue (no Escalation, no Product pull request). `paused`: a session hit the account's
+   * usage limit (`session.limit`); `publish` keeps the commits and the run starts again after the reset.
    */
-  outcome: z.enum(["ready", "escalated", "waiting"]),
+  outcome: z.enum(["ready", "escalated", "waiting", "paused"]),
   reason: z.enum(["e2e-failures", "time", "needs-human", "infra"]).nullable(),
   question: z.string().nullable(),
+  /** The work the run did: the issue flow, or a round on the issue's open pull request. `.default`: old results stay valid. */
+  flow: z.enum(["issue", "pr-feedback", "update-branch"]).default("issue"),
+  /** The agent session that failed and ended the run (`paused` at the usage limit, else an `infra` Escalation); null when none did. */
+  session: sessionFailureSchema.nullable().default(null),
   attempts: z.array(z.object({ number: z.number().int().positive(), stages: z.array(stageRecordSchema) })),
   review: reviewSchema,
   threadReplies: z.array(z.object({ threadId: z.string().min(1), decision: z.enum(["address", "decline", "defer", "answer"]).default("address"), body: z.string().min(1) })),
