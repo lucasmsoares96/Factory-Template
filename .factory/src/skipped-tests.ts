@@ -54,6 +54,6 @@ export function skippedTestsFeedback(found: SkippedTest[]): string {
   return [
     "Development added skipped or focused tests, so the attempt fails even if E2E would pass:",
     ...found.map((f) => `- \`${f.path}:${f.line}\`: \`${f.text}\``),
-    "A skipped or focused test proves nothing; if the criteria need the Skeleton, say so with <skeleton-gap> and stop.",
+    "A skipped or focused test proves nothing: make the test run and pass.",
   ].join("\n");
 }

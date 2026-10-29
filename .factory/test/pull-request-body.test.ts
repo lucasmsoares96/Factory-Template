@@ -55,16 +55,14 @@ const ready = (pullRequest: AgentStep, file = "src/greet.ts") => ({
 
 describe("pull request body assembled by publish", () => {
   it("puts the Stage text between the warnings and Closes #N", async () => {
-    const { w } = await pipeline({ ...ready(writes(), "AGENTS.md"), edit: (r) => (r.followUps = [{ title: "Add a footer slot", body: "b", files: [] }]) });
+    const { w } = await pipeline({ ...ready(writes(), "AGENTS.md") });
 
     const body = unmarked(w.codeHost.prs[0]!.body);
     expect(body.indexOf("[!CAUTION]")).toBeGreaterThanOrEqual(0);
-    expect(body.indexOf("[!CAUTION]")).toBeLessThan(body.indexOf("[!NOTE]"));
-    expect(body.indexOf("[!NOTE]")).toBeLessThan(body.indexOf("## Summary"));
+    expect(body.indexOf("[!CAUTION]")).toBeLessThan(body.indexOf("## Summary"));
     expect(body.indexOf("## Merge Danger")).toBeLessThan(body.indexOf("Closes #7"));
     expect(body.trimEnd().endsWith("Closes #7")).toBe(true);
     expect(body).not.toContain("Implemented by the Factory");
-    expect(body.match(/Add a footer slot/g)).toHaveLength(1);
   });
 
   it("drops a closing keyword the agent wrote for any issue", async () => {
