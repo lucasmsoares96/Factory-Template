@@ -3,14 +3,13 @@ import { eq } from "drizzle-orm";
 import type { MiddlewareHandler } from "hono";
 import { createMiddleware } from "hono/factory";
 import { subscriptions } from "../../db/schema.ts";
-import type { Database } from "../../platform/db.ts";
 import type { SkeletonEnv } from "../../platform/env.ts";
 import { apiError, createRouter, errorResponse } from "../../platform/errors.ts";
 import { requireIdentity, unauthenticatedResponse } from "../../platform/identity.ts";
 import { billingFor, type Billing } from "./context.ts";
 import { countSeats, seatPeople } from "../../platform/seats.ts";
 import { LIVE_STATUSES as LIVE, planOf } from "./entitlements.ts";
-import type { Plan, PlanCatalog } from "./plans.ts";
+import type { Plan } from "./plans.ts";
 
 /** The SPA page a person returns to from Checkout. */
 export const PLAN_PAGE = "/account/plan";
