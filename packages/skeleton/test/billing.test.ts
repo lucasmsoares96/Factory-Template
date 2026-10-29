@@ -76,7 +76,7 @@ test("a person without a Subscription is on the free Plan, read from Stripe", as
 
   const state = await currentPlan(cookie);
 
-  expect(state.plan).toMatchObject({ name: "Free", kind: "free", seats: 1, price: null, entitlements: { reports: false, projects: false } });
+  expect(state.plan).toMatchObject({ name: "Free", kind: "free", seats: 1, price: null, entitlements: { reports: false, projects: 1 } });
   expect(state.subscription).toBeNull();
   expect(state.plans.map((plan) => plan.name)).toEqual(["Free", "Pro", "Team"]);
 });
@@ -241,4 +241,72 @@ test("reading the Plan is an MCP tool; subscribing and opening Checkout are not"
   expect(tools.map((tool) => tool.name)).not.toContain("subscribePlan");
   expect(document.paths["/api/billing/subscribe"]?.post?.["x-mcp"]).toBe(false);
   expect(Object.keys(document.paths).filter((path) => path.includes("fake-stripe"))).toEqual([]);
+});
+
+// Entitlements: the Owner's Plan decides what every Member of a Company gets.
+
+async function companyOf(owner: { cookie: string }) {
+  const response = await worker.post("/api/companies", { name: "Acme" }, { cookie: owner.cookie });
+  expect(response.status).toBe(201);
+  return ((await response.json()) as { id: string }).id;
+}
+
+async function entitlement(server: TestWorker, cookie: string, companyId: string, name: string) {
+  const response = await server.fetch(`/api/companies/${companyId}/entitled/${name}`, { headers: { cookie } });
+  expect(response.status).toBe(200);
+  return ((await response.json()) as { value: boolean | number }).value;
+}
+
+async function subscribe(cookie: string, plan: string) {
+  const checkout = await openCheckout(cookie, plan);
+  await worker.fetch(`${checkout}/pay`, { method: "POST", redirect: "manual" });
+}
+
+test("a Member has the Entitlements of the Owner's Plan, on or off and numeric", async () => {
+  const owner = await signedInUser();
+  const member = await signedInUser();
+  const companyId = await companyOf(owner);
+  await db.query(`INSERT INTO skeleton.members (company_id, user_id, role) VALUES ('${companyId}', '${member.user.id}', 'employee')`);
+
+  expect([await entitlement(worker, member.cookie, companyId, "reports"), await entitlement(worker, member.cookie, companyId, "projects")]).toEqual([false, 1]);
+  // The Member's own Subscription changes nothing: the Owner's Plan counts.
+  await subscribe(member.cookie, "prod_fake_team");
+  expect(await entitlement(worker, member.cookie, companyId, "projects")).toBe(1);
+  await subscribe(owner.cookie, "prod_fake_pro");
+
+  expect([await entitlement(worker, member.cookie, companyId, "reports"), await entitlement(worker, member.cookie, companyId, "projects")]).toEqual([true, 5]);
+});
+
+test("an Entitlement in no Plan is off in production", async () => {
+  const owner = await signedInUser();
+  const companyId = await companyOf(owner);
+  await subscribe(owner.cookie, "prod_fake_pro");
+
+  expect(await entitlement(worker, owner.cookie, companyId, "exports")).toBe(false);
+});
+
+test("an Entitlement in no Plan is on in a Preview", async () => {
+  const preview = await startTestWorker({
+    databaseUrl: db.url,
+    vars: { STRIPE_FAKE: "true", STRIPE_WEBHOOK_SECRET: WEBHOOK_SECRET, PREVIEW_OUTBOX: "true" },
+  });
+  try {
+    const owner = await signedInUser();
+    const companyId = await companyOf(owner);
+
+    expect(await entitlement(preview, owner.cookie, companyId, "exports")).toBe(true);
+    // One some Plan sets keeps the Plan's value, even in a Preview.
+    expect(await entitlement(preview, owner.cookie, companyId, "reports")).toBe(false);
+  } finally {
+    await preview.close();
+  }
+});
+
+test("a non-Member cannot ask a Company's Entitlements", async () => {
+  const owner = await signedInUser();
+  const companyId = await companyOf(owner);
+
+  const response = await worker.fetch(`/api/companies/${companyId}/entitled/reports`, { headers: { cookie: (await signedInUser()).cookie } });
+
+  expect(response.status).toBe(404);
 });
