@@ -10,7 +10,9 @@ import { getPlanQueryKey, useGetPlan } from "../../../gen/hooks/useGetPlan.ts";
 import { getSeatsQueryKey } from "../../../gen/hooks/useGetSeats.ts";
 import { useChangePlan } from "../../../gen/hooks/useChangePlan.ts";
 import { usePreviewPlanChange } from "../../../gen/hooks/usePreviewPlanChange.ts";
+import { useCancelSubscription } from "../../../gen/hooks/useCancelSubscription.ts";
 import { useGetSeats } from "../../../gen/hooks/useGetSeats.ts";
+import { useOpenBillingPortal } from "../../../gen/hooks/useOpenBillingPortal.ts";
 import { useSubscribePlan } from "../../../gen/hooks/useSubscribePlan.ts";
 import type { Plan } from "../../../gen/types/Plan.ts";
 import type { PlanChangePreview } from "../../../gen/types/PlanChangePreview.ts";
@@ -46,6 +48,9 @@ function PlanPage() {
   const [bought, setBought] = useState<Record<string, string>>({});
   const [confirming, setConfirming] = useState<{ wish: Wish; plan: Plan; preview: PlanChangePreview } | undefined>();
   const [scheduled, setScheduled] = useState(false);
+  const portal = useOpenBillingPortal();
+  const cancel = useCancelSubscription();
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
   const language = document.documentElement.lang || undefined;
   const money = (price: NonNullable<Plan["price"]>) =>
     format(m.perMonth, { amount: new Intl.NumberFormat(language, { style: "currency", currency: price.currency }).format(price.amount / 100) });
@@ -103,7 +108,27 @@ function PlanPage() {
   }
 
   const intervalName = (value: Interval) => (value === "year" ? m.yearly : m.monthly).toLowerCase();
-  const failure = state.error ?? subscribe.error ?? preview.error ?? change.error;
+  const failure = state.error ?? subscribe.error ?? preview.error ?? change.error ?? portal.error ?? cancel.error;
+
+  async function manage() {
+    try {
+      const session = await portal.mutateAsync();
+      window.location.assign(session.url);
+    } catch {
+      return;
+    }
+  }
+
+  async function confirmCancel() {
+    try {
+      await cancel.mutateAsync();
+      setConfirmingCancel(false);
+      await state.refetch();
+    } catch {
+      return;
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <Card>
@@ -117,6 +142,11 @@ function PlanPage() {
           {failure ? (
             <Alert variant="destructive">
               <AlertDescription>{errorMessage(failure)}</AlertDescription>
+            </Alert>
+          ) : null}
+          {subscription?.status === "past_due" && subscription.pastDueUntil ? (
+            <Alert variant="destructive" data-testid="past-due-notice">
+              <AlertDescription>{format(m.pastDueNotice, { date: date(subscription.pastDueUntil) })}</AlertDescription>
             </Alert>
           ) : null}
           {scheduled ? (
@@ -137,9 +167,7 @@ function PlanPage() {
                 {subscription ? (
                   <p className="text-sm">
                     {m.status[subscription.status]}
-                    {subscription.periodEnd
-                      ? ` · ${format(subscription.cancelAtPeriodEnd ? m.ends : m.renews, { date: date(subscription.periodEnd) })}`
-                      : ""}
+                    {subscription.periodEnd && !subscription.cancelAtPeriodEnd ? ` · ${format(m.renews, { date: date(subscription.periodEnd) })}` : ""}
                   </p>
                 ) : null}
                 {subscription?.scheduledChange ? (
@@ -155,6 +183,55 @@ function PlanPage() {
                         .join(", "),
                     })}
                   </p>
+                ) : null}
+                {subscription?.cancelAtPeriodEnd && subscription.periodEnd ? (
+                  <p className="text-sm font-medium" data-testid="ends-notice">
+                    {format(m.endsNotice, { planName: current.name, date: date(subscription.periodEnd) })}
+                  </p>
+                ) : null}
+                {subscription ? (
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    <Button variant="outline" size="sm" disabled={portal.isPending} onClick={() => void manage()}>
+                      {portal.isPending ? m.managing : m.manage}
+                    </Button>
+                    {!subscription.cancelAtPeriodEnd && !confirmingCancel ? (
+                      <Button variant="outline" size="sm" onClick={() => setConfirmingCancel(true)}>
+                        {m.cancelPlan}
+                      </Button>
+                    ) : null}
+                  </div>
+                ) : null}
+                {subscription && confirmingCancel && !subscription.cancelAtPeriodEnd ? (
+                  <div
+                    role="alertdialog"
+                    aria-labelledby="cancel-title"
+                    aria-describedby="cancel-description"
+                    className="flex flex-col gap-3 rounded-lg border p-3"
+                    data-testid="cancel-confirmation"
+                  >
+                    <p id="cancel-title" className="font-medium">
+                      {format(m.cancelTitle, { planName: current.name })}
+                    </p>
+                    <p id="cancel-description" className="text-muted-foreground text-sm">
+                      {subscription.periodEnd ? format(m.cancelDescription, { date: date(subscription.periodEnd) }) : null}
+                      {subscription.losingAccess > 0 ? (
+                        <>
+                          {" "}
+                          <span data-testid="cancel-people">
+                            {format(subscription.losingAccess === 1 ? m.cancelPeopleOne : m.cancelPeopleOther, { count: String(subscription.losingAccess) })}
+                          </span>
+                        </>
+                      ) : null}
+                    </p>
+                    <div className="flex gap-2">
+                      <Button variant="destructive" size="sm" disabled={cancel.isPending} onClick={() => void confirmCancel()}>
+                        {cancel.isPending ? m.canceling : m.cancelConfirm}
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => setConfirmingCancel(false)}>
+                        {m.cancelKeep}
+                      </Button>
+                    </div>
+                  </div>
                 ) : null}
               </section>
             ) : (

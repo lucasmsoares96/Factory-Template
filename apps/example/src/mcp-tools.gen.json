@@ -777,6 +777,20 @@
                 "at"
               ],
               "description": "A change the person scheduled for the end of the paid period; `null` when there is none."
+            },
+            "pastDueUntil": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time",
+              "description": "While `past_due`: the last day to update the card before Stripe gives up and the person goes back to the free Plan; `null` otherwise.",
+              "example": "2026-11-05T12:00:00.000Z"
+            },
+            "losingAccess": {
+              "type": "integer",
+              "description": "How many people lose access to the user's Companies when the paid Plan ends: the Seats taken beyond the free Plan's.",
+              "example": 4
             }
           },
           "required": [
@@ -785,7 +799,9 @@
             "cancelAtPeriodEnd",
             "interval",
             "seats",
-            "scheduledChange"
+            "scheduledChange",
+            "pastDueUntil",
+            "losingAccess"
           ],
           "description": "The person's Subscription; `null` when they are on the free Plan."
         },
