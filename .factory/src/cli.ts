@@ -91,8 +91,8 @@ Commands:
                                          links the PR. Run with the job's GITHUB_TOKEN, not FACTORY_TOKEN.
   merge                                  The Merge Mode's decision, after a PR workflow run: in safe, merge each ready Factory
                                          PR, up to date with the base branch, when nothing protected changed, verify and the
-                                         preview passed, every criterion is met and the last deploy did not fail; then label
-                                         it auto-merged and comment. Reads and labels with GITHUB_TOKEN, merges and comments
+                                         preview passed, every criterion is met and the last deploy did not fail (in all, the
+                                         same without the protected check); then label it auto-merged and comment. Reads and labels with GITHUB_TOKEN, merges and comments
                                          with FACTORY_TOKEN.
   working on|off [<issue>...] [--pr <n>] [--triage]
                                          factory:working, run with the job token: on at the start of a run, off at its end

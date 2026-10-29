@@ -63,8 +63,9 @@ export const defaultConfig = {
   language: "en",
   /**
    * The Merge Mode: which Factory pull requests `pnpm factory merge` may merge without a human. `human`: none. `safe`:
-   * those whose diff touches no `PROTECTED_PATHS`, once every merge condition holds. `pnpm bootstrap factory` asks it
-   * (step `merge-mode`) and sets `FACTORY_MERGE_MODE`; the `FACTORY_TOKEN` cannot change a variable.
+   * those whose diff touches no `PROTECTED_PATHS`, once every merge condition holds. `all`: every one, protected paths
+   * included, once the other conditions hold. `pnpm bootstrap factory` asks it (step `merge-mode`, `all` behind a typed
+   * confirmation) and sets `FACTORY_MERGE_MODE`; the `FACTORY_TOKEN` cannot change a variable.
    */
   mergeMode: "human",
   /** Attempts of Development → Review → E2E before Escalation. */
@@ -99,12 +100,12 @@ export const defaultConfig = {
 };
 
 /** The Merge Modes, the default first. */
-export const MERGE_MODES = ["human", "safe"] as const;
+export const MERGE_MODES = ["human", "safe", "all"] as const;
 export type MergeMode = (typeof MERGE_MODES)[number];
 
 /**
- * What a pull request may not touch to be merged in the `safe` Merge Mode. Not a setting: no repo variable overrides it,
- * and this file is in the list, so the Factory cannot widen what it may merge itself. An entry ending in `/` matches what
+ * What a pull request may not touch to be merged in the `safe` Merge Mode (`all` ignores it). Not a setting: no repo variable overrides it,
+ * and this file is in the list, so in `safe` the Factory cannot widen what it may merge itself (in `all` it can). An entry ending in `/` matches what
  * is under it; an entry that starts with `**` and a slash matches the rest (a file, or a folder when it ends in `/`) at any level; any other entry matches
  * itself or what is under it.
  */
