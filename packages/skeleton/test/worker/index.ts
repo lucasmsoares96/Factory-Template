@@ -1,7 +1,8 @@
 import { sql } from "drizzle-orm";
-import { billing, createApp, defineFeature, defineProduct, type McpTool, type Transaction } from "../../src/index.ts";
+import { createApp, defineFeature, defineProduct, type McpTool, type Transaction } from "../../src/index.ts";
 import mcpTools from "./mcp-tools.gen.json" with { type: "json" };
 import { createDeletingCompanies, createUndeletableCompanies } from "./events.ts";
+import { billingFeature, entitled } from "./entitled.ts";
 import { greeting } from "./greeting.ts";
 import { notes } from "./notes.ts";
 
@@ -73,7 +74,9 @@ export default createApp({
       authPlugins: () => [greeting()],
     }),
     // Billing, off until a test gives the Worker a (fake) Stripe key.
-    billing({ entitlements: ["reports", "projects"] }),
+    billingFeature,
+    // A feature that checks the Entitlements billing declares.
+    entitled,
   ],
   mcpTools: mcpTools satisfies McpTool[],
 }) satisfies ExportedHandler<Env>;
