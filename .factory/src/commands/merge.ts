@@ -1,10 +1,11 @@
 import { isProtectedPath, type MergeMode } from "../config.ts";
+import { TRIAGE_MARKER } from "../guard.ts";
 import { catalog, LANGUAGES, messages } from "../messages.ts";
 import type { CodeHost, PrCheck, PullRequest } from "../seams/code-host.ts";
 import type { CommandContext } from "./context.ts";
 
 /** Every condition of a merge without a person, in the order the comment and the output name them. */
-export type MergeCondition = "protected" | "verify" | "preview" | "criteria" | "deploy";
+export type MergeCondition = "protected" | "door" | "verify" | "preview" | "criteria" | "deploy";
 
 /** The decision on one pull request. */
 export type PrDecision =
@@ -68,6 +69,7 @@ async function decide(ctx: CommandContext, input: MergeInput, pr: PullRequest, d
   const previewJobs = checks.filter((c) => PREVIEW_JOB.test(c.name));
   const held: Record<MergeCondition, boolean> = {
     protected: config.mergeMode === "all" || protectedFiles.length === 0,
+    door: config.mergeMode === "all" || !(await declaredOneWay(ctx, pr, body)),
     verify: checks.some((c) => c.name === "verify" && c.conclusion === "success"),
     preview: previewJobs.every((c) => c.conclusion !== null && PASSED.has(c.conclusion)),
     criteria: allCriteriaMet(body),
@@ -81,6 +83,32 @@ async function decide(ctx: CommandContext, input: MergeInput, pr: PullRequest, d
   await input.label(pr.number, config.labels.autoMerged);
   await ctx.codeHost.commentPr(pr.number, messages(config.language).autoMerged(config.mergeMode, config.baseBranch, hadPreview(previewJobs), protectedFiles));
   return { pr: pr.number, merged: true };
+}
+
+/** The Door field of a line, in every language of the catalog: `**Door:**` or `**Porta:**`. */
+const DOOR_FIELD = /\*\*(?:Door|Porta):\*\*(.*)/i;
+const ONE_WAY = /one-way/i;
+
+/**
+ * Whether the pull request declares a one-way door: in the Door field of its Merge Danger section (the `pr` skill's
+ * heading, from it to the next heading; text elsewhere decides nothing), or in the Door line of a Triage comment of its
+ * issue. It can only hold a merge, never free one, so any source saying one-way is enough, whoever wrote it.
+ */
+async function declaredOneWay(ctx: CommandContext, pr: PullRequest, body: string): Promise<boolean> {
+  if (mergeDangerOneWay(body)) return true;
+  const issue = Number(pr.branch.slice(ctx.config.branchPrefix.length));
+  const comments = await ctx.tracker.issue(issue).then((i) => i.comments, () => []);
+  return comments.some((c) => c.body.includes(TRIAGE_MARKER) && c.body.split(/\r?\n/).some((line) => ONE_WAY.test(DOOR_FIELD.exec(line)?.[1] ?? "")));
+}
+
+/** The Door field of a `## Merge Danger` section says one-way. */
+export function mergeDangerOneWay(body: string): boolean {
+  let inside = false;
+  for (const line of body.split(/\r?\n/)) {
+    if (/^#{1,6}\s/.test(line)) inside = /^#{1,6}\s+Merge Danger\s*$/i.test(line.trim());
+    else if (inside && ONE_WAY.test(DOOR_FIELD.exec(line)?.[1] ?? "")) return true;
+  }
+  return false;
 }
 
 /** A preview ran when one of its smokes did. */

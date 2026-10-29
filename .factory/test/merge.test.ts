@@ -353,6 +353,61 @@ describe("factory merge: the Merge Mode's decision", () => {
     expect(decision(w)).toMatchObject({ merged: false, reason: "conditions", unmet: ["deploy"] });
   });
 
+  describe("the declared door", () => {
+    const danger = (door: string, summary = "Summary") => `## Summary\n\n${summary}\n\n## Merge Danger\n\n${door}\n\n**Blast Radius:** small\n\n${ALL_MET}`;
+    const triage = (door: string) => ({ author: "factory", body: `<!-- factory:triage -->\n## Triage: easy-call\n\n${door}. Blast radius: x\n\n<!-- factory -->` });
+    const withTriage = (door: string, env: Record<string, string> = {}, pr: Partial<Parameters<FakeCodeHost["add"]>[0]> = {}) => {
+      const w = mergeWorld({ env, pr });
+      w.tracker.commentsOn(7).push({ id: "t1", ...triage(door) });
+      return w;
+    };
+
+    it("holds a PR whose Merge Danger says one-way, in any language", async () => {
+      for (const door of ["**Door:** one-way", "**Porta:** one-way", "**Door:** two-way, but really a one-way door"]) {
+        const w = mergeWorld({ pr: { body: danger(door) } });
+        await run(w);
+        expect(merged(w), door).toBe(false);
+        expect(decision(w)).toEqual({ pr: 101, merged: false, reason: "conditions", unmet: ["door"] });
+      }
+    });
+
+    it("holds a PR with no protected file when the Triage says one-way", async () => {
+      for (const door of ["**Door:** one-way", "**Porta:** one-way"]) {
+        const w = withTriage(door);
+        await run(w);
+        expect(merged(w), door).toBe(false);
+        expect(decision(w)).toMatchObject({ unmet: ["door"] });
+      }
+    });
+
+    it("merges a PR two-way in both sources, or with neither, and ignores two-way text outside Merge Danger", async () => {
+      const both = withTriage("**Door:** two-way", {}, { body: danger("**Door:** two-way") });
+      await run(both);
+      expect(merged(both)).toBe(true);
+
+      const outside = mergeWorld({ pr: { body: danger("**Door:** two-way", "Not a one-way door: two-way.") } });
+      await run(outside);
+      expect(merged(outside)).toBe(true);
+
+      const text = mergeWorld({ pr: { body: `## Summary\n\n**Door:** two-way\n\n${ALL_MET}` } });
+      await run(text);
+      expect(merged(text)).toBe(true);
+    });
+
+    it("does not let a one-way line outside Merge Danger or a Triage-less comment hold the merge", async () => {
+      const w = mergeWorld({ pr: { body: `## Summary\n\n**Door:** one-way\n\n## Merge Danger\n\n**Door:** two-way\n\n${ALL_MET}` } });
+      w.tracker.commentsOn(7).push({ id: "c9", author: "x", body: "**Door:** one-way" });
+      await run(w);
+      expect(merged(w)).toBe(true);
+    });
+
+    it("in all, ignores the declared door", async () => {
+      const w = withTriage("**Door:** one-way", { FACTORY_MERGE_MODE: "all" }, { body: danger("**Door:** one-way") });
+      await run(w);
+      expect(merged(w)).toBe(true);
+    });
+  });
+
   it("refuses an unknown Merge Mode", async () => {
     const w = mergeWorld({ env: { FACTORY_MERGE_MODE: "yolo" } });
 
