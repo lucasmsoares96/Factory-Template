@@ -4,14 +4,14 @@ import { describe, expect, it } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
 import { addedSkippedTests } from "../src/skipped-tests.ts";
 import { Git } from "../src/git.ts";
-import { checkout, commitFile, commitFiles, tempDir, world } from "./helpers.ts";
+import { checkout, commitFile, commitFiles, tempDir, world, ISSUE_VERDICTS } from "./helpers.ts";
 
 const SPEC = "apps/example/e2e/sign-in.spec.ts";
 const skipped = (line: string): AgentStep => async ({ cwd }) => {
   await commitFile(cwd, SPEC, `import { test } from "@playwright/test";\n\n${line}\n`, "test: sign-in tagline link #7");
   return { output: "Done." };
 };
-const review: AgentStep = () => ({ output: `Reviewed.\n<review>${JSON.stringify({ summary: "ok", inline: [] })}</review>` });
+const review: AgentStep = () => ({ output: `Reviewed.\n<review>${JSON.stringify({ summary: "ok", inline: [], criteria: ISSUE_VERDICTS })}</review>` });
 
 async function run(development: AgentStep[], env: Record<string, string> = {}) {
   const repo = await checkout();

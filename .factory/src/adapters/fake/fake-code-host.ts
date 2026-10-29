@@ -104,6 +104,11 @@ export class FakeCodeHost implements CodeHost {
     return pr ? { ...pr } : null;
   }
 
+  async mergedPrFor(branch: string): Promise<PullRequest | null> {
+    const pr = this.prs.find((p) => p.branch === branch && p.merged === true);
+    return pr ? { ...pr } : null;
+  }
+
   async openPullRequests(): Promise<PullRequest[]> {
     return this.prs.filter((p) => p.state === "open").map((p) => ({ ...p }));
   }

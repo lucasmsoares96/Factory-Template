@@ -35,6 +35,7 @@ export class MarkdownTracker implements Tracker {
       title: issue.title,
       body: issue.body,
       state: isClosed(issue.status) ? "closed" : "open",
+      stateReason: null,
       labels: issue.status ? [issue.status] : [],
       parent: spec === null ? null : { number: 0, body: spec },
       children: [],
@@ -84,6 +85,10 @@ export class MarkdownTracker implements Tracker {
   }
 
   async updateIssue(number: number, _body: string): Promise<void> {
+    throw new Error(`Editing the body of ticket ${number} is not available in local mode.`);
+  }
+
+  async rewriteIssueBody(number: number, _body: string): Promise<void> {
     throw new Error(`Editing the body of ticket ${number} is not available in local mode.`);
   }
 
