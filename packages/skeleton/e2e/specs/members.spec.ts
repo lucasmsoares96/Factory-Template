@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Page } from "@playwright/test";
 import { format, type Messages } from "../../src/i18n/index.ts";
-import { expect, linkIn, test, type Mailbox } from "../index.ts";
+import { buyPlan, expect, linkIn, test, type Mailbox } from "../index.ts";
 
 const password = "correct horse battery";
 
@@ -40,6 +40,7 @@ test(
     // Ana, Owner of Acme, invites Bruno and Carla as Employees, and both accept from the email's link.
     await account(page, context, "Ana Souza", ana);
     await signIn(page, origin, ana);
+    await buyPlan(page.request, origin);
     const company = (await (await page.request.post("/api/companies", { headers: { origin }, data: { name: "Acme" } })).json()) as {
       id: string;
     };

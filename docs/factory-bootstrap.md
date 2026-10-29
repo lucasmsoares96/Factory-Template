@@ -38,6 +38,7 @@ Optional, after Production.
   - `preview-neon-project` (`<id>-preview`, default branch renamed to `base`; variable `<ID>_PREVIEW_NEON_PROJECT_ID`).
   - `preview-neon-key` (secret `<ID>_PREVIEW_NEON_API_KEY`, minted with `neonctl api-keys create --project-id` under the run's login; when Neon refuses, one pasted key, hidden, blank = skip and remembered).
   - `preview-kv` (KV `<id>-preview-oauth` through the Cloudflare client; variable `<ID>_PREVIEW_OAUTH_KV_ID`).
+  - `preview-account` (secret `<ID>_PREVIEW_ACCOUNT_PASSWORD`: the Default account's password in the previews, hidden and confirmed; the email is `<ID>_ACCOUNT_EMAIL`, so `bootstrap product` runs first; `--redo preview-account` replaces it; a repo that already ran this module is asked only this).
   - `preview-products` (id in `PREVIEW_PRODUCTS`).
 - Then the doctor of the previews and, only if it passes, `PREVIEWS_ENABLED=true`.
 - The one-run rules hold: a recorded variable or secret proves a step done (no Neon login, no Cloudflare prompt on a rerun), one Neon login per run and only with Neon work.
