@@ -32,7 +32,16 @@ function githubWorld(issues: Partial<Issue>[], writers = ["alice", "owner"]) {
   }
   const json = (i: Issue) => ({ number: i.number, title: `T${i.number}`, body: i.body, state: i.state, state_reason: i.reason, labels: [...i.labels].map((name) => ({ name })) });
   const get = (n: string) => store.get(Number(n));
-  server.on("GET", `${R}/issues/(\\d+)`, ({ params }) => (get(params[0]!) ? { json: json(get(params[0]!)!) } : { status: 404 }));
+  const hooks = { pulls: [] as unknown[], afterIssueRead: (_issue: Issue) => {} };
+  server.on("GET", `${R}/issues/(\\d+)`, ({ params }) => {
+    const issue = get(params[0]!);
+    if (!issue) return { status: 404 };
+    const response = { json: json(issue) };
+    hooks.afterIssueRead(issue);
+    return response;
+  });
+  server.on("GET", `${R}/issues`, () => ({ json: [] }));
+  server.on("PATCH", `${R}/issues/(\\d+)`, ({ params, body }) => ((get(params[0]!)!.body = body.body), { json: {} }));
   server.on("GET", `${R}/issues/(\\d+)/parent`, ({ params }) => {
     const parent = store.get(get(params[0]!)?.parent ?? -1);
     return parent ? { json: json(parent) } : { status: 404 };
@@ -54,9 +63,9 @@ function githubWorld(issues: Partial<Issue>[], writers = ["alice", "owner"]) {
   server.on("GET", `${R}/collaborators/([^/]+)/permission`, ({ params }) =>
     writers.includes(params[0]!) ? { json: { permission: "write", role_name: "write" } } : { status: 404 },
   );
-  server.on("GET", `${R}/pulls`, () => ({ json: [] }));
+  server.on("GET", `${R}/pulls`, () => ({ json: hooks.pulls }));
   server.on("GET", `${R}/git/ref/heads/.+`, () => ({ status: 404 }));
-  return { server, store };
+  return { server, store, hooks };
 }
 
 const BODY = "## Acceptance criteria\n\n- [ ] works\n";
@@ -169,3 +178,48 @@ describe("factory publish over the GitHub adapters", () => {
   });
 });
 
+
+describe("factory unblock over the GitHub adapters: the criteria of a merged Factory PR", () => {
+  const closedBody = "## Acceptance criteria\n\n- [ ] works\n\n## Notes\n\n- [ ] later\n";
+  const merged = [{ number: 101, html_url: "u", state: "closed", draft: false, merged_at: "2026-01-01T00:00:00Z", head: { ref: "factory/issue-7", sha: "a", repo: { full_name: "o/r" } }, base: { ref: "main" }, labels: [] }];
+
+  function closedWorld(pulls: unknown[] = merged, reason = "completed") {
+    const w = githubWorld([{ number: 7, body: closedBody, state: "closed", reason }]);
+    w.hooks.pulls = pulls;
+    return w;
+  }
+
+  it("writes the checked body verbatim: no marker, other sections as they were", async () => {
+    const w = closedWorld();
+
+    const { code } = await run(w, ["unblock", "--issue", "7"]);
+
+    expect(code).toBe(0);
+    expect(w.store.get(7)!.body).toBe("## Acceptance criteria\n\n- [x] works\n\n## Notes\n\n- [ ] later\n");
+  });
+
+  it("does not write for an issue closed as not planned, or with no merged PR", async () => {
+    const notPlanned = closedWorld(merged, "not_planned");
+    const noPr = closedWorld([]);
+
+    await run(notPlanned, ["unblock", "--issue", "7"]);
+    await run(noPr, ["unblock", "--issue", "7"]);
+
+    expect(notPlanned.server.writes()).toEqual([]);
+    expect(noPr.server.writes()).toEqual([]);
+  });
+
+  it("keeps an edit made between the read and the write, and checks the boxes on top of it", async () => {
+    const w = closedWorld();
+    const edited = `${closedBody}\nAdded by a person meanwhile.\n`;
+    // The first read of the body is followed at once by a concurrent edit.
+    let reads = 0;
+    w.hooks.afterIssueRead = (issue) => {
+      if (++reads === 1) issue.body = edited;
+    };
+
+    await run(w, ["unblock", "--issue", "7"]);
+
+    expect(w.store.get(7)!.body).toBe("## Acceptance criteria\n\n- [x] works\n\n## Notes\n\n- [ ] later\n\nAdded by a person meanwhile.\n");
+  });
+});
