@@ -159,7 +159,7 @@ describe("pnpm bootstrap doctor", () => {
     const { code, output } = await w.run("doctor");
 
     expect(code).toBe(1);
-    expect(output).toMatch(/missing\s+Repo permission/);
+    expect(output).toContain("needs admin");
   });
 
   it("does not need DNS or zone permission to be ok", async () => {

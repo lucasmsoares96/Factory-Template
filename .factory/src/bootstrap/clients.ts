@@ -161,6 +161,30 @@ export interface WranglerAuth {
   login(): Promise<void>;
 }
 
+/** wrangler is not installed in this clone (as opposed to installed but without a saved login). */
+export class WranglerNotInstalled extends Error {
+  constructor() {
+    super("wrangler is not installed in this clone, so there is no Cloudflare login to read. Run `pnpm install` and try again.");
+  }
+}
+
+/** The tools the wizard needs on this machine, and the two installs it may offer. Read-only except `installGh` and `loginGh`. */
+export interface ToolsClient {
+  /** The versions `.prototools` pins; a tool it does not pin is absent. */
+  pinned(): Promise<{ node?: string; pnpm?: string }>;
+  /** The version of the running Node, without a leading `v`. */
+  nodeVersion(): Promise<string>;
+  /** The version of `pnpm`, or undefined when it is not installed. */
+  pnpmVersion(): Promise<string | undefined>;
+  ghInstalled(): Promise<boolean>;
+  /** `gh auth status` succeeds. Only asked once `gh` is installed. */
+  ghAuthenticated(): Promise<boolean>;
+  /** `proto install gh`, with the terminal. Changes the machine: ask first. */
+  installGh(): Promise<void>;
+  /** `gh auth login --web`, with the terminal. Opens the browser: ask first. */
+  loginGh(): Promise<void>;
+}
+
 /** Bound to one API token, held in memory. */
 export interface CloudflareClient {
   /** Read-only: the token is active (account-token verify, falling back to the user-token verify). */
