@@ -1,7 +1,7 @@
 import { execFile, spawn } from "node:child_process";
 import { z } from "zod";
 import { BASE_ENV, pick } from "../env.ts";
-import type { WranglerAuth } from "./clients.ts";
+import { WranglerNotInstalled, type WranglerAuth } from "./clients.ts";
 
 /** Runs `wrangler <args>` and returns stdout. `inherit` hands the terminal over (the browser login prints a URL). */
 export type WranglerRun = (args: string[], options: { env: Record<string, string>; inherit?: boolean }) => Promise<string>;
@@ -9,16 +9,20 @@ export type WranglerRun = (args: string[], options: { env: Record<string, string
 // `pnpm --filter @factory/harness exec` finds the pinned `wrangler` (a devDependency) from any directory of the repo.
 const WRANGLER = ["--filter", "@factory/harness", "exec", "wrangler"];
 
+/** What `pnpm exec` prints when the `wrangler` binary (or the harness package that holds it) is not there. */
+const NOT_INSTALLED = /Command "wrangler" not found|ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL|No projects matched/;
+
 export const runWrangler: WranglerRun = (args, { env, inherit }) =>
   new Promise((resolve, reject) => {
     if (inherit) {
       const child = spawn("pnpm", [...WRANGLER, ...args], { env, stdio: "inherit" });
-      child.on("error", reject);
+      child.on("error", (error) => reject((error as NodeJS.ErrnoException).code === "ENOENT" ? new WranglerNotInstalled() : error));
       child.on("exit", (code) => (code === 0 ? resolve("") : reject(new Error(`wrangler ${args[0]} failed (exit ${code}).`))));
       return;
     }
     execFile("pnpm", [...WRANGLER, ...args], { env, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
       if (!error) return resolve(stdout);
+      if ((error as NodeJS.ErrnoException).code === "ENOENT" || NOT_INSTALLED.test(stderr)) return reject(new WranglerNotInstalled());
       // stdout may hold a token: only the subcommand and the tail of stderr are reported.
       reject(new Error(`wrangler ${args[0]} failed: ${stderr.trim().split("\n").slice(-3).join(" ").slice(0, 300) || error.message}`));
     });
@@ -44,7 +48,9 @@ export class WranglerCli implements WranglerAuth {
     try {
       const parsed = authToken.safeParse(JSON.parse(await this.run(["auth", "token", "--json"], { env: this.env })));
       return parsed.success && parsed.data.type === "oauth" ? parsed.data.token : undefined;
-    } catch {
+    } catch (error) {
+      // An install problem is not "no saved login": the caller must be able to say so.
+      if (error instanceof WranglerNotInstalled) throw error;
       return undefined;
     }
   }
