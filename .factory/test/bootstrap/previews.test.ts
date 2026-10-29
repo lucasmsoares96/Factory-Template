@@ -6,8 +6,9 @@ import { TOKEN, WRANGLER_TOKEN, world } from "./helpers.ts";
 const ENV = { CLOUDFLARE_API_TOKEN: TOKEN, CLOUDFLARE_ACCOUNT_ID: "acc-1" };
 
 function previewsWorld(answers: Record<string, string | boolean | string[]> = {}, env: Record<string, string | undefined> = ENV) {
-  const w = world({ "resend-setup": "skip", "default-account-email": "admin@example.com", "default-account-password": "admin password 123", "default-account-password-confirm": "admin password 123", ...answers }, env);
+  const w = world({ "resend-setup": "skip", "default-account-email": "admin@example.com", "default-account-password": "admin password 123", "default-account-password-confirm": "admin password 123", "preview-account-password": "preview password 1", "preview-account-password-confirm": "preview password 1", ...answers }, env);
   w.deps.interactive = true;
+  w.github.variables.set("EXAMPLE_ACCOUNT_EMAIL", "admin@example.com");
   w.github.secrets.set("CLOUDFLARE_API_TOKEN", TOKEN);
   w.github.secrets.set("CLOUDFLARE_ACCOUNT_ID", "acc-1");
   w.cloudflare.subdomains.set("acc-1", "my-team");
@@ -28,7 +29,7 @@ describe("pnpm bootstrap previews: Previews module", () => {
     expect(code).toBe(0);
     expect(w.neon.projects.map((p) => [p.name, p.defaultBranch])).toEqual([["example-preview", "base"]]);
     expect(w.github.environments.get("example-preview")).toBe("main");
-    expect([...previewSecrets(w)!.keys()]).toEqual(["EXAMPLE_PREVIEW_NEON_API_KEY"]);
+    expect([...previewSecrets(w)!.keys()]).toEqual(["EXAMPLE_PREVIEW_NEON_API_KEY", "EXAMPLE_PREVIEW_ACCOUNT_PASSWORD"]);
     expect(w.neon.apiKeys).toHaveLength(1);
     expect(w.neon.apiKeys[0]).toMatchObject({ projectId: w.neon.projects[0]!.id, name: "example-preview-ci" });
     expect(previewSecrets(w)!.get("EXAMPLE_PREVIEW_NEON_API_KEY")).toBe(w.neon.apiKeys[0]!.key);
@@ -39,6 +40,53 @@ describe("pnpm bootstrap previews: Previews module", () => {
     expect(w.github.variables.get("PREVIEWS_ENABLED")).toBe("true");
     expect(output).toMatch(/ok\s+PREVIEWS_ENABLED/);
     expect(output).toMatch(/Previews \(example\)/);
+  });
+
+  describe("preview-account", () => {
+
+    it("asks the password once (hidden, confirmed), stores it as the preview environment's secret and shows it nowhere", async () => {
+      const w = previewsWorld();
+
+      const { code } = await w.run("previews", "example");
+
+      expect(code).toBe(0);
+      expect(previewSecrets(w)!.get("EXAMPLE_PREVIEW_ACCOUNT_PASSWORD")).toBe("preview password 1");
+      expect(w.prompter.asked.filter((id) => id === "preview-account-password")).toHaveLength(1);
+      expect(w.github.secrets.has("EXAMPLE_PREVIEW_ACCOUNT_PASSWORD")).toBe(false);
+      expect(everythingShown(w)).not.toContain("preview password 1");
+    });
+
+    it("asks nothing and says what to run first when the Default account email is not set yet", async () => {
+      const w = previewsWorld();
+      w.github.variables.delete("EXAMPLE_ACCOUNT_EMAIL");
+
+      await w.run("previews", "example");
+
+      expect(w.prompter.asked).not.toContain("preview-account-password");
+      expect(previewSecrets(w)!.has("EXAMPLE_PREVIEW_ACCOUNT_PASSWORD")).toBe(false);
+      expect(w.lines.join("\n")).toContain("pnpm bootstrap product example");
+    });
+
+    it("does not ask on a rerun, and asks again with --redo preview-account", async () => {
+      const w = previewsWorld();
+      await w.run("previews", "example");
+      w.prompter.asked.length = 0;
+
+      await w.run("previews", "example");
+      expect(w.prompter.asked).toEqual([]);
+
+      await w.run("previews", "example", "--redo", "preview-account");
+      expect(w.prompter.asked.filter((id) => id === "preview-account-password")).toHaveLength(1);
+    });
+
+    it("the doctor shows the secret as ok, or as missing", async () => {
+      const w = previewsWorld();
+      await w.run("previews", "example");
+      expect((await w.run("doctor", "example")).output).toMatch(/ok\s+EXAMPLE_PREVIEW_ACCOUNT_PASSWORD/);
+
+      previewSecrets(w)!.delete("EXAMPLE_PREVIEW_ACCOUNT_PASSWORD");
+      expect((await w.run("doctor", "example")).output).toMatch(/missing\s+EXAMPLE_PREVIEW_ACCOUNT_PASSWORD/);
+    });
   });
 
   it("keeps the production secrets and the project of production out of it", async () => {
