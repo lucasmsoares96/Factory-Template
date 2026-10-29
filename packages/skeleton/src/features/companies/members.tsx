@@ -1,18 +1,13 @@
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Alert, AlertDescription } from "#ui/alert";
 import { Button } from "#ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "#ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "#ui/card";
 import { listMembers } from "../../gen/clients/listMembers.ts";
-import { getCompanyQueryKey } from "../../gen/hooks/useGetCompany.ts";
-import { getLastCompanyQueryKey } from "../../gen/hooks/useGetLastCompany.ts";
 import { useGetMe } from "../../gen/hooks/useGetMe.ts";
-import { listCompaniesQueryKey } from "../../gen/hooks/useListCompanies.ts";
 import { listMembersQueryKey } from "../../gen/hooks/useListMembers.ts";
 import { getSeatsQueryKey } from "../../gen/hooks/useGetSeats.ts";
 import { useChangeMemberRole } from "../../gen/hooks/useChangeMemberRole.ts";
-import { useLeaveCompany } from "../../gen/hooks/useLeaveCompany.ts";
 import { useRemoveMember } from "../../gen/hooks/useRemoveMember.ts";
 import type { CompanyMember } from "../../gen/types/CompanyMember.ts";
 import { useErrorMessage, useMessages } from "../../client/i18n.tsx";
@@ -120,7 +115,7 @@ export function Members({ companyId, isOwner }: { companyId: string; isOwner: bo
             {members.data?.pages
               .flatMap((page) => page.items)
               .map((member) => {
-                // Nobody changes or removes themselves: the Owner tries Leave instead, and is refused.
+                // Nobody changes or removes themselves.
                 const manageable = isOwner && me !== undefined && member.userId !== me.id;
                 return (
                   <tr key={member.userId} className="border-t">
@@ -202,55 +197,5 @@ function RoleChoice({ member, disabled, onChange }: { member: CompanyMember; dis
         </option>
       ))}
     </select>
-  );
-}
-
-/**
- * Leaves the Company: any Member may try, and the API refuses the Owner
- * (`OWNER_MUST_TRANSFER`, shown translated). Then the user goes to the
- * signed-in root, which opens another Company or, without one, asks to create one.
- */
-export function LeaveCompany({ companyId }: { companyId: string }) {
-  const t = useMessages().companies.leave;
-  const errorMessage = useErrorMessage();
-  const queryClient = useQueryClient();
-  const navigate = useNavigate();
-  const path = { companyId };
-  const leave = useLeaveCompany({
-    mutation: {
-      onSuccess: async () => {
-        queryClient.removeQueries({ queryKey: getLastCompanyQueryKey() });
-        await queryClient.invalidateQueries({ queryKey: listCompaniesQueryKey() });
-        await navigate({ to: "/" });
-        queryClient.removeQueries({ queryKey: getCompanyQueryKey({ path }) });
-        queryClient.removeQueries({ queryKey: listMembersQueryKey({ path }) });
-      },
-    },
-  });
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>
-          <h2>{t.title}</h2>
-        </CardTitle>
-        <CardDescription>{t.description}</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        {leave.isError ? (
-          <Alert variant="destructive">
-            <AlertDescription>{errorMessage(leave.error)}</AlertDescription>
-          </Alert>
-        ) : null}
-        <Button
-          variant="destructive"
-          className="self-start"
-          disabled={leave.isPending}
-          onClick={() => void leave.mutateAsync({ path }).catch(() => undefined)}
-        >
-          {leave.isPending ? t.submitting : t.submit}
-        </Button>
-      </CardContent>
-    </Card>
   );
 }
