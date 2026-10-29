@@ -598,6 +598,11 @@
                   ],
                   "description": "The monthly price; `null` for the free Plan."
                 },
+                "trialDays": {
+                  "type": "integer",
+                  "description": "The days of free trial a person's first Subscription to this Plan gets; 0 when there is none. Only a `fixed` Plan has one, and a person has one trial ever.",
+                  "example": 14
+                },
                 "entitlements": {
                   "type": "object",
                   "additionalProperties": {
@@ -624,6 +629,7 @@
                 "kind",
                 "seats",
                 "price",
+                "trialDays",
                 "entitlements"
               ]
             },
@@ -742,6 +748,11 @@
                 ],
                 "description": "The monthly price; `null` for the free Plan."
               },
+              "trialDays": {
+                "type": "integer",
+                "description": "The days of free trial a person's first Subscription to this Plan gets; 0 when there is none. Only a `fixed` Plan has one, and a person has one trial ever.",
+                "example": 14
+              },
               "entitlements": {
                 "type": "object",
                 "additionalProperties": {
@@ -768,6 +779,7 @@
               "kind",
               "seats",
               "price",
+              "trialDays",
               "entitlements"
             ]
           },

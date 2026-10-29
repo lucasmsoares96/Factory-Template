@@ -139,6 +139,9 @@ function PlanPage() {
                       <p className="text-sm">
                         {plan.price ? money(plan.price) : m.free} · {seats(plan)}
                       </p>
+                      {plan.trialDays > 0 && !subscription ? (
+                        <p className="text-muted-foreground text-sm">{format(m.trial, { days: String(plan.trialDays) })}</p>
+                      ) : null}
                       {isCurrent ? (
                         <p className="text-muted-foreground text-sm">{m.currentTag}</p>
                       ) : canBuy ? (
