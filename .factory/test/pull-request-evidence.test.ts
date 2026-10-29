@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
-import { checkout, commitFile, commitFiles, lastJson, tempDir, unmarked, world, type WorldOptions } from "./helpers.ts";
+import { checkout, commitFile, commitFiles, lastJson, tempDir, unmarked, world, type WorldOptions, ISSUE_VERDICTS } from "./helpers.ts";
 import { commits, feedbackRound, finishRound, prWorld, PR, replies, reviewOk, thread } from "./pr-flow-helpers.ts";
 
 const url = (pr: number, product: string, name: string) => `https://forge.test/pr/${pr}/images/${product}/${name}`;
@@ -11,7 +11,7 @@ const develop = (specs: Record<string, string> = {}): AgentStep => async ({ cwd 
   await commitFiles(cwd, { "src/greet.ts": "export {};\n", ...specs }, "feat: greet #7");
 };
 const spec = (...names: string[]) => names.map((n) => `test("${n} @evidence", async ({ evidence }) => { await evidence("${n}"); });`).join("\n");
-const review: AgentStep = () => ({ output: `<review>${JSON.stringify({ summary: "Fine.", inline: [] })}</review>` });
+const review: AgentStep = () => ({ output: `<review>${JSON.stringify({ summary: "Fine.", inline: [], criteria: ISSUE_VERDICTS })}</review>` });
 const writes = (body: string): AgentStep => () => ({ output: `<pull-request>${body}</pull-request>` });
 
 async function issueRun(options: { stage: AgentStep; evidence?: typeof prints; specs?: Record<string, string> }) {
