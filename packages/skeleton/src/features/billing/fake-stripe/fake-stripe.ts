@@ -292,15 +292,15 @@ export class FakeStripe {
     return calls.reverse().map(({ method, path }) => ({ method, path }));
   }
 
-  /** The plans the fake starts with: Free (no price, 1 Seat), Pro and Team (fixed, monthly). */
+  /** The plans the fake starts with: Free (no price, 1 Seat), Pro and Team (fixed, monthly), with `reports` and `projects` Entitlements. */
   private async seedCatalog() {
     if (await this.store.get("product", "prod_fake_free")) return;
     const { productId, seed } = this.deps;
     const created = Math.floor(Date.now() / 1000);
     const plans = [
-      { key: "free", seats: 1, amount: null },
-      { key: "pro", seats: 3, amount: 1900 },
-      { key: "team", seats: 10, amount: 4900 },
+      { key: "free", seats: 1, amount: null, reports: "false", projects: "1" },
+      { key: "pro", seats: 3, amount: 1900, reports: "true", projects: "5" },
+      { key: "team", seats: 10, amount: 4900, reports: "true", projects: "20" },
     ] as const;
     for (const plan of plans) {
       const product: Obj = {
@@ -309,7 +309,7 @@ export class FakeStripe {
         active: true,
         name: seed[plan.key].name,
         description: seed[plan.key].description,
-        metadata: { productId, kind: plan.amount === null ? "free" : "fixed", seats: String(plan.seats) },
+        metadata: { productId, kind: plan.amount === null ? "free" : "fixed", seats: String(plan.seats), entitlement_reports: plan.reports, entitlement_projects: plan.projects },
         created,
       };
       await this.store.put("product", product);
