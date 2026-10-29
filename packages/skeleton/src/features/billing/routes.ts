@@ -10,7 +10,7 @@ import { forgetPlans } from "./plans.ts";
 const Advance = z.object({ seconds: z.number().int().positive(), paymentFails: z.boolean().optional() });
 const Failing = z.object({ on: z.boolean() });
 const Product = z.object({ id: z.string().min(1), metadata: z.record(z.string(), z.string()) });
-const Event = z.object({ type: z.string().min(1), object: z.record(z.string(), z.unknown()) });
+const Event = z.object({ type: z.string().min(1), object: z.record(z.string(), z.unknown()), previousAttributes: z.record(z.string(), z.unknown()).optional() });
 
 /**
  * The fake Stripe's own routes, `/api/fake-stripe/*`: the Checkout page and the
@@ -62,7 +62,7 @@ export function fakeStripeRoutes(entitlements: readonly string[]) {
   router.post("/fake-stripe/control/events", async (c) => {
     const body = Event.safeParse(await c.req.json().catch(() => null));
     if (!body.success) return c.json(apiError("VALIDATION_FAILED"), 400);
-    return c.json({ webhookStatus: await fake(c).emit(body.data.type, body.data.object) });
+    return c.json({ webhookStatus: await fake(c).emit(body.data.type, body.data.object, body.data.previousAttributes) });
   });
   router.post("/fake-stripe/control/products", async (c) => {
     const body = Product.safeParse(await c.req.json().catch(() => null));

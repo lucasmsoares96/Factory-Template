@@ -341,6 +341,49 @@ test("the Owner gets the trial-ending email three days before the trial ends, in
   expect(await outboxTo(email)).toHaveLength(1);
 });
 
+// Price change: `pnpm bootstrap billing <id> migrate-prices` schedules the new price; the update that sets the phases tells the Owner.
+
+function priceChange(userId: string, overrides: { metadata?: Record<string, string>; previous?: Record<string, unknown> | null } = {}) {
+  const phase = (price: string, start: number) => ({ start_date: start, items: [{ price, quantity: 1 }] });
+  const renewal = Math.floor(Date.UTC(2031, 0, 15) / 1000);
+  return {
+    type: "subscription_schedule.updated",
+    object: {
+      id: "sub_sched_1",
+      object: "subscription_schedule",
+      metadata: { productId: "skeleton-test", priceChange: "true", userId, ...overrides.metadata },
+      phases: [phase("price_fake_pro_monthly", renewal - 30 * DAY), phase("price_fake_team_monthly", renewal)],
+    },
+    ...(overrides.previous === null ? {} : { previousAttributes: overrides.previous ?? { phases: [] } }),
+  };
+}
+
+test("the Owner gets the price-change email with the old price, the new price and the date, once per scheduled change", async () => {
+  const { user } = await signedInUser();
+  const sent = await worker.post("/api/fake-stripe/control/events", priceChange(user.id));
+  expect(await sent.json()).toEqual({ webhookStatus: 200 });
+
+  const rows = await outboxTo(user.email);
+  expect(rows).toHaveLength(1);
+  expect(rows[0]!.subject).toContain("January 15, 2031");
+  expect(rows[0]!.text).toContain("$19.00");
+  expect(rows[0]!.text).toContain("$49.00");
+  expect(rows[0]!.text).toContain("Team");
+});
+
+test("an event that is not the scheduling of a price change sends no email", async () => {
+  const { user } = await signedInUser();
+  const ignored = [
+    priceChange(user.id, { previous: null }),
+    priceChange(user.id, { previous: { status: "active" } }),
+    priceChange(user.id, { metadata: { priceChange: "false" } }),
+    priceChange(user.id, { metadata: { userId: "nobody" } }),
+    priceChange(user.id, { metadata: { productId: "another-product" } }),
+  ];
+  for (const event of ignored) expect(((await (await worker.post("/api/fake-stripe/control/events", event)).json()) as { webhookStatus: number }).webhookStatus).toBe(200);
+  expect(await outboxTo(user.email)).toHaveLength(0);
+});
+
 // Entitlements: the Owner's Plan decides what every Member of a Company gets.
 
 async function companyOf(owner: { cookie: string }) {

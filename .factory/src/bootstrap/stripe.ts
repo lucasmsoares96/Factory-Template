@@ -1,9 +1,9 @@
 import Stripe from "stripe";
-import type { StripeClient, StripePlanSpec, StripePlanState, StripeWebhook } from "./clients.ts";
+import type { StripeClient, StripePlanSpec, StripePlanState, StripePriceMigration, StripeWebhook } from "./clients.ts";
 import { BILLING_PERMISSIONS, PORTAL_WRITE_FALLBACK } from "./billing-permissions.ts";
 
 /** The events the Better Auth Stripe plugin handles at `/api/auth/stripe/webhook`. */
-export const WEBHOOK_EVENTS = ["checkout.session.completed", "customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"];
+export const WEBHOOK_EVENTS = ["checkout.session.completed", "customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted", "subscription_schedule.updated"];
 
 /** One read per permission in the key link: a key that lacks it is refused with a 403. */
 const PROBES: Record<(typeof BILLING_PERMISSIONS)[number], (stripe: Stripe) => Promise<unknown>> = {
@@ -79,7 +79,7 @@ export class StripeApi implements StripeClient {
     return plans.sort((a, b) => a.key.localeCompare(b.key));
   }
 
-  async ensurePlan(productId: string, plan: StripePlanSpec): Promise<{ created: string[]; different: string[] }> {
+  async ensurePlan(productId: string, plan: StripePlanSpec, options: { replace?: boolean } = {}): Promise<{ created: string[]; different: string[]; replaced: string[] }> {
     let product: Stripe.Product | undefined;
     for await (const candidate of this.stripe.products.list({ active: true, limit: 100 })) {
       if (candidate.metadata.productId === productId && candidate.metadata.plan === plan.key) {
@@ -103,12 +103,15 @@ export class StripeApi implements StripeClient {
       created.push(`product ${plan.key}`);
     }
     const different: string[] = [];
+    const replaced: string[] = [];
     for (const price of plan.prices) {
       const found = (await this.stripe.prices.list({ lookup_keys: [price.lookupKey], active: true, limit: 1 })).data[0];
-      if (found) {
-        if (found.unit_amount !== price.amount || found.currency !== plan.currency) different.push(price.lookupKey);
+      const changed = found !== undefined && (found.unit_amount !== price.amount || found.currency !== plan.currency);
+      if (found && !(changed && options.replace)) {
+        if (changed) different.push(price.lookupKey);
         continue;
       }
+      // A price's amount cannot be edited: the new one takes the lookup key in the same call, then the old one is archived.
       await this.stripe.prices.create({
         product: product.id,
         currency: plan.currency,
@@ -116,10 +119,70 @@ export class StripeApi implements StripeClient {
         recurring: { interval: price.interval },
         lookup_key: price.lookupKey,
         nickname: price.lookupKey,
+        ...(found ? { transfer_lookup_key: true } : {}),
       });
-      created.push(`price ${price.lookupKey}`);
+      if (found) {
+        await this.stripe.prices.update(found.id, { active: false });
+        replaced.push(price.lookupKey);
+      } else {
+        created.push(`price ${price.lookupKey}`);
+      }
     }
-    return { created, different };
+    return { created, different, replaced };
+  }
+
+  async archivePlansExcept(productId: string, keep: string[]): Promise<string[]> {
+    const archived: string[] = [];
+    for await (const product of this.stripe.products.list({ active: true, limit: 100 })) {
+      const key = product.metadata.plan;
+      if (product.metadata.productId !== productId || !key || keep.includes(key)) continue;
+      for await (const price of this.stripe.prices.list({ product: product.id, active: true, limit: 100 })) {
+        await this.stripe.prices.update(price.id, { active: false });
+      }
+      await this.stripe.products.update(product.id, { active: false });
+      archived.push(key);
+    }
+    return archived.sort();
+  }
+
+  async listPriceMigrations(productId: string): Promise<StripePriceMigration[]> {
+    const productIds = new Set<string>();
+    for await (const product of this.stripe.products.list({ active: true, limit: 100 })) {
+      if (product.metadata.productId === productId && product.metadata.plan) productIds.add(product.id);
+    }
+    const productOf = (price: Stripe.Price) => (typeof price.product === "string" ? price.product : price.product.id);
+    const current = new Map<string, Stripe.Price>();
+    for await (const price of this.stripe.prices.list({ active: true, limit: 100 })) {
+      if (price.lookup_key && price.unit_amount !== null && productIds.has(productOf(price))) current.set(price.lookup_key, price);
+    }
+    const migrations: StripePriceMigration[] = [];
+    for await (const old of this.stripe.prices.list({ active: false, limit: 100 })) {
+      const next = old.nickname ? current.get(old.nickname) : undefined;
+      if (!next || old.unit_amount === null || !productIds.has(productOf(old))) continue;
+      for await (const subscription of this.stripe.subscriptions.list({ price: old.id, limit: 100 })) {
+        if (!["active", "trialing", "past_due"].includes(subscription.status) || subscription.schedule) continue;
+        const renewsAt = Math.min(...subscription.items.data.map((item) => item.current_period_end));
+        migrations.push({ subscriptionId: subscription.id, lookupKey: next.lookup_key!, fromPriceId: old.id, toPriceId: next.id, oldAmount: old.unit_amount, newAmount: next.unit_amount!, currency: next.currency, renewsAt });
+      }
+    }
+    return migrations;
+  }
+
+  async schedulePriceMigration(migration: StripePriceMigration): Promise<void> {
+    const subscription = await this.stripe.subscriptions.retrieve(migration.subscriptionId);
+    const created = await this.stripe.subscriptionSchedules.create({ from_subscription: migration.subscriptionId });
+    const phase = created.phases[0]!;
+    const items = phase.items.map((item) => ({ price: typeof item.price === "string" ? item.price : item.price.id, quantity: item.quantity ?? 1 }));
+    await this.stripe.subscriptionSchedules.update(created.id, {
+      end_behavior: "release",
+      // The Subscription's metadata (the Owner's id, the Product's id) lets the Worker tell the Owner when this update arrives.
+      metadata: { ...subscription.metadata, priceChange: "true" },
+      proration_behavior: "none",
+      phases: [
+        { items, start_date: phase.start_date, end_date: phase.end_date, ...(phase.trial_end ? { trial_end: phase.trial_end } : {}) },
+        { items: items.map((item) => (item.price === migration.fromPriceId ? { ...item, price: migration.toPriceId } : item)), proration_behavior: "none" },
+      ],
+    });
   }
 
   async ensurePaymentMethods(): Promise<"updated" | "unchanged"> {
@@ -153,7 +216,7 @@ export class StripeApi implements StripeClient {
   async listWebhooks(productId: string): Promise<StripeWebhook[]> {
     const found: StripeWebhook[] = [];
     for await (const endpoint of this.stripe.webhookEndpoints.list({ limit: 100 })) {
-      if (endpoint.metadata?.productId === productId) found.push({ id: endpoint.id, url: endpoint.url });
+      if (endpoint.metadata?.productId === productId) found.push({ id: endpoint.id, url: endpoint.url, events: endpoint.enabled_events });
     }
     return found;
   }

@@ -5,6 +5,7 @@ import type { Context } from "hono";
 import type { SkeletonEnv } from "../../platform/env.ts";
 import { entitlementFor, planOf } from "./entitlements.ts";
 import { billingEnabled, billingFor } from "./context.ts";
+import { sendPriceChange } from "./price-change.ts";
 import { sendTrialEnding } from "./trial-ending.ts";
 import { productFilter } from "./product-filter.ts";
 import { fakeStripeRoutes } from "./routes.ts";
@@ -57,7 +58,10 @@ export function billing<const Name extends string>({ entitlements }: { entitleme
                 ...(trialDays > 0 ? { freeTrial: { days: trialDays } } : {}),
               })),
           },
-          onEvent: (event) => sendTrialEnding(c, on, event),
+          onEvent: async (event) => {
+            await sendTrialEnding(c, on, event);
+            await sendPriceChange(c, on, event);
+          },
         }),
       ];
     },
