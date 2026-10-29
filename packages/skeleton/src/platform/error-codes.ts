@@ -21,6 +21,8 @@ export const errorMessages = {
   OWN_ROLE: "Nobody changes their own role.",
   OWNER_MUST_TRANSFER: "The Owner cannot leave the Company. Transfer its ownership to another Member first.",
   ALREADY_SUBSCRIBED: "The user already has a Subscription.",
+  NO_SUBSCRIPTION: "The user has no Subscription.",
+  ALREADY_CANCELED: "The Subscription is already set to end with the period.",
   BILLING_UNAVAILABLE: "Stripe did not answer.",
   MEMBER_SUSPENDED: "Your access to this Company is suspended: the Owner's Seats fall short.",
   MEMBER_OF_COMPANIES: "You are a Member of these Companies. Ask their Owners to remove you before you delete your account.",

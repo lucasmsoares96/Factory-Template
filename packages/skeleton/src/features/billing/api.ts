@@ -2,7 +2,7 @@ import { createRoute, z } from "@hono/zod-openapi";
 import { eq } from "drizzle-orm";
 import type { MiddlewareHandler } from "hono";
 import { createMiddleware } from "hono/factory";
-import { subscriptions } from "../../db/schema.ts";
+import { subscriptions, users } from "../../db/schema.ts";
 import type { SkeletonEnv } from "../../platform/env.ts";
 import { apiError, createRouter, errorResponse } from "../../platform/errors.ts";
 import { requireIdentity, unauthenticatedResponse } from "../../platform/identity.ts";
@@ -10,6 +10,8 @@ import { billingFor, type Billing } from "./context.ts";
 import { countSeats, seatPeople } from "../../platform/seats.ts";
 import { LIVE_STATUSES as LIVE, planOf } from "./entitlements.ts";
 import type { Plan } from "./plans.ts";
+import { peopleLosingAccess } from "./cancellation.ts";
+import { retryDeadline } from "./grace.ts";
 
 /** The SPA page a person returns to from Checkout. */
 export const PLAN_PAGE = "/account/plan";
@@ -51,12 +53,31 @@ const CurrentPlan = z
         status: z.enum(["active", "trialing", "past_due"]).openapi({ description: "`past_due`: the last payment failed.", example: "active" }),
         periodEnd: z.iso.datetime().nullable().openapi({ description: "When the current period ends and the Subscription renews.", example: "2026-11-28T12:00:00.000Z" }),
         cancelAtPeriodEnd: z.boolean().openapi({ description: "Whether the Subscription ends when the current period does.", example: false }),
+        pastDueUntil: z.iso
+          .datetime()
+          .nullable()
+          .openapi({ description: "While `past_due`: the last day to update the card before Stripe gives up and the person goes back to the free Plan; `null` otherwise.", example: "2026-11-05T12:00:00.000Z" }),
+        losingAccess: z
+          .number()
+          .int()
+          .openapi({ description: "How many people lose access to the user's Companies when the paid Plan ends: the Seats taken beyond the free Plan's.", example: 4 }),
       })
       .nullable()
       .openapi({ description: "The person's Subscription; `null` when they are on the free Plan." }),
     plans: z.array(PlanSchema).openapi({ description: "Every Plan the Product sells, read from Stripe (kept for 5 minutes)." }),
   })
   .openapi("CurrentPlan");
+
+const Portal = z
+  .object({ url: z.string().openapi({ description: "Where to send the person to manage the card and see invoices: Stripe's Customer Portal.", example: "https://billing.stripe.com/p/session/test_a1" }) })
+  .openapi("Portal");
+
+const Canceled = z
+  .object({
+    endsAt: z.iso.datetime().nullable().openapi({ description: "The last day of the paid period: the Plan stays until then and is not renewed.", example: "2026-11-28T12:00:00.000Z" }),
+    losingAccess: z.number().int().openapi({ description: "How many people lose access to the user's Companies on that day.", example: 4 }),
+  })
+  .openapi("Canceled");
 
 const Checkout = z
   .object({ url: z.string().openapi({ description: "Where to send the person to pay: Stripe's Checkout page.", example: "https://checkout.stripe.com/c/pay/cs_test_a1" }) })
@@ -113,6 +134,45 @@ const subscribeRoute = (on: MiddlewareHandler<SkeletonEnv>) =>
       401: unauthenticatedResponse,
       404: errorResponse("Billing is off, or the Product has no fixed monthly Plan with this id.", "NOT_FOUND"),
       409: errorResponse("The user already has a Subscription.", "ALREADY_SUBSCRIBED"),
+      502: errorResponse("Stripe did not answer.", "BILLING_UNAVAILABLE"),
+    },
+  });
+
+const portalRoute = (on: MiddlewareHandler<SkeletonEnv>) =>
+  createRoute({
+    method: "post",
+    path: "/billing/portal",
+    operationId: "openBillingPortal",
+    summary: "Open Stripe's Customer Portal",
+    description:
+      "Opens a session of Stripe's Customer Portal, with the Product's portal configuration (change the card, see invoices; changing the Plan is off there), and answers its URL; the SPA sends the user there. Answers 404 `NO_SUBSCRIPTION` when the user has never paid and so has no Stripe customer.",
+    // Sends a person to a payment page: nothing an agent does for them.
+    "x-mcp": false,
+    middleware: [on, requireIdentity] as const,
+    responses: {
+      200: { description: "The portal session is open.", content: { "application/json": { schema: Portal } } },
+      401: unauthenticatedResponse,
+      404: errorResponse("Billing is off, or the user has no Stripe customer.", "NOT_FOUND", "NO_SUBSCRIPTION"),
+      502: errorResponse("Stripe did not answer, or the Product has no portal configuration.", "BILLING_UNAVAILABLE"),
+    },
+  });
+
+const cancelRoute = (on: MiddlewareHandler<SkeletonEnv>) =>
+  createRoute({
+    method: "post",
+    path: "/billing/cancel",
+    operationId: "cancelSubscription",
+    summary: "Cancel the Subscription at the end of the period",
+    description:
+      "Sets the user's Subscription to end when the paid period does, with no refund: the Plan and the Seats stay until then. Answers the last day and how many people lose access to the user's Companies on it. The Subscription changes when Stripe's event arrives, but the answer is already final.",
+    // Ends a payment agreement: nothing an agent does for the person.
+    "x-mcp": false,
+    middleware: [on, requireIdentity] as const,
+    responses: {
+      200: { description: "The Subscription ends with the period.", content: { "application/json": { schema: Canceled } } },
+      401: unauthenticatedResponse,
+      404: errorResponse("Billing is off, or the user has no Subscription.", "NOT_FOUND", "NO_SUBSCRIPTION"),
+      409: errorResponse("The Subscription is already set to end.", "ALREADY_CANCELED"),
       502: errorResponse("Stripe did not answer.", "BILLING_UNAVAILABLE"),
     },
   });
@@ -186,6 +246,7 @@ export function billingApi(entitlements: readonly string[]) {
       const catalog = await readCatalog(billing);
       if (!catalog) return c.json(apiError("BILLING_UNAVAILABLE"), 502);
       const { plan, live } = await planOf(c.var.db, catalog, c.var.identity.user.id);
+      const losingAccess = live ? await peopleLosingAccess(c.var.db, catalog, c.var.identity.user.id) : 0;
       return c.json(
         {
           plan,
@@ -194,6 +255,8 @@ export function billingApi(entitlements: readonly string[]) {
                 status: live.status as (typeof LIVE)[number],
                 periodEnd: live.periodEnd?.toISOString() ?? null,
                 cancelAtPeriodEnd: live.cancelAtPeriodEnd ?? false,
+                pastDueUntil: live.status === "past_due" && live.periodStart ? retryDeadline(live.periodStart).toISOString() : null,
+                losingAccess,
               }
             : null,
           plans: catalog.plans satisfies Plan[],
@@ -216,6 +279,55 @@ export function billingApi(entitlements: readonly string[]) {
       }
       // Whoever owns nothing still holds the one Seat of their own account.
       return c.json({ used: Math.max(countSeats(people), 1), total: seatsOf(plan), companies: [...companies.values()] }, 200);
+    })
+    .openapi(portalRoute(on), async (c) => {
+      const billing = billingFor(c, entitlements)!;
+      const { user } = c.var.identity;
+      const [row] = await c.var.db.select({ customer: users.stripeCustomerId }).from(users).where(eq(users.id, user.id));
+      if (!row?.customer) return c.json(apiError("NO_SUBSCRIPTION"), 404);
+      try {
+        // The Product's own configuration: the one `pnpm bootstrap` tagged with its id.
+        let configuration: string | undefined;
+        for await (const candidate of billing.stripe.billingPortal.configurations.list({ active: true, limit: 100 })) {
+          if (candidate.metadata?.productId === billing.productId) {
+            configuration = candidate.id;
+            break;
+          }
+        }
+        if (!configuration) {
+          console.error(`Stripe has no Customer Portal configuration tagged with the Product "${billing.productId}".`);
+          return c.json(apiError("BILLING_UNAVAILABLE"), 502);
+        }
+        const session = await billing.stripe.billingPortal.sessions.create({
+          customer: row.customer,
+          configuration,
+          return_url: new URL(PLAN_PAGE, c.req.url).toString(),
+        });
+        return c.json({ url: session.url }, 200);
+      } catch (error) {
+        console.error("Opening the Customer Portal failed:", error);
+        return c.json(apiError("BILLING_UNAVAILABLE"), 502);
+      }
+    })
+    .openapi(cancelRoute(on), async (c) => {
+      const billing = billingFor(c, entitlements)!;
+      const { user } = c.var.identity;
+      const owned = await c.var.db.select().from(subscriptions).where(eq(subscriptions.referenceId, user.id));
+      const live = owned.find((row) => (LIVE as readonly string[]).includes(row.status));
+      if (!live?.stripeSubscriptionId) return c.json(apiError("NO_SUBSCRIPTION"), 404);
+      if (live.cancelAtPeriodEnd) return c.json(apiError("ALREADY_CANCELED"), 409);
+      const catalog = await readCatalog(billing);
+      if (!catalog) return c.json(apiError("BILLING_UNAVAILABLE"), 502);
+      const losingAccess = await peopleLosingAccess(c.var.db, catalog, user.id);
+      try {
+        await billing.stripe.subscriptions.update(live.stripeSubscriptionId, { cancel_at_period_end: true });
+      } catch (error) {
+        console.error("Canceling the Subscription failed:", error);
+        return c.json(apiError("BILLING_UNAVAILABLE"), 502);
+      }
+      // Stripe's event says the same; writing it now keeps the page right if the event is late.
+      await c.var.db.update(subscriptions).set({ cancelAtPeriodEnd: true }).where(eq(subscriptions.id, live.id));
+      return c.json({ endsAt: live.periodEnd?.toISOString() ?? null, losingAccess }, 200);
     })
     .openapi(subscribeRoute(on), async (c) => {
       const billing = billingFor(c, entitlements)!;
