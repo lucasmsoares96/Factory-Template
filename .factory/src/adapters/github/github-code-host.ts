@@ -30,6 +30,7 @@ const prRow = z.object({
   state: z.enum(["open", "closed"]),
   draft: z.boolean().default(false),
   node_id: z.string().optional(),
+  merged_at: z.string().nullable().optional(),
   head: z.object({ ref: z.string(), sha: z.string(), repo: z.object({ full_name: z.string() }).nullable().optional() }),
   base: z.object({ ref: z.string() }),
   labels: z.array(z.object({ name: z.string() })).default([]),
@@ -120,6 +121,13 @@ export class GitHubCodeHost implements CodeHost {
     const owner = this.options.repo.split("/")[0]!;
     const rows = await this.api.get(this.api.repoPath(`/pulls?state=open&head=${encodeURIComponent(`${owner}:${branch}`)}`), z.array(prRow));
     return rows[0] ? toPr(rows[0], this.options.repo) : null;
+  }
+
+  async mergedPrFor(branch: string): Promise<PullRequest | null> {
+    const owner = this.options.repo.split("/")[0]!;
+    const rows = await this.api.get(this.api.repoPath(`/pulls?state=closed&head=${encodeURIComponent(`${owner}:${branch}`)}`), z.array(prRow));
+    const merged = rows.find((row) => row.merged_at && row.base.ref === this.options.baseBranch);
+    return merged ? toPr(merged, this.options.repo) : null;
   }
 
   async openPullRequests(): Promise<PullRequest[]> {

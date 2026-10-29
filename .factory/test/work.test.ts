@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
 import { PROMPTS_DIR, snapshotPrompts } from "../src/prompts.ts";
-import { checkout, commitFile, git, tempDir, world, type WorldOptions } from "./helpers.ts";
+import { checkout, commitFile, git, tempDir, world, type WorldOptions, ISSUE_VERDICTS } from "./helpers.ts";
 
 const develop: AgentStep = async ({ cwd }) => {
   await commitFile(cwd, "src/greet.ts", 'export const greet = () => "hi";\n', "feat: greet the user #7");
@@ -12,7 +12,7 @@ const develop: AgentStep = async ({ cwd }) => {
 
 const reviewWithFix: AgentStep = async ({ cwd }) => {
   await commitFile(cwd, "src/greet.ts", 'export const greet = (): string => "hi";\n', "refactor: type greet #7");
-  const review = { summary: "Added a return type.", inline: [{ path: "src/greet.ts", line: 1, body: "Typed." }] };
+  const review = { summary: "Added a return type.", inline: [{ path: "src/greet.ts", line: 1, body: "Typed." }], criteria: ISSUE_VERDICTS };
   return { output: `Reviewed.\n<review>${JSON.stringify(review)}</review>`, usage: { inputTokens: 3000, outputTokens: 300 } };
 };
 
