@@ -1,7 +1,7 @@
 import { defaultConfig, loadConfig } from "../../src/config.ts";
 import { runBootstrap, type BootstrapDeps } from "../../src/bootstrap/cli.ts";
 import type { ProductIdentity } from "../../src/bootstrap/steps.ts";
-import { FakeAccounts, FakeCloudflare, FakeGitHub, FakeTokens, FakeNeon, FakePrompter, FakeResend, FakeWrangler } from "../../src/bootstrap/fake/fakes.ts";
+import { FakeAccounts, FakeCloudflare, FakeGitHub, FakeTokens, FakeNeon, FakePrompter, FakeResend, FakeStripe, FakeWrangler } from "../../src/bootstrap/fake/fakes.ts";
 
 export const TOKEN = "good-token";
 
@@ -13,12 +13,13 @@ export function world(answers: Record<string, string | boolean | string[]> = {},
   const tokens = new FakeTokens();
   const cloudflare = new FakeCloudflare();
   const resend = new FakeResend();
+  const stripe = new FakeStripe();
   const neon = new FakeNeon();
   const wrangler = new FakeWrangler(wranglerToken);
   cloudflare.validTokens.add(WRANGLER_TOKEN);
   const accounts = new FakeAccounts();
   const products = new Map<string, ProductIdentity>([
-    ["example", { id: "example", title: "Example", emailFrom: "Example <no-reply@example.com>", domain: "example.com" }],
+    ["example", { id: "example", title: "Example", emailFrom: "Example <no-reply@example.com>", domain: "example.com", billing: true }],
   ]);
   const prompter = new FakePrompter({ "cloudflare-token": TOKEN, "workers-dev-subdomain": "my-team", "example-issue": false, "factory-language": "en", "merge-mode": "human", ...answers });
   const lines: string[] = [];
@@ -30,6 +31,7 @@ export function world(answers: Record<string, string | boolean | string[]> = {},
     accounts,
     token: (token) => tokens.forToken(token),
     resend: (key) => resend.forKey(key),
+    stripe: (key) => stripe.forKey(key),
     product: async (id) => {
       const found = products.get(id);
       if (!found) throw new Error(`No Product at apps/${id}/product.config.ts`);
@@ -47,7 +49,7 @@ export function world(answers: Record<string, string | boolean | string[]> = {},
     const code = await runBootstrap(argv, deps);
     return { code, output: lines.join("\n") };
   };
-  return { github, tokens, cloudflare, wrangler, resend, neon, accounts, products, prompter, lines, deps, run };
+  return { github, tokens, cloudflare, wrangler, resend, stripe, neon, accounts, products, prompter, lines, deps, run };
 }
 
 export const staticLabelNames = Object.entries(defaultConfig.labels)

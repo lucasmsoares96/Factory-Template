@@ -2,6 +2,7 @@ import { accountNames } from "./accounts.ts";
 import { cloudflareAccountId, cloudflareCredential, LANGUAGE_VARIABLE } from "./common.ts";
 import { labelSpecs } from "./labels.ts";
 import { closedVariables, type FactoryConfig } from "../config.ts";
+import { billingChecks, hasBillingTrace } from "./billing-doctor.ts";
 import { MERGE_MODE_VARIABLE } from "./factory.ts";
 import { NO_DNS, NO_LOGIN, deployFirstMessage, productionEnvironment, productSecretName, readDnsState, readWorkerDomainState } from "./domain.ts";
 import { hasPreviewTrace, previewEnvironment, previewNames, previewProjectName, previewSecretPresent, PREVIEW_PRODUCTS, BASE_BRANCH } from "./previews.ts";
@@ -32,6 +33,8 @@ export interface Sections {
   previews?: boolean | "auto";
   /** Default false: the Factory token and Claude's auth (`bootstrap factory`). */
   factory?: boolean;
+  /** Default `"auto"`: the Billing section shows for a Product that already has a trace of it (a secret or a variable). */
+  billing?: boolean | "auto";
   /** Default true: the Cloudflare secrets and workers.dev, which the Factory module does not set up. */
   cloudflare?: boolean;
 }
@@ -150,6 +153,10 @@ export async function doctor(
       const previews = sections.previews ?? "auto";
       if (previews === true || (previews === "auto" && (await hasPreviewTrace(ctx, product.id, variables, secrets)))) {
         await previewChecks(ctx, product, variables, (status, name, detail) => add(`Previews (${productId})`, status, name, detail));
+      }
+      const billing = sections.billing ?? "auto";
+      if (billing === true || (billing === "auto" && (await hasBillingTrace(ctx, product.id, variables, secrets)))) {
+        await billingChecks(ctx, product, variables, options.prompt, (status, name, detail) => add(`Billing (${productId})`, status, name, detail));
       }
       const domainAdd = (status: CheckStatus, name: string, detail?: string) => add(group, status, name, detail);
       if (sections.domain === false) {
