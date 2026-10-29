@@ -9,6 +9,7 @@ import { useGetNav } from "../../../../gen/hooks/useGetNav.ts";
 import { errorCode, useErrorMessage, useMessages } from "../../../../client/i18n.tsx";
 import { format } from "../../../../i18n/index.ts";
 import { CompanySettings } from "../../company-settings.tsx";
+import { OwnershipOfferBanner } from "../../ownership-offer-banner.tsx";
 import { LeaveCompany, Members } from "../../members.tsx";
 import { InvitationsSection } from "../../../invitations/invitations-section.tsx";
 import { useRoleLabel } from "../../role-label.ts";
@@ -19,7 +20,8 @@ export const Route = createFileRoute("/_signed-in/c/$companyId/")({ component: C
 /**
  * The Company page: its name and the user's role, the features' `companyPage`
  * sections (`GET /api/nav`), the Members (with the Owner's actions on them), for
- * the Owner only the Invitations and the settings (rename, delete, transfer), and Leave.
+ * the Owner only the Invitations and the settings (rename, delete, offer the ownership), and Leave.
+ * A Member the ownership is offered to sees the offer first, to accept it.
  * Opening it makes it the Company the user lands on next time (the API records
  * it on `GET /api/companies/{companyId}`).
  */
@@ -82,10 +84,11 @@ function CompanyPage() {
           </CardContent>
         ) : null}
       </Card>
-      <Members key={companyId} companyId={companyId} isOwner={company.data.role === "owner"} />
+      {isOwner ? null : <OwnershipOfferBanner key={`offer-${companyId}`} companyId={companyId} />}
+      <Members key={`members-${companyId}`} companyId={companyId} isOwner={company.data.role === "owner"} />
       {company.data.role === "owner" ? <InvitationsSection companyId={companyId} /> : null}
       {/* The Owner's actions; the API refuses them to any other role. A new key resets the forms in another Company. */}
-      {company.data.role === "owner" ? <CompanySettings key={companyId} company={company.data} /> : null}
+      {company.data.role === "owner" ? <CompanySettings key={`settings-${companyId}`} company={company.data} /> : null}
       <LeaveCompany key={`leave-${companyId}`} companyId={companyId} />
     </div>
   );

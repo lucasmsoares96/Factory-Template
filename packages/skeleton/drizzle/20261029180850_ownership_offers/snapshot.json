@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "25ff17d8-c7d9-46df-87a2-d4d697babda0",
+  "id": "1abee383-9af8-4098-8b35-020be2ee2184",
   "prevIds": [
     "07d672d3-7fbe-4b4a-a29a-94a3184c1139"
   ],
@@ -43,6 +43,12 @@
     {
       "isRlsEnabled": false,
       "name": "members",
+      "entityType": "tables",
+      "schema": "skeleton"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "ownership_offers",
       "entityType": "tables",
       "schema": "skeleton"
     },
@@ -591,6 +597,84 @@
       "table": "members"
     },
     {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "skeleton",
+      "table": "ownership_offers"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "company_id",
+      "entityType": "columns",
+      "schema": "skeleton",
+      "table": "ownership_offers"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "recipient_id",
+      "entityType": "columns",
+      "schema": "skeleton",
+      "table": "ownership_offers"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "offered_by",
+      "entityType": "columns",
+      "schema": "skeleton",
+      "table": "ownership_offers"
+    },
+    {
+      "type": "timestamp(3) with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "expires_at",
+      "entityType": "columns",
+      "schema": "skeleton",
+      "table": "ownership_offers"
+    },
+    {
+      "type": "timestamp(3) with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "skeleton",
+      "table": "ownership_offers"
+    },
+    {
       "type": "timestamp(3) with time zone",
       "typeSchema": null,
       "notNull": false,
@@ -598,10 +682,23 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "suspended_at",
+      "name": "accepted_at",
       "entityType": "columns",
       "schema": "skeleton",
-      "table": "members"
+      "table": "ownership_offers"
+    },
+    {
+      "type": "timestamp(3) with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "canceled_at",
+      "entityType": "columns",
+      "schema": "skeleton",
+      "table": "ownership_offers"
     },
     {
       "type": "text",
@@ -1294,6 +1391,27 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "company_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": "\"accepted_at\" is null and \"canceled_at\" is null",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "ownership_offers_one_pending_idx",
+      "entityType": "indexes",
+      "schema": "skeleton",
+      "table": "ownership_offers"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "user_id",
           "isExpression": false,
           "asc": true,
@@ -1496,6 +1614,57 @@
     {
       "nameExplicit": false,
       "columns": [
+        "company_id"
+      ],
+      "schemaTo": "skeleton",
+      "tableTo": "companies",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "ownership_offers_company_id_companies_id_fkey",
+      "entityType": "fks",
+      "schema": "skeleton",
+      "table": "ownership_offers"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "recipient_id"
+      ],
+      "schemaTo": "skeleton",
+      "tableTo": "users",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "ownership_offers_recipient_id_users_id_fkey",
+      "entityType": "fks",
+      "schema": "skeleton",
+      "table": "ownership_offers"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "offered_by"
+      ],
+      "schemaTo": "skeleton",
+      "tableTo": "users",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "name": "ownership_offers_offered_by_users_id_fkey",
+      "entityType": "fks",
+      "schema": "skeleton",
+      "table": "ownership_offers"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "user_id"
       ],
       "schemaTo": "skeleton",
@@ -1586,6 +1755,16 @@
       "name": "member_roles_pkey",
       "schema": "skeleton",
       "table": "member_roles",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "ownership_offers_pkey",
+      "schema": "skeleton",
+      "table": "ownership_offers",
       "entityType": "pks"
     },
     {

@@ -26,7 +26,7 @@ import { startTestWorker, type TestWorker } from "./support/worker.ts";
 // getCompanyNote, listConnections and the Companies' and Invitations' reads (read),
 // createNote, revokeConnection, updateMe, createCompany, renameCompany, the
 // Members' and Invitations' writes and inviteFromNotes (write); deleteCompany and
-// transferOwnership are `x-mcp: false`.
+// the ownership offer's routes are `x-mcp: false`.
 
 /** A client that publishes its metadata (CIMD) instead of registering. */
 const CIMD_CLIENT_ID = "https://agent.example.com/oauth/client.json";
@@ -254,7 +254,7 @@ test("an agent creates and lists Companies as the user, and a Company they are n
   await client.close();
 });
 
-test("an agent renames a Company for its Owner, an Employee's agent gets a tool error, and no agent can delete or transfer it", async () => {
+test("an agent renames a Company for its Owner, an Employee's agent gets a tool error, and no agent can delete it or offer it away", async () => {
   const ana = await signedInUser();
   const bruno = await signedInUser("Bruno Lima");
   const company = (await (await worker.post("/api/companies", { name: "Acme" }, { cookie: ana.cookie })).json()) as {
@@ -274,13 +274,15 @@ test("an agent renames a Company for its Owner, an Employee's agent gets a tool 
   await expect(
     owners.client.callTool({ name: "deleteCompany", arguments: { companyId: company.id, body: { name: "Acme Corp" } } }),
   ).rejects.toThrow(/Tool deleteCompany not found/);
-  expect(names((await owners.client.listTools()).tools)).not.toContain("transferOwnership");
+  for (const tool of ["createOwnershipOffer", "getOwnershipOffer", "cancelOwnershipOffer", "acceptOwnershipOffer"]) {
+    expect(names((await owners.client.listTools()).tools)).not.toContain(tool);
+  }
   await expect(
     owners.client.callTool({
-      name: "transferOwnership",
+      name: "createOwnershipOffer",
       arguments: { companyId: company.id, body: { userId: bruno.user.id, name: "Acme Corp" } },
     }),
-  ).rejects.toThrow(/Tool transferOwnership not found/);
+  ).rejects.toThrow(/Tool createOwnershipOffer not found/);
 
   // Deleted in the app, the Company is gone for every former Member's agent on the next call.
   const deleted = await worker.fetch(`/api/companies/${company.id}`, {
