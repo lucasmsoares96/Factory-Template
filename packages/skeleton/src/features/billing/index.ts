@@ -1,5 +1,6 @@
 import { stripe } from "@better-auth/stripe";
 import { defineFeature, type Feature } from "../../platform/feature.ts";
+import { endSubscriptions, refuseActiveSubscription } from "./account-deletion.ts";
 import { billingApi, seatsOf } from "./api.ts";
 import type { Context } from "hono";
 import type { SkeletonEnv } from "../../platform/env.ts";
@@ -64,6 +65,10 @@ export function billing<const Name extends string>({ entitlements }: { entitleme
           },
         }),
       ];
+    },
+    events: {
+      accountArchiving: (event) => refuseActiveSubscription(event, entitlements),
+      accountPurging: (event) => endSubscriptions(event, entitlements),
     },
     async seatLimit(c, ownerId, options) {
       const on = billingFor(c, entitlements);

@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "244b1386-2535-418a-95f3-ffc351473420",
+  "id": "07d672d3-7fbe-4b4a-a29a-94a3184c1139",
   "prevIds": [
     "1086c80a-1640-474d-93e5-faba1becce5e"
   ],
@@ -591,19 +591,6 @@
       "table": "members"
     },
     {
-      "type": "timestamp(3) with time zone",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "suspended_at",
-      "entityType": "columns",
-      "schema": "skeleton",
-      "table": "members"
-    },
-    {
       "type": "text",
       "typeSchema": null,
       "notNull": true,
@@ -1015,6 +1002,19 @@
       "generated": null,
       "identity": null,
       "name": "stripe_customer_id",
+      "entityType": "columns",
+      "schema": "skeleton",
+      "table": "users"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "archived_at",
       "entityType": "columns",
       "schema": "skeleton",
       "table": "users"

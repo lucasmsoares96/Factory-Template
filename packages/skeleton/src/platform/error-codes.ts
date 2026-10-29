@@ -23,6 +23,8 @@ export const errorMessages = {
   ALREADY_SUBSCRIBED: "The user already has a Subscription.",
   BILLING_UNAVAILABLE: "Stripe did not answer.",
   MEMBER_SUSPENDED: "Your access to this Company is suspended: the Owner's Seats fall short.",
+  MEMBER_OF_COMPANIES: "You are a Member of these Companies. Ask their Owners to remove you before you delete your account.",
+  SUBSCRIPTION_ACTIVE: "You have an active Subscription. Cancel it before you delete your account.",
   NO_FREE_SEAT: "The Owner has no free Seat. Remove someone, cancel an Invitation or upgrade the Plan.",
   OWNER_OF_COMPANIES: "You are the Owner of these Companies. Transfer or delete them before you delete your account.",
 } as const;

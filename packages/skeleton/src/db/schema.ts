@@ -37,6 +37,12 @@ export const users = skeletonSchema.table("users", {
    * Not a Skeleton field: `@better-auth/stripe` reads and writes it, and only when billing is on.
    */
   stripeCustomerId: text("stripe_customer_id"),
+  /**
+   * When the user confirmed the deletion of the account: it is archived and goes for good 30 days
+   * later, unless the user signs in first (which clears this). Not a Better Auth field: the Skeleton
+   * sets and clears it (auth-options.ts, purge-archived.ts).
+   */
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
