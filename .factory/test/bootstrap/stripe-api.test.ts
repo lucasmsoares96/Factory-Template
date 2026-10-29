@@ -22,6 +22,9 @@ class FakeStripeApi {
   readonly prices: Obj[] = [];
   readonly portals: Obj[] = [];
   readonly webhooks: Obj[] = [];
+  readonly customers: Obj[] = [];
+  readonly subscriptions: Obj[] = [];
+  readonly keys: string[] = [];
   readonly methods: Obj[] = [{ id: "pmc_1", is_default: true, card: { display_preference: { preference: "on" } }, apple_pay: { display_preference: { preference: "off" } }, google_pay: { display_preference: { preference: "off" } } }];
   readonly calls: string[] = [];
   /** Resources whose reads the key is refused. */
@@ -38,6 +41,8 @@ class FakeStripeApi {
     if (this.denied.has(path)) {
       return Response.json({ error: { type: "invalid_request_error", message: `The provided key does not have the required permissions for this endpoint. Having the 'rak_${path.replace(/\//g, "_").replace(/s$/, "")}_read' permission would allow this request to continue.` } }, { status: 403 });
     }
+    const key = new Headers(init?.headers).get("idempotency-key");
+    if (key) this.keys.push(key);
     const list = (data: Obj[]) => Response.json({ object: "list", data, has_more: false, url: `/v1/${path}` });
     const make = (kind: string, fields: Obj) => ({ id: `${kind}_${++this.next}`, ...fields });
     if (method === "GET") {
@@ -49,6 +54,7 @@ class FakeStripeApi {
       if (path === "billing_portal/configurations") return list(this.portals);
       if (path === "webhook_endpoints") return list(this.webhooks);
       if (path === "payment_method_configurations") return list(this.methods);
+      if (path === "subscriptions") return list(this.subscriptions.filter((sub) => sub.customer === params.customer));
       return list([]);
     }
     if (method === "POST" && path === "products") {
@@ -70,6 +76,16 @@ class FakeStripeApi {
       const found = this.portals.find((portal) => path.endsWith(portal.id as string))!;
       Object.assign(found, { active: params.active === "true" });
       return Response.json(found);
+    }
+    if (method === "POST" && path === "customers") {
+      const customer = make("cus", { object: "customer", email: params.email, name: params.name, metadata: params.metadata ?? {} });
+      this.customers.push(customer);
+      return Response.json(customer);
+    }
+    if (method === "POST" && path === "subscriptions") {
+      const subscription = make("sub", { object: "subscription", customer: params.customer, items: params.items, trial_period_days: params.trial_period_days, trial_settings: params.trial_settings, metadata: params.metadata ?? {} });
+      this.subscriptions.push(subscription);
+      return Response.json(subscription);
     }
     if (method === "POST" && path === "webhook_endpoints") {
       const hook = make("we", { object: "webhook_endpoint", url: params.url, metadata: params.metadata ?? {}, enabled_events: Object.values(params.enabled_events), secret: `whsec_${this.next}` });
@@ -203,5 +219,49 @@ describe("StripeApi against a fake Stripe", () => {
     const api = new StripeApi("rk_test_fake", { httpClient: Stripe.createFetchHttpClient(async () => Response.json({ error: { type: "api_error", message: "boom" } }, { status: 500 })) });
 
     await expect(api.missingPermissions()).rejects.toThrow(/boom/);
+  });
+
+  it("makes a customer tagged with the Product and the user, once per user", async () => {
+    const { stripe, api } = client();
+
+    const id = await api.createCustomer("example", { userId: "u1", email: "ana@example.com", name: "Ana" });
+
+    expect(id).toBe(stripe.customers[0]!.id);
+    expect(stripe.customers[0]).toMatchObject({ email: "ana@example.com", name: "Ana", metadata: { productId: "example", userId: "u1" } });
+    expect(stripe.keys).toEqual(["example-customer-u1"]);
+  });
+
+  it("starts a trial with no card that Stripe cancels at its end, on the price of the lookup key and for the Seats", async () => {
+    const { stripe, api } = client();
+    await api.ensurePlan("example", PRO);
+
+    const result = await api.startTrial("example", { customerId: "cus_1", userId: "u1", lookupKey: "example_pro_monthly", seats: 2, days: 14 });
+
+    expect(result).toBe("started");
+    expect(stripe.subscriptions[0]).toMatchObject({
+      customer: "cus_1",
+      trial_period_days: "14",
+      trial_settings: { end_behavior: { missing_payment_method: "cancel" } },
+      metadata: { productId: "example", userId: "u1" },
+    });
+    expect(stripe.subscriptions[0]!.items[0]).toMatchObject({ price: stripe.prices[0]!.id, quantity: "2" });
+    expect(stripe.keys).toContain("example-trial-u1");
+  });
+
+  it("starts no second Subscription for a customer that has one", async () => {
+    const { stripe, api } = client();
+    await api.ensurePlan("example", PRO);
+    await api.startTrial("example", { customerId: "cus_1", userId: "u1", lookupKey: "example_pro_monthly", seats: 1, days: 14 });
+
+    const again = await api.startTrial("example", { customerId: "cus_1", userId: "u1", lookupKey: "example_pro_monthly", seats: 1, days: 14 });
+
+    expect(again).toBe("exists");
+    expect(stripe.subscriptions).toHaveLength(1);
+  });
+
+  it("refuses to start a trial on a price that is not in Stripe", async () => {
+    const { api } = client();
+
+    await expect(api.startTrial("example", { customerId: "cus_1", userId: "u1", lookupKey: "example_pro_monthly", seats: 1, days: 14 })).rejects.toThrow(/No price example_pro_monthly/);
   });
 });
