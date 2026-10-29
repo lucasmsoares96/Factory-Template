@@ -325,19 +325,30 @@ function ChangeEmail() {
 
 type Company = { id: string; name: string };
 
-/** The Companies a refused deletion names (`OWNER_OF_COMPANIES`), if the error is that one. */
-function ownedCompanies(error: unknown): Company[] {
-  if (errorCode(error) !== "OWNER_OF_COMPANIES" || typeof error !== "object" || error === null) return [];
+/** The Companies a refused deletion names (`OWNER_OF_COMPANIES`, `MEMBER_OF_COMPANIES`), if the error is one of those. */
+function namedCompanies(error: unknown): Company[] {
+  const code = errorCode(error);
+  if ((code !== "OWNER_OF_COMPANIES" && code !== "MEMBER_OF_COMPANIES") || typeof error !== "object" || error === null) return [];
   const companies = "companies" in error ? error.companies : undefined;
   return Array.isArray(companies) ? (companies as Company[]) : [];
+}
+
+/** Until when an active plan stays valid once canceled, which a refused deletion (`SUBSCRIPTION_ACTIVE`) carries. */
+function subscriptionPeriodEnd(error: unknown): Date | null | undefined {
+  if (errorCode(error) !== "SUBSCRIPTION_ACTIVE" || typeof error !== "object" || error === null) return undefined;
+  // Better Auth's client turns ISO timestamps in an answer into Dates.
+  const end = "periodEnd" in error ? new Date(error.periodEnd as string | Date) : undefined;
+  return end && !Number.isNaN(end.getTime()) ? end : null;
 }
 
 /**
  * The signed-in user deletes their account, confirming with the password in a
  * form opened on purpose. The Worker is the only judge: it refuses an Owner
- * (`OWNER_OF_COMPANIES`, with the Companies, linked here to their pages where
- * they can be deleted) and a wrong password (`INVALID_PASSWORD`). Once deleted,
- * the user goes to the sign-in screen with nothing of theirs in the cache.
+ * (`OWNER_OF_COMPANIES`) and a Member (`MEMBER_OF_COMPANIES`), with the
+ * Companies linked here to their pages, an active plan (`SUBSCRIPTION_ACTIVE`,
+ * with the day it stays valid once canceled, not refunded) and a wrong password
+ * (`INVALID_PASSWORD`). Once confirmed, the account is archived for 30 days: the
+ * user goes to the sign-in screen, which says so, with nothing of theirs in the cache.
  */
 function DeleteAccount() {
   const t = useMessages().account.delete;
@@ -360,7 +371,9 @@ function DeleteAccount() {
       queryClient.clear();
     },
   });
-  const owned = ownedCompanies(error);
+  const named = namedCompanies(error);
+  const periodEnd = subscriptionPeriodEnd(error);
+  const language = document.documentElement.lang || undefined;
 
   return (
     <Card>
@@ -403,9 +416,22 @@ function DeleteAccount() {
               <Alert variant="destructive">
                 <AlertDescription>
                   <p>{errorMessage(error)}</p>
-                  {owned.length > 0 ? (
+                  {errorCode(error) === "MEMBER_OF_COMPANIES" ? <p>{t.companiesToLeave}</p> : null}
+                  {periodEnd !== undefined ? (
+                    <p>
+                      {periodEnd
+                        ? format(t.subscriptionEnds, {
+                            date: new Intl.DateTimeFormat(language, { dateStyle: "medium" }).format(periodEnd),
+                          })
+                        : t.subscriptionEndsUnknown}{" "}
+                      <Link to="/account/plan" className="underline">
+                        {t.planLink}
+                      </Link>
+                    </p>
+                  ) : null}
+                  {named.length > 0 ? (
                     <ul className="list-disc pl-5">
-                      {owned.map((company) => (
+                      {named.map((company) => (
                         <li key={company.id}>
                           <Link to="/c/$companyId" params={{ companyId: company.id }} className="underline">
                             {company.name}
