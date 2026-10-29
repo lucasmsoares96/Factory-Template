@@ -74,6 +74,10 @@ export const catalog = {
     en: (): string => "The Review found acceptance criteria that are not met.",
     "pt-BR": () => "A Review encontrou critérios de aceitação que não foram atendidos.",
   }),
+  verdictsMissing: text({
+    en: (missing: number, total: number): string => `The final Review gave no verdict for ${missing} of the ${total} acceptance criteria, so none of them is shown to be met.`,
+    "pt-BR": (missing, total) => `A Review final não deu veredito para ${missing} dos ${total} critérios de aceitação, então nenhum deles está provado como atendido.`,
+  }),
   criteriaUnmet: text({ en: (): string => "**Criteria not met**", "pt-BR": () => "**Critérios não atendidos**" }),
   question: text({ en: (question: string) => `**Question:** ${question}`, "pt-BR": (question) => `**Pergunta:** ${question}` }),
   attempts: text({ en: (): string => "**Attempts**", "pt-BR": () => "**Tentativas**" }),
