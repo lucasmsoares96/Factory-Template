@@ -235,8 +235,8 @@ test("GET /api/companies/{companyId}/members lists the Members with name, email 
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual({
     items: [
-      { userId: ana.user.id, name: "Ana Souza", email: ana.user.email, role: "owner" },
-      { userId: bruno.user.id, name: "Bruno Lima", email: bruno.user.email, role: "employee" },
+      { userId: ana.user.id, name: "Ana Souza", email: ana.user.email, role: "owner", suspended: false },
+      { userId: bruno.user.id, name: "Bruno Lima", email: bruno.user.email, role: "employee", suspended: false },
     ],
     nextCursor: null,
   });
@@ -336,8 +336,9 @@ test("every Company route is described in the OpenAPI document under /api/compan
       ["createCompany", "/api/companies", ["201", "400", "401"]],
       ["listCompanies", "/api/companies", ["200", "400", "401"]],
       ["getLastCompany", "/api/me/last-company", ["200", "401", "404"]],
-      ["getCompany", "/api/companies/{companyId}", ["200", "401", "404"]],
-      ["listMembers", "/api/companies/{companyId}/members", ["200", "400", "401", "404"]],
+      ["getCompany", "/api/companies/{companyId}", ["200", "401", "403", "404"]],
+      ["listMembers", "/api/companies/{companyId}/members", ["200", "400", "401", "403", "404"]],
+      ["listSuspendedMembers", "/api/companies/{companyId}/suspended-members", ["200", "400", "401", "403", "404"]],
       ["renameCompany", "/api/companies/{companyId}", ["200", "400", "401", "403", "404"]],
       ["deleteCompany", "/api/companies/{companyId}", ["204", "400", "401", "403", "404"]],
     ]),
