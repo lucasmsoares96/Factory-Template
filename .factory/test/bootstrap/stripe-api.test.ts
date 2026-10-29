@@ -66,6 +66,11 @@ class FakeStripeApi {
       this.portals.push(portal);
       return Response.json(portal);
     }
+    if (method === "POST" && path.startsWith("billing_portal/configurations/")) {
+      const found = this.portals.find((portal) => path.endsWith(portal.id as string))!;
+      Object.assign(found, { active: params.active === "true" });
+      return Response.json(found);
+    }
     if (method === "POST" && path === "webhook_endpoints") {
       const hook = make("we", { object: "webhook_endpoint", url: params.url, metadata: params.metadata ?? {}, enabled_events: Object.values(params.enabled_events), secret: `whsec_${this.next}` });
       this.webhooks.push(hook);
@@ -179,7 +184,19 @@ describe("StripeApi against a fake Stripe", () => {
       }),
     });
 
-    expect(await api2.missingPermissions()).toEqual(["rak_price_write"]);
+    expect(await api2.missingPermissions()).toEqual(["rak_plan_write"]);
+  });
+
+  it("tries a portal write and names the permission Stripe asks for when it is refused", async () => {
+    const { stripe, api } = client();
+    expect(await api.missingPermissions()).toEqual([]);
+    expect(stripe.calls).toContain("POST billing_portal/configurations");
+    expect(stripe.portals).toHaveLength(1);
+    expect(stripe.portals[0]!.active).toBe(false);
+
+    stripe.denied.add("billing_portal/configurations");
+
+    expect(await api.missingPermissions()).toEqual(["rak_billing_portal_configuration_read"]);
   });
 
   it("lets any other failure through instead of calling it a missing permission", async () => {
