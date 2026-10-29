@@ -9,8 +9,13 @@ export type WranglerRun = (args: string[], options: { env: Record<string, string
 // `pnpm --filter @factory/harness exec` finds the pinned `wrangler` (a devDependency) from any directory of the repo.
 const WRANGLER = ["--filter", "@factory/harness", "exec", "wrangler"];
 
-/** What `pnpm exec` prints when the `wrangler` binary (or the harness package that holds it) is not there. */
-const NOT_INSTALLED = /Command "wrangler" not found|ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL|No projects matched/;
+/**
+ * What `pnpm exec` prints when the `wrangler` binary (or the harness package that holds it) is not there. Not
+ * `ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL`: pnpm prints that for any non-zero exit of wrangler, such as "not logged in".
+ */
+const NOT_INSTALLED = /Command "wrangler" not found|No projects matched/;
+
+export const wranglerMissing = (stderr: string): boolean => NOT_INSTALLED.test(stderr);
 
 export const runWrangler: WranglerRun = (args, { env, inherit }) =>
   new Promise((resolve, reject) => {
@@ -22,7 +27,7 @@ export const runWrangler: WranglerRun = (args, { env, inherit }) =>
     }
     execFile("pnpm", [...WRANGLER, ...args], { env, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
       if (!error) return resolve(stdout);
-      if ((error as NodeJS.ErrnoException).code === "ENOENT" || NOT_INSTALLED.test(stderr)) return reject(new WranglerNotInstalled());
+      if ((error as NodeJS.ErrnoException).code === "ENOENT" || wranglerMissing(stderr)) return reject(new WranglerNotInstalled());
       // stdout may hold a token: only the subcommand and the tail of stderr are reported.
       reject(new Error(`wrangler ${args[0]} failed: ${stderr.trim().split("\n").slice(-3).join(" ").slice(0, 300) || error.message}`));
     });
