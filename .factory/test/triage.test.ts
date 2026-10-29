@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
 import { TRIAGE_MARKER } from "../src/guard.ts";
+import { SessionLimitError } from "../src/seams/agent.ts";
 import { HUMAN, OWNER, ISSUE_BODY, checkout, lastJson, tempDir, world, type World, type WorldOptions } from "./helpers.ts";
 
 // Seam 1: the Triage and `apply` through the CLI against the fakes.
@@ -28,7 +29,7 @@ function verdict(number: number, over: Record<string, unknown> = {}) {
 const block = (...issues: object[]) => `Done.\n<triage>${JSON.stringify({ issues })}</triage>`;
 const says = (...issues: object[]): AgentStep => () => ({ output: block(...issues) });
 
-async function setup(opts: { issues?: NonNullable<WorldOptions["issues"]>; triage: AgentStep[]; products?: string[]; env?: Record<string, string> }) {
+async function setup(opts: { issues?: NonNullable<WorldOptions["issues"]>; triage: AgentStep[]; products?: string[]; env?: Record<string, string>; now?: () => number }) {
   const repo = await checkout();
   for (const id of opts.products ?? ["example"]) await mkdir(join(repo, "apps", id), { recursive: true });
   const out = await tempDir("factory-triage-out-");
@@ -37,6 +38,7 @@ async function setup(opts: { issues?: NonNullable<WorldOptions["issues"]>; triag
     issues: opts.issues ?? [{ number: 5, title: "Greet", body: ISSUE_BODY, labels: explore }],
     agent: { triage: opts.triage },
     ...(opts.env ? { env: opts.env } : {}),
+    ...(opts.now ? { now: opts.now } : {}),
   });
   return { w, repo, out };
 }
@@ -691,5 +693,55 @@ describe("factory working: the Triage", () => {
     await s.w.factory("working", "off", "5");
 
     expect(s.w.tracker.labelsOf(5)).toContain("factory:working");
+  });
+});
+
+describe("factory triage: paused at the agent's usage limit", () => {
+  const limitHit: AgentStep = () => {
+    throw new SessionLimitError("Agent session 01-triage failed: claude-code exited with code 1:\nYou've hit your session limit · resets 3:20pm (UTC)", "3:20pm (UTC)");
+  };
+
+  it("keeps every issue of the batch in Triage, waiting for the reset, with no verdict", async () => {
+    const s = await setup({
+      issues: [
+        { number: 5, title: "Greet", body: ISSUE_BODY, labels: explore },
+        { number: 6, title: "Wave", body: ISSUE_BODY, labels: explore },
+      ],
+      triage: [limitHit],
+      now: () => Date.parse("2026-10-28T14:00:00Z"),
+    });
+
+    expect(await triage(s)).toBe(0);
+    expect(lastJson(s.w.logs)).toMatchObject({ triaged: [], paused: [5, 6] });
+    expect(await apply(s)).toBe(0);
+    // One switch-on for the whole batch.
+    expect(s.w.codeHost.sweepChanges).toEqual([true]);
+
+    for (const n of [5, 6]) {
+      expect(s.w.tracker.labelsOf(n)).toEqual(["agent:explore", "factory:session-limit"]);
+      expect(triageComments(s.w, n)).toEqual([]);
+      const [wait] = s.w.tracker.commentsOn(n).map((c) => c.body);
+      expect(wait).toContain('"flow":"triage"');
+      expect(wait).toContain("the Triage session hit the agent's usage limit, which resets 3:20pm (UTC). The Factory starts again on its own after 2026-10-28 15:20 UTC.");
+      expect(wait).toContain("The Triage of this issue starts again; it stays in `agent:explore`.");
+    }
+  });
+});
+
+describe("factory triage: an issue waiting for the reset", () => {
+  it("is left out of a Triage that runs before the reset, so it never leaves Triage with the wait's label on", async () => {
+    const s = await setup({
+      issues: [
+        { number: 5, title: "Greet", body: ISSUE_BODY, labels: { ...explore, "factory:session-limit": OWNER } },
+        { number: 8, title: "Wave", body: ISSUE_BODY, labels: explore },
+      ],
+      triage: [says(verdict(8))],
+    });
+
+    expect(await triage(s)).toBe(0);
+    expect(lastJson(s.w.logs)).toMatchObject({ triaged: [8], skipped: [5] });
+    expect(await apply(s)).toBe(0);
+    expect(s.w.tracker.labelsOf(5)).toEqual(["agent:explore", "factory:session-limit"]);
+    expect(s.w.tracker.labelsOf(8)).toEqual(["ready-for-agent"]);
   });
 });
