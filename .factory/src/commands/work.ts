@@ -66,6 +66,8 @@ export async function work(ctx: CommandContext, number: number | null, options: 
   const base = await resolveBase(git, config.baseBranch);
   // An issue run starts from the base branch, or from the commits a run whose session failed kept.
   await git.run("checkout", "--quiet", ...(flow ? [branch] : ["-B", branch, (await keptHead(ctx, git, issue)) ?? base]));
+  // The branch a round continues is read here, inside the issue's lock: `publish` leases its push against this head.
+  const startSha = flow ? await git.head() : null;
   // A branch that already contains the base branch has nothing to update.
   const upToDate = flow?.kind === "update-branch" && (await git.isAncestor(base, "HEAD"));
 
@@ -355,6 +357,7 @@ export async function work(ctx: CommandContext, number: number | null, options: 
     issue: issue.number,
     branch,
     base,
+    startSha,
     head,
     outcome: ready ? "ready" : paused ? "paused" : "escalated",
     reason: ready || paused ? null : reason,
