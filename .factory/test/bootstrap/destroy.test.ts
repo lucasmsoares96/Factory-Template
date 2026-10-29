@@ -61,7 +61,7 @@ describe("pnpm bootstrap destroy: refusals", () => {
 
     expect(code).toBe(1);
     expect(output).toMatch(/terminal/);
-    expect(calls).toEqual([]);
+    expect(calls).toEqual(["target", "repo"]);
     expect(w.wrangler.tokenChecks).toBe(0);
     expect(writes(w)).toEqual(before);
     expect(w.prompter.asked.includes("destroy-confirm")).toBe(false);
