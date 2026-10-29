@@ -8,6 +8,7 @@ import { SkeletonAccounts } from "./accounts.ts";
 import { CloudflareApi } from "./cloudflare.ts";
 import { commonSteps } from "./common.ts";
 import { runDestroy } from "./destroy.ts";
+import { declaredEntitlements } from "./entitlements.ts";
 import { doctor, formatReport, type Sections } from "./doctor.ts";
 import { GhCli } from "./github.ts";
 import { GitHubTokenApi } from "./token.ts";
@@ -124,7 +125,7 @@ export async function runBootstrap(argv: string[], deps: BootstrapDeps): Promise
   }
   if (command === "billing") {
     if (!productId) {
-      deps.log(`Usage: pnpm bootstrap billing <id> [--redo keys|plans|webhook]`);
+      deps.log(`Usage: pnpm bootstrap billing <id> [--redo keys|plans|entitlements|webhook]`);
       return 1;
     }
     const product = await productOrAsk(deps, productId);
@@ -290,7 +291,7 @@ export async function loadProduct(id: string): Promise<ProductIdentity> {
   if (!existsSync(file)) throw new Error(`No Product at apps/${id}/product.config.ts`);
   const parsed = ProductFile.safeParse((await import(pathToFileURL(file).href)).default);
   if (!parsed.success) throw new Error(`apps/${id}/product.config.ts does not export a valid Product: ${parsed.error.message}`);
-  return { ...parsed.data, billing: listsBilling(id) };
+  return { ...parsed.data, billing: listsBilling(id), entitlements: declaredEntitlements(resolve(import.meta.dirname, "../../.."), id) };
 }
 
 /** Whether `apps/<id>/src/features/index.ts` calls `billing(...)` (comments cut away): the file is TSX-free but imports workspace packages, so it is read as text. */
