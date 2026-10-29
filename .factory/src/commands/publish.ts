@@ -46,6 +46,13 @@ export interface PublishOptions {
    * dispatch workflows. Without it, the run's code host dispatches.
    */
   dispatchRetro?: (inputs: { issue: string; pr: string }) => Promise<void>;
+  /** This run is the pr-feedback round started again after a discard: a second discard comments on the PR instead. */
+  retry?: boolean;
+  /**
+   * Dispatches the pr-feedback round again with the job token (`actions: write`) after a discard because the branch
+   * moved. Without it, the run's code host dispatches.
+   */
+  redispatchRound?: (inputs: { pr: string; retry: string }) => Promise<void>;
   /** Switches the resume sweep on with the job token (`actions: write`) when a run pauses; without it, the run's code host does. */
   armResume?: () => Promise<void>;
 }
@@ -66,7 +73,7 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
 
   const quietMoved = options.flow === "update-branch";
   const state = await recheck(ctx, number, branch, options);
-  if (!state.ok) return discard(ctx, number, state.reason, quietMoved && state.moved);
+  if (!state.ok) return discard(ctx, number, state.reason, quietMoved && state.moved, state.moved ? options : undefined);
   const { issue, openPr } = state;
   // recheck holds the continued PR to `options.pr`: it is `openPr` in a PR round.
   const round = options.pr !== null ? openPr : null;
@@ -84,7 +91,7 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
   if (!head) return escalate(ctx, issue, { reason: escalationReason(result), result, pr: null, runUrl: options.runUrl }, round, options.dispatchRetro);
 
   const push = await ctx.codeHost.push({ branch, sha: head, expectedSha: options.startSha });
-  if (!push.ok) return discard(ctx, number, (m) => m.branchMoved(branch), quietMoved);
+  if (!push.ok) return discard(ctx, number, (m) => m.branchMoved(branch), quietMoved, options);
 
   const lines = await diffLines(git, result.base, head);
   const sensitivePaths = changed.filter(isSensitivePath);
@@ -201,11 +208,27 @@ async function recheck(ctx: CommandContext, number: number, branch: string, opti
   return { ok: true, issue, openPr };
 }
 
-/** Comments why the run was discarded on the issue; a quiet discard writes it to the log alone. */
-async function discard(ctx: CommandContext, number: number, reason: DiscardReason, quiet = false): Promise<PublishResult> {
+/**
+ * Comments why the run was discarded on the issue; a quiet discard writes it to the log alone. A round on a pull request
+ * (not an update-branch) discarded because the branch moved is dispatched again once, from the new head; if that one is
+ * discarded too, the pull request says so. `moved` runs pass their options: only they may start the round again.
+ */
+async function discard(ctx: CommandContext, number: number, reason: DiscardReason, quiet = false, moved?: PublishOptions): Promise<PublishResult> {
   const m = messages(ctx.config.language);
   if (quiet) ctx.log(messages("en").discarded(reason(messages("en"))));
   else await ctx.tracker.comment(number, m.discarded(reason(m)));
+  if (moved && moved.pr !== null && moved.flow !== "update-branch") {
+    if (moved.retry) await ctx.codeHost.commentPr(moved.pr, m.discardedTwice(reason(m)));
+    else {
+      const inputs = { pr: String(moved.pr), retry: "true" };
+      try {
+        await (moved.redispatchRound ? moved.redispatchRound(inputs) : ctx.codeHost.dispatch("pr-feedback", inputs));
+      } catch (error) {
+        ctx.log(`The round of PR #${moved.pr} was not started again: ${(error as Error).message}`);
+        await ctx.codeHost.commentPr(moved.pr, m.discarded(reason(m)));
+      }
+    }
+  }
   return { issue: number, outcome: "discarded", reason: reason(messages("en")) };
 }
 
@@ -331,7 +354,7 @@ async function pause(ctx: CommandContext, issue: Issue, result: FactoryResult, o
   let pushed = false;
   if (result.head !== null && result.flow !== "update-branch") {
     const push = await codeHost.push({ branch: result.branch, sha: result.head, expectedSha: options.startSha });
-    if (!push.ok) return discard(ctx, issue.number, (m) => m.branchMoved(result.branch));
+    if (!push.ok) return discard(ctx, issue.number, (m) => m.branchMoved(result.branch), false, options);
     pushed = true;
   }
   const flow = options.pr === null ? "issue" : result.flow === "issue" ? "pr-feedback" : result.flow;
