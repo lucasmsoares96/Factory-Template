@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { issueBranch } from "../config.ts";
 import { diffLines, filterToDiff, type DiffLines } from "../diff.ts";
+import { forForge } from "../forge-text.ts";
 import { Git } from "../git.ts";
 import { messages, type Language, type Messages } from "../messages.ts";
 import { isHarnessPath, isSensitivePath } from "../paths.ts";
@@ -72,7 +73,7 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
 
   let result: FactoryResult;
   try {
-    result = await loadArtifacts(git, number, branch, options.in);
+    result = forForge(await loadArtifacts(git, number, branch, options.in));
   } catch (error) {
     return escalate(ctx, issue, { reason: "infra", result: null, detail: (error as Error).message, pr: null, runUrl: options.runUrl }, round, options.dispatchRetro);
   }
@@ -143,7 +144,7 @@ export async function publishPrUpdate(ctx: CommandContext, number: number, optio
 
   let result: FactoryResult;
   try {
-    result = await loadArtifacts(git, number, pr.branch, options.in);
+    result = forForge(await loadArtifacts(git, number, pr.branch, options.in));
   } catch (error) {
     const detail = (error as Error).message;
     return stop("infra", m.updateNoResult(config.baseBranch, detail) + runLine(options.runUrl, config.language));
@@ -289,7 +290,7 @@ async function pullRequest(
 /**
  * The body in four parts (the print references swapped by `withEvidence`): the warnings and the follow-up note (deterministic),
  * the Pull Request Stage text (or the minimal sentence), the final Review's verdict on each acceptance criterion, `Closes #N`.
- * The agent never writes the first and last parts; a closing keyword in its text is dropped.
+ * The agent never writes the first and last parts; its text and verdicts come cleaned by `forForge`.
  */
 function prBody(
   issue: Issue,
@@ -309,28 +310,9 @@ function prBody(
     warnings.push("> [!CAUTION]", `> ${m.harnessFiles(input.harnessPaths)}`, "");
   }
   if (input.followUps.length > 0) warnings.push("> [!NOTE]", `> ${followUpComment(input.followUps, language).replaceAll("\n", "\n> ")}`, "");
-  const text = input.text ? withoutAttribution(withoutClosingKeywords(input.text)) : m.minimalBody();
-  const middle = withEvidence(text, input.images, input.appendable);
-  // The verdicts are the agent's words too: no closing keyword in them either.
-  const verdicts = verdictsSection(input.criteria, language).map(withoutClosingKeywords);
+  const middle = withEvidence(input.text || m.minimalBody(), input.images, input.appendable);
+  const verdicts = verdictsSection(input.criteria, language);
   return [...warnings, middle, ...(verdicts.length > 0 ? ["", ...verdicts] : []), "", `Closes #${issue.number}`].join("\n");
-}
-
-/** The `pr` skill's template ends with a tool attribution line; the Factory's body is the harness's, not the tool's. */
-function withoutAttribution(text: string): string {
-  return text.replace(/^[ \t]*(?:🤖[ \t]*)?Generated with \[?Claude Code\]?.*$\n?|^[ \t]*Co-Authored-By:.*$\n?/gim, "").trim();
-}
-
-const REF = String.raw`(?:[\w.-]+\/[\w.-]+)?#\d+`;
-const CLOSING = new RegExp(String.raw`\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b:?[ \t]+${REF}(?:[ \t]*(?:,|\band\b)[ \t]*${REF})*`, "gi");
-
-/**
- * `Closes #9` written by the agent would close the wrong issue: only `publish` writes it. A line that is only a closing
- * reference goes; one inside a sentence becomes a placeholder so the rest still reads.
- */
-function withoutClosingKeywords(text: string): string {
-  const alone = new RegExp(String.raw`^[ \t>*-]*${CLOSING.source}\.?[ \t]*$\n?`, "gim");
-  return text.replace(alone, "").replace(CLOSING, "[closing reference removed]").trim();
 }
 
 /** The review of every attempt, inline comments filtered to the diff, tokens and cost in the footer. */
