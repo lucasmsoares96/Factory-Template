@@ -64,6 +64,8 @@ export async function startTestWorker({ databaseUrl, vars }: { databaseUrl: stri
       const { keys } = await env.OAUTH_KV.list({ prefix });
       return keys.map((key) => key.name.slice(prefix.length)).filter((id) => !id.includes(":"));
     },
+    /** Fires the Worker's cron trigger, as Cloudflare does: the daily sweep of archived accounts. */
+    scheduled: () => server.getWorker().scheduled({ cron: "0 3 * * *", scheduledTime: new Date() }),
     /** Prints the Worker's runtime logs; call it when a test fails. */
     debug: () => server.debug(),
     close: () => server.close(),

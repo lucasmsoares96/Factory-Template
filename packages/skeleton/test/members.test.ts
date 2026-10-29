@@ -83,7 +83,7 @@ test("the Owner changes another Member's role to any role of member_roles but ow
   const promoted = await changeRole(company.id, bruno.user.id, ana.cookie, "manager");
 
   expect(promoted.status).toBe(200);
-  expect(await promoted.json()).toEqual({ userId: bruno.user.id, name: "Bruno Lima", email: bruno.user.email, role: "manager" });
+  expect(await promoted.json()).toEqual({ userId: bruno.user.id, name: "Bruno Lima", email: bruno.user.email, role: "manager", suspended: false });
   expect(await roleOf(company.id, bruno.user.id)).toEqual([{ role: "manager" }]);
   expect(await (await api(`/api/companies/${company.id}`, { cookie: bruno.cookie })).json()).toMatchObject({ role: "manager" });
 

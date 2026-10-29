@@ -104,13 +104,19 @@
           "type": "string",
           "description": "The Member's role: `owner`, `employee`, or a role the Product adds.",
           "example": "owner"
+        },
+        "suspended": {
+          "type": "boolean",
+          "description": "Whether the Member is suspended: they keep their place but cannot enter the Company, because the Owner's Seats fall short.",
+          "example": false
         }
       },
       "required": [
         "userId",
         "name",
         "email",
-        "role"
+        "role",
+        "suspended"
       ]
     },
     "annotations": {
@@ -1243,7 +1249,7 @@
   {
     "name": "listMembers",
     "title": "List a Company's Members",
-    "description": "Answers the Members of a Company the signed-in user belongs to (name, email and role), in the order they joined: a page of `limit` (50 by default) and the `nextCursor` of the next page.",
+    "description": "Answers the Members of a Company the signed-in user belongs to (name, email, role and whether they are suspended), in the order they joined: a page of `limit` (50 by default) and the `nextCursor` of the next page.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1299,13 +1305,19 @@
                 "type": "string",
                 "description": "The Member's role: `owner`, `employee`, or a role the Product adds.",
                 "example": "owner"
+              },
+              "suspended": {
+                "type": "boolean",
+                "description": "Whether the Member is suspended: they keep their place but cannot enter the Company, because the Owner's Seats fall short.",
+                "example": false
               }
             },
             "required": [
               "userId",
               "name",
               "email",
-              "role"
+              "role",
+              "suspended"
             ]
           },
           "description": "This page's items."
@@ -1332,6 +1344,116 @@
     "http": {
       "method": "GET",
       "path": "/api/companies/{companyId}/members",
+      "pathParams": [
+        "companyId"
+      ],
+      "queryParams": [
+        "limit",
+        "cursor"
+      ],
+      "body": false,
+      "output": "object"
+    }
+  },
+  {
+    "name": "listSuspendedMembers",
+    "title": "List a Company's Suspended Members",
+    "description": "The Owner sees the Members of the Company who cannot enter it because the Owner's Seats fall short, the one suspended the longest first (the first to come back when a Seat is free): a page of `limit` (50 by default) and the `nextCursor` of the next page. Only the Owner may.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "companyId": {
+          "type": "string",
+          "description": "The Company's id.",
+          "example": "2f1c6a0e-8d1b-4a51-9f3e-6b0c1d2e3f40"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 50,
+          "description": "How many items to answer, 1 to 100.",
+          "example": 50
+        },
+        "cursor": {
+          "type": "string",
+          "description": "The `nextCursor` of the previous page; without it, the first page.",
+          "example": "WyIyMDI2LTEwLTI0VDEyOjAwOjAwLjAwMFoiLCJpZCJd"
+        }
+      },
+      "required": [
+        "companyId"
+      ],
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "userId": {
+                "type": "string",
+                "description": "The Member's user id.",
+                "example": "8yW1kQfV0d3sLx9bTq2nZ"
+              },
+              "name": {
+                "type": "string",
+                "description": "The Member's name.",
+                "example": "Ana Souza"
+              },
+              "email": {
+                "type": "string",
+                "format": "email",
+                "description": "The Member's email.",
+                "example": "ana@example.com"
+              },
+              "role": {
+                "type": "string",
+                "description": "The Member's role: `owner`, `employee`, or a role the Product adds.",
+                "example": "owner"
+              },
+              "suspendedAt": {
+                "type": "string",
+                "format": "date-time",
+                "description": "When the Member lost access.",
+                "example": "2026-10-29T12:00:00.000Z"
+              }
+            },
+            "required": [
+              "userId",
+              "name",
+              "email",
+              "role",
+              "suspendedAt"
+            ]
+          },
+          "description": "This page's items."
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Pass it as `cursor` for the next page; `null` on the last page."
+        }
+      },
+      "required": [
+        "items",
+        "nextCursor"
+      ]
+    },
+    "annotations": {
+      "title": "List a Company's Suspended Members",
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "scope": "read",
+    "http": {
+      "method": "GET",
+      "path": "/api/companies/{companyId}/suspended-members",
       "pathParams": [
         "companyId"
       ],
