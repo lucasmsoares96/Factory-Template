@@ -30,5 +30,7 @@
   // bootstrap); previews and `pnpm dev` override EMAIL_TRANSPORT with "outbox".
   "vars": { "EMAIL_TRANSPORT": "resend" },
   "secrets": { "required": ["DATABASE_URL", "BETTER_AUTH_SECRET"] },
+  // Once a day the Skeleton deletes the accounts whose 30 days of archive are over (and ends the paid Subscriptions they left).
+  "triggers": { "crons": ["0 3 * * *"] },
   "observability": { "enabled": true }
 }
