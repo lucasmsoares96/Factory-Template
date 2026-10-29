@@ -123,6 +123,8 @@ export interface CodeHost {
   push(input: { branch: string; sha: string; expectedSha: string | null }): Promise<PushResult>;
   /** The open pull request whose head is `branch`, if any. */
   openPrFor(branch: string): Promise<PullRequest | null>;
+  /** The pull request that was merged from `branch` into the base branch, if any. */
+  mergedPrFor(branch: string): Promise<PullRequest | null>;
   /** Every open pull request of the repository, drafts and forks included. */
   openPullRequests(): Promise<PullRequest[]>;
   /** Pull request `number` in any state, or null when it does not exist. */
