@@ -59,7 +59,7 @@ Optional, after Production.
 
 ## `pnpm bootstrap billing <id>`: the billing module
 
-Optional, after `product`; `billing.ts`, `billing-doctor.ts`, `billing-permissions.ts`, `stripe.ts` (real `StripeClient` on the Stripe SDK; `fake/fakes.ts` has the fake). `pnpm bootstrap env <id>` lists its variables, secrets and environment variables; `pnpm bootstrap all <id>` runs the Production module and then asks (`billing-setup`, default no) whether to set billing up.
+Optional, after `product`; `billing.ts`, `billing-doctor.ts`, `billing-permissions.ts`, `stripe.ts` (real `StripeClient` on the Stripe SDK; `fake/fakes.ts` has the fake). `pnpm bootstrap env <id>` lists its variables, secrets and environment variables; `pnpm bootstrap all <id>` runs the common part, `product`, `previews` and `factory` (stopping at the first whose doctor fails), then asks `domain-setup` (default no) and `billing-setup` (default no). Each command ends with a `next: ...` line (`cli.ts` `nextCommand`), none when everything is done.
 
 - Stops with an explanation unless `apps/<id>/src/features/index.ts` calls `billing(...)` (`loadProduct` reads it as text).
 - Steps `keys`, `plans`, `webhook`; then the doctor of the Product (Billing section). `--redo keys|plans|webhook` redoes one.
