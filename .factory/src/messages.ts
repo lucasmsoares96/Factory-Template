@@ -234,6 +234,10 @@ export const catalog = {
 
   // The other comments of `publish`.
   discarded: text({ en: (reason: string) => `Run discarded: ${reason}. Nothing was pushed.`, "pt-BR": (reason) => `Execução descartada: ${reason}. Nada foi enviado.` }),
+  discardedTwice: text({
+    en: (reason: string) => `The Factory discarded this feedback round twice and pushed nothing: ${reason}. The round was started again once from the new head of the branch and the branch moved again. Comment again to start another round.`,
+    "pt-BR": (reason) => `A Factory descartou esta rodada de feedback duas vezes e não enviou nada: ${reason}. A rodada recomeçou uma vez a partir do novo head do branch e o branch mudou de novo. Comente outra vez para iniciar outra rodada.`,
+  }),
   issueClosed: text({ en: (issue: number) => `issue #${issue} is closed`, "pt-BR": (issue) => `a issue #${issue} está fechada` }),
   issueUnlocked: text({ en: (issue: number, label: string) => `issue #${issue} no longer has \`${label}\``, "pt-BR": (issue, label) => `a issue #${issue} não tem mais \`${label}\`` }),
   pullRequestGone: text({ en: (pr: number) => `pull request #${pr} is no longer open`, "pt-BR": (pr) => `o pull request #${pr} não está mais aberto` }),
