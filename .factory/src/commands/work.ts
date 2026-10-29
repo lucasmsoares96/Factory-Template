@@ -295,7 +295,16 @@ export async function work(ctx: CommandContext, number: number | null, options: 
     question = `Development kept adding skipped or focused tests (${skippedFailure}), which prove nothing, so no acceptance criterion is shown to be met.`;
   }
   // Only the final Review judges the branch that gets published: one criterion it finds not met keeps the run from ready.
-  const verdicts = reviews.at(-1)?.criteria ?? [];
+  // The criterion that asks for the verify is the harness's: the E2E of this round decides it, not the Review session.
+  const finalReview = reviews.at(-1);
+  if (finalReview) {
+    finalReview.criteria = finalReview.criteria.map((v) =>
+      VERIFY_CRITERION.test(v.criterion)
+        ? { ...v, met: ready, proof: ready ? "The E2E of this round passed `pnpm factory:verify`." : "The E2E of this round did not pass `pnpm factory:verify`." }
+        : v,
+    );
+  }
+  const verdicts = finalReview?.criteria ?? [];
   const unmet = verdicts.filter((v) => !v.met);
   if (ready && unmet.length > 0 && flow?.kind !== "update-branch") {
     // The Escalation comment names each criterion and why, from the verdicts. An update-branch round only merges the
@@ -427,6 +436,9 @@ function runOutcome(run: { ready: boolean; reason: Reason; question: string | nu
   if (failed) lines.push(`Last failing E2E (\`${failed.failedCommand ?? "factory:verify"}\`), truncated:`, fence(failed.output!, "text"));
   return lines.join("\n");
 }
+
+/** A criterion that names the verify command (`factory:verify`, or the CI `verify`). Matched on the command, so it holds in any language. */
+const VERIFY_CRITERION = /factory:verify|`verify`/;
 
 /** The question of a Development session that ends with `<needs-human>…</needs-human>`. */
 function needsHuman(output: string): string | null {
