@@ -4,7 +4,8 @@ import { companies, invitations, memberRoles, members, users } from "../../db/sc
 import { invitationEmail } from "../../emails/invitation.tsx";
 import type { Database } from "../../platform/db.ts";
 import type { SkeletonEnv } from "../../platform/env.ts";
-import { emitMemberJoined } from "../../platform/feature.ts";
+import { emitMemberJoined, seatLimitOf } from "../../platform/feature.ts";
+import { countSeats, holdsSeat, lockSeats, ownerOf, seatPeople } from "../../platform/seats.ts";
 
 /** How long an Invitation's link works, from its creation or its last resend. */
 export const INVITATION_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
@@ -20,8 +21,8 @@ export type Invitation = {
   createdAt: string;
 };
 
-/** Why `createInvitation` refused: a 400 for an unknown or `owner` role, a 409 for the others. */
-export type InvitationRefusal = "VALIDATION_FAILED" | "ALREADY_A_MEMBER" | "INVITATION_PENDING";
+/** Why `createInvitation` refused: a 400 for an unknown or `owner` role, a 409 for the others (`NO_FREE_SEAT` when the Owner has no Seat left). */
+export type InvitationRefusal = "VALIDATION_FAILED" | "ALREADY_A_MEMBER" | "INVITATION_PENDING" | "NO_FREE_SEAT";
 
 export type CreateInvitationResult = { invitation: Invitation } | { refused: InvitationRefusal };
 
@@ -35,7 +36,9 @@ export type CreateInvitationResult = { invitation: Invitation } | { refused: Inv
  *
  * Refuses (`refused`) a role that is `owner` or not in `member_roles`
  * (`VALIDATION_FAILED`), an address that is already a Member (`ALREADY_A_MEMBER`)
- * and one with a pending Invitation to the Company (`INVITATION_PENDING`).
+ * and one with a pending Invitation to the Company (`INVITATION_PENDING`). Where
+ * a feature limits Seats (billing), it also refuses an address that would take a
+ * Seat the Company's Owner does not have (`NO_FREE_SEAT`).
  */
 export async function createInvitation(
   c: Context<SkeletonEnv>,
@@ -57,19 +60,25 @@ export async function createInvitation(
   if (member) return { refused: "ALREADY_A_MEMBER" };
 
   const token = newToken();
-  const [created] = await db
-    .insert(invitations)
-    .values({
-      companyId,
-      email,
-      role,
-      invitedBy: inviter.id,
-      tokenHash: await hashToken(token),
-      expiresAt: new Date(Date.now() + INVITATION_LIFETIME_MS),
-    })
-    .onConflictDoNothing()
-    .returning();
-  if (!created) return { refused: "INVITATION_PENDING" };
+  const tokenHash = await hashToken(token);
+  const ownerId = await ownerOf(db, companyId);
+  const limit = ownerId ? await seatLimitOf(c, ownerId) : undefined;
+  const outcome = await db.transaction(async (tx) => {
+    if (ownerId && limit !== undefined && limit !== null) {
+      await lockSeats(tx, ownerId);
+      const people = await seatPeople(tx, ownerId);
+      // A person who already holds a Seat in another of the Owner's Companies takes no new one.
+      if (!holdsSeat(people, email) && countSeats(people) >= limit) return "NO_FREE_SEAT" as const;
+    }
+    const [row] = await tx
+      .insert(invitations)
+      .values({ companyId, email, role, invitedBy: inviter.id, tokenHash, expiresAt: new Date(Date.now() + INVITATION_LIFETIME_MS) })
+      .onConflictDoNothing()
+      .returning();
+    return row ?? ("INVITATION_PENDING" as const);
+  });
+  if (typeof outcome === "string") return { refused: outcome };
+  const created = outcome;
 
   try {
     await sendInvitationEmail(c, { email, role, inviterName: inviter.name, token });
@@ -117,8 +126,8 @@ export type InvitationByToken = {
 /** A Company as `acceptInvitation` answers it: the one the user is now a Member of, with their role. */
 export type JoinedCompany = { id: string; name: string; role: string; createdAt: Date };
 
-/** Why the link refuses: 404 for a token no Invitation has, 410 once it is accepted, canceled or expired, 403 for another address. */
-export type AcceptRefusal = "NOT_FOUND" | "INVITATION_EXPIRED" | "INVITATION_EMAIL_MISMATCH";
+/** Why the link refuses: 404 for a token no Invitation has, 410 once it is accepted, canceled or expired, 403 for another address, 409 when the Owner has no Seat left. */
+export type AcceptRefusal = "NOT_FOUND" | "INVITATION_EXPIRED" | "INVITATION_EMAIL_MISMATCH" | "NO_FREE_SEAT";
 
 /**
  * What the link of an Invitation shows to whoever opens it, signed in or not:
@@ -130,7 +139,7 @@ export async function invitationByToken(
   c: Context<SkeletonEnv>,
   token: string,
   userId: string | null,
-): Promise<{ invitation: InvitationByToken } | { refused: Exclude<AcceptRefusal, "INVITATION_EMAIL_MISMATCH"> }> {
+): Promise<{ invitation: InvitationByToken } | { refused: Exclude<AcceptRefusal, "INVITATION_EMAIL_MISMATCH" | "NO_FREE_SEAT"> }> {
   const found = await findByToken(c.var.db, token);
   if (!found) return { refused: "NOT_FOUND" };
   const alreadyMember = userId !== null && (await roleIn(c.var.db, found.companyId, userId)) !== null;
@@ -144,7 +153,10 @@ export async function invitationByToken(
  * with its role, the Invitation is marked accepted (it leaves the pending list),
  * and every feature's `memberJoined` runs. Only the invited address may accept
  * (`INVITATION_EMAIL_MISMATCH`). A user who is already a Member gets the Company,
- * and nothing changes.
+ * and nothing changes. Where a feature limits Seats (billing), the Owner's Seats
+ * are checked again under a lock (`NO_FREE_SEAT`): the Owner and the Members
+ * already in count, and the pending Invitations do not (this is one of them), so
+ * of two accepts racing for the last Seat only one passes.
  */
 export async function acceptInvitation(
   c: Context<SkeletonEnv>,
@@ -161,7 +173,14 @@ export async function acceptInvitation(
   if (!isOpen(found)) return { refused: "INVITATION_EXPIRED" };
   if (user.email.toLowerCase() !== found.email) return { refused: "INVITATION_EMAIL_MISMATCH" };
 
+  const ownerId = await ownerOf(db, found.companyId);
+  const limit = ownerId ? await seatLimitOf(c, ownerId) : undefined;
   const joined = await db.transaction(async (tx) => {
+    if (ownerId && limit !== undefined && limit !== null) {
+      await lockSeats(tx, ownerId);
+      const taken = (await seatPeople(tx, ownerId)).filter((person) => person.status !== "invited");
+      if (!holdsSeat(taken, user.email) && countSeats(taken) >= limit) return "NO_FREE_SEAT" as const;
+    }
     const [accepted] = await tx
       .update(invitations)
       .set({ acceptedAt: new Date() })
@@ -171,6 +190,7 @@ export async function acceptInvitation(
     await tx.insert(members).values({ companyId: found.companyId, userId: user.id, role: found.role });
     return true;
   });
+  if (joined === "NO_FREE_SEAT") return { refused: "NO_FREE_SEAT" };
   if (!joined) {
     // Another request accepted it first: the same user clicking twice is a Member by now.
     const role = await roleIn(db, found.companyId, user.id);
