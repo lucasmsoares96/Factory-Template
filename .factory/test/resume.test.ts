@@ -41,6 +41,64 @@ describe("factory resume", () => {
     expect(due.codeHost.dispatches).toHaveLength(1);
   });
 
+  it("switches the sweep off once nothing is left under the label", async () => {
+    const due = waiting({ "ready-for-agent": OWNER }, { flow: "issue" }, "2026-10-28T15:30:00Z");
+    due.codeHost.resumeSweep = true;
+
+    await due.factory("resume");
+
+    expect(due.codeHost.resumeSweep).toBe(false);
+    expect(lastJson(due.logs)).toMatchObject({ switchedOff: true });
+  });
+
+  it("keeps the sweep on while an item still waits for its reset", async () => {
+    const early = waiting({ "ready-for-agent": OWNER }, { flow: "issue" }, "2026-10-28T15:00:00Z");
+    early.codeHost.resumeSweep = true;
+
+    await early.factory("resume");
+
+    expect(early.codeHost.sweepChanges).toEqual([]);
+    expect(early.codeHost.resumeSweep).toBe(true);
+    expect(lastJson(early.logs)).toMatchObject({ switchedOff: false });
+  });
+
+  it("keeps the sweep on for a pull request that waits under the label", async () => {
+    const w = world({
+      issues: [],
+      prs: [{ number: 55, branch: "feature/x", labels: ["factory:session-limit"], conversation: [{ id: "comment-1", kind: "comment", ...paused({ flow: "update-pr", pr: 55 }) }] }],
+      now: at("2026-10-28T15:00:00Z"),
+    });
+    w.codeHost.resumeSweep = true;
+
+    await w.factory("resume");
+
+    expect(w.codeHost.resumeSweep).toBe(true);
+  });
+
+  it("keeps the sweep on when the dispatch failed and the label is back", async () => {
+    const due = waiting({ "ready-for-agent": OWNER }, { flow: "issue" }, "2026-10-28T15:30:00Z");
+    due.codeHost.resumeSweep = true;
+    due.codeHost.dispatch = async () => {
+      throw new Error("HTTP 500");
+    };
+
+    expect(await due.factory("resume")).toBe(1);
+
+    expect(due.tracker.labelsOf(7)).toContain("factory:session-limit");
+    expect(due.codeHost.resumeSweep).toBe(true);
+  });
+
+  it("does not fail the sweep when switching off fails, and says so", async () => {
+    const due = waiting({ "ready-for-agent": OWNER }, { flow: "issue" }, "2026-10-28T15:30:00Z");
+    due.codeHost.resumeSweepError = "HTTP 403";
+
+    expect(await due.factory("resume")).toBe(0);
+
+    expect(due.codeHost.dispatches).toHaveLength(1);
+    expect(due.logs.join("\n")).toContain("could not switch off the resume sweep: HTTP 403");
+    expect(lastJson(due.logs)).toMatchObject({ switchedOff: false });
+  });
+
   it("starts the same round again on the pull request of a paused PR flow", async () => {
     const feedback = waiting({ "in-progress": OWNER }, { flow: "pr-feedback", pr: 101 }, "2026-10-28T16:00:00Z");
     await feedback.factory("resume");

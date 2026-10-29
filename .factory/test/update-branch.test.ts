@@ -503,6 +503,7 @@ describe("factory update-branch: paused at the agent's usage limit", () => {
     expect(p.w.codeHost.pushes).toEqual([]);
     const pr = p.w.codeHost.pr(HUMAN_PR);
     expect(pr.labels).toEqual(["factory:session-limit"]);
+    expect(p.w.codeHost.sweepChanges).toEqual([true]);
     expect(pr.comments.at(-1)).toContain('"flow":"update-pr"');
     untouched();
 

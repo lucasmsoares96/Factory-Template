@@ -9,7 +9,7 @@ import type { ReviewThread, SubmittedReview } from "../seams/code-host.ts";
 import type { Issue, IssueComment } from "../seams/tracker.ts";
 import type { CommandContext } from "./context.ts";
 import { SessionLimitError, type AgentRun } from "../seams/agent.ts";
-import { sessionFailure, sessionFailureSchema, sessionLimitComment, type SessionFailure } from "../session-limit.ts";
+import { armResumeSweep, sessionFailure, sessionFailureSchema, sessionLimitComment, type SessionFailure } from "../session-limit.ts";
 import { z } from "zod";
 import { issueOfBranch } from "./pr-threads.ts";
 import { startWorking } from "./working.ts";
@@ -156,7 +156,7 @@ export type RetroPaused = { issue: number; pr: number | null; session: SessionFa
  * the origin, created with `needs-triage` and `retro`, or edited in place when an open one carries its marker. With
  * none: a short comment where the Retro started. It never applies `ready-for-agent`: a person decides.
  */
-export async function retroPublish(ctx: CommandContext, options: { in: string; runUrl: string | null }): Promise<RetroPublishResult> {
+export async function retroPublish(ctx: CommandContext, options: { in: string; runUrl: string | null; armResume?: () => Promise<void> }): Promise<RetroPublishResult> {
   const { tracker, codeHost, config } = ctx;
   const m = messages(config.language);
   const pausedText = await readFile(join(options.in, PAUSED_FILE), "utf8").catch(() => null);
@@ -164,7 +164,8 @@ export async function retroPublish(ctx: CommandContext, options: { in: string; r
     const { issue, pr, session } = retroPausedSchema.parse(JSON.parse(pausedText));
     const resumeAt = session.limit?.resumeAt ?? new Date(ctx.now()).toISOString();
     await tracker.addLabel(issue, config.labels.sessionLimit);
-    await tracker.comment(issue, sessionLimitComment({ wait: { flow: "retro", resumeAt, head: null, pr }, failure: session, next: m.sessionLimitRetro(), runUrl: options.runUrl }, config));
+    const armed = await armResumeSweep(ctx, options.armResume);
+    await tracker.comment(issue, sessionLimitComment({ wait: { flow: "retro", resumeAt, head: null, pr }, failure: session, next: m.sessionLimitRetro(), runUrl: options.runUrl, armed }, config));
     return { issue, outcome: "paused", reason: "session-limit", resumeAt };
   }
   const result = retroResultSchema.parse(JSON.parse(await readFile(join(options.in, RETRO_FILE), "utf8")));

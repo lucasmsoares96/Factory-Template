@@ -11,7 +11,7 @@ import { gapsSection, SKELETON_PATH, skeletonCommit } from "../scope.ts";
 import { fromTouchedSpecs, isSpecPath, shownIn, withEvidence, type TouchedSpec } from "../pull-request-evidence.ts";
 import type { EvidenceImage, PullRequest } from "../seams/code-host.ts";
 import type { Issue } from "../seams/tracker.ts";
-import { sessionLimitComment, utcMinute, type Wait } from "../session-limit.ts";
+import { armResumeSweep, sessionLimitComment, utcMinute, type Wait } from "../session-limit.ts";
 import { WAITING_MARKER } from "./claim.ts";
 import type { CommandContext } from "./context.ts";
 
@@ -48,6 +48,8 @@ export interface PublishOptions {
    * dispatch workflows. Without it, the run's code host dispatches.
    */
   dispatchRetro?: (inputs: { issue: string; pr: string }) => Promise<void>;
+  /** Switches the resume sweep on with the job token (`actions: write`) when a run pauses; without it, the run's code host does. */
+  armResume?: () => Promise<void>;
 }
 
 /**
@@ -154,7 +156,8 @@ export async function publishPrUpdate(ctx: CommandContext, number: number, optio
     const failure = result.session!;
     const wait: Wait = { flow: "update-pr", resumeAt: failure.limit!.resumeAt, head: null, pr: number };
     await codeHost.labelPr(number, config.labels.sessionLimit);
-    await codeHost.commentPr(number, sessionLimitComment({ wait, failure, next: m.sessionLimitUpdate(number, config.baseBranch), runUrl: options.runUrl }, config));
+    const armed = await armResumeSweep(ctx, options.armResume);
+    await codeHost.commentPr(number, sessionLimitComment({ wait, failure, next: m.sessionLimitUpdate(number, config.baseBranch), runUrl: options.runUrl, armed }, config));
     return { pr: number, outcome: "paused", reason: "session-limit" };
   }
   if (result.outcome === "escalated") {
@@ -430,7 +433,8 @@ async function pause(ctx: CommandContext, issue: Issue, result: FactoryResult, o
         ? m.sessionLimitUpdate(options.pr!, config.baseBranch)
         : m.sessionLimitRound(options.pr!, pushed);
   await tracker.addLabel(issue.number, config.labels.sessionLimit);
-  await tracker.comment(issue.number, sessionLimitComment({ wait, failure, next, runUrl: options.runUrl }, config));
+  const armed = await armResumeSweep(ctx, options.armResume);
+  await tracker.comment(issue.number, sessionLimitComment({ wait, failure, next, runUrl: options.runUrl, armed }, config));
   if (options.pr === null) await tracker.swapLabel(issue.number, config.labels.inProgress, config.labels.readyForAgent);
   else await codeHost.commentPr(options.pr, m.roundPaused(issue.number, utcMinute(limit.resumeAt)));
   ctx.log(`#${issue.number} paused at the agent's usage limit (resets ${limit.resetsAt ?? "at an unknown time"}); it starts again after ${limit.resumeAt}.`);

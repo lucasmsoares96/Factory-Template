@@ -466,6 +466,32 @@ describe("factory publish: a run paused at the agent's usage limit", () => {
     expect(comment).not.toContain("escalation");
   });
 
+  it("switches the resume sweep on with the job token, right after the label", async () => {
+    const job = jobHost();
+    const { w } = await pipeline({ agent: { development: [develop], review: [limitHit("3:20pm (UTC)")] }, now, jobCodeHost: job });
+
+    expect(job.sweepChanges).toEqual([true]);
+    expect(w.codeHost.sweepChanges).toEqual([]);
+  });
+
+  it("keeps the pause when the sweep cannot be switched on, and tells the reader to run it by hand", async () => {
+    const job = jobHost();
+    job.resumeSweepError = "HTTP 403";
+    const { w, output, factoryComments } = await pipeline({ agent: { development: [develop], review: [limitHit("3:20pm (UTC)")] }, now, jobCodeHost: job });
+
+    expect(output).toMatchObject({ outcome: "paused" });
+    expect(w.tracker.labelsOf(7).sort()).toEqual(["factory:session-limit", "ready-for-agent"]);
+    expect(job.resumeSweep).toBe(false);
+    expect(factoryComments()[0]).toContain("could not switch on the sweep that restarts paused work (`factory-resume.yml`)");
+    expect(w.logs.join("\n")).toContain("could not switch on the resume sweep: HTTP 403");
+  });
+
+  it("says nothing about the sweep when it was switched on", async () => {
+    const { factoryComments } = await pipeline({ agent: { development: [develop], review: [limitHit("3:20pm (UTC)")] }, now });
+
+    expect(factoryComments()[0]).not.toContain("factory-resume.yml");
+  });
+
   it("writes the pause in FACTORY_LANGUAGE", async () => {
     const { factoryComments } = await pipeline({ agent: { development: [develop], review: [limitHit("3:20pm (UTC)")] }, now, env: { FACTORY_LANGUAGE: "pt-BR" } });
     const [comment] = factoryComments();

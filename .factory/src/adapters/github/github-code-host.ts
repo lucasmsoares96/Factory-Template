@@ -339,6 +339,10 @@ export class GitHubCodeHost implements CodeHost {
     await this.api.send("POST", this.api.repoPath(`/actions/workflows/${file}/dispatches`), { ref: this.options.baseBranch, inputs });
   }
 
+  async setResumeSweep(enabled: boolean): Promise<void> {
+    await this.api.send("PUT", this.api.repoPath(`/actions/workflows/factory-resume.yml/${enabled ? "enable" : "disable"}`));
+  }
+
   private scrub(text: string): string {
     return text.replaceAll(this.options.token, "***").replaceAll(Buffer.from(`x-access-token:${this.options.token}`).toString("base64"), "***");
   }

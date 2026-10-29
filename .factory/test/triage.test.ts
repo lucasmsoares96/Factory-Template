@@ -714,6 +714,8 @@ describe("factory triage: paused at the agent's usage limit", () => {
     expect(await triage(s)).toBe(0);
     expect(lastJson(s.w.logs)).toMatchObject({ triaged: [], paused: [5, 6] });
     expect(await apply(s)).toBe(0);
+    // One switch-on for the whole batch.
+    expect(s.w.codeHost.sweepChanges).toEqual([true]);
 
     for (const n of [5, 6]) {
       expect(s.w.tracker.labelsOf(n)).toEqual(["agent:explore", "factory:session-limit"]);
