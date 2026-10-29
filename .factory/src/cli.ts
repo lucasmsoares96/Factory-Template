@@ -1,3 +1,4 @@
+import { readStartSha } from "./result.ts";
 import { appendFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { adaptersFromEnv } from "./adapters/index.ts";
@@ -57,10 +58,12 @@ Commands:
                                          behind it (Factory and people's PRs); a fork's PR gets one comment instead.
   update-branch --scan --pr <n> [--repo <dir>]
                                          When PR <n> is opened or reopened: the same scan, for that PR alone.
-  publish <issue> --in <dir> [--repo <dir>] [--start-sha <sha>] [--run-url <url>] [--pr <n>] [--flow update-branch]
+  publish <issue> --in <dir> [--repo <dir>] [--start-sha <sha>] [--run-url <url>] [--pr <n>] [--flow update-branch] [--retry]
                                          Re-check the forge, validate result.json, push with a lease, then open the
                                          PR with review and evidence, or escalate. --pr: the run continues PR <n>.
                                          --flow update-branch: a run discarded because the branch moved only logs it.
+                                         --retry: this round is the one started again after a discard.
+                                         The start sha is read from result.json (written by work); --start-sha is the fallback.
   publish --pr <n> --in <dir> [--repo <dir>] --start-sha <sha> [--run-url <url>]
                                          Publish an update keyed by PR <n> alone: push with a lease and comment on the PR only
                                          (a run discarded because the branch moved only logs it).
@@ -122,6 +125,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
       out: { type: "string" },
       in: { type: "string" },
       "start-sha": { type: "string" },
+      retry: { type: "boolean" },
       event: { type: "string" },
       "run-url": { type: "string" },
       pr: { type: "string" },
@@ -312,7 +316,7 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
         const result = await publishPrUpdate(ctx, parseIssue(values.pr), {
           repo: values.repo,
           in: required(values.in, "--in"),
-          startSha: values["start-sha"] || null,
+          startSha: (await readStartSha(required(values.in, "--in"))) ?? (values["start-sha"] || null),
           runUrl: values["run-url"] || runUrlFromEnv(deps.env),
           armResume,
         });
@@ -326,12 +330,14 @@ export async function runFactory(argv: string[], deps: FactoryDeps): Promise<num
       const result = await publish(ctx, issue, {
         repo: values.repo,
         in: required(values.in, "--in"),
-        startSha: values["start-sha"] || null,
+        startSha: (await readStartSha(required(values.in, "--in"))) ?? (values["start-sha"] || null),
         runUrl: values["run-url"] || runUrlFromEnv(deps.env),
         pr: values.pr ? parseIssue(values.pr) : null,
+        retry: values.retry ?? false,
         ...(flow ? { flow } : {}),
         markWorking: async (pr) => await jobCodeHost().labelPr(pr, config.labels.working),
         dispatchRetro: async (inputs) => await jobCodeHost().dispatch("retro", inputs),
+        redispatchRound: async (inputs) => await jobCodeHost().dispatch("pr-feedback", inputs),
         armResume,
       });
       deps.log(JSON.stringify(result));

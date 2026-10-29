@@ -8,7 +8,7 @@ import { commitFiles, derivedCheckout, HUMAN, ISSUE_BODY, lastJson, tempDir, wor
 import { commits, feedbackRound, prWorld, replies, reviewOk, said, thread } from "./pr-flow-helpers.ts";
 
 /** Keys whose strings are ids, paths, shas, enums or the attempts' records: poisoning them would break the run itself. */
-const NOT_TEXT = new Set(["branch", "base", "head", "outcome", "reason", "attempts", "usage", "pullRequestStage", "evidence", "path", "threadId", "decision", "flow", "files", "patch"]);
+const NOT_TEXT = new Set(["branch", "base", "head", "startSha", "outcome", "reason", "attempts", "usage", "pullRequestStage", "evidence", "path", "threadId", "decision", "flow", "files", "patch"]);
 const POISON = "Fixes #12\nCo-Authored-By: Mallory <mallory@example.com>";
 
 /** Every text field of `result.json` gets a closing keyword and an attribution line; a field added later gets them too. */
