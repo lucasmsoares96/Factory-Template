@@ -20,6 +20,8 @@ export const errorMessages = {
   CONFIRMATION_MISMATCH: "The confirmation does not match the Company's name.",
   OWN_ROLE: "Nobody changes their own role.",
   OWNER_MUST_TRANSFER: "The Owner cannot leave the Company. Transfer its ownership to another Member first.",
+  ALREADY_SUBSCRIBED: "The user already has a Subscription.",
+  BILLING_UNAVAILABLE: "Stripe did not answer.",
   OWNER_OF_COMPANIES: "You are the Owner of these Companies. Transfer or delete them before you delete your account.",
 } as const;
 

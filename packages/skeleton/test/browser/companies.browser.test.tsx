@@ -25,6 +25,7 @@ const globex = { id: "company-globex", name: "Globex", role: "employee", created
 const nav = (t = messagesFor("en")) => ({
   entries: [{ label: t.account.nav, to: "/account" }],
   companyPage: [{ label: "Notes", to: "/notes" }],
+  accountPage: [],
 });
 const noLastCompany = getLastCompanyHandler(() =>
   getLastCompanyHandlerResponse404({ code: "NOT_FOUND", message: "Not found." }),

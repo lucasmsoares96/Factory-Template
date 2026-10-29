@@ -32,6 +32,7 @@
   },
   "dependencies": {
     "@base-ui/react": "catalog:",
+    "@better-auth/stripe": "catalog:",
     "@cloudflare/vite-plugin": "catalog:",
     "@cloudflare/workers-oauth-provider": "catalog:",
     "@faker-js/faker": "catalog:",
@@ -71,6 +72,7 @@
     "react-email": "catalog:",
     "resend": "catalog:",
     "shadcn": "catalog:",
+    "stripe": "catalog:",
     "tailwindcss": "catalog:",
     "tw-animate-css": "catalog:",
     "vite": "catalog:",

@@ -13,6 +13,8 @@ import { revokeAccess } from "./revoke-access.ts";
 import { rateLimitStorage } from "./rate-limit.ts";
 
 export type AuthConfig = {
+  /** The Product's id: features read it from `c.var.productId`. */
+  productId: string;
   /** The Product's sender, e.g. `Example <no-reply@example.com>`. */
   emailFrom: string;
   t: Messages;
@@ -56,6 +58,7 @@ export function createAuth(c: Context<SkeletonEnv>, { emailFrom, t, features }: 
 export function authContext(config: AuthConfig) {
   return createMiddleware<SkeletonEnv>(async (c, next) => {
     let auth: Auth | undefined;
+    c.set("productId", config.productId);
     c.set("auth", () => (auth ??= createAuth(c, config)));
     await next();
   });

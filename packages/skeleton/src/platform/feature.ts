@@ -3,7 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import type { BetterAuthPlugin } from "better-auth";
 import type { Context } from "hono";
 import type { Database, Transaction } from "./db.ts";
-import type { SkeletonEnv } from "./env.ts";
+import type { SkeletonBindings, SkeletonEnv } from "./env.ts";
 
 /** An entry in the signed-in navigation: `GET /api/nav` serves it and the signed-in shell renders it. */
 export type FeatureNav = {
@@ -18,6 +18,14 @@ export type FeatureCompanyPage = {
   /** The text shown, already translated for the build's locale or a message path of the Product. */
   label: string;
   /** The SPA path of the section, under the Company's page: `/projects` opens `/c/<companyId>/projects`. */
+  to: string;
+};
+
+/** A link on the account page: `GET /api/nav` serves it and the account page shows it. */
+export type FeatureAccountPage = {
+  /** The text shown, already translated for the build's locale or a message path of the Product. */
+  label: string;
+  /** The SPA path of the page, under the account's: `/account/plan`. */
   to: string;
 };
 
@@ -65,12 +73,18 @@ export type Feature = {
    * builds the auth instance, so a plugin can read its secrets from `c.env`.
    * Their routes answer under `/api/auth/*` and, like Better Auth's own, stay out
    * of the OpenAPI document and the MCP tools. A plugin `schema` (its own tables
-   * or fields) is not supported yet: the Drizzle adapter only knows the Skeleton's
-   * auth tables.
+   * or fields) needs them in `authSchema` and a Skeleton migration: the Drizzle
+   * adapter only knows the tables in that schema (billing's are there).
    */
   authPlugins?(c: Context<SkeletonEnv>): BetterAuthPlugin[];
   nav?: FeatureNav;
   companyPage?: FeatureCompanyPage;
+  accountPage?: FeatureAccountPage;
+  /**
+   * Whether the feature is on for this deployment (its bindings decide). When it answers `false`, `GET /api/nav` leaves
+   * out the feature's `nav`, `companyPage` and `accountPage`; the feature must refuse its own routes too. On by default.
+   */
+  enabled?(env: SkeletonBindings): boolean;
   /** Inserts the feature's demo data; used for preview databases and the E2E. Must be safe to run twice. */
   seed?(db: Database): Promise<void>;
   events?: FeatureEvents;

@@ -13,7 +13,8 @@ Commands:
                                  Skeleton's own SPA and test composition (its tests use them).
   dev [--product <dir>]          Start the Product's Worker and SPA (vite dev) on a migrated
                                  database: DATABASE_URL, or the docker compose Postgres.
-                                 Emails land in the skeleton.email_outbox table.
+                                 Emails land in the skeleton.email_outbox table, and billing
+                                 runs on a fake Stripe inside the Worker (/api/fake-stripe).
   db migrate [--product <dir>]   Apply the Skeleton's migrations, then the Product's.
   db check [--product <dir>]     Fail unless drizzle-kit check passes and a brand-new database,
                                  once migrated, matches the schema (push --explain: no_changes).
@@ -149,6 +150,8 @@ async function dev(dir: string) {
       DATABASE_URL: postgres.url,
       BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET ?? "local-dev-secret-never-used-in-production",
       EMAIL_TRANSPORT: "outbox",
+      // Billing runs on a Stripe that lives in the Worker: no internet, no real key.
+      STRIPE_FAKE: "true",
     },
   });
   vite.on("exit", (code) => process.exit(code ?? 0));
