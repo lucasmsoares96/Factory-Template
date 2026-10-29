@@ -34,8 +34,7 @@ export type BillingFeature<Name extends string> = Feature & {
  * Stripe plugin is not added. `pnpm dev` and the tests run on a fake Stripe.
  */
 export function billing<const Name extends string>({ entitlements }: { entitlements: readonly Name[] }): BillingFeature<Name> {
-  return {
-    ...defineFeature({
+  const feature = defineFeature({
     id: "billing",
     api(app) {
       app.route("/", billingApi(entitlements));
@@ -55,7 +54,6 @@ export function billing<const Name extends string>({ entitlements }: { entitleme
     },
     accountPage: { label: "billing.nav", to: "/account/plan" },
     enabled: billingEnabled,
-    }),
-    entitlement: (c, name) => entitlementFor(c, entitlements, name),
-  };
+  });
+  return { ...feature, entitlement: (c, name) => entitlementFor(c, entitlements, name) };
 }
