@@ -28,9 +28,21 @@ describe("bootstrap target repository", () => {
   it("--repo replaces origin and the repo is confirmed, with its visibility", async () => {
     const w = world();
     w.deps.interactive = true;
-    expect((await w.run("doctor", "--repo", "me/other")).code).toBeDefined();
+    await w.run("doctor", "--repo", "me/other");
     expect(w.github.targeted).toBe("me/other");
+    expect(w.github.info.fullName).toBe("me/other");
     expect(w.prompter.repoConfirmed).toBe(true);
+    expect(w.lines.join("\n")).not.toContain("owner/repo");
+  });
+
+  it("a complete rerun asks nothing but the repo confirmation", async () => {
+    const w = world();
+    expect((await w.run()).code).toBe(0);
+    w.deps.interactive = true;
+    w.prompter.asked.length = 0;
+    expect((await w.run()).code).toBe(0);
+    expect(w.prompter.repoConfirmed).toBe(true);
+    expect(w.prompter.asked).toEqual([]);
   });
 
   it("writes nothing when the confirmation is denied", async () => {
