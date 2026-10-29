@@ -37,7 +37,6 @@ describe("skipped or focused tests added by Development", () => {
     expect(second).toContain(`${SPEC}:3`);
     expect(second).toContain("test.fixme");
     expect(second).toContain("skipped or focused test proves nothing");
-    expect(second).toContain("<skeleton-gap>");
   });
 
   it("escalates as needs-human, saying so, when the attempts run out", async () => {

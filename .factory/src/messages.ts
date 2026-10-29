@@ -1,7 +1,7 @@
 /**
- * The fixed texts the Factory publishes (comments, pull request bodies, Skeleton issues), in every language of
+ * The fixed texts the Factory publishes (comments, pull request bodies), in every language of
  * `FACTORY_LANGUAGE`. Contract text stays in English in every language, because the Factory and people search for it:
- * the headings `## Acceptance criteria`, `## Testing Decisions` and `## Evidence`, the title "The Skeleton must grow",
+ * the headings `## Acceptance criteria`, `## Testing Decisions` and `## Evidence`,
  * the Factory markers, the pull request title and the Stage names. A key without one of the languages fails a test.
  */
 
@@ -178,52 +178,6 @@ export const catalog = {
   }),
   noReason: text({ en: (): string => "no reason recorded", "pt-BR": () => "nenhum motivo registrado" }),
 
-  // The Skeleton follow-ups: the note on the issue and the pull request, the wait, the Skeleton issue and pull request.
-  followUpIntro: text({
-    en: (): string => "**The Skeleton must grow.** A Product issue never changes `packages/skeleton/`, so the Factory removed that change from this work and opened:",
-    "pt-BR": () => "**The Skeleton must grow.** Uma issue de Product nunca altera `packages/skeleton/`, então a Factory tirou essa mudança deste trabalho e abriu:",
-  }),
-  followUpItem: text({
-    en: (number: number, title: string, pr: number | null) => `- #${number} ${title}${pr !== null ? `, with pull request #${pr} ready for review` : ""}`,
-    "pt-BR": (number, title, pr) => `- #${number} ${title}${pr !== null ? `, com o pull request #${pr} pronto para revisão` : ""}`,
-  }),
-  waitingOnSkeleton: text({
-    en: (blockers: string, ready: string, base: string, one: boolean) =>
-      `The acceptance criteria cannot be met without that change, so this issue is now blocked by ${blockers} and back in \`${ready}\`. When ${one ? "it is" : "they are"} closed, the Factory starts again from \`${base}\`, which will have the new Skeleton.`,
-    "pt-BR": (blockers, ready, base, one) =>
-      `Os critérios de aceitação não podem ser cumpridos sem essa mudança, então esta issue agora está bloqueada por ${blockers} e de volta em \`${ready}\`. Quando ${one ? "ela for fechada" : "elas forem fechadas"}, a Factory recomeça a partir de \`${base}\`, que terá o novo Skeleton.`,
-  }),
-  followUpBodyIntro: text({
-    en: (product: string, path: string, number: number, title: string) => `The Skeleton must grow: Product \`${product}\` needs a change in \`${path}\` to finish #${number} (${title}).`,
-    "pt-BR": (product, path, number, title) => `The Skeleton must grow: o Product \`${product}\` precisa de uma mudança em \`${path}\` para concluir #${number} (${title}).`,
-  }),
-  followUpBodyRemoved: text({
-    en: (withPullRequest: boolean): string =>
-      withPullRequest
-        ? "A Product extends the Skeleton by configuration only, so the Factory removed this change from the Product pull request and opened it as a pull request of its own, from the base branch: review and merge it to close this issue."
-        : "A Product extends the Skeleton by configuration only, so the Factory removed this change from the Product pull request.",
-    "pt-BR": (withPullRequest) =>
-      withPullRequest
-        ? "Um Product só estende o Skeleton por configuração, então a Factory tirou esta mudança do pull request do Product e a abriu num pull request próprio, a partir do branch base: revise e faça o merge dele para fechar esta issue."
-        : "Um Product só estende o Skeleton por configuração, então a Factory tirou esta mudança do pull request do Product.",
-  }),
-  gapsHeading: text({ en: (): string => "## What the Skeleton must offer", "pt-BR": () => "## O que o Skeleton precisa oferecer" }),
-  followUpFilesHeading: text({
-    en: (): string => "## Files the Product run changed (removed from its branch)",
-    "pt-BR": () => "## Arquivos que a execução do Product alterou (removidos do branch dela)",
-  }),
-  followUpCriterion: text({
-    en: (): string => "- [ ] The Skeleton exposes what the Product needs, through its interface (grown in a separate change).",
-    "pt-BR": () => "- [ ] O Skeleton expõe o que o Product precisa, pela sua interface (ampliada numa mudança separada).",
-  }),
-  skeletonPullRequestIntro: text({
-    en: (number: number, title: string, path: string, base: string) =>
-      `Product issue #${number} (${title}) needs this change in \`${path}\`. A Product issue never changes the Skeleton, so the Factory took it out of that run and opened it here, from \`${base}\`, as the run wrote it. Review it as a change to the Skeleton.`,
-    "pt-BR": (number, title, path, base) =>
-      `A issue de Product #${number} (${title}) precisa desta mudança em \`${path}\`. Uma issue de Product nunca altera o Skeleton, então a Factory a tirou daquela execução e a abriu aqui, a partir de \`${base}\`, como a execução a escreveu. Revise-a como uma mudança no Skeleton.`,
-  }),
-  filesHeading: text({ en: (): string => "## Files", "pt-BR": () => "## Arquivos" }),
-
   // The pull request body: the warnings and the minimal text.
   escalatedDraft: text({
     en: (reason: string, issue: number) => `The Factory escalated this work (\`${reason}\`): this draft holds its progress. See the comment on #${issue}.`,
@@ -238,6 +192,10 @@ export const catalog = {
   harnessFiles: text({
     en: (paths: string[]) => `This pull request changes files that steer the Factory: ${list(paths)}. Review them with care.`,
     "pt-BR": (paths) => `Este pull request altera arquivos que guiam a Factory: ${list(paths)}. Revise-os com cuidado.`,
+  }),
+  skeletonFiles: text({
+    en: (paths: string[]) => `This pull request changes the Skeleton: ${list(paths)}. The change reaches every Product: check that it is generic.`,
+    "pt-BR": (paths) => `Este pull request altera o Skeleton: ${list(paths)}. A mudança chega a todos os Products: confira se ela é genérica.`,
   }),
   // `merge`: the comment on a pull request the Factory merged on its own (Merge Mode).
   autoMerged: text({

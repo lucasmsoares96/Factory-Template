@@ -15,7 +15,7 @@ This repository: the Factory, the Skeleton and one example Product, meant to be 
 _Avoid_: Boilerplate, starter
 
 **Product**:
-An application built on the Skeleton, with its own users, Companies, domain, database, Worker and deployment, kept in `apps/<id>/`. One repository can hold several Products, and a change to the Skeleton reaches all of them. A Product only extends the Skeleton (configuration, features, extra roles); it never edits it.
+An application built on the Skeleton, with its own users, Companies, domain, database, Worker and deployment, kept in `apps/<id>/`. One repository can hold several Products, and a change to the Skeleton reaches all of them. A Product extends the Skeleton (configuration, features, extra roles); when it needs more, its pull request may grow the Skeleton in a generic way (ADR 0017).
 _Avoid_: App (ambiguous with an application package), tenant (a Company is the tenant), Project (a Reference App concept)
 
 **Reference App**:
@@ -79,10 +79,6 @@ _Avoid_: Staging, review app
 **Factory marker**:
 The hidden `<!-- factory -->` the factory puts in every text it writes. It writes with the owner's token, so the marker, not the author, tells its words from a person's.
 _Avoid_: Bot signature, machine user
-
-**Skeleton gap**:
-What a Product issue needs that the Skeleton lacks. The factory reverts any Skeleton change made for a Product issue and opens an issue titled "The Skeleton must grow: ...", so the Skeleton grows in its own change. When the run had changed Skeleton files, that change becomes a pull request of its own, ready for a human to approve; a Product issue that cannot finish without it waits on it, blocked and back in the queue.
-_Avoid_: Workaround
 
 **Default account**:
 The one verified account `bootstrap product` creates in a Product's production database. The person uses it without signing up, and the post-deploy smoke test signs in with it.
