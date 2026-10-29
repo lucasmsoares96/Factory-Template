@@ -185,6 +185,14 @@ describe("deploy config and secrets", () => {
     expect(() => workerSecrets({ AUTH_SECRET: "a" })).toThrow(/DATABASE_URL/);
   });
 
+  it("hands the Worker the Stripe key and the events secret only when both are set", () => {
+    const base = { POOLED_DATABASE_URL: "p", AUTH_SECRET: "a" };
+    expect(workerSecrets({ ...base, STRIPE_KEY: "rk_live_x", STRIPE_WEBHOOK: "whsec_x" })).toMatchObject({ STRIPE_SECRET_KEY: "rk_live_x", STRIPE_WEBHOOK_SECRET: "whsec_x" });
+    expect(workerSecrets({ ...base, STRIPE_KEY: "rk_live_x" })).toEqual({ DATABASE_URL: "p", BETTER_AUTH_SECRET: "a" });
+    expect(workerSecrets({ ...base, STRIPE_WEBHOOK: "whsec_x" })).toEqual({ DATABASE_URL: "p", BETTER_AUTH_SECRET: "a" });
+    expect(workerSecrets(base)).not.toHaveProperty("STRIPE_SECRET_KEY");
+  });
+
   it("reads the deployed URL from wrangler's output file", () => {
     const file = [{ type: "wrangler-session", version: 1 }, { type: "deploy", targets: ["https://example.me.workers.dev"] }].map((l) => JSON.stringify(l)).join("\n");
     expect(deployedUrl(file)).toBe("https://example.me.workers.dev");
