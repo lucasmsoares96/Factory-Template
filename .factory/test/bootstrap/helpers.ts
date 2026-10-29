@@ -21,7 +21,7 @@ export function world(answers: Record<string, string | boolean | string[]> = {},
   const products = new Map<string, ProductIdentity>([
     ["example", { id: "example", title: "Example", emailFrom: "Example <no-reply@example.com>", domain: "example.com", billing: true }],
   ]);
-  const prompter = new FakePrompter({ "cloudflare-token": TOKEN, "workers-dev-subdomain": "my-team", "example-issue": false, "factory-language": "en", "merge-mode": "human", ...answers });
+  const prompter = new FakePrompter({ "cloudflare-token": TOKEN, "workers-dev-subdomain": "my-team", "example-issue": false, "repo-confirm": true, "factory-language": "en", "merge-mode": "human", ...answers });
   const lines: string[] = [];
   const deps: BootstrapDeps = {
     github,
@@ -38,6 +38,7 @@ export function world(answers: Record<string, string | boolean | string[]> = {},
       return found;
     },
     listProducts: async () => [...products.keys()].sort(),
+    origin: async () => "owner/repo",
     sleep: async () => {},
     prompter,
     env,
@@ -46,7 +47,7 @@ export function world(answers: Record<string, string | boolean | string[]> = {},
   };
   const run = async (...argv: string[]) => {
     lines.length = 0;
-    const code = await runBootstrap(argv, deps);
+    const code = await runBootstrap(argv.includes("--repo") ? argv : [...argv, "--repo", "owner/repo"], deps);
     return { code, output: lines.join("\n") };
   };
   return { github, tokens, cloudflare, wrangler, resend, stripe, neon, accounts, products, prompter, lines, deps, run };
