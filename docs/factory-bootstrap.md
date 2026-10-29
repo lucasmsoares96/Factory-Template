@@ -17,6 +17,7 @@ The detail of `pnpm bootstrap` (`.factory/src/bootstrap/`): its modules, their s
 - `language` asks the language of the Factory's public text (`en` or `pt-BR`, English offered first) only while the `FACTORY_LANGUAGE` variable does not exist; `--redo language` asks again. The doctor shows the value (unset is not a fault: the Factory writes in `en`).
 - A blank credential is never re-asked in the same run (`memory.resendDeferred`, `memory.cloudflareDeclined`).
 - The wizard (common and `domain`) ends by running the doctor with the credentials held in memory (exit code = doctor). Standalone, with a TTY and no `CLOUDFLARE_API_TOKEN`/`RESEND_API_KEY` in the env, the doctor asks once (hidden, not stored); without a TTY it says `skip`.
+- Every command first fixes the target repo (`target.ts`): `--repo owner/name`, else the `origin` remote, never `upstream`. It shows `owner/name (visibility)` and asks to confirm before the first step (the doctor too); a public repo is not refused. Without a terminal `--repo` is required and must equal `origin`; with no `origin` the error says to `git remote add origin ...`. `GhCli` sends every `gh` call to that repo (`--repo`, `{owner}/{repo}` filled in, `GH_REPO`).
 - `pnpm bootstrap` and `pnpm bootstrap doctor` set up (ending with the doctor, one run is enough) and check the copied repo. They need `gh` logged in; tests use the fake clients only.
 
 ## `pnpm bootstrap product <id>`: the Production module
