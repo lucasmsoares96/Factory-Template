@@ -327,7 +327,8 @@ export class FakeStripe {
 
   /** The plans the fake starts with: Free (no price, 1 Seat), Pro and Team (fixed, monthly). */
   private async seedCatalog() {
-    if (await this.store.get("product", "prod_fake_free")) return;
+    // The last thing seeded is the marker, so a concurrent request never reads a half-seeded catalog.
+    if (await this.store.get("price", "price_fake_team_monthly")) return;
     const { productId, seed } = this.deps;
     const created = Math.floor(Date.now() / 1000);
     const plans = [
