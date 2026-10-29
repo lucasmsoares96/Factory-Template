@@ -364,6 +364,17 @@ describe("GitHubCodeHost", () => {
     expect(s.calls[0]!.body).toEqual({ ref: "main", inputs: { issue: "7" } });
   });
 
+  it("switches the resume sweep on and off through the workflow's enable and disable endpoints", async () => {
+    const s = new FakeGitHubServer();
+    s.on("PUT", `${R}/actions/workflows/factory-resume.yml/enable`, () => ({ status: 204 }));
+    s.on("PUT", `${R}/actions/workflows/factory-resume.yml/disable`, () => ({ status: 204 }));
+
+    await host(s).setResumeSweep(true);
+    await host(s).setResumeSweep(false);
+
+    expect(s.calls.map((c) => `${c.method} ${c.path}`)).toEqual([`PUT ${R}/actions/workflows/factory-resume.yml/enable`, `PUT ${R}/actions/workflows/factory-resume.yml/disable`]);
+  });
+
   it("dispatches update-branches to factory-update-branches.yml", async () => {
     const s = new FakeGitHubServer();
     s.on("POST", `${R}/actions/workflows/factory-update-branches.yml/dispatches`, () => ({ status: 204 }));

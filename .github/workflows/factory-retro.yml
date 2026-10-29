@@ -151,8 +151,10 @@ jobs:
     needs: work
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # `actions: write` is for the job token alone: it switches the resume sweep on when a Retro pauses (FACTORY_TOKEN cannot).
     permissions:
       contents: read
+      actions: write
     defaults:
       run:
         shell: bash
@@ -175,6 +177,7 @@ jobs:
       - name: retro-publish
         env:
           FACTORY_TOKEN: ${{ secrets.FACTORY_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: pnpm factory retro-publish --in "$RUNNER_TEMP/retro-out"
 
   # The end of the run, whatever happened: never with FACTORY_TOKEN.

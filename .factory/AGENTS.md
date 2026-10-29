@@ -6,7 +6,7 @@ Detail lives in two docs: [docs/factory-flows.md](../docs/factory-flows.md) (eac
 
 ## Layout
 
-- `src/cli.ts`: `pnpm factory <claim|work|publish|triage|apply|unblock|pr-feedback|update-branch|notify|local|retro-collect|retro|retro-publish|working|merge>`. `src/commands/`: one file per command.
+- `src/cli.ts`: `pnpm factory <claim|work|publish|triage|apply|unblock|resume|pr-feedback|update-branch|notify|local|retro-collect|retro|retro-publish|working|merge>`. `src/commands/`: one file per command.
 - `src/adapters/`: the four seams, each with a real and a fake adapter: `Tracker`, `CodeHost`, `Agent`, `Verify` (interfaces in `src/seams/`). `local/` is the Markdown tracker and local code host, `github/` the GitHub Tracker and CodeHost ([how it holds the token](../docs/factory-flows.md#adapters-on-github)), `sandcastle/` the real Agent. `FACTORY_ADAPTERS=github` picks them.
 - `src/bootstrap/`: `pnpm bootstrap`, a wizard of steps over client interfaces (GitHub, Cloudflare, Neon, Resend) with real and fake adapters. `github.ts` is the only module that calls `gh`. No local state, no secret on disk; `doctor` only reads. See [factory-bootstrap.md](../docs/factory-bootstrap.md).
 - `src/ci/`: logic of the workflows, thin YAML around it: `image.ts`, `matrix.ts`, `skills.ts` (PR), `deploy.ts` (plan, bundle, allowlist check, config, migrate) plus `smoke.ts` (the `main` deploy, `factory-deploy.yml`; `--preview` smokes a PR preview), `previews.ts` (the PR previews, `factory-pr.yml` and `factory-pr-cleanup.yml`), `neon-api.ts` (Neon branches API; fake in `fake/`), `vars.ts` (copies the `FACTORY_*` repo variables `config.ts` defines into `$GITHUB_ENV`).
@@ -43,6 +43,7 @@ Every Factory workflow is off until `FACTORY_ENABLED`. Jobs, tokens and writes o
 - `pnpm factory notify <N> --outcome ready|escalated [--updated] --url --to`: the Merge Gate notice, posted with the job's `GITHUB_TOKEN` so it fires no workflow.
 - [Triage](../docs/factory-flows.md#triage) (`factory-triage.yml`, label `agent:explore`): one session over the batch, `triage` → `triage.json` → `apply`, which re-reads the forge and swaps the labels.
 - [Unblock](../docs/factory-flows.md#unblock) (`factory-unblock.yml`, `issues: closed`): re-dispatches the `ready-for-agent` issues the guard now accepts.
+- [Session limit](../docs/factory-flows.md#session-limit) (`src/session-limit.ts`, `factory-resume.yml`, cron): a session at the agent's usage limit pauses the run under `factory:session-limit` (no Escalation); `resume` starts the same work again after the reset.
 - [PR flows](../docs/factory-flows.md#pr-flows) (`commands/pr-claim.ts`): `factory-pr-feedback.yml` answers writers' threads and Conversation requests; `factory-update-branches.yml` brings every open non-fork PR up to date with the base branch (a fork's PR gets one comment).
 - [PR previews](../docs/factory-flows.md#pr-previews) (`factory-pr.yml`, off until `PREVIEWS_ENABLED`): a Worker Preview and a Neon branch per PR, smoked, removed on close.
 - [Automatic Retro](../docs/factory-flows.md#automatic-retro) (`factory-retro.yml`): after every Escalation and on a closed Factory PR with writers' feedback; opens or edits a `Retro:` issue.

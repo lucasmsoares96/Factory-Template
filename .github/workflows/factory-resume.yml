@@ -1,0 +1,57 @@
+# Work that stopped at the agent's usage limit ("You've hit your session limit · resets ...") starts again on its own.
+# `publish`, `apply` and `retro-publish` leave such work under `factory:session-limit`, with a marked comment that says
+# when the limit resets (an hour later when Claude Code gave no time the Factory could read). Every 30 minutes this
+# sweep reads the forge for that label, and for each item whose time has passed takes the label off and dispatches the
+# same work: `factory-issue.yml` (from the commits the paused run pushed), the round on the PR
+# (`factory-pr-feedback.yml`, `factory-update-branches.yml`), one `factory-triage.yml` for every paused Triage, or
+# `factory-retro.yml`. The label is the only record of a pending wait: each one starts once. The job token takes the
+# label off and dispatches (`actions: write`) and holds no secret; each run's own claim still decides. GitHub runs a
+# schedule on the default branch only, and pauses it in a public repository with no activity for 60 days. Off until
+# `pnpm bootstrap factory` sets FACTORY_ENABLED.
+# The workflow itself is disabled in the repository while nothing is paused (a scheduled run costs at least a minute of
+# Actions, 48 a day, in a private repo): the three commands above enable it right after they label an item
+# (`PUT /actions/workflows/factory-resume.yml/enable`), and the last step of this sweep disables it when no item is left.
+# If enabling failed, the item's comment says so: enable the workflow in Actions and run it by hand.
+name: Factory resume
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: factory-resume
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  sweep:
+    if: ${{ vars.FACTORY_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+      actions: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: corepack enable pnpm && pnpm install --frozen-lockfile --ignore-scripts --filter @factory/harness
+      - env:
+          VARS_JSON: ${{ toJSON(vars) }}
+        run: node .factory/src/ci/vars.ts
+      - name: resume
+        env:
+          FACTORY_ADAPTERS: github
+          GITHUB_TOKEN: ${{ github.token }}
+        run: pnpm factory resume
