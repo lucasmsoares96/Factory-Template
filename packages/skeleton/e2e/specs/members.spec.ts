@@ -30,7 +30,7 @@ async function signIn(page: Page, origin: string, email: string) {
 }
 
 test(
-  "the Owner removes a Member who joined by Invitation, and an Employee leaves",
+  "the Owner removes a Member who joined by Invitation, and an Employee has no way out",
   { tag: "@evidence" },
   async ({ page, baseURL, t, mailbox, evidence }) => {
     const origin = baseURL!;
@@ -78,17 +78,14 @@ test(
     await signIn(page, origin, bruno);
     expect((await page.request.get(`/api/companies/${company.id}`)).status()).toBe(404);
 
-    // Carla, an Employee, sees only Leave; she leaves and lands where a user without a Company does.
+    // Carla, an Employee, only reads the table: there is no way to leave the Company on her own.
     await signIn(page, origin, carla);
     await page.goto(`/c/${company.id}`);
     await expect(page.getByRole("heading", { level: 1, name: "Acme" })).toBeVisible();
     await expect(members.getByRole("row")).toHaveCount(3);
     await expect(members.getByRole("button")).toHaveCount(0);
     await expect(members.getByRole("combobox")).toHaveCount(0);
-    await evidence("employee-leave");
-    await page.getByRole("button", { name: t.companies.leave.submit }).click();
-    await expect(page.getByTestId("no-company")).toHaveText(t.home.noCompany);
-    expect((await page.request.get(`/api/companies/${company.id}`)).status()).toBe(404);
-    await evidence("employee-left");
+    expect((await page.request.post(`/api/companies/${company.id}/leave`, { headers: { origin } })).status()).toBe(404);
+    await evidence("employee-no-leave");
   },
 );

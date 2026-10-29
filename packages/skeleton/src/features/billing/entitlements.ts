@@ -1,11 +1,11 @@
 import { and, eq } from "drizzle-orm";
 import type { Context } from "hono";
-import { members, subscriptions } from "../../db/schema.ts";
+import { LIVE_SUBSCRIPTION_STATUSES, members, subscriptions } from "../../db/schema.ts";
 import type { SkeletonEnv } from "../../platform/env.ts";
 import { billingFor } from "./context.ts";
 import type { Plan, PlanCatalog } from "./plans.ts";
 
-export const LIVE_STATUSES = ["active", "trialing", "past_due"] as const;
+export const LIVE_STATUSES = LIVE_SUBSCRIPTION_STATUSES;
 
 /** The Plan a person is on: their live Subscription's, else the free Plan, else `null`. */
 export async function planOf(db: SkeletonEnv["Variables"]["db"], catalog: PlanCatalog, userId: string) {
