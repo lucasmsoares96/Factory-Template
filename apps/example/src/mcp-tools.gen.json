@@ -213,7 +213,7 @@
   {
     "name": "createInvitation",
     "title": "Invite someone to a Company",
-    "description": "The Owner invites an email address to the Company with a role (never `owner`). The Invitation lasts 7 days, and an email with its link goes to the address. Refused with 409 when the address is already a Member, or already has a pending Invitation (resend that one instead).",
+    "description": "The Owner invites an email address to the Company with a role (never `owner`). The Invitation lasts 7 days, and an email with its link goes to the address. Refused with 409 when the address is already a Member, already has a pending Invitation (resend that one instead), or the Owner has no free Seat: remove someone, cancel an Invitation or upgrade the Plan (`NO_FREE_SEAT`; only where billing is on).",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -789,6 +789,113 @@
     "http": {
       "method": "GET",
       "path": "/api/billing/plan",
+      "pathParams": [],
+      "queryParams": [],
+      "body": false,
+      "output": "object"
+    }
+  },
+  {
+    "name": "getSeats",
+    "title": "Get the Seats the signed-in user uses",
+    "description": "Answers how many Seats the user's Plan gives (`total`; `null` when there is no limit), how many are taken (`used`) and the people of each Company the user owns. The Owner, each Member and each pending Invitation take a Seat, counted once per person across the user's Companies. A user who owns no Company uses 1. Answers 404 when billing is off.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "used": {
+          "type": "integer",
+          "description": "The Seats taken: each distinct person in the Companies the user owns, once.",
+          "example": 6
+        },
+        "total": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "The Seats the Plan gives; `null` when there is no limit.",
+          "example": 15
+        },
+        "companies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "The Company's id.",
+                "example": "2f1c6a0e-8d1b-4a51-9f3e-6b0c1d2e3f40"
+              },
+              "name": {
+                "type": "string",
+                "description": "Its name.",
+                "example": "Acme"
+              },
+              "people": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Their name; `null` for an address that was only invited.",
+                      "example": "Ana Souza"
+                    },
+                    "email": {
+                      "type": "string",
+                      "description": "Their email.",
+                      "example": "ana@example.com"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "owner",
+                        "member",
+                        "invited"
+                      ],
+                      "description": "`invited`: a pending Invitation.",
+                      "example": "member"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "email",
+                    "status"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "people"
+            ]
+          },
+          "description": "The people of each Company the user owns. A person in two of them appears in both and takes one Seat."
+        }
+      },
+      "required": [
+        "used",
+        "total",
+        "companies"
+      ]
+    },
+    "annotations": {
+      "title": "Get the Seats the signed-in user uses",
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "scope": "read",
+    "http": {
+      "method": "GET",
+      "path": "/api/billing/seats",
       "pathParams": [],
       "queryParams": [],
       "body": false,

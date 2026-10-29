@@ -96,7 +96,7 @@ const inviteFromNotes = createRoute({
     400: errorResponse("The email is not valid.", "VALIDATION_FAILED"),
     401: unauthenticatedResponse,
     404: companyNotFoundResponse,
-    409: errorResponse("Already a Member, or already invited.", "ALREADY_A_MEMBER", "INVITATION_PENDING"),
+    409: errorResponse("Already a Member, or already invited.", "ALREADY_A_MEMBER", "INVITATION_PENDING", "NO_FREE_SEAT"),
   },
 });
 

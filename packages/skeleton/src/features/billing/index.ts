@@ -1,6 +1,6 @@
 import { stripe } from "@better-auth/stripe";
 import { defineFeature, type Feature } from "../../platform/feature.ts";
-import { billingApi } from "./api.ts";
+import { billingApi, planOf, seatsOf } from "./api.ts";
 import { billingEnabled, billingFor } from "./context.ts";
 import { productFilter } from "./product-filter.ts";
 import { fakeStripeRoutes } from "./routes.ts";
@@ -37,6 +37,17 @@ export function billing({ entitlements }: { entitlements: readonly string[] }): 
           subscription: { enabled: true, requireEmailVerification: true, plans: async () => (await on.plans()).priced.map(({ id, priceId, lookupKey }) => ({ name: id, ...(lookupKey ? { lookupKey } : { priceId }) })) },
         }),
       ];
+    },
+    async seatLimit(c, ownerId) {
+      const on = billingFor(c, entitlements);
+      if (!on) return undefined;
+      try {
+        return seatsOf((await planOf(c.var.db, await on.plans(), ownerId)).plan);
+      } catch (error) {
+        // Stripe is down: keep the Owner at the free Plan's one Seat rather than let the limit lapse.
+        console.error("Reading the Plans from Stripe failed:", error);
+        return 1;
+      }
     },
     accountPage: { label: "billing.nav", to: "/account/plan" },
     enabled: billingEnabled,
