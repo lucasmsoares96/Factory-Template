@@ -2,6 +2,10 @@
 
 The detail of `pnpm bootstrap` (`.factory/src/bootstrap/`): its modules, their steps, and how credentials are collected. `.factory/AGENTS.md` keeps the short version.
 
+## Preflight
+
+Before the repository is chosen and before any step or the doctor, `preflight.ts` checks, through the `ToolsClient` (`tools.ts`, fake `FakeTools`): Node and pnpm against `.prototools`, `gh` installed and signed in; then, once the repository is confirmed, that the account is admin on it. With a terminal it offers `proto install gh` and `gh auth login --web`, each after a confirmation (`install-gh`, `login-gh`); a refusal stops the run before any step. Without a terminal nothing is installed or opened, and every gap is listed together. A wrangler that is not installed (`WranglerNotInstalled`) is reported as such, not as "no saved login".
+
 ## Layout
 
 - `pnpm bootstrap [doctor [<id>]] [domain <id>] [product <id>] [previews <id>] [factory] [billing <id>] [env <id>] [all <id>] [--redo <step>]`.
