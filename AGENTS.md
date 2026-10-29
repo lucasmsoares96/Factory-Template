@@ -33,7 +33,7 @@ A repository of Products plus the harness that builds them. A Product is an appl
 - Always check the current official documentation, for the version pinned in this repo, before you use a library, CLI or service API. Use the `cloudflare-docs` MCP server or WebFetch, never memory.
 - Never run `pnpm bootstrap destroy`.
 - Do not push, reset hard, clean, force-delete branches or switch branches: git hooks block these.
-- Product code never edits `packages/skeleton/`. If the Skeleton lacks something, grow its interface in a separate change.
+- Product code may make the Skeleton grow in the same pull request (ADR 0017), but only in a generic way: no behaviour for one Product, no `if` on a Product id, and Skeleton tests for what changed. The pull request warns that the change reaches every Product.
 - Locate UI elements in tests by role plus the i18n key (`t.auth.signIn.title`) or `data-testid`, never by literal text.
 
 ## Building a product on the Skeleton

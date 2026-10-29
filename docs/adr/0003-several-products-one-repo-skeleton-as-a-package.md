@@ -12,6 +12,6 @@ Each Product has its own Worker (SPA in Static Assets, Hono on `/api/*` and `/mc
 ## Consequences
 
 - A Skeleton change reaches every Product, so `turbo run --affected` selects all of them when the Skeleton changes.
-- Product code never edits `packages/skeleton/`; see ADR 0008.
+- A Product issue may grow the Skeleton in its own pull request, generically (ADR 0017); the CI runs every Product when the Skeleton changes.
 - A published migration (one that reached the base branch) is immutable: no squash, no regenerate, no rename. Add a new one. CI checks it.
 - Free-plan ceilings are per account, not per Product: Resend Free allows 3 domains (so 3 Products with real email), 100 emails a day in total; Workers allows 100k requests a day; a private repository has 2,000 Actions minutes a month shared by every Product's CI and Factory; Neon Free limits storage across projects. See `docs/measured-facts.md`.
