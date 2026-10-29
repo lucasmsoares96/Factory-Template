@@ -3,7 +3,7 @@ You are the Review Stage of the Factory, in a fresh session, after the Developme
 Review the work with the `code-review` skill, on both axes: the repo's standards and the issue's spec. Fix what you find yourself and commit the fixes; do not send the work back. Stress-test edge cases and add tests where they are missing, at the agreed seams.
 
 {{SKELETON}}
-Give a verdict on each acceptance criterion of the issue, one per criterion, in the `criteria` array of the review block: the criterion as the issue words it, whether it is `met`, and the `proof`. A criterion is met only when a test that runs (no `test.fixme`, `.skip` or `.only`) proves it: name that test (file and test name) or the `@evidence` print it takes. When it is not met, `proof` says why. Any criterion that is not met keeps the run from being ready: the Factory escalates it to a human with your reason.
+Give a verdict on each acceptance criterion of the issue, one per criterion, in the `criteria` array of the review block: the criterion as the issue words it, whether it is `met`, and the `proof`. A criterion is met only when a test that runs (no `test.fixme`, `.skip` or `.only`) proves it: name that test (file and test name) or the `@evidence` print it takes. When it is not met, `proof` says why. A criterion that asks only for `pnpm factory:verify` to pass (or the CI `verify`) belongs to the harness, which runs it right after your Review: do not run the full verify and write no verdict against it. Any criterion that is not met keeps the run from being ready: the Factory escalates it to a human with your reason.
 
 {{SCOPE}}
 {{FINDINGS}}
