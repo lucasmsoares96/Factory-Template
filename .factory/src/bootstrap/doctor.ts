@@ -102,6 +102,7 @@ export async function doctor(
     const value = variables[name];
     const text = CLOSED_VARIABLE_TEXTS[name];
     if (value === undefined || value === "") add("Variables", "ok", name, `not set: ${text?.unset(config) ?? fallback}`);
+    else if (name === MERGE_MODE_VARIABLE && value === "all") add("Variables", "warn", name, "all: nothing requires a human review; the Factory merges every pull request once its checks pass, changes to its own rules included");
     else if (values.includes(value)) add("Variables", "ok", name, value);
     else add("Variables", "warn", name, `${value} is not one of ${values.join(", ")}: every Factory job fails; ${text?.redo ?? "fix or delete the variable"}`);
   }
