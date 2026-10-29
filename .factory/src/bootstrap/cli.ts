@@ -10,6 +10,7 @@ import { commonSteps } from "./common.ts";
 import { runDestroy } from "./destroy.ts";
 import { doctor, formatReport, type Sections } from "./doctor.ts";
 import { GhCli } from "./github.ts";
+import { chooseTarget, gitOrigin } from "./target.ts";
 import { GitHubTokenApi } from "./token.ts";
 import { clackPrompter } from "./prompter.ts";
 import { domainSteps } from "./domain.ts";
@@ -74,6 +75,9 @@ Commands:
   help                   Show this message.
 
 Options:
+  --repo <owner/name>    The repository to set up. Default: the \`origin\` remote (never \`upstream\`). Every command shows
+                         \`owner/name (visibility)\` and asks to confirm before its first step; without a terminal --repo is
+                         required and must equal \`origin\`.
   --redo <step>          Redo one step even if it looks done (repeatable): cloudflare-token, workers-dev, labels,
                          language (asks the language again);
                          for the domain command: resend-domain, dns-records, restricted-resend-key, worker-domain;
@@ -92,8 +96,26 @@ Only \`gh\` (logged in with \`gh auth login\`) must be installed. Nothing is wri
 
 /** Entry point; returns the process exit code. */
 export async function runBootstrap(argv: string[], deps: BootstrapDeps): Promise<number> {
-  const { positionals, values } = parseArgs({ args: argv, allowPositionals: true, options: { redo: { type: "string", multiple: true } } });
+  const { positionals, values } = parseArgs({ args: argv, allowPositionals: true, options: { redo: { type: "string", multiple: true }, repo: { type: "string" } } });
+  const [command] = positionals;
+
+  if (command === "help") {
+    deps.log(USAGE);
+    return 0;
+  }
+  if (command !== undefined && !COMMANDS.includes(command)) {
+    deps.log(`Unknown command: ${command}\n\n${USAGE}`);
+    return 1;
+  }
+  if (!(await chooseTarget(deps, values.repo))) return 1;
+  return dispatch(positionals, values.redo ?? [], deps);
+}
+
+const COMMANDS = ["destroy", "domain", "env", "billing", "all", "previews", "product", "factory", "doctor"];
+
+async function dispatch(positionals: string[], redo: string[], deps: BootstrapDeps): Promise<number> {
   const [command, productId] = positionals;
+  const values = { redo };
 
   if (command === "destroy") {
     const memory: StepContext["memory"] = {};
@@ -103,10 +125,6 @@ export async function runBootstrap(argv: string[], deps: BootstrapDeps): Promise
       await memory.neon?.close();
     }
   }
-  if (command === "help") {
-    deps.log(USAGE);
-    return 0;
-  }
   if (command === "domain") {
     if (!productId) {
       deps.log(`Usage: pnpm bootstrap domain <id> [--redo <step>]`);
@@ -115,7 +133,7 @@ export async function runBootstrap(argv: string[], deps: BootstrapDeps): Promise
     const product = await productOrAsk(deps, productId);
     if (!product) return 1;
     const memory: StepContext["memory"] = {};
-    await runSteps(domainSteps(product), { ...deps, memory }, values.redo ?? []);
+    await runSteps(domainSteps(product), { ...deps, memory }, values.redo);
     return finish(deps, productId, memory, { production: false, previews: false });
   }
   if (command === "env") {
@@ -138,14 +156,14 @@ export async function runBootstrap(argv: string[], deps: BootstrapDeps): Promise
       deps.log(`Unknown billing action: ${positionals[2]}. Use \`migrate-prices\` or no action.`);
       return 1;
     }
-    return runBilling(deps, product, values.redo ?? []);
+    return runBilling(deps, product, values.redo);
   }
   if (command === "all") {
     if (!productId) {
       deps.log(`Usage: pnpm bootstrap all <id>`);
       return 1;
     }
-    const code = await runBootstrap(["product", productId, ...(values.redo ?? []).flatMap((step) => ["--redo", step])], deps);
+    const code = await dispatch(["product", productId], values.redo, deps);
     if (code !== 0 || !deps.interactive) return code;
     const product = await productOrAsk(deps, productId);
     if (!product?.billing) return code;
@@ -164,7 +182,7 @@ export async function runBootstrap(argv: string[], deps: BootstrapDeps): Promise
     if (!product) return 1;
     const memory: StepContext["memory"] = {};
     try {
-      await runSteps(previewSteps(product), { ...deps, memory }, values.redo ?? []);
+      await runSteps(previewSteps(product), { ...deps, memory }, values.redo);
       return await finish(deps, productId, memory, { production: false, domain: false, previews: true }, PREVIEWS_ENABLED);
     } finally {
       await memory.neon?.close();
@@ -179,7 +197,7 @@ export async function runBootstrap(argv: string[], deps: BootstrapDeps): Promise
     if (!product) return 1;
     const memory: StepContext["memory"] = {};
     try {
-      await runSteps(productionSteps(product), { ...deps, memory }, values.redo ?? []);
+      await runSteps(productionSteps(product), { ...deps, memory }, values.redo);
       const code = await finish(deps, productId, memory, { production: true, previews: false }, "DEPLOY_ENABLED");
       deps.log(`After the first deploy, attach the domain with: pnpm bootstrap domain ${productId} --redo worker-domain`);
       return code;
@@ -189,7 +207,7 @@ export async function runBootstrap(argv: string[], deps: BootstrapDeps): Promise
   }
   if (command === "factory") {
     const memory: StepContext["memory"] = {};
-    await runSteps(factorySteps, { ...deps, memory }, values.redo ?? []);
+    await runSteps(factorySteps, { ...deps, memory }, values.redo);
     const code = await finish(deps, undefined, memory, { production: false, domain: false, previews: false, factory: true, cloudflare: false }, FACTORY_ENABLED);
     // Only a Factory that passed the doctor and is switched on can solve an example issue.
     if (code !== 0 || !deps.interactive || (await deps.github.listVariables())[FACTORY_ENABLED] !== "true") return code;
@@ -205,13 +223,9 @@ export async function runBootstrap(argv: string[], deps: BootstrapDeps): Promise
       await memory.neon?.close();
     }
   }
-  if (command !== undefined) {
-    deps.log(`Unknown command: ${command}\n\n${USAGE}`);
-    return 1;
-  }
 
   const memory: StepContext["memory"] = {};
-  await runSteps(commonSteps, { ...deps, memory }, values.redo ?? []);
+  await runSteps(commonSteps, { ...deps, memory }, values.redo);
   return finish(deps, undefined, memory);
 }
 
@@ -337,6 +351,7 @@ if (import.meta.main) {
   try {
     process.exitCode = await runBootstrap(process.argv.slice(2), {
       github: new GhCli(),
+      origin: gitOrigin,
       cloudflare: (token) => new CloudflareApi(token),
       wrangler: new WranglerCli({ env }),
       neon: (options) => {

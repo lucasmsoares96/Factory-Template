@@ -21,6 +21,8 @@ export interface LabelSpec {
 
 /** The only door to the forge. `gh` is called from `github.ts` and nowhere else. */
 export interface GitHubClient {
+  /** Fixes the repository (`owner/name`) every later call goes to; `gh` is never left to guess it from the clone. */
+  target(fullName: string): void;
   repo(): Promise<RepoInfo>;
   /** Login of the account `gh` is authenticated as. */
   user(): Promise<string>;
