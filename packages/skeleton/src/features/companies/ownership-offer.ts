@@ -315,7 +315,7 @@ export const ownershipOfferApi = createRouter()
       }
       // The former Owner steps down first: the database allows one Owner per Company.
       await tx.update(members).set({ role: "employee" }).where(and(eq(members.companyId, companyId), eq(members.userId, former.userId)));
-      await tx.update(members).set({ role: "owner" }).where(and(eq(members.companyId, companyId), eq(members.userId, userId)));
+      await tx.update(members).set({ role: "owner", suspendedAt: null }).where(and(eq(members.companyId, companyId), eq(members.userId, userId)));
       await tx.update(ownershipOffers).set({ acceptedAt: new Date() }).where(eq(ownershipOffers.id, offer.id));
       return company;
     });
