@@ -14,4 +14,9 @@ export interface VerifyRun {
 
 export interface Verify {
   run(options: { timeoutMs: number }): Promise<VerifyRun>;
+  /**
+   * Checks a Skeleton change on its own, in a worktree made from the base branch: regenerates the lockfile and the
+   * generated files (it may write them into `dir`), then typecheck and lint. Never touches the working copy of the run.
+   */
+  checkSkeleton(options: { dir: string; timeoutMs: number }): Promise<VerifyRun>;
 }

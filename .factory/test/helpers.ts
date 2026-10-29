@@ -7,7 +7,7 @@ import { afterAll, afterEach } from "vitest";
 import { FakeAgent, type AgentStep } from "../src/adapters/fake/fake-agent.ts";
 import { FakeCodeHost, type FakePullRequestSeed } from "../src/adapters/fake/fake-code-host.ts";
 import { FakeTracker, type FakeIssueInput } from "../src/adapters/fake/fake-tracker.ts";
-import { FakeVerify, type VerifyStep } from "../src/adapters/fake/fake-verify.ts";
+import { FakeVerify, type SkeletonCheckStep, type VerifyStep } from "../src/adapters/fake/fake-verify.ts";
 import { FACTORY_MARKER } from "../src/marker.ts";
 import type { Stage } from "../src/seams/agent.ts";
 import { runFactory } from "../src/cli.ts";
@@ -165,6 +165,8 @@ export interface WorldOptions {
   repo?: string;
   agent?: Partial<Record<Stage, AgentStep[]>>;
   verify?: VerifyStep[];
+  /** Scripts the Skeleton check (`Verify.checkSkeleton`); by default it passes and writes nothing. */
+  skeletonCheck?: SkeletonCheckStep[];
   env?: Record<string, string>;
   /** The code host of the job token (`jobToken: true`); the forge token's one when absent. */
   jobCodeHost?: FakeCodeHost;
@@ -179,7 +181,7 @@ export function world(options: WorldOptions = {}): World {
   const codeHost = new FakeCodeHost({ branches: options.branches ?? {}, prs: options.prs ?? [], self: OWNER });
   const repo = options.repo ?? "/nonexistent";
   const agent = new FakeAgent(repo, options.agent ?? {});
-  const verify = new FakeVerify(repo, "test-results/evidence", options.verify ?? []);
+  const verify = new FakeVerify(repo, "test-results/evidence", options.verify ?? [], options.skeletonCheck);
   const env: Record<string, string> = { ...options.env };
   const logs: string[] = [];
   return {

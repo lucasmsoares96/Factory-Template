@@ -31,6 +31,17 @@ export function productOf(issue: Pick<Issue, "labels" | "title" | "body">, confi
   return /\bapps\/([a-z0-9][a-z0-9-]*)/.exec(text)?.[1] ?? /^\W*Product:\W*([a-z0-9][a-z0-9-]*)/im.exec(text)?.[1] ?? null;
 }
 
+/** What a Skeleton pull request may carry besides `packages/skeleton/`: the catalog and the lockfile at the root. */
+export const SKELETON_ROOT_FILES = ["pnpm-workspace.yaml", "pnpm-lock.yaml"];
+
+/** A file a Product generates (`routeTree.gen.ts`, `mcp-tools.gen.json`): `apps/<id>/…/*.gen.<ext>`. */
+const PRODUCT_GENERATED = /^apps\/[^/]+\/(?:.+\/)?[^/]*\.gen\.(?:ts|tsx|json)$/;
+
+/** Whether a Skeleton pull request may change `path`: the Skeleton, the fixed root files, or a Product's generated file. */
+export function skeletonAllowed(path: string): boolean {
+  return path.startsWith(SKELETON_PATH) || SKELETON_ROOT_FILES.includes(path) || PRODUCT_GENERATED.test(path);
+}
+
 export function skeletonPaths(changed: string[]): string[] {
   return changed.filter((p) => p.startsWith(SKELETON_PATH));
 }
@@ -142,7 +153,7 @@ export async function skeletonPatch(git: Git, base: string, snapshots: Map<strin
 
 /**
  * Applies `patch` on `base` in a throwaway worktree and commits it; returns the commit. Throws when the patch does not
- * apply, changes nothing, or changes anything outside `packages/skeleton/`: the Skeleton pull request carries only that.
+ * apply, changes nothing, or changes anything outside `packages/skeleton/` and the fixed list (`skeletonAllowed`): the Skeleton pull request carries only that.
  */
 export async function skeletonCommit(git: Git, base: string, patch: string, message: string): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "factory-skeleton-"));
@@ -153,8 +164,8 @@ export async function skeletonCommit(git: Git, base: string, patch: string, mess
     const names = await tree.run("-c", "core.quotePath=false", "diff", "--cached", "--name-only", "--no-renames", base);
     const changed = names.split("\n").filter(Boolean);
     if (changed.length === 0) throw new Error("The Skeleton patch changes nothing.");
-    const outside = changed.filter((p) => !p.startsWith(SKELETON_PATH));
-    if (outside.length > 0) throw new Error(`The Skeleton patch changes files outside ${SKELETON_PATH}: ${outside.join(", ")}`);
+    const outside = changed.filter((p) => !skeletonAllowed(p));
+    if (outside.length > 0) throw new Error(`The Skeleton patch changes files outside ${SKELETON_PATH} and the fixed list (${SKELETON_ROOT_FILES.join(", ")}, generated files of the Products): ${outside.join(", ")}`);
     await tree.run("-c", "user.name=Factory", "-c", "user.email=factory@localhost", "commit", "--quiet", "--no-verify", "-m", message);
     return await tree.head();
   } finally {

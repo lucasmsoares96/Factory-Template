@@ -3,6 +3,13 @@ import { pick, VERIFY_ENV, VERIFY_ENV_PREFIXES } from "../env.ts";
 import type { Verify, VerifyRun } from "../seams/verify.ts";
 
 const COMMAND = ["pnpm", "factory:verify"];
+/** The checks of a Skeleton change, in order: the first to fail stops the rest. */
+const SKELETON_COMMANDS = [
+  ["pnpm", "install", "--no-frozen-lockfile"],
+  ["pnpm", "generate"],
+  ["pnpm", "typecheck"],
+  ["pnpm", "lint"],
+];
 /** Output kept in memory; `work` keeps a shorter tail in result.json. */
 const OUTPUT_LIMIT = 1024 * 1024;
 const KILL_GRACE_MS = 5000;
@@ -26,10 +33,26 @@ export class FactoryVerify implements Verify {
   }
 
   run({ timeoutMs }: { timeoutMs: number }): Promise<VerifyRun> {
-    const [command, ...args] = COMMAND as [string, ...string[]];
+    return this.execute(COMMAND, this.options.repo, timeoutMs);
+  }
+
+  async checkSkeleton({ dir, timeoutMs }: { dir: string; timeoutMs: number }): Promise<VerifyRun> {
+    const deadline = Date.now() + timeoutMs;
+    let output = "";
+    for (const command of SKELETON_COMMANDS) {
+      const left = deadline - Date.now();
+      const step = left > 0 ? await this.execute(command, dir, left) : { ok: false, failedCommand: command.join(" "), output: "", timedOut: true };
+      output += step.output;
+      if (!step.ok) return { ...step, output };
+    }
+    return { ok: true, failedCommand: null, output, timedOut: false };
+  }
+
+  private execute(commandLine: readonly string[], cwd: string, timeoutMs: number): Promise<VerifyRun> {
+    const [command, ...args] = commandLine as [string, ...string[]];
     return new Promise((resolve, reject) => {
       const child = spawn(command, args, {
-        cwd: this.options.repo,
+        cwd,
         env: pick(this.options.env ?? process.env, VERIFY_ENV, VERIFY_ENV_PREFIXES),
         detached: true,
         stdio: ["ignore", "pipe", "pipe"],
@@ -62,7 +85,7 @@ export class FactoryVerify implements Verify {
         clearTimeout(timer);
         kill("SIGKILL");
         const ok = !timedOut && code === 0;
-        resolve({ ok, failedCommand: ok ? null : COMMAND.join(" "), output, timedOut });
+        resolve({ ok, failedCommand: ok ? null : commandLine.join(" "), output, timedOut });
       });
     });
   }

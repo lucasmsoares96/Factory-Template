@@ -17,6 +17,7 @@ import {
 } from "../result.ts";
 import { fence, summaryMarkdown } from "../report.ts";
 import { parsePullRequestBody, pullRequestExtraction } from "../pull-request-output.ts";
+import { assembleSkeletonChange, dropSkeletonCatalog, skeletonCatalog } from "../skeleton-change.ts";
 import { changedSkeletonPaths, followUpTicket, mergeGaps, productOf, revertToBase, skeletonGaps, skeletonPatch } from "../scope.ts";
 import { addedSkippedTests, skippedTestsFeedback } from "../skipped-tests.ts";
 import { parseReviewOutput, reviewExtraction } from "../review-output.ts";
@@ -289,9 +290,25 @@ export async function work(ctx: CommandContext, number: number | null, options: 
   }
 
   await mkdir(options.out, { recursive: true });
-  if (skeletonFiles.size > 0) await writeFile(join(options.out, SKELETON_PATCH_FILE), await skeletonPatch(git, base, skeletonFiles));
+  // The Skeleton pull request is assembled and checked here, from the base, before anything is published: see skeleton-change.ts.
+  let skeletonFailure: string | null = null;
+  if (skeletonFiles.size > 0) {
+    const carried = await skeletonCatalog(git, base, skeletonFiles);
+    const timeoutMs = budget(config.timeouts.e2e);
+    const assembled = timeoutMs === null ? null : await assembleSkeletonChange(git, base, await skeletonPatch(git, base, skeletonFiles), carried, verify, timeoutMs);
+    if (assembled?.ok) {
+      await writeFile(join(options.out, SKELETON_PATCH_FILE), assembled.patch);
+      // The entries only the Skeleton change used leave the Product's branch with it.
+      await dropSkeletonCatalog(git, base, carried, `revert: drop catalog entries only the Skeleton change used (#${number})`);
+    } else {
+      skeletonFailure = assembled
+        ? `The Skeleton change did not pass ${assembled.timedOut ? "(timed out)" : "typecheck and lint"} on a worktree made from \`${config.baseBranch}\`, so no Skeleton pull request was opened${assembled.failedCommand ? ` (\`${assembled.failedCommand}\`)` : ""}:\n${fence(tail(assembled.output), "text")}`
+        : "No time was left in the global limit to check the Skeleton change, so no Skeleton pull request was opened.";
+      skeletonFiles.clear();
+    }
+  }
   const followUps =
-    product !== null && (skeletonFiles.size > 0 || gaps.length > 0)
+    skeletonFailure === null && product !== null && (skeletonFiles.size > 0 || gaps.length > 0)
       ? [followUpTicket(issue, product, [...skeletonFiles.keys()].sort(), gaps, skeletonFiles.size > 0 ? SKELETON_PATCH_FILE : null, config.language)]
       : [];
   if (!ready && reason === "e2e-failures" && skippedFailure !== null) {
@@ -305,8 +322,12 @@ export async function work(ctx: CommandContext, number: number | null, options: 
   // a verdict that every criterion is met without it (a test skipped in the E2E would pass too).
   const needsSkeleton = followUps.length > 0 && (ready ? verdicts.length === 0 || unmet.length > 0 : reason === "e2e-failures");
   // An issue run then waits on its Skeleton follow-up and starts again once it is closed; a PR round escalates.
-  const waiting = needsSkeleton && flow === null;
-  if (needsSkeleton) {
+  const waiting = needsSkeleton && flow === null && skeletonFailure === null;
+  if (skeletonFailure !== null) {
+    ready = false;
+    reason = "needs-human";
+    question = skeletonFailure;
+  } else if (needsSkeleton) {
     ready = false;
     reason = "needs-human";
     question = waiting ? null : SKELETON_QUESTION;

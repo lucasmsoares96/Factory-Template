@@ -59,8 +59,15 @@ The detail of the Factory's flows on the forge: which workflow runs which jobs, 
 `src/scope.ts`, ADR 0008. A Product issue never changes `packages/skeleton/`.
 
 - `work` takes the Skeleton change as Development left it (the Review may undo it itself), reverts what is left after the Review, and writes it, against the base, to `skeleton.patch` in `out` (a file changed in several attempts keeps its last version).
+- Before it writes the patch, `work` assembles and checks the Skeleton pull request (`src/skeleton-change.ts`), in a throwaway worktree made from the base:
+  - it applies the Skeleton files and the `pnpm-workspace.yaml` catalog entries those files use (`catalog:` dependencies the base lacks or has at another version);
+  - `Verify.checkSkeleton` runs `pnpm install --no-frozen-lockfile` and `pnpm generate` (the lockfile and the Products' generated files, such as `routeTree.gen.ts`), then `pnpm typecheck` and `pnpm lint`;
+  - `skeleton.patch` is the resulting diff against the base, limited to `packages/skeleton/`, `pnpm-workspace.yaml`, `pnpm-lock.yaml` and the Products' generated files (`apps/<id>/**/*.gen.*`).
+  - It runs in `work`, not in `publish`, because it executes the branch's code and `publish` holds `FACTORY_TOKEN`.
+  - A change that fails the check ends the run as an Escalation `needs-human` with the command's output; no Skeleton issue with a patch and no Skeleton pull request are opened.
+  - The Product's branch also loses, in a commit of its own, the catalog entries only the Skeleton change used.
 - The follow-up in `result.json` names it (`patch`) and carries the `<skeleton-gap>` texts (`gaps`).
-- `publish` applies the patch on the base in a throwaway worktree before anything else and refuses it (Escalation `infra`) if it does not apply or touches anything outside `packages/skeleton/`.
+- `publish` applies the patch on the base in a throwaway worktree before anything else and refuses it (Escalation `infra`) if it does not apply or touches anything outside `packages/skeleton/` and the fixed list (`pnpm-workspace.yaml`, `pnpm-lock.yaml`, the Products' generated files).
 - Then it opens the "The Skeleton must grow" issue as `ready-for-human` and a pull request of its own (branch `factory/issue-<skeleton issue>` from the base, never a draft, `Closes #<skeleton issue>`, the Product issue and the gaps in the body). A gap with no file is only an issue, `needs-triage`, no PR.
 - A Product issue whose final Review gives a verdict `met` on every criterion without the Skeleton (`criteria`; none at all counts as not met) gets its ready PR as before and blocks on nothing.
 - One that cannot (the issue flow only; a PR round escalates `needs-human`) ends `waiting`: no Pull Request Stage, no Product PR and no Escalation.

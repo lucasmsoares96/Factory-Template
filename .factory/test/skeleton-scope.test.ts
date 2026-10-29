@@ -2,7 +2,7 @@ import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
-import type { VerifyStep } from "../src/adapters/fake/fake-verify.ts";
+import type { SkeletonCheckStep, VerifyStep } from "../src/adapters/fake/fake-verify.ts";
 import { createGitHubIssue } from "../src/adapters/github/create-issue.ts";
 import { MarkdownTracker } from "../src/adapters/local/markdown-tracker.ts";
 import { derivedCheckout, commitFile, commitFiles, git, HUMAN, ISSUE_BODY, lastJson, tempDir, world } from "./helpers.ts";
@@ -10,6 +10,9 @@ import { derivedCheckout, commitFile, commitFiles, git, HUMAN, ISSUE_BODY, lastJ
 const LAYOUT = "packages/skeleton/src/layout.tsx";
 const TEMPLATE = "packages/skeleton/template/src/home.tsx";
 const NEW = "packages/skeleton/src/new.ts";
+const SKELETON_PACKAGE = "packages/skeleton/package.json";
+const WORKSPACE = "pnpm-workspace.yaml";
+const CATALOG = "packages:\n  - apps/*\n\ncatalog:\n  # Tooling\n  \"@types/node\": 24.19.2\n  zod: 4.1.0\n";
 const PRODUCT = { "ready-for-agent": HUMAN, "product:example": HUMAN };
 
 /** Development edits the Product and, wrongly, the Skeleton root layout and its template. */
@@ -37,7 +40,11 @@ const review = reviewing({ criteria: [verdict(true)] });
 /** A checkout whose base commit holds the Skeleton files; the commit is made once per file and copied. */
 const skeletonCheckout = () =>
   derivedCheckout("skeleton", (dir) =>
-    commitFiles(dir, { [LAYOUT]: "export const Layout = 'plain';\n", [TEMPLATE]: "export const T = 'plain';\n" }, "chore: skeleton"),
+    commitFiles(
+      dir,
+      { [LAYOUT]: "export const Layout = 'plain';\n", [TEMPLATE]: "export const T = 'plain';\n", [SKELETON_PACKAGE]: '{"dependencies":{"zod":"catalog:"}}\n', [WORKSPACE]: CATALOG },
+      "chore: skeleton",
+    ),
   );
 
 /** claim → work → publish on two checkouts that share a base commit holding the Skeleton files. */
@@ -46,6 +53,7 @@ async function run(options: {
   body?: string;
   develop?: AgentStep;
   verify?: VerifyStep[];
+  skeletonCheck?: SkeletonCheckStep[];
   attempts?: number;
   review?: AgentStep;
   /** Runs between `work` and `publish`, on the artifacts. */
@@ -67,6 +75,7 @@ async function run(options: {
     },
     env: { FACTORY_MAX_ATTEMPTS: String(options.attempts ?? 5), ...options.env },
     verify: options.verify ?? [{ ok: true }],
+    skeletonCheck: options.skeletonCheck,
   });
   await w.factory("claim", "7");
   const claimed = lastJson(w.logs) as { startSha: string | null };
@@ -317,8 +326,54 @@ describe("Skeleton scope of a Product issue", () => {
     expect(w.codeHost.prs).toEqual([]);
     expect([...w.tracker.issues.keys()]).toEqual([1, 7]);
     expect(w.tracker.labelsOf(7)).toContain("ready-for-human");
-    expect(w.tracker.commentsOn(7).at(-1)!.body).toContain("outside packages/skeleton/: apps/example/src/evil.ts");
+    expect(w.tracker.commentsOn(7).at(-1)!.body).toContain("apps/example/src/evil.ts");
     expect(lastJson(w.logs)).toMatchObject({ issue: 7, outcome: "escalated", reason: "infra" });
+  });
+
+  it("builds the Skeleton pull request with the catalog, the lockfile and the regenerated files when the change adds a dependency", async () => {
+    const withDependency: AgentStep = async ({ cwd }) => {
+      await commitFiles(
+        cwd,
+        {
+          "apps/example/src/home.tsx": "export const Home = 1;\n",
+          [SKELETON_PACKAGE]: '{"dependencies":{"zod":"catalog:","left-pad":"catalog:"}}\n',
+          [WORKSPACE]: CATALOG.replace("  zod: 4.1.0\n", "  left-pad: 1.3.0\n  zod: 4.1.0\n"),
+          "pnpm-lock.yaml": "lock: dirty\n",
+        },
+        "feat: left-pad #7",
+      );
+      return { output: "Done." };
+    };
+    const { w, workCheckout, publishCheckout, result, filesOf } = await run({
+      labels: PRODUCT,
+      develop: withDependency,
+      skeletonCheck: [{ writes: { "pnpm-lock.yaml": "lock: left-pad\n", "apps/example/src/client/routeTree.gen.ts": "// tree\n", "node_modules/x.js": "x" } }],
+    });
+
+    // Checked once, in a worktree that is gone now.
+    expect(w.verify.skeletonChecks).toHaveLength(1);
+    expect(await readdir(w.verify.skeletonChecks[0]!).catch(() => null)).toBeNull();
+    // The Skeleton PR: the package, the catalog entry, the lockfile and the regenerated file; no stray file.
+    const skeleton = skeletonPr(w, 8)!;
+    expect(await filesOf(skeleton.headSha)).toEqual(["apps/example/src/client/routeTree.gen.ts", SKELETON_PACKAGE, "pnpm-lock.yaml", WORKSPACE]);
+    expect(await git(publishCheckout, "show", `${skeleton.headSha}:${WORKSPACE}`)).toContain("left-pad: 1.3.0");
+    expect(await git(publishCheckout, "show", `${skeleton.headSha}:${SKELETON_PACKAGE}`)).toContain("left-pad");
+    // The Product branch keeps neither the Skeleton's dependency nor the catalog entry only it used.
+    expect(await git(workCheckout, "show", `${result.head}:${WORKSPACE}`)).not.toContain("left-pad");
+    expect(await git(workCheckout, "show", `${result.head}:${SKELETON_PACKAGE}`)).not.toContain("left-pad");
+  });
+
+  it("escalates needs-human with the output of the check, and opens no Skeleton pull request, when the change does not pass", async () => {
+    const { w, result } = await run({
+      labels: PRODUCT,
+      skeletonCheck: [{ ok: false, failedCommand: "pnpm typecheck", output: "src/new.ts(1,1): error TS2304: Cannot find name 'x'." }],
+    });
+
+    expect(result).toMatchObject({ outcome: "escalated", reason: "needs-human", followUps: [] });
+    expect(result.question).toContain("Cannot find name 'x'");
+    expect(w.codeHost.prs.map((p) => p.branch)).toEqual(["factory/issue-7"]);
+    expect([...w.tracker.issues.keys()]).toEqual([1, 7]);
+    expect(w.tracker.labelsOf(7)).toContain("ready-for-human");
   });
 
   it("leaves an issue whose own scope is the Skeleton untouched", async () => {
