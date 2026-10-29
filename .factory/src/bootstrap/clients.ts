@@ -55,6 +55,12 @@ export interface GitHubClient {
   /** Deleting an environment deletes its secrets and variables. */
   deleteEnvironment(name: string): Promise<void>;
   deleteRuleset(id: number): Promise<void>;
+  /** Whether `factory-resume.yml` (the scheduled sweep after the agent's usage limit) is on; null when the repo has no such workflow. */
+  resumeSweepEnabled(): Promise<boolean | null>;
+  /** Turns `factory-resume.yml` on or off. */
+  setResumeSweep(enabled: boolean): Promise<void>;
+  /** How many open issues and pull requests carry `label`. */
+  countLabeled(label: string): Promise<number>;
   /** Creates an issue with the labels (they must exist) and returns it. Only the example issue of the Factory module calls the methods below. */
   createIssue(input: { title: string; body: string; labels: string[] }): Promise<IssueRef>;
   /** Links `child` under `parent` as a sub-issue. */

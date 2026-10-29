@@ -125,8 +125,10 @@ jobs:
     needs: work
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # `actions: write` is for the job token alone: it switches the resume sweep on when a Triage pauses (FACTORY_TOKEN cannot).
     permissions:
       contents: read
+      actions: write
     defaults:
       run:
         shell: bash
@@ -149,6 +151,7 @@ jobs:
       - name: apply
         env:
           FACTORY_TOKEN: ${{ secrets.FACTORY_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: pnpm factory apply --in "$RUNNER_TEMP/out"
 
   # The end of the run, whatever happened (a failed `work` skips `apply`): never with FACTORY_TOKEN.
