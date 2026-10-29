@@ -51,6 +51,51 @@ describe("pnpm bootstrap factory: Factory module", () => {
     expect(output).toMatch(/cannot tell whether the token has the Workflows permission/);
   });
 
+  it("leaves the resume sweep off when nothing is paused, and the doctor agrees", async () => {
+    const w = factoryWorld({}, { CLAUDE_CODE_OAUTH_TOKEN: "x" });
+    w.github.resumeSweep = true;
+
+    const { output } = await w.run("factory");
+
+    expect(w.github.resumeSweep).toBe(false);
+    expect(output).toMatch(/ok\s+Resume sweep\s+off, nothing paused/);
+  });
+
+  it("keeps the resume sweep on while an item is paused, turning it on if it was off", async () => {
+    const w = factoryWorld({}, { CLAUDE_CODE_OAUTH_TOKEN: "x" });
+    w.github.resumeSweep = false;
+    w.github.labeledCounts.set("factory:session-limit", 2);
+
+    const { output } = await w.run("factory");
+
+    expect(w.github.resumeSweep).toBe(true);
+    expect(output).toMatch(/ok\s+Resume sweep\s+on, 2 paused item\(s\)/);
+  });
+
+  it("leaves a repo without factory-resume.yml alone", async () => {
+    const w = factoryWorld({}, { CLAUDE_CODE_OAUTH_TOKEN: "x" });
+
+    const { output } = await w.run("factory");
+
+    expect(w.github.resumeSweep).toBeNull();
+    expect(output).not.toMatch(/(ok|warn)\s+Resume sweep/);
+  });
+
+  it("the doctor warns about a sweep on with nothing paused, and about one off with items waiting", async () => {
+    const on = factoryWorld({}, { CLAUDE_CODE_OAUTH_TOKEN: "x" });
+    await on.run("factory");
+    on.github.resumeSweep = true;
+    const writes = on.github.writes;
+    expect((await on.run("doctor")).output).toMatch(/warn\s+Resume sweep\s+on with nothing paused/);
+    expect(on.github.writes).toBe(writes);
+
+    const off = factoryWorld({}, { CLAUDE_CODE_OAUTH_TOKEN: "x" });
+    await off.run("factory");
+    off.github.resumeSweep = false;
+    off.github.labeledCounts.set("factory:session-limit", 1);
+    expect((await off.run("doctor")).output).toMatch(/warn\s+Resume sweep\s+off with 1 paused item/);
+  });
+
   it("allows auto-merge on the repo, which the skills update needs, and leaves it on a rerun", async () => {
     const w = factoryWorld({}, { CLAUDE_CODE_OAUTH_TOKEN: "x" });
 

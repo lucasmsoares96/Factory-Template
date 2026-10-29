@@ -170,5 +170,24 @@ export const mergeMode: Step = {
   },
 };
 
-/** The Factory module: labels, the Factory token, Claude's auth, auto-merge and the Merge Mode. FACTORY_ENABLED is set after the doctor. */
-export const factorySteps: Step[] = [labels, factoryToken, claudeAuth, autoMerge, mergeMode];
+/**
+ * The resume sweep (`factory-resume.yml`, cron every 30 minutes) is on only while an item waits under
+ * `factory:session-limit`: a scheduled run costs at least a minute of Actions even when it finds nothing, which in a
+ * private repo adds up (48 a day). `publish`, `apply` and `retro-publish` switch it on at a pause and the sweep switches
+ * itself off when none is left; this step sets the state a repo starts from, and puts it right after a manual change.
+ */
+export const resumeSweep: Step = {
+  id: "resume-sweep",
+  title: "Resume sweep off while nothing is paused (factory-resume.yml)",
+  async check(ctx) {
+    const state = await ctx.github.resumeSweepEnabled();
+    if (state === null) return { done: true, detail: "the repo has no factory-resume.yml" };
+    return { done: state === ((await ctx.github.countLabeled(ctx.config.labels.sessionLimit)) > 0) };
+  },
+  async run(ctx) {
+    await ctx.github.setResumeSweep((await ctx.github.countLabeled(ctx.config.labels.sessionLimit)) > 0);
+  },
+};
+
+/** The Factory module: labels, the Factory token, Claude's auth, auto-merge, the Merge Mode and the resume sweep. FACTORY_ENABLED is set after the doctor. */
+export const factorySteps: Step[] = [labels, factoryToken, claudeAuth, autoMerge, mergeMode, resumeSweep];
