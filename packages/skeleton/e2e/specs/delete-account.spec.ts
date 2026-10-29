@@ -3,7 +3,7 @@ import { format } from "../../src/i18n/index.ts";
 import { expect, linkIn, test } from "../index.ts";
 
 test(
-  "deleting the account: refused while Owner, accepted after deleting the Company",
+  "deleting the account: refused while Owner, archived after deleting the Company, and signing in cancels it",
   { tag: "@evidence" },
   async ({ page, baseURL, t, mailbox, evidence }) => {
     const email = `leaver-${randomUUID()}@example.com`;
@@ -52,20 +52,24 @@ test(
     await page.getByRole("button", { name: remove.submit }).click();
     await expect(page.getByRole("alert")).toHaveText(t.errors.INVALID_PASSWORD);
 
-    // With the password, the account goes and the user lands on the sign-in screen.
+    // With the password, the account is archived and the user lands on the sign-in screen,
+    // which says it goes for good in 30 days unless they sign in before.
     await page.getByLabel(remove.password).fill(password);
     await evidence("delete-account-confirmation");
     await page.getByRole("button", { name: remove.submit }).click();
     await expect(page.getByRole("heading", { name: t.auth.signIn.title })).toBeVisible();
     await expect(page.getByRole("status")).toHaveText(t.auth.signIn.accountDeleted);
-    await evidence("account-deleted");
+    await evidence("account-archived");
 
-    // The session is gone, and the account with it.
+    // The session is gone.
     await page.goto("/account");
     await expect(page).toHaveURL(/\/sign-in/);
+
+    // Signing in within the 30 days cancels the deletion: the account is back.
     await page.getByLabel(t.auth.signIn.email).fill(email);
     await page.getByLabel(t.auth.signIn.password).fill(password);
     await page.getByRole("button", { name: t.auth.signIn.submit }).click();
-    await expect(page.getByRole("alert")).toHaveText(t.errors.INVALID_EMAIL_OR_PASSWORD);
+    await expect(page.getByRole("heading", { name: remove.title })).toBeVisible();
+    await evidence("account-deletion-canceled");
   },
 );

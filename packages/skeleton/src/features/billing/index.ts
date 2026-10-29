@@ -1,11 +1,13 @@
 import { stripe } from "@better-auth/stripe";
 import { defineFeature, type Feature } from "../../platform/feature.ts";
+import { endSubscriptions, refuseActiveSubscription } from "./account-deletion.ts";
 import { billingApi, seatsOf } from "./api.ts";
 import type { Context } from "hono";
 import type { SkeletonEnv } from "../../platform/env.ts";
 import { entitlementFor, planOf } from "./entitlements.ts";
 import { billingEnabled, billingFor } from "./context.ts";
 import { sendTrialEnding } from "./trial-ending.ts";
+import { reconcileOnSubscriptionEvent } from "./suspension.ts";
 import { productFilter } from "./product-filter.ts";
 import { fakeStripeRoutes } from "./routes.ts";
 
@@ -57,16 +59,24 @@ export function billing<const Name extends string>({ entitlements }: { entitleme
                 ...(trialDays > 0 ? { freeTrial: { days: trialDays } } : {}),
               })),
           },
-          onEvent: (event) => sendTrialEnding(c, on, event),
+          onEvent: async (event) => {
+            await sendTrialEnding(c, on, event);
+            await reconcileOnSubscriptionEvent(c, event);
+          },
         }),
       ];
     },
-    async seatLimit(c, ownerId) {
+    events: {
+      accountArchiving: (event) => refuseActiveSubscription(event, entitlements),
+      accountPurging: (event) => endSubscriptions(event, entitlements),
+    },
+    async seatLimit(c, ownerId, options) {
       const on = billingFor(c, entitlements);
       if (!on) return undefined;
       try {
         return seatsOf((await planOf(c.var.db, await on.plans(), ownerId)).plan);
       } catch (error) {
+        if (options?.strict) throw error;
         // Stripe is down: keep the Owner at the free Plan's one Seat rather than let the limit lapse.
         console.error("Reading the Plans from Stripe failed:", error);
         return 1;

@@ -43,6 +43,12 @@ export const users = skeletonSchema.table("users", {
    * Not a Skeleton field: `@better-auth/stripe` reads and writes it, and only when billing is on.
    */
   stripeCustomerId: text("stripe_customer_id"),
+  /**
+   * When the user confirmed the deletion of the account: it is archived and goes for good 30 days
+   * later, unless the user signs in first (which clears this). Not a Better Auth field: the Skeleton
+   * sets and clears it (auth-options.ts, purge-archived.ts).
+   */
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
@@ -176,7 +182,8 @@ export const companies = skeletonSchema.table("companies", {
  * A user's membership in a Company, with exactly one role. The database keeps
  * one Member per Company and user, and a single Owner per Company. Deleting the
  * Company or the user deletes the Member. `createdAt` (when they joined) keeps
- * milliseconds only, so a list cursor built from it in JavaScript is exact.
+ * milliseconds only, so a list cursor built from it in JavaScript is exact. A
+ * Suspended Member keeps the row, with `suspendedAt` set.
  */
 export const members = skeletonSchema.table(
   "members",
@@ -193,6 +200,8 @@ export const members = skeletonSchema.table(
     createdAt: timestamp("created_at", { withTimezone: true, precision: 3 }).notNull().defaultNow(),
     /** When the user last opened the Company in the SPA: where they land after signing in. */
     lastUsedAt: timestamp("last_used_at", { withTimezone: true, precision: 3 }),
+    /** When the Owner's Seats fell short and the Member lost access to the Company; `null` while they have it. */
+    suspendedAt: timestamp("suspended_at", { withTimezone: true, precision: 3 }),
   },
   (table) => [
     primaryKey({ columns: [table.companyId, table.userId] }),
@@ -235,5 +244,39 @@ export const invitations = skeletonSchema.table(
       .on(table.companyId, table.email)
       .where(sql`${table.acceptedAt} is null and ${table.canceledAt} is null`),
     check("invitations_not_owner", sql`${table.role} <> 'owner'`),
+  ],
+);
+
+/**
+ * An offer to make a Member of a Company its Owner. The Owner who offers stays
+ * the Owner, and the people stay in their Seats, until the recipient accepts
+ * (accepting needs free Seats for the people the recipient does not already
+ * seat). Open means neither accepted nor canceled, and not past `expiresAt`;
+ * the database keeps one such pending offer per Company. It belongs to the
+ * Company and goes with the recipient's account (`offeredBy` becomes null when
+ * the Owner's account goes). `createdAt` keeps milliseconds only.
+ */
+export const ownershipOffers = skeletonSchema.table(
+  "ownership_offers",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    companyId: text("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    recipientId: text("recipient_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    offeredBy: text("offered_by").references(() => users.id, { onDelete: "set null" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true, precision: 3 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, precision: 3 }).notNull().defaultNow(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true, precision: 3 }),
+    canceledAt: timestamp("canceled_at", { withTimezone: true, precision: 3 }),
+  },
+  (table) => [
+    uniqueIndex("ownership_offers_one_pending_idx")
+      .on(table.companyId)
+      .where(sql`${table.acceptedAt} is null and ${table.canceledAt} is null`),
   ],
 );

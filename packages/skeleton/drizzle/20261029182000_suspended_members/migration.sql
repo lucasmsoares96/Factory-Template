@@ -1,0 +1,1 @@
+ALTER TABLE "skeleton"."members" ADD COLUMN "suspended_at" timestamp(3) with time zone;

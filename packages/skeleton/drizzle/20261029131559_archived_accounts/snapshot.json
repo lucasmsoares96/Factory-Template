@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "2b5c29b3-0e7a-4024-9d2f-df74df911454",
+  "id": "07d672d3-7fbe-4b4a-a29a-94a3184c1139",
   "prevIds": [
     "1086c80a-1640-474d-93e5-faba1becce5e"
   ],
@@ -994,19 +994,6 @@
       "table": "users"
     },
     {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "false",
-      "generated": null,
-      "identity": null,
-      "name": "created_by_invitation",
-      "entityType": "columns",
-      "schema": "skeleton",
-      "table": "users"
-    },
-    {
       "type": "text",
       "typeSchema": null,
       "notNull": false,
@@ -1015,6 +1002,19 @@
       "generated": null,
       "identity": null,
       "name": "stripe_customer_id",
+      "entityType": "columns",
+      "schema": "skeleton",
+      "table": "users"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "archived_at",
       "entityType": "columns",
       "schema": "skeleton",
       "table": "users"

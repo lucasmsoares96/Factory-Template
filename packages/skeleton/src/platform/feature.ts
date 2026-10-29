@@ -38,6 +38,18 @@ export type FeatureEvents = {
    * the deletion's transaction: when a hook throws, the whole deletion rolls back.
    */
   companyDeleting?: (event: { db: Transaction; companyId: string }) => Promise<void>;
+  /**
+   * A user confirmed the deletion of their account, which is in no Company: it is about to be
+   * archived. Throw a Better Auth `APIError` (409 and a stable `code`) to refuse until the user
+   * has done what the feature needs, such as canceling a Subscription. Nothing has changed yet.
+   */
+  accountArchiving?: (event: { c: Context<SkeletonEnv>; userId: string }) => Promise<void>;
+  /**
+   * An archived account's 30 days are over: it is about to be deleted for good. End what outlives
+   * it, such as a Subscription still paid for. When it throws, the account stays archived and the
+   * next daily sweep tries again.
+   */
+  accountPurging?: (event: { c: Context<SkeletonEnv>; userId: string }) => Promise<void>;
 };
 
 /**
@@ -91,9 +103,10 @@ export type Feature = {
   /**
    * How many Seats the person has, across every Company they own: a number, or `null` for no limit. Answers `undefined`
    * when the feature sets no limit (billing off): the Seats are then not checked. Creating and accepting an Invitation
-   * are refused (`NO_FREE_SEAT`) when they would take more.
+   * are refused (`NO_FREE_SEAT`) when they would take more. When the number cannot be read (billing's Stripe is down)
+   * it answers a safe one, unless `strict` is set: then it throws, so that nobody is suspended on a guess.
    */
-  seatLimit?(c: Context<SkeletonEnv>, ownerId: string): Promise<number | null | undefined>;
+  seatLimit?(c: Context<SkeletonEnv>, ownerId: string, options?: { strict?: boolean }): Promise<number | null | undefined>;
 };
 
 /** Types a feature (identity at runtime). */
@@ -135,14 +148,34 @@ export async function emitCompanyDeleting(
   for (const feature of features) await feature.events?.companyDeleting?.(event);
 }
 
+/** Runs every feature's `accountArchiving`, in mount order: the first to throw refuses the deletion. */
+export async function emitAccountArchiving(
+  features: readonly Feature[],
+  event: Parameters<NonNullable<FeatureEvents["accountArchiving"]>>[0],
+) {
+  for (const feature of features) await feature.events?.accountArchiving?.(event);
+}
+
+/** Runs every feature's `accountPurging`, in mount order: an archived account is about to be deleted. */
+export async function emitAccountPurging(
+  features: readonly Feature[],
+  event: Parameters<NonNullable<FeatureEvents["accountPurging"]>>[0],
+) {
+  for (const feature of features) await feature.events?.accountPurging?.(event);
+}
+
 /**
  * The Seats `ownerId` has: the first feature that sets a limit decides. `undefined` means no feature limits Seats
  * (they are not checked), `null` that the limit is none.
  */
-export async function seatLimitOf(c: Context<SkeletonEnv>, ownerId: string): Promise<number | null | undefined> {
+export async function seatLimitOf(
+  c: Context<SkeletonEnv>,
+  ownerId: string,
+  options?: { strict?: boolean },
+): Promise<number | null | undefined> {
   for (const feature of c.var.features) {
     if (feature.enabled && !feature.enabled(c.env)) continue;
-    const limit = await feature.seatLimit?.(c, ownerId);
+    const limit = await feature.seatLimit?.(c, ownerId, options);
     if (limit !== undefined) return limit;
   }
   return undefined;

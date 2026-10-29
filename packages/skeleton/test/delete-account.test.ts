@@ -7,20 +7,27 @@ import { createEmptyDatabase } from "./support/database.ts";
 import { startTestWorker, type TestWorker } from "./support/worker.ts";
 
 // Seam 1: the Worker over HTTP. The account page deletes the account through
-// Better Auth's `/api/auth/delete-user`, confirming with the password.
+// Better Auth's `/api/auth/delete-user`, confirming with the password: an account
+// in no Company and with no active Subscription is archived for 30 days, then the
+// Worker's daily cron deletes it (the tests age the archive in the database).
 
 const sent: SentEmail[] = [];
 const resend = mockResend((email) => sent.push(email));
 let db: Awaited<ReturnType<typeof createEmptyDatabase>>;
 let worker: TestWorker;
+/** The same database on a Worker with the fake Stripe, for the accounts that pay. */
+let billed: TestWorker;
+const WEBHOOK_SECRET = "whsec_test";
 
 beforeAll(async () => {
   db = await createEmptyDatabase();
   await migrateDatabase({ databaseUrl: db.url });
   worker = await startTestWorker({ databaseUrl: db.url });
+  billed = await startTestWorker({ databaseUrl: db.url, vars: { STRIPE_FAKE: "true", STRIPE_WEBHOOK_SECRET: WEBHOOK_SECRET } });
 });
 afterAll(async () => {
   await worker?.close();
+  await billed?.close();
   resend.close();
   await db?.drop();
 });
@@ -84,10 +91,75 @@ async function memberIdsOf(companyId: string, cookie: string) {
   return items.map((member) => member.userId);
 }
 
-test("with the right password, the account is deleted: every session gets 401 and its Members are gone", async () => {
-  const owner = await signedInUser("Ana Souza");
+/** Pretends `days` days went by since the account was archived. */
+function ageArchive(userId: string, days: number) {
+  return db.query(`UPDATE skeleton.users SET archived_at = now() - interval '${days} days' WHERE id = '${userId}'`);
+}
+
+async function archivedAt(userId: string) {
+  const [row] = await db.query<{ archived_at: Date | null }>(`SELECT archived_at FROM skeleton.users WHERE id = '${userId}'`);
+  return row === undefined ? "gone" : row.archived_at;
+}
+
+test("with the right password, an account in no Company is archived: every session gets 401 and the 30 days are announced", async () => {
   const bruno = await signedInUser("Bruno Lima");
   const phone = cookieFrom(await signIn(bruno.email));
+
+  const response = await deleteAccount(bruno.cookie, { password: PASSWORD });
+
+  expect(response.status).toBe(200);
+  const body = (await response.json()) as { code: string; deleteAt: string };
+  expect(body.code).toBe("ACCOUNT_ARCHIVED");
+  expect(new Date(body.deleteAt).getTime()).toBeGreaterThan(Date.now() + 29 * 24 * 60 * 60 * 1000);
+  expect(new Date(body.deleteAt).getTime()).toBeLessThan(Date.now() + 31 * 24 * 60 * 60 * 1000);
+  expect(await archivedAt(bruno.id)).toBeInstanceOf(Date);
+  for (const cookie of [bruno.cookie, phone]) {
+    const answer = await me(cookie);
+    expect(answer.status).toBe(401);
+    expect(await answer.json()).toMatchObject({ code: "UNAUTHENTICATED" });
+  }
+});
+
+test("signing in to an archived account cancels the deletion", async () => {
+  const bruno = await signedInUser("Bruno Lima");
+  expect((await deleteAccount(bruno.cookie, { password: PASSWORD })).status).toBe(200);
+  await ageArchive(bruno.id, 29);
+
+  const back = await signIn(bruno.email);
+
+  expect(back.status).toBe(200);
+  expect(await archivedAt(bruno.id)).toBeNull();
+  expect((await me(cookieFrom(back))).status).toBe(200);
+  // The 30 days no longer count: the sweep leaves the account alone.
+  await worker.scheduled();
+  expect(await archivedAt(bruno.id)).toBeNull();
+});
+
+test("after 30 days the daily sweep deletes the account; before, it stays archived", async () => {
+  const bruno = await signedInUser("Bruno Lima");
+  expect((await deleteAccount(bruno.cookie, { password: PASSWORD })).status).toBe(200);
+
+  await ageArchive(bruno.id, 29);
+  await worker.scheduled();
+  expect(await archivedAt(bruno.id)).toBeInstanceOf(Date);
+
+  await ageArchive(bruno.id, 31);
+  await worker.scheduled();
+  expect(await archivedAt(bruno.id)).toBe("gone");
+  const again = await signIn(bruno.email);
+  expect(again.status).toBe(401);
+  expect(await again.json()).toMatchObject({ code: "INVALID_EMAIL_OR_PASSWORD" });
+});
+
+test("the sweep route answers only the Worker's own cron", async () => {
+  const response = await worker.post("/api/internal/purge-archived", {});
+
+  expect(response.status).toBe(404);
+});
+
+test("a Member gets 409 MEMBER_OF_COMPANIES with their Companies, and nothing changes until the Owner removes them", async () => {
+  const owner = await signedInUser("Ana Souza");
+  const bruno = await signedInUser("Bruno Lima");
   const acme = await createCompany(owner.cookie, "Acme");
   const globex = await createCompany(owner.cookie, "Globex");
   await join(acme.id, bruno.id);
@@ -95,17 +167,21 @@ test("with the right password, the account is deleted: every session gets 401 an
 
   const response = await deleteAccount(bruno.cookie, { password: PASSWORD });
 
-  expect(response.status).toBe(200);
-  for (const cookie of [bruno.cookie, phone]) {
-    const answer = await me(cookie);
-    expect(answer.status).toBe(401);
-    expect(await answer.json()).toMatchObject({ code: "UNAUTHENTICATED" });
+  expect(response.status).toBe(409);
+  const body = (await response.json()) as { code: string; companies: { id: string; name: string }[] };
+  expect(body.code).toBe("MEMBER_OF_COMPANIES");
+  expect(body.companies).toEqual([
+    { id: acme.id, name: "Acme" },
+    { id: globex.id, name: "Globex" },
+  ]);
+  expect((await me(bruno.cookie)).status).toBe(200);
+  expect(await archivedAt(bruno.id)).toBeNull();
+
+  for (const company of [acme, globex]) {
+    const removed = await api(`/api/companies/${company.id}/members/${bruno.id}`, { cookie: owner.cookie, method: "DELETE" });
+    expect(removed.status).toBe(204);
   }
-  expect(await memberIdsOf(acme.id, owner.cookie)).toEqual([owner.id]);
-  expect(await memberIdsOf(globex.id, owner.cookie)).toEqual([owner.id]);
-  const again = await signIn(bruno.email);
-  expect(again.status).toBe(401);
-  expect(await again.json()).toMatchObject({ code: "INVALID_EMAIL_OR_PASSWORD" });
+  expect((await deleteAccount(bruno.cookie, { password: PASSWORD })).status).toBe(200);
 });
 
 test("an Owner of a Company gets 409 OWNER_OF_COMPANIES with those Companies, and nothing changes", async () => {
@@ -132,10 +208,11 @@ test("an Owner of a Company gets 409 OWNER_OF_COMPANIES with those Companies, an
   );
   expect((await me(ana.cookie)).status).toBe(200);
   expect(await memberIdsOf(initech.id, bruno.cookie)).toEqual([bruno.id, ana.id]);
+  expect(await archivedAt(ana.id)).toBeNull();
   expect((await signIn(ana.email)).status).toBe(200);
 });
 
-test("deleting the Company it owns lets the account be deleted", async () => {
+test("deleting the Company it owns lets the account be archived", async () => {
   const ana = await signedInUser("Ana Souza");
   const acme = await createCompany(ana.cookie, "Acme");
   expect((await deleteAccount(ana.cookie, { password: PASSWORD })).status).toBe(409);
@@ -147,7 +224,7 @@ test("deleting the Company it owns lets the account be deleted", async () => {
   expect((await me(ana.cookie)).status).toBe(401);
 });
 
-test("a wrong password answers 400 INVALID_PASSWORD and changes nothing, Owner or not", async () => {
+test("a wrong password answers 400 INVALID_PASSWORD and changes nothing, Owner or Member", async () => {
   const ana = await signedInUser("Ana Souza");
   const bruno = await signedInUser("Bruno Lima");
   const acme = await createCompany(ana.cookie, "Acme");
@@ -185,7 +262,7 @@ test("deleting the account needs a session", async () => {
 test("the Invitations the user sent stay pending after the account is deleted", async () => {
   const ana = await signedInUser("Ana Souza");
   const bruno = await signedInUser("Bruno Lima");
-  // Bruno invites as the Owner of Acme; then Acme passes to Ana, so he can leave.
+  // Bruno invites as the Owner of Acme; then Acme passes to Ana and he leaves it.
   const acme = await createCompany(bruno.cookie, "Acme");
   const address = `guest-${randomUUID()}@example.com`;
   const invited = await api(`/api/companies/${acme.id}/invitations`, {
@@ -195,10 +272,13 @@ test("the Invitations the user sent stay pending after the account is deleted", 
   });
   expect(invited.status).toBe(201);
   const invitation = (await invited.json()) as { id: string };
-  await db.query(`UPDATE skeleton.members SET role = 'employee' WHERE company_id = '${acme.id}' AND user_id = '${bruno.id}'`);
+  await db.query(`DELETE FROM skeleton.members WHERE company_id = '${acme.id}' AND user_id = '${bruno.id}'`);
   await join(acme.id, ana.id, "owner");
 
   expect((await deleteAccount(bruno.cookie, { password: PASSWORD })).status).toBe(200);
+  await ageArchive(bruno.id, 31);
+  await worker.scheduled();
+  expect(await archivedAt(bruno.id)).toBe("gone");
 
   const pending = await api(`/api/companies/${acme.id}/invitations`, { cookie: ana.cookie });
   const { items } = (await pending.json()) as { items: { id: string; email: string; invitedBy: unknown }[] };
@@ -211,4 +291,66 @@ test("the Invitations the user sent stay pending after the account is deleted", 
   expect(row?.open).toBe(true);
   const resent = await api(`/api/companies/${acme.id}/invitations/${invitation.id}/resend`, { cookie: ana.cookie, method: "POST" });
   expect(resent.status).toBe(200);
+});
+
+// Accounts that pay: the Subscription lives in the fake Stripe.
+
+const FAKE = "/api/fake-stripe/control";
+const billedPost = (path: string, body: unknown, cookie: string) => billed.post(path, body, { cookie });
+
+/** Subscribes `user` to the fake Stripe's Pro plan, through Checkout. */
+async function subscribe(cookie: string) {
+  const opened = await billedPost("/api/billing/subscribe", { plan: "prod_fake_pro" }, cookie);
+  expect(opened.status).toBe(200);
+  const { url } = (await opened.json()) as { url: string };
+  const paid = await billed.fetch(`${new URL(url).pathname}/pay`, { method: "POST", redirect: "manual" });
+  expect(paid.status).toBe(303);
+}
+
+async function stripeSubscriptions() {
+  const response = await billed.fetch(`${FAKE}/subscriptions`);
+  return ((await response.json()) as { subscriptions: { id: string; status: string; cancelAtPeriodEnd: boolean }[] }).subscriptions;
+}
+
+test("with an active Subscription the deletion is refused with the day the plan stays valid, until it is canceled", async () => {
+  await billed.post(`${FAKE}/reset`, {});
+  const ana = await signedInUser("Ana Souza");
+  const cookie = cookieFrom(await billed.post("/api/auth/sign-in/email", { email: ana.email, password: PASSWORD }));
+  await subscribe(cookie);
+  const [paid] = await stripeSubscriptions();
+
+  const refused = await billedPost("/api/auth/delete-user", { password: PASSWORD }, cookie);
+
+  expect(refused.status).toBe(409);
+  const body = (await refused.json()) as { code: string; periodEnd: string };
+  expect(body.code).toBe("SUBSCRIPTION_ACTIVE");
+  expect(new Date(body.periodEnd).getTime()).toBeGreaterThan(Date.now() + 27 * 24 * 60 * 60 * 1000);
+  expect(await archivedAt(ana.id)).toBeNull();
+  expect((await billed.fetch("/api/me", { headers: { cookie } })).status).toBe(200);
+
+  // Canceled, it keeps its paid days: the deletion goes through.
+  await billed.post(`${FAKE}/cancel`, { subscription: paid!.id });
+  const archived = await billedPost("/api/auth/delete-user", { password: PASSWORD }, cookie);
+  expect(archived.status).toBe(200);
+  expect(await stripeSubscriptions()).toEqual([{ id: paid!.id, status: "active", cancelAtPeriodEnd: true }]);
+});
+
+test("after 30 days a canceled Subscription with paid days left ends in Stripe with the account", async () => {
+  await billed.post(`${FAKE}/reset`, {});
+  const ana = await signedInUser("Ana Souza");
+  const cookie = cookieFrom(await billed.post("/api/auth/sign-in/email", { email: ana.email, password: PASSWORD }));
+  await subscribe(cookie);
+  const [paid] = await stripeSubscriptions();
+  await billed.post(`${FAKE}/cancel`, { subscription: paid!.id });
+  expect((await billedPost("/api/auth/delete-user", { password: PASSWORD }, cookie)).status).toBe(200);
+
+  await ageArchive(ana.id, 29);
+  await billed.scheduled();
+  expect(await stripeSubscriptions()).toEqual([{ id: paid!.id, status: "active", cancelAtPeriodEnd: true }]);
+
+  await ageArchive(ana.id, 31);
+  await billed.scheduled();
+
+  expect(await archivedAt(ana.id)).toBe("gone");
+  expect(await stripeSubscriptions()).toEqual([{ id: paid!.id, status: "canceled", cancelAtPeriodEnd: true }]);
 });
