@@ -235,11 +235,13 @@ export const catalog = {
   }),
   // `merge`: the comment on a pull request the Factory merged on its own (Merge Mode).
   autoMerged: text({
-    en: (mode: string, base: string, preview: boolean) =>
+    en: (mode: string, base: string, preview: boolean, protectedFiles: string[]) =>
       [
         `The Factory merged this pull request on its own: the Merge Mode is \`${mode}\`, and every condition held.`,
         "",
-        "- No file of the diff is protected (`PROTECTED_PATHS` in `.factory/src/config.ts`).",
+        mode === "all"
+          ? `- The Merge Mode \`all\` merges protected files too (\`PROTECTED_PATHS\` in \`.factory/src/config.ts\`)${protectedFiles.length > 0 ? `; this diff changes ${list(protectedFiles)}` : ""}.`
+          : "- No file of the diff is protected (`PROTECTED_PATHS` in `.factory/src/config.ts`).",
         "- `verify` passed.",
         preview ? "- No preview deploy or smoke failed." : "- This pull request has no preview to smoke.",
         "- Every acceptance criterion has a met verdict.",
@@ -247,11 +249,13 @@ export const catalog = {
         "",
         "To undo it, revert the merge commit.",
       ].join("\n"),
-    "pt-BR": (mode, base, preview) =>
+    "pt-BR": (mode, base, preview, protectedFiles) =>
       [
         `A Factory fez o merge deste pull request sozinha: o Merge Mode é \`${mode}\`, e todas as condições valeram.`,
         "",
-        "- Nenhum arquivo do diff é protegido (`PROTECTED_PATHS` em `.factory/src/config.ts`).",
+        mode === "all"
+          ? `- O Merge Mode \`all\` faz o merge de arquivos protegidos também (\`PROTECTED_PATHS\` em \`.factory/src/config.ts\`)${protectedFiles.length > 0 ? `; este diff altera ${list(protectedFiles)}` : ""}.`
+          : "- Nenhum arquivo do diff é protegido (`PROTECTED_PATHS` em `.factory/src/config.ts`).",
         "- O `verify` passou.",
         preview ? "- Nenhum deploy ou smoke de preview falhou." : "- Este pull request não tem preview para o smoke.",
         "- Todo critério de aceitação tem veredito atendido.",
