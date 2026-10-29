@@ -304,7 +304,8 @@ test("a person who already had a trial subscribes without one, even through anot
   });
   expect((await currentPlan(cookie)).subscription).toBeNull();
 
-  await subscribeAndPay(cookie, "prod_fake_team");
+  // The same fixed Plan still offers a trial to people who never had one.
+  await subscribeAndPay(cookie, "prod_fake_pro");
 
   expect((await currentPlan(cookie)).subscription).toMatchObject({ status: "active" });
 });
