@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import type { RepoInfo } from "./clients.ts";
 import type { BootstrapDeps } from "./steps.ts";
 
 const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
@@ -19,45 +20,51 @@ export function gitOrigin(): Promise<string | undefined> {
 const NO_ORIGIN = "This clone has no GitHub `origin` remote, so the bootstrap does not know which repository to set up. Configure it with `git remote add origin https://github.com/<owner>/<name>.git`, or pass `--repo <owner>/<name>`.";
 
 /**
- * Picks the one repository every `gh` call of this run goes to (`--repo`, else `origin`, never `upstream`) and,
- * before any step, shows it with its visibility and asks to confirm it. Without a terminal `--repo` is required and
- * must equal `origin`. Returns `false` (after logging why) when the run must stop with nothing written.
+ * Picks the one repository every `gh` call of this run goes to (`--repo`, else `origin`, never `upstream`). Without a
+ * terminal `--repo` is required and must equal `origin`. Local only: it calls nothing. Returns `undefined` (after
+ * logging why) when the run must stop.
  */
-export async function chooseTarget(deps: BootstrapDeps, repoArg: string | undefined): Promise<boolean> {
+export async function resolveTarget(deps: BootstrapDeps, repoArg: string | undefined): Promise<string | undefined> {
   const origin = await deps.origin?.();
   if (repoArg !== undefined && !REPO.test(repoArg)) {
     deps.log(`--repo must look like owner/name, got "${repoArg}".`);
-    return false;
+    return undefined;
   }
   if (!deps.interactive) {
     if (repoArg === undefined) {
       deps.log("No terminal to confirm the repository: pass `--repo <owner>/<name>`, equal to the `origin` remote.");
-      return false;
+      return undefined;
     }
     if (origin === undefined) {
       deps.log(NO_ORIGIN);
-      return false;
+      return undefined;
     }
     if (repoArg.toLowerCase() !== origin.toLowerCase()) {
       deps.log(`Without a terminal \`--repo\` must equal the \`origin\` remote (${origin}), got ${repoArg}.`);
-      return false;
+      return undefined;
     }
   }
   const target = repoArg ?? origin;
-  if (target === undefined) {
-    deps.log(NO_ORIGIN);
-    return false;
-  }
+  if (target === undefined) deps.log(NO_ORIGIN);
+  return target;
+}
+
+/**
+ * Fixes the target on the client and, before any step, shows the repository with its visibility and asks to confirm
+ * it. Returns what `gh` says about the repository, or `undefined` (after logging why) when the run must stop with
+ * nothing written.
+ */
+export async function confirmTarget(deps: BootstrapDeps, target: string): Promise<RepoInfo | undefined> {
   deps.github.target(target);
   const info = await deps.github.repo();
   const shown = `${info.fullName} (${info.visibility})`;
   if (!deps.interactive) {
     deps.log(`Repository: ${shown}`);
-    return true;
+    return info;
   }
   if (!(await deps.prompter.confirm({ id: "repo-confirm", message: `Set up ${shown}?`, initial: true }))) {
     deps.log("Not confirmed; nothing was written.");
-    return false;
+    return undefined;
   }
-  return true;
+  return info;
 }
