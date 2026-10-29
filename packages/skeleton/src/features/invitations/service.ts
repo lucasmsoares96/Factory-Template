@@ -5,6 +5,7 @@ import { invitationEmail } from "../../emails/invitation.tsx";
 import type { Database } from "../../platform/db.ts";
 import type { SkeletonEnv } from "../../platform/env.ts";
 import { emitMemberJoined, seatLimitOf } from "../../platform/feature.ts";
+import { reconcileSeats } from "../../platform/suspension.ts";
 import { countSeats, holdsSeat, lockSeats, ownerOf, seatPeople } from "../../platform/seats.ts";
 
 /** How long an Invitation's link works, from its creation or its last resend. */
@@ -197,6 +198,7 @@ export async function acceptInvitation(
     return role === null ? { refused: "INVITATION_EXPIRED" } : company(role);
   }
   await emitMemberJoined(c.var.features, { db, companyId: found.companyId, userId: user.id });
+  if (ownerId) await reconcileSeats(c, ownerId);
   return company(found.role);
 }
 

@@ -290,6 +290,23 @@ export class FakeStripe {
     }
   }
 
+  /**
+   * Ends every live Subscription of the customers with this email at once, as Stripe does when a person cancels or a
+   * payment is given up on, and sends each `customer.subscription.deleted`. Answers how many it ended.
+   */
+  async endSubscriptions(email: string) {
+    const customers = new Set((await this.store.list<Obj>("customer")).filter((c) => c.email === email).map((c) => c.id));
+    const now = await this.now();
+    let ended = 0;
+    for (const sub of await this.store.list<Obj>("subscription")) {
+      if (!customers.has(sub.customer) || !["active", "trialing", "past_due"].includes(sub.status)) continue;
+      const gone = await this.store.put("subscription", { ...sub, status: "canceled", ended_at: now, canceled_at: sub.canceled_at ?? now });
+      await this.emit("customer.subscription.deleted", gone);
+      ended += 1;
+    }
+    return ended;
+  }
+
   /** Merges `metadata` into a product, as an operator editing a Plan in the dashboard. Answers whether the product exists. */
   async patchProduct(productId: string, metadata: Record<string, string>) {
     await this.seedCatalog();

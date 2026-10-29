@@ -4,8 +4,9 @@ import { buttonVariants } from "#ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "#ui/card";
 import { useGetCompany } from "../../../../gen/hooks/useGetCompany.ts";
 import { useGetSeats } from "../../../../gen/hooks/useGetSeats.ts";
+import { useListCompanies } from "../../../../gen/hooks/useListCompanies.ts";
 import { useGetNav } from "../../../../gen/hooks/useGetNav.ts";
-import { useErrorMessage, useMessages } from "../../../../client/i18n.tsx";
+import { errorCode, useErrorMessage, useMessages } from "../../../../client/i18n.tsx";
 import { format } from "../../../../i18n/index.ts";
 import { CompanySettings } from "../../company-settings.tsx";
 import { LeaveCompany, Members } from "../../members.tsx";
@@ -33,6 +34,7 @@ function CompanyPage() {
   // Billing is off (404) where the Worker has no Stripe key: then there is no Seat to show.
   const seats = useGetSeats({ query: { enabled: isOwner, retry: false } });
 
+  if (company.isError && errorCode(company.error) === "MEMBER_SUSPENDED") return <SuspendedAccess companyId={companyId} />;
   if (company.isError) {
     return (
       <Alert variant="destructive">
@@ -84,6 +86,31 @@ function CompanyPage() {
       {company.data.role === "owner" ? <InvitationsSection companyId={companyId} /> : null}
       {/* The Owner's actions; the API refuses them to any other role. A new key resets the forms in another Company. */}
       {company.data.role === "owner" ? <CompanySettings key={companyId} company={company.data} /> : null}
+      <LeaveCompany key={`leave-${companyId}`} companyId={companyId} />
+    </div>
+  );
+}
+
+/**
+ * What a Suspended Member sees instead of the Company: the API answers 403 `MEMBER_SUSPENDED` on every route of the
+ * Company. Their other Companies are untouched, and they may still leave this one.
+ */
+function SuspendedAccess({ companyId }: { companyId: string }) {
+  const t = useMessages();
+  // The Company's name comes from the user's list (the switcher loads it), as the Company route itself refuses them.
+  const companies = useListCompanies();
+  const name = companies.data?.items.find((candidate) => candidate.id === companyId)?.name;
+
+  return (
+    <div className="flex flex-col gap-6">
+      <Card data-testid="company-suspended">
+        <CardHeader>
+          <CardTitle>
+            <h1>{name === undefined ? t.errors.MEMBER_SUSPENDED : format(t.companies.suspended.title, { name })}</h1>
+          </CardTitle>
+          <CardDescription>{t.companies.suspended.description}</CardDescription>
+        </CardHeader>
+      </Card>
       <LeaveCompany key={`leave-${companyId}`} companyId={companyId} />
     </div>
   );

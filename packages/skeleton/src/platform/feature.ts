@@ -91,9 +91,10 @@ export type Feature = {
   /**
    * How many Seats the person has, across every Company they own: a number, or `null` for no limit. Answers `undefined`
    * when the feature sets no limit (billing off): the Seats are then not checked. Creating and accepting an Invitation
-   * are refused (`NO_FREE_SEAT`) when they would take more.
+   * are refused (`NO_FREE_SEAT`) when they would take more. When the number cannot be read (billing's Stripe is down)
+   * it answers a safe one, unless `strict` is set: then it throws, so that nobody is suspended on a guess.
    */
-  seatLimit?(c: Context<SkeletonEnv>, ownerId: string): Promise<number | null | undefined>;
+  seatLimit?(c: Context<SkeletonEnv>, ownerId: string, options?: { strict?: boolean }): Promise<number | null | undefined>;
 };
 
 /** Types a feature (identity at runtime). */
@@ -139,10 +140,14 @@ export async function emitCompanyDeleting(
  * The Seats `ownerId` has: the first feature that sets a limit decides. `undefined` means no feature limits Seats
  * (they are not checked), `null` that the limit is none.
  */
-export async function seatLimitOf(c: Context<SkeletonEnv>, ownerId: string): Promise<number | null | undefined> {
+export async function seatLimitOf(
+  c: Context<SkeletonEnv>,
+  ownerId: string,
+  options?: { strict?: boolean },
+): Promise<number | null | undefined> {
   for (const feature of c.var.features) {
     if (feature.enabled && !feature.enabled(c.env)) continue;
-    const limit = await feature.seatLimit?.(c, ownerId);
+    const limit = await feature.seatLimit?.(c, ownerId, options);
     if (limit !== undefined) return limit;
   }
   return undefined;

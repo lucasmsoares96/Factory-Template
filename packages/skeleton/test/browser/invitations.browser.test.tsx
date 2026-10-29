@@ -39,7 +39,7 @@ function companyApi(pending: Invitation[], { role = "owner", t = messagesFor("en
       getNavHandler({ entries: [{ label: t.account.nav, to: "/account" }], companyPage: [], accountPage: [] }),
       listCompaniesHandler({ items: [company], nextCursor: null }),
       getCompanyHandler(company),
-      listMembersHandler({ items: [{ userId: ana.id, name: ana.name, email: ana.email, role }], nextCursor: null }),
+      listMembersHandler({ items: [{ userId: ana.id, name: ana.name, email: ana.email, role, suspended: false }], nextCursor: null }),
       listInvitationsHandler(() => HttpResponse.json({ items: pending, nextCursor: null })),
       createInvitationHandler(async ({ request, params }) => {
         const body = await request.json();

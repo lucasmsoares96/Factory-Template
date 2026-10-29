@@ -120,6 +120,7 @@ const READ_TOOLS = [
   "listConnections",
   "listInvitations",
   "listMembers",
+  "listSuspendedMembers",
   "manualPing",
 ];
 
@@ -196,6 +197,7 @@ test("a `write` Connection sees every tool and its writes reach the route as the
     "listConnections",
     "listInvitations",
     "listMembers",
+    "listSuspendedMembers",
     "removeMember",
     "renameCompany",
     "resendInvitation",
@@ -333,6 +335,26 @@ test("an agent manages Members as the Owner, and a removed Member's agent gets N
     { type: "text", text: "NOT_FOUND: Not found." },
   ]);
   for (const { client } of [owner, brunos, carlas]) await client.close();
+});
+
+test("an agent of a Suspended Member gets the suspension error, and the Owner's agent lists the Suspended Members", async () => {
+  const ana = await signedInUser();
+  const bruno = await signedInUser("Bruno Lima");
+  const company = (await (await worker.post("/api/companies", { name: "Acme" }, { cookie: ana.cookie })).json()) as { id: string };
+  await db.query(`INSERT INTO skeleton.members (company_id, user_id, role, suspended_at) VALUES ('${company.id}', '${bruno.user.id}', 'employee', now())`);
+  const owner = await connectAgent(ana.cookie, { access: "read" });
+  const suspended = await connectAgent(bruno.cookie, { access: "read" });
+
+  for (const name of ["getCompany", "listMembers", "getCompanyNote"]) {
+    const result = await suspended.client.callTool({ name, arguments: { companyId: company.id } });
+    expect(result.isError, name).toBe(true);
+    expect(result.content).toEqual([
+      { type: "text", text: "MEMBER_SUSPENDED: Your access to this Company is suspended: the Owner's Seats fall short." },
+    ]);
+  }
+  const listed = await owner.client.callTool({ name: "listSuspendedMembers", arguments: { companyId: company.id } });
+  expect(listed.structuredContent).toMatchObject({ items: [{ userId: bruno.user.id, email: bruno.user.email }], nextCursor: null });
+  for (const { client } of [owner, suspended]) await client.close();
 });
 
 test("an agent invites as the Owner, and an Employee's agent gets a tool error FORBIDDEN", async () => {
