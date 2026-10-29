@@ -33,7 +33,7 @@ const language = "pt-BR";
 
 const prompts = {
   development: developmentPrompt({ issue, log: "abc1234 feat: greet #7", feedback: "E2E failed running `pnpm factory:verify`.", language }),
-  review: reviewPrompt({ issue, log: "abc1234 feat: greet #7", since: null, findings: [], gaps: [], language }),
+  review: reviewPrompt({ issue, log: "abc1234 feat: greet #7", since: null, findings: [], skeleton: false, language }),
   triage: triagePrompt({ issues: [issue], language }),
   "pr-feedback": prFeedbackPrompt({
     issue,
@@ -84,13 +84,13 @@ describe("prompt templates", () => {
 
   it.each(Object.entries(prompts))("%s tells the agent to write public text in the configured language, contract text in English", (_, prompt) => {
     expect(prompt).toContain(
-      "Write the text the Factory publishes from your output (the pull request body, the Review summary and inline comments, replies to review comments, the Triage comment, Skeleton gaps, questions for a human) in Brazilian Portuguese (pt-BR).",
+      "Write the text the Factory publishes from your output (the pull request body, the Review summary and inline comments, replies to review comments, the Triage comment, questions for a human) in Brazilian Portuguese (pt-BR).",
     );
     expect(prompt).toContain("Keep these in English in any language: the headings `## Acceptance criteria`, `## Testing Decisions` and `## Evidence`");
   });
 
   it("asks for English public text when the language is English", () => {
-    expect(developmentPrompt({ issue, log: "", feedback: null, language: "en" })).toContain("Skeleton gaps, questions for a human) in English.");
+    expect(developmentPrompt({ issue, log: "", feedback: null, language: "en" })).toContain("Triage comment, questions for a human) in English.");
   });
 
   it("calls the skills each Stage follows by name", () => {
@@ -126,11 +126,12 @@ describe("prompt templates", () => {
     expect(prompts.retro).toContain("<retro>");
   });
 
-  it("lists the Skeleton gaps reported so far and asks the Review to add only new ones", () => {
-    expect(prompts.review).toMatch(/Skeleton gaps already reported[^\n]*\n\(none\)/);
-    const listed = reviewPrompt({ issue, log: "", since: null, findings: [], gaps: ["The layout needs a footer slot."], language });
-    expect(listed).toContain("<skeleton-gap>The layout needs a footer slot.</skeleton-gap>");
-    expect(listed).toContain("only for a change not already listed");
+  it("asks the Review to check that a Skeleton change is generic, only when the diff touches the Skeleton", () => {
+    const touched = reviewPrompt({ issue, log: "", since: null, findings: [], skeleton: true, language });
+    expect(touched).toContain("Check that it is generic");
+    expect(touched).toContain("no `if` on a Product id");
+    expect(touched).not.toContain("<skeleton-gap>");
+    expect(prompts.review).not.toContain("Check that it is generic");
   });
 
   it("tells the Review to comment inline only on unfixed findings that need a human decision", () => {
@@ -174,7 +175,7 @@ describe("prompts snapshot", () => {
     snapshotPrompts(dir);
     try {
       for (const file of await readdir(dir)) await writeFile(join(dir, file), "Rewritten by the agent: {{GAPS}}\n");
-      expect(reviewPrompt({ issue, log: "abc1234 feat: greet #7", since: null, findings: [], gaps: [], language })).toBe(prompts.review);
+      expect(reviewPrompt({ issue, log: "abc1234 feat: greet #7", since: null, findings: [], skeleton: false, language })).toBe(prompts.review);
       expect(developmentPrompt({ issue, log: "abc1234 feat: greet #7", feedback: "E2E failed running `pnpm factory:verify`.", language })).toBe(prompts.development);
       expect(triagePrompt({ issues: [issue], language })).toBe(prompts.triage);
     } finally {
@@ -185,7 +186,7 @@ describe("prompts snapshot", () => {
   it("fails loudly when a template is not in the snapshot", async () => {
     snapshotPrompts(await tempDir("factory-prompts-"));
     try {
-      expect(() => reviewPrompt({ issue, log: "abc1234 feat: greet #7", since: null, findings: [], gaps: [], language })).toThrow(/prompts\/rules\.md is missing/);
+      expect(() => reviewPrompt({ issue, log: "abc1234 feat: greet #7", since: null, findings: [], skeleton: false, language })).toThrow(/prompts\/rules\.md is missing/);
     } finally {
       snapshotPrompts();
     }
