@@ -451,7 +451,7 @@ describe.each([[WORKFLOWS_DIR]])("Factory issue workflow in %s", (dir) => {
     expect(Object.keys(issue.jobs)).toEqual(["claim", "image", "work", "publish", "notify"]);
     expect(issue.jobs.image!.needs).toBe("claim");
     expect(work!.needs).toEqual(["claim", "image"]);
-    expect(publish!.needs).toEqual(["claim", "work"]);
+    expect(publish!.needs).toEqual(["claim", "image", "work"]);
     expect(issue).toMatchObject({ concurrency: { "cancel-in-progress": false, queue: "max" } });
     expect(String((issue as unknown as { concurrency: { group: string } }).concurrency.group)).toMatch(/^factory-\$\{\{ github\.event\.issue\.number \|\| inputs\.issue \}\}$/);
   });
@@ -1026,7 +1026,7 @@ describe("Factory update branches workflow", () => {
     expect(publish.needs).toEqual(["claim", "image", "work"]);
     // `always()` keeps each step going when the run is cancelled mid-publish; a run cancelled before skips the publish.
     const [publishStep, download, ...setup] = rest;
-    const skipCancelled = "${{ always() && !(cancelled() && contains(needs.*.result, 'cancelled')) }}";
+    const skipCancelled = "${{ always() && !contains(needs.*.result, 'cancelled') }}";
     expect(publishStep!.name).toBe("publish");
     expect(publishStep!.if).toBe(skipCancelled);
     expect(download!.uses).toMatch(/^actions\/download-artifact@/);
@@ -1034,6 +1034,19 @@ describe("Factory update branches workflow", () => {
     // The harness `working off` runs on.
     for (const step of setup) expect(step.if, step.uses ?? step.run).toBe("always()");
     expect(runs(publish).join("\n")).toMatch(/pnpm factory publish \$\{ISSUE:\+"\$ISSUE"\} --flow update-branch /);
+  });
+
+  it.each(["factory-issue.yml", "factory-pr-feedback.yml", "factory-update-branches.yml"])("%s: a cancelled `work` (or `image`, `claim`) publishes nothing, by the job results and not by `cancelled()`", (file) => {
+    const publish = checkWorkflows(WORKFLOWS_DIR).workflows[file]!.jobs.publish!;
+    expect(publish.needs).toEqual(["claim", "image", "work"]);
+    const skipCancelled = "${{ always() && !contains(needs.*.result, 'cancelled') }}";
+    const step = steps(publish).find((s) => s.run?.includes("pnpm factory publish"))!;
+    expect(step.if).toBe(skipCancelled);
+    expect(step.if).not.toContain("cancelled()");
+    expect(step.env?.WORK_RESULT).toBe("${{ needs.work.result }}");
+    expect(step.run).toContain('--work-result "$WORK_RESULT"');
+    const download = steps(publish).find((s) => s.uses?.startsWith("actions/download-artifact@"))!;
+    expect(download.if).toBe(skipCancelled);
   });
 
   it("`scan` dispatches with the job token and holds no secret; it may write only a fork PR's comment and factory:working", () => {
