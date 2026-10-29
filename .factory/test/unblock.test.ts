@@ -114,4 +114,46 @@ describe("factory unblock", () => {
       expect(lastJson(w.logs)).toMatchObject({ released: [] });
     });
   });
+
+  describe("checking the acceptance criteria of the closed issue", () => {
+    const BODY = "## What to build\n\n- [ ] not a criterion\n\n## Acceptance criteria\n\n- [ ] one\n- [ ] two\n\n## Blocked by\n\n- [ ] #3\n";
+    const CHECKED = "## What to build\n\n- [ ] not a criterion\n\n## Acceptance criteria\n\n- [x] one\n- [x] two\n\n## Blocked by\n\n- [ ] #3\n";
+    const factoryPr = { number: 101, branch: "factory/issue-12", state: "closed" as const, merged: true };
+    const closed = (reason: string, prs: object[] = [factoryPr]) =>
+      world({ issues: [{ number: 12, body: BODY, state: "closed", reason, labels: {} }], prs: prs as never });
+
+    it("checks the boxes of the criteria section only, once a Factory PR merged and closed the issue", async () => {
+      const w = closed("completed");
+
+      expect(await w.factory("unblock", "--issue", "12")).toBe(0);
+
+      expect(w.tracker.issues.get(12)!.body).toBe(CHECKED);
+      expect(lastJson(w.logs)).toMatchObject({ checked: [12] });
+    });
+
+    it("does not edit an issue closed as not planned", async () => {
+      const w = closed("not_planned");
+
+      await w.factory("unblock", "--issue", "12");
+
+      expect(w.tracker.issues.get(12)!.body).toBe(BODY);
+      expect(lastJson(w.logs)).toMatchObject({ checked: [] });
+    });
+
+    it("does not edit an issue closed without a merged Factory PR", async () => {
+      const w = closed("completed", [{ number: 101, branch: "factory/issue-12", state: "closed" }, { number: 102, branch: "someone/fix", state: "closed", merged: true }]);
+
+      await w.factory("unblock", "--issue", "12");
+
+      expect(w.tracker.issues.get(12)!.body).toBe(BODY);
+    });
+
+    it("leaves an open issue alone", async () => {
+      const w = world({ issues: [{ number: 12, body: BODY, labels: {} }], prs: [factoryPr] as never });
+
+      await w.factory("unblock", "--issue", "12");
+
+      expect(w.tracker.issues.get(12)!.body).toBe(BODY);
+    });
+  });
 });
