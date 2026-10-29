@@ -35,6 +35,16 @@ export type SkeletonBindings = {
   PREVIEW_OUTBOX?: string;
   /** Resend API key restricted to the Product's domain. Only production has it. */
   RESEND_API_KEY?: string;
+  /** The Stripe secret key. Without it billing is off: no billing screen, no billing route. */
+  STRIPE_SECRET_KEY?: string;
+  /** The signing secret of the Stripe webhook endpoint (`/api/auth/stripe/webhook`). */
+  STRIPE_WEBHOOK_SECRET?: string;
+  /**
+   * `true` only in `pnpm dev` and the tests: Stripe is the fake that runs in the Worker (`/api/fake-stripe`),
+   * so billing needs no internet and no key. A Product declares it as a var (`"false"`) in its wrangler config
+   * so that `pnpm dev` can set it. Never set where real money moves; a live key (`sk_live_`) turns it off.
+   */
+  STRIPE_FAKE?: string;
   /** The KV namespace where `workers-oauth-provider` keeps the MCP Connections (clients, grants, tokens). */
   OAUTH_KV: object;
   /** Set only on a tool's in-Worker route call (see `MCP_CONNECTION`). */
@@ -53,6 +63,8 @@ export type SkeletonEnv = {
     sendEmail: SendEmail;
     /** The request's Better Auth instance, built on first use. */
     auth: () => Auth;
+    /** The Product's id (`product.config.ts`): billing tags its Stripe customers and Subscriptions with it. */
+    productId: string;
     /** Who is calling: set by `requireIdentity` on the routes that need a user. */
     identity: Identity;
     /** The caller's membership in the Company of the path: set by `requireMember` on the Company routes. */

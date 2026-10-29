@@ -17,6 +17,7 @@ const nav = (t = messagesFor("en")) => ({
     { label: "Notes", to: "/notes" },
   ],
   companyPage: [{ label: "Notes", to: "/notes" }],
+  accountPage: [],
 });
 
 /** A user in no Company: the signed-in root stays home. */
