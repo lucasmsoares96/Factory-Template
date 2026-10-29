@@ -223,6 +223,50 @@ test("an Owner is refused with the Companies to transfer or delete first, linked
   await expect.element(screen.getByTestId("user-name")).toHaveTextContent(ana.name);
 });
 
+test("a Member is refused with the Companies whose Owners must remove them", async ({ worker }) => {
+  const t = messagesFor("pt-BR");
+  const companies = [{ id: "company-1", name: "Acme" }];
+  worker.use(
+    getMeHandler(ana),
+    getNavHandler(nav(t)),
+    deleteUserHandler({ status: 409, body: { code: "MEMBER_OF_COMPANIES", message: "You work there.", companies } }).handler,
+  );
+  const { screen, router } = await renderSpa({ path: "/account", locale: "pt-BR" });
+  const m = t.account.delete;
+
+  await screen.getByRole("button", { name: m.start }).click();
+  await screen.getByLabelText(m.password).fill("correct horse battery");
+  await screen.getByRole("button", { name: m.submit }).click();
+
+  const alert = screen.getByRole("alert");
+  await expect.element(alert.getByText(t.errors.MEMBER_OF_COMPANIES)).toBeVisible();
+  await expect.element(alert.getByText(m.companiesToLeave)).toBeVisible();
+  await expect.element(alert.getByRole("link", { name: "Acme" })).toHaveAttribute("href", "/c/company-1");
+  expect(router.state.location.pathname).toBe("/account");
+});
+
+test("an active plan is refused with the day it stays valid once canceled, not refunded, and a link to the plan", async ({ worker }) => {
+  const t = messagesFor("pt-BR");
+  worker.use(
+    getMeHandler(ana),
+    getNavHandler(nav(t)),
+    deleteUserHandler({ status: 409, body: { code: "SUBSCRIPTION_ACTIVE", message: "Cancel first.", periodEnd: "2026-11-28T12:00:00.000Z" } }).handler,
+  );
+  const { screen, router } = await renderSpa({ path: "/account", locale: "pt-BR" });
+  const m = t.account.delete;
+
+  await screen.getByRole("button", { name: m.start }).click();
+  await screen.getByLabelText(m.password).fill("correct horse battery");
+  await screen.getByRole("button", { name: m.submit }).click();
+
+  const alert = screen.getByRole("alert");
+  await expect.element(alert.getByText(t.errors.SUBSCRIPTION_ACTIVE)).toBeVisible();
+  await expect.element(alert.getByText(/2026/)).toBeVisible();
+  await expect.element(alert.getByText(/não são reembolsados/)).toBeVisible();
+  await expect.element(alert.getByRole("link", { name: m.planLink })).toHaveAttribute("href", "/account/plan");
+  expect(router.state.location.pathname).toBe("/account");
+});
+
 test("a wrong password is refused with the message translated by its code, and the user stays", async ({ worker }) => {
   const t = messagesFor("pt-BR");
   worker.use(getMeHandler(ana), getNavHandler(nav(t)), deleteUserHandler(authError(400, "INVALID_PASSWORD", "Invalid password")).handler);
