@@ -9,7 +9,7 @@ const PAT = "github_pat_owner_token";
 const PASSWORD = "admin password 123";
 
 async function built(answers: Record<string, string | boolean | string[]> = {}, env: Record<string, string | undefined> = ENV) {
-  const w = world({ "resend-setup": "skip", "default-account-email": "admin@example.com", "default-account-password": PASSWORD, "default-account-password-confirm": PASSWORD, "factory-token": PAT, ...answers }, env);
+  const w = world({ "resend-setup": "skip", "default-account-email": "admin@example.com", "default-account-password": PASSWORD, "default-account-password-confirm": PASSWORD, "preview-account-password": PASSWORD, "preview-account-password-confirm": PASSWORD, "factory-token": PAT, ...answers }, env);
   w.deps.interactive = true;
   w.github.secrets.set("CLOUDFLARE_API_TOKEN", TOKEN);
   w.github.secrets.set("CLOUDFLARE_ACCOUNT_ID", "acc-1");
@@ -163,7 +163,7 @@ describe("pnpm bootstrap destroy product <id>", () => {
     w.github.environments.delete("example-production");
     w.github.environments.delete("example-preview");
     w.github.environmentSecrets.clear();
-    for (const name of ["EXAMPLE_DATABASE_URL", "EXAMPLE_DATABASE_URL_POOLED", "EXAMPLE_BETTER_AUTH_SECRET", "EXAMPLE_ACCOUNT_PASSWORD", "EXAMPLE_RESEND_API_KEY", "EXAMPLE_PREVIEW_NEON_API_KEY"]) w.github.secrets.set(name, "x");
+    for (const name of ["EXAMPLE_DATABASE_URL", "EXAMPLE_DATABASE_URL_POOLED", "EXAMPLE_BETTER_AUTH_SECRET", "EXAMPLE_ACCOUNT_PASSWORD", "EXAMPLE_RESEND_API_KEY", "EXAMPLE_PREVIEW_NEON_API_KEY", "EXAMPLE_PREVIEW_ACCOUNT_PASSWORD"]) w.github.secrets.set(name, "x");
 
     await w.run("destroy", "product", "example");
 

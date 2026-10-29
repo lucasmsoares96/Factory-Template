@@ -13,5 +13,5 @@ The `smoke` job of `factory-deploy.yml` therefore holds exactly one secret, that
 ## Consequences
 
 - Anyone who can read a repository secret can sign in to production as that user. The account is an ordinary user, meant for the owner.
-- Previews have no account: the smoke there does a real sign-up and reads the outbox.
+- Previews also have the Default account, with the production email and a password of their own (the secret `<ID>_PREVIEW_ACCOUNT_PASSWORD` of the `<id>-preview` environment), so a PR that captures the password at a preview sign-in gains no access to production. Only the `deploy` job of the PR workflow (which runs `main`'s code) holds that secret: it upserts the verified user into the PR's Neon branch right after the migrations, with the same hash as production. The preview smoke still does a real sign-up and reads the outbox.
 - The account is created when the Product is, so a rerun with the variable, the secret and a verified user present asks nothing.

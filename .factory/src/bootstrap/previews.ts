@@ -1,5 +1,6 @@
 import { cloudflareHandle, productSecretName } from "./domain.ts";
-import { ensureProject, environmentStep, neonHandle, parseProductList } from "./product.ts";
+import { accountNames } from "./accounts.ts";
+import { askPassword, ensureProject, environmentStep, neonHandle, parseProductList } from "./product.ts";
 import type { ProductIdentity, Step, StepContext } from "./steps.ts";
 
 export const PREVIEW_PRODUCTS = "PREVIEW_PRODUCTS";
@@ -24,6 +25,8 @@ export function previewNames(productId: string) {
     neonProject: productSecretName(productId, "PREVIEW_NEON_PROJECT_ID"),
     /** Variable: id of the preview KV namespace bound as `OAUTH_KV` in every preview. */
     kv: productSecretName(productId, "PREVIEW_OAUTH_KV_ID"),
+    /** Secret: the password of the Default account in the previews, apart from the production one. */
+    accountPassword: productSecretName(productId, "PREVIEW_ACCOUNT_PASSWORD"),
   };
 }
 
@@ -51,6 +54,7 @@ export async function hasPreviewTrace(ctx: StepContext, productId: string, varia
     variables[names.neonProject] !== undefined ||
     variables[names.kv] !== undefined ||
     secrets.includes(names.neonKey) ||
+    secrets.includes(names.accountPassword) ||
     (await ctx.github.listEnvironments()).includes(previewEnvironment(productId))
   );
 }
@@ -152,6 +156,29 @@ export function previewKvStep(product: ProductIdentity): Step {
   };
 }
 
+/**
+ * The password of the Default account in the previews: the production email with a password of its own, so a PR that
+ * captures it at a preview sign-in gets no access to production. Only the secret is stored; the `deploy` job of the PR
+ * workflow upserts the user into the preview branch.
+ */
+export function previewAccountStep(product: ProductIdentity): Step {
+  const names = previewNames(product.id);
+  const email = accountNames(product.id).email;
+  return {
+    id: "preview-account",
+    title: `Default account password in the previews (${names.accountPassword}; the email is ${email})`,
+    async check(ctx) {
+      return { done: await previewSecretPresent(ctx, product.id, names.accountPassword) };
+    },
+    async run(ctx) {
+      if (!(await ctx.github.listVariables())[email]) return ctx.log(`  ${email} is not set: run \`pnpm bootstrap product ${product.id}\` first, then this command again.`);
+      if (!ctx.interactive) return ctx.log(`  ${names.accountPassword} was not set: no terminal to ask. Run this command again with a terminal.`);
+      const password = await askPassword(ctx, "preview-account-password", "Password of the default account in the previews (hidden; different from production; kept only as a secret)");
+      await ctx.github.setSecret(names.accountPassword, password, await previewScope(ctx, product.id));
+    },
+  };
+}
+
 export function previewProductsStep(product: ProductIdentity): Step {
   return {
     id: "preview-products",
@@ -172,6 +199,6 @@ export function previewProductsStep(product: ProductIdentity): Step {
  * `PREVIEWS_ENABLED` is not a step: the command turns it on after the doctor of the Product's previews passes.
  */
 export function previewSteps(product: ProductIdentity): Step[] {
-  return [previewEnvironmentStep(product), previewProjectStep(product), previewNeonKeyStep(product), previewKvStep(product), previewProductsStep(product)];
+  return [previewEnvironmentStep(product), previewProjectStep(product), previewNeonKeyStep(product), previewKvStep(product), previewAccountStep(product), previewProductsStep(product)];
 }
 
