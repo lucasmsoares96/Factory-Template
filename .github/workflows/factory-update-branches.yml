@@ -320,23 +320,24 @@ jobs:
           VARS_JSON: ${{ toJSON(vars) }}
         run: node .factory/src/ci/vars.ts
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: ${{ always() && !(cancelled() && contains(needs.*.result, 'cancelled')) }}
+        if: ${{ always() && !contains(needs.*.result, 'cancelled') }}
         continue-on-error: true
         with:
           name: work-out
           path: ${{ runner.temp }}/out
       - name: publish
-        if: ${{ always() && !(cancelled() && contains(needs.*.result, 'cancelled')) }}
+        if: ${{ always() && !contains(needs.*.result, 'cancelled') }}
         # GITHUB_TOKEN only dispatches the Retro of an Escalation; FACTORY_TOKEN does every write.
         env:
           FACTORY_TOKEN: ${{ secrets.FACTORY_TOKEN }}
           GITHUB_TOKEN: ${{ github.token }}
           START_SHA: ${{ needs.claim.outputs.start_sha }}
           PR: ${{ needs.claim.outputs.pr }}
+          WORK_RESULT: ${{ needs.work.result }}
         run: |
           mkdir -p "$RUNNER_TEMP/out"
           gh --version | head -1
-          pnpm factory publish ${ISSUE:+"$ISSUE"} --flow update-branch --in "$RUNNER_TEMP/out" --pr "$PR" --start-sha "$START_SHA"
+          pnpm factory publish ${ISSUE:+"$ISSUE"} --flow update-branch --in "$RUNNER_TEMP/out" --pr "$PR" --start-sha "$START_SHA" --work-result "$WORK_RESULT"
       # The end of the run, whatever happened: never with FACTORY_TOKEN, whose label events would start workflows.
       - name: working off
         if: always()
