@@ -107,7 +107,7 @@ describe("prompt templates", () => {
     const skillsDir = join(PROMPTS_DIR, "..", "..", ".agents", "skills");
     const offenders: string[] = [];
     for (const [stage, prompt] of Object.entries(prompts)) {
-      const cited = new Set([...prompt.matchAll(/`([a-z][a-z0-9-]*)` skill/g)].map((m) => m[1]));
+      const cited = new Set([...prompt.matchAll(/`([a-z][a-z0-9-]*)` skill/g)].map((m) => m[1]!));
       for (const name of cited) {
         const frontmatter = (await readFile(join(skillsDir, name, "SKILL.md"), "utf8")).match(/^---\n([\s\S]*?)\n---/)?.[1] ?? "";
         const blocked = /^disable-model-invocation:\s*true\s*$/m.test(frontmatter);
