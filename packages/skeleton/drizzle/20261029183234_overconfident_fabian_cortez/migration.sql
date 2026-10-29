@@ -1,0 +1,1 @@
+ALTER TABLE "skeleton"."users" ADD COLUMN "created_by_invitation" boolean DEFAULT false NOT NULL;
