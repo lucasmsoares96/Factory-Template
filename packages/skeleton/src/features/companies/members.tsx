@@ -124,7 +124,14 @@ export function Members({ companyId, isOwner }: { companyId: string; isOwner: bo
                 const manageable = isOwner && me !== undefined && member.userId !== me.id;
                 return (
                   <tr key={member.userId} className="border-t">
-                    <td className="py-2">{member.name}</td>
+                    <td className="py-2">
+                      {member.name}
+                      {isOwner && member.suspended ? (
+                        <span data-testid="member-suspended" className="ml-2 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                          {m.suspendedMark}
+                        </span>
+                      ) : null}
+                    </td>
                     <td className="py-2">{member.email}</td>
                     <td className="py-2">
                       {manageable ? (

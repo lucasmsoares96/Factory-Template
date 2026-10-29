@@ -140,6 +140,12 @@ export const ptBR: Messages = {
       remove: "Remover {name}",
       removeButton: "Remover",
       removed: "{name} não é mais Member da Company.",
+      suspendedMark: "sem acesso",
+    },
+    suspended: {
+      title: "Seu acesso à {name} está suspenso",
+      description:
+        "O plano do Owner não tem Seat para todos nas Companies dele, e quem entrou por último perde o acesso primeiro. Você volta sozinho, sem o Owner fazer nada, quando um Seat ficar livre. Suas outras Companies não mudam.",
     },
     leave: {
       title: "Sair da Company",
@@ -394,6 +400,7 @@ export const ptBR: Messages = {
     OWNER_OF_COMPANIES: "Você é Owner destas Companies. Transfira ou apague cada uma antes de apagar a sua conta.",
     ALREADY_SUBSCRIBED: "Você já tem um plano. Trocar de plano ainda não está disponível aqui.",
     BILLING_UNAVAILABLE: "Não conseguimos falar com o serviço de pagamento. Tente de novo em breve.",
+    MEMBER_SUSPENDED: "Seu acesso a esta Company está suspenso: o Owner não tem Seat para você agora.",
     NOT_ENOUGH_SEATS: "Não há Seats livres para as pessoas desta Company. Suba de plano ou abra espaço e tente de novo.",
     NO_FREE_SEAT: "Não há Seat livre. Remova alguém, cancele um convite ou suba de plano para abrir espaço.",
     INVALID_EMAIL: "Informe um endereço de email válido.",
