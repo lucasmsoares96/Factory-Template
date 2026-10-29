@@ -3,8 +3,8 @@ import type Stripe from "stripe";
 /**
  * A Plan as Stripe holds it: one product per Plan, its metadata saying what kind
  * it is (`kind`: `free`, `fixed` or `per_seat`), how many Seats a fixed or free
- * one gives (`seats`), the Product it belongs to (`productId`) and what it
- * unlocks (`entitlement_<name>`: `true`, `false` or a number). A paid Plan has
+ * one gives (`seats`), the Product it belongs to (`productId`), the free trial of a
+ * fixed one (`trial_days`) and what it unlocks (`entitlement_<name>`: `true`, `false` or a number). A paid Plan has
  * an active monthly price, found by its lookup key.
  */
 export type Plan = {
@@ -18,6 +18,8 @@ export type Plan = {
   /** The monthly price, in the currency's smallest unit; `null` for the free Plan. */
   price: { amount: number; currency: string; interval: "month" } | null;
   entitlements: Record<string, boolean | number>;
+  /** The days of free trial a first Subscription gets; 0 for no trial. Only a `fixed` Plan has one. */
+  trialDays: number;
 };
 
 /** A Plan with the Stripe price that Checkout charges. */
@@ -32,6 +34,11 @@ function entitlementValue(raw: string | undefined): boolean | number {
   if (raw === "true") return true;
   const count = Number(raw);
   return Number.isFinite(count) ? count : false;
+}
+
+function trialDaysOf(kind: Plan["kind"], raw: string | undefined): number {
+  const days = Number(raw);
+  return kind === "fixed" && Number.isInteger(days) && days > 0 ? days : 0;
 }
 
 /**
@@ -65,6 +72,7 @@ export async function readPlans(
       kind: known,
       seats: known === "per_seat" || seats === undefined || !Number.isFinite(Number(seats)) ? null : Number(seats),
       price: price && known !== "free" ? { amount: price.unit_amount!, currency: price.currency, interval: "month" } : null,
+      trialDays: trialDaysOf(known, product.metadata.trial_days),
       entitlements: Object.fromEntries(entitlements.map((name) => [name, entitlementValue(product.metadata[`entitlement_${name}`])])),
     };
     plans.push(plan);

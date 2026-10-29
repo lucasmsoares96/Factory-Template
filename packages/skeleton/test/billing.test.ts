@@ -21,7 +21,7 @@ beforeAll(async () => {
   await migrateDatabase({ databaseUrl: db.url });
   worker = await startTestWorker({
     databaseUrl: db.url,
-    vars: { STRIPE_FAKE: "true", STRIPE_WEBHOOK_SECRET: WEBHOOK_SECRET },
+    vars: { STRIPE_FAKE: "true", STRIPE_WEBHOOK_SECRET: WEBHOOK_SECRET, EMAIL_TRANSPORT: "outbox" },
   });
   withoutKey = await startTestWorker({ databaseUrl: db.url });
   testAuth = await createTestAuth({ databaseUrl: db.url, baseURL: worker.origin });
@@ -241,4 +241,101 @@ test("reading the Plan is an MCP tool; subscribing and opening Checkout are not"
   expect(tools.map((tool) => tool.name)).not.toContain("subscribePlan");
   expect(document.paths["/api/billing/subscribe"]?.post?.["x-mcp"]).toBe(false);
   expect(Object.keys(document.paths).filter((path) => path.includes("fake-stripe"))).toEqual([]);
+});
+
+// Free trial: the days come from the Plan's `trial_days` metadata in Stripe.
+const DAY = 24 * 60 * 60;
+
+/** Sets metadata on a Plan's Stripe product, the way an operator would in the dashboard. */
+async function configurePlan(id: string, metadata: Record<string, string>) {
+  expect((await worker.post("/api/fake-stripe/control/products", { id, metadata })).status).toBe(200);
+}
+
+const advance = (seconds: number) => worker.post("/api/fake-stripe/control/advance", { seconds });
+
+async function subscribeAndPay(cookie: string, plan: string) {
+  const checkout = await openCheckout(cookie, plan);
+  expect((await worker.fetch(`${checkout}/pay`, { method: "POST", redirect: "manual" })).status).toBe(303);
+}
+
+const outboxTo = (email: string) =>
+  db.query<{ subject: string; text: string }>(`select subject, text from skeleton.email_outbox where "to" = '${email}'`);
+
+test("with trial days configured, a fixed Plan starts in trial and nothing is charged until it ends", async () => {
+  await configurePlan("prod_fake_pro", { trial_days: "14" });
+  const { cookie } = await signedInUser();
+
+  expect((await currentPlan(cookie)).plans.find((plan) => plan.id === "prod_fake_pro")).toMatchObject({ trialDays: 14 });
+  await subscribeAndPay(cookie, "prod_fake_pro");
+
+  const started = await currentPlan(cookie);
+  expect(started).toMatchObject({ plan: { name: "Pro" }, subscription: { status: "trialing" } });
+  const days = (Date.parse(started.subscription!.periodEnd) - Date.now()) / 1000 / DAY;
+  expect(days).toBeGreaterThan(13.9);
+  expect(days).toBeLessThan(14.1);
+  await advance(13 * DAY);
+  expect((await currentPlan(cookie)).subscription).toMatchObject({ status: "trialing" });
+});
+
+test("when the trial ends the fake Stripe charges and the Subscription is active", async () => {
+  await configurePlan("prod_fake_pro", { trial_days: "7" });
+  const { cookie } = await signedInUser();
+  await subscribeAndPay(cookie, "prod_fake_pro");
+
+  await advance(8 * DAY);
+
+  const after = await currentPlan(cookie);
+  expect(after).toMatchObject({ plan: { name: "Pro" }, subscription: { status: "active" } });
+  expect(Date.parse(after.subscription!.periodEnd)).toBeGreaterThan(Date.now() + 20 * DAY * 1000);
+});
+
+test("a person who already had a trial subscribes without one, even through another Company", async () => {
+  await configurePlan("prod_fake_pro", { trial_days: "7" });
+  const { user, cookie } = await signedInUser();
+  await subscribeAndPay(cookie, "prod_fake_pro");
+  expect((await currentPlan(cookie)).subscription?.status).toBe("trialing");
+  const company = await worker.post("/api/companies", { name: "Second Company" }, { cookie });
+  expect(company.status).toBeLessThan(300);
+  // The person cancels (Stripe ends the Subscription), then subscribes again.
+  const [row] = await db.query<{ stripe_subscription_id: string }>(`select stripe_subscription_id from skeleton.subscriptions where reference_id = '${user.id}'`);
+  await worker.post("/api/fake-stripe/control/events", {
+    type: "customer.subscription.deleted",
+    object: { id: row!.stripe_subscription_id, object: "subscription", status: "canceled", metadata: { productId: "skeleton-test" }, items: { data: [] } },
+  });
+  expect((await currentPlan(cookie)).subscription).toBeNull();
+
+  await subscribeAndPay(cookie, "prod_fake_team");
+
+  expect((await currentPlan(cookie)).subscription).toMatchObject({ status: "active" });
+});
+
+test("a Plan with 0 trial days, or a Plan priced per Seat, has no trial", async () => {
+  await configurePlan("prod_fake_pro", { trial_days: "0" });
+  await configurePlan("prod_fake_team", { kind: "per_seat", trial_days: "30" });
+  const { cookie } = await signedInUser();
+
+  const { plans } = (await currentPlan(cookie)) as PlanState & { plans: { id: string; kind: string; trialDays: number }[] };
+
+  expect(plans.find((plan) => plan.id === "prod_fake_pro")).toMatchObject({ trialDays: 0 });
+  expect(plans.find((plan) => plan.id === "prod_fake_team")).toMatchObject({ kind: "per_seat", trialDays: 0 });
+  await subscribeAndPay(cookie, "prod_fake_pro");
+  expect((await currentPlan(cookie)).subscription).toMatchObject({ status: "active" });
+});
+
+test("the Owner gets the trial-ending email three days before the trial ends, in the app's language", async () => {
+  await configurePlan("prod_fake_pro", { trial_days: "14" });
+  const { user, cookie } = await signedInUser();
+  const email = user.email;
+  await subscribeAndPay(cookie, "prod_fake_pro");
+
+  await advance(10 * DAY);
+  expect(await outboxTo(email)).toHaveLength(0);
+  await advance(1 * DAY);
+
+  const rows = await outboxTo(email);
+  expect(rows).toHaveLength(1);
+  expect(rows[0]!.subject).toContain("trial");
+  expect(rows[0]!.text).toContain("Pro");
+  await advance(5 * DAY);
+  expect(await outboxTo(email)).toHaveLength(1);
 });
