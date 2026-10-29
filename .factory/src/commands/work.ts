@@ -437,10 +437,10 @@ function runOutcome(run: { ready: boolean; reason: Reason; question: string | nu
   return lines.join("\n");
 }
 
-/** The question of a Development session that ends with `<needs-human>…</needs-human>`. */
 /** A criterion that names the verify command (`factory:verify`, or the CI `verify`). Matched on the command, so it holds in any language. */
 const VERIFY_CRITERION = /factory:verify|`verify`/;
 
+/** The question of a Development session that ends with `<needs-human>…</needs-human>`. */
 function needsHuman(output: string): string | null {
   const question = [...output.matchAll(/<needs-human>([\s\S]*?)<\/needs-human>/g)].at(-1)?.[1]?.trim();
   return question ? question : null;
