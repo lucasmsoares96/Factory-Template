@@ -10,6 +10,8 @@ export interface ProductIdentity {
   domain: string;
   /** The Product lists the billing Feature in `src/features/index.ts` (unset: unknown, as in a fake). */
   billing?: boolean;
+  /** The Entitlements the Product's `billing({ entitlements })` declares (unset: none known). */
+  entitlements?: string[];
 }
 
 export interface BootstrapDeps {
