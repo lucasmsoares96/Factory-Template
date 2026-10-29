@@ -1,7 +1,7 @@
 import { defaultConfig, loadConfig } from "../../src/config.ts";
 import { runBootstrap, type BootstrapDeps } from "../../src/bootstrap/cli.ts";
 import type { ProductIdentity } from "../../src/bootstrap/steps.ts";
-import { FakeAccounts, FakeCloudflare, FakeGitHub, FakeTokens, FakeNeon, FakePrompter, FakeResend, FakeStripe, FakeWrangler } from "../../src/bootstrap/fake/fakes.ts";
+import { FakeAccounts, FakeCloudflare, FakeGitHub, FakeTokens, FakeNeon, FakePrompter, FakeResend, FakeStripe, FakeTools, FakeWrangler } from "../../src/bootstrap/fake/fakes.ts";
 
 export const TOKEN = "good-token";
 
@@ -15,6 +15,7 @@ export function world(answers: Record<string, string | boolean | string[]> = {},
   const resend = new FakeResend();
   const stripe = new FakeStripe();
   const neon = new FakeNeon();
+  const tools = new FakeTools();
   const wrangler = new FakeWrangler(wranglerToken);
   cloudflare.validTokens.add(WRANGLER_TOKEN);
   const accounts = new FakeAccounts();
@@ -25,6 +26,7 @@ export function world(answers: Record<string, string | boolean | string[]> = {},
   const lines: string[] = [];
   const deps: BootstrapDeps = {
     github,
+    tools,
     cloudflare: (token) => cloudflare.forToken(token),
     wrangler,
     neon: (options) => neon.forSession(options),
@@ -50,7 +52,7 @@ export function world(answers: Record<string, string | boolean | string[]> = {},
     const code = await runBootstrap(argv.includes("--repo") ? argv : [...argv, "--repo", "owner/repo"], deps);
     return { code, output: lines.join("\n") };
   };
-  return { github, tokens, cloudflare, wrangler, resend, stripe, neon, accounts, products, prompter, lines, deps, run };
+  return { github, tools, tokens, cloudflare, wrangler, resend, stripe, neon, accounts, products, prompter, lines, deps, run };
 }
 
 export const staticLabelNames = Object.entries(defaultConfig.labels)

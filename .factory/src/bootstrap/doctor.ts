@@ -8,6 +8,7 @@ import { NO_DNS, NO_LOGIN, deployFirstMessage, productionEnvironment, productSec
 import { hasPreviewTrace, previewEnvironment, previewNames, previewProjectName, previewSecretPresent, PREVIEW_PRODUCTS, BASE_BRANCH } from "./previews.ts";
 import { coversMain, DEPLOY_PRODUCTS, missingSecrets, neonHandle, neonOrgId, parseProductList, productionDatabaseUrl, productionSecrets, USE_ENVIRONMENTS } from "./product.ts";
 import type { BootstrapDeps, ProductIdentity, StepContext } from "./steps.ts";
+import { WranglerNotInstalled } from "./clients.ts";
 
 export type CheckStatus = "ok" | "missing" | "warn" | "off" | "skip";
 
@@ -125,9 +126,11 @@ export async function doctor(
 
   // The doctor never opens a browser: it uses what this machine already has (memory, env, wrangler's saved login).
   let token: string | undefined;
+  let notInstalled: WranglerNotInstalled | undefined;
   try {
     token = withCloudflare ? await cloudflareCredential(ctx, { login: false }) : undefined;
-  } catch {
+  } catch (error) {
+    if (error instanceof WranglerNotInstalled) notInstalled = error;
     token = undefined;
   }
   if (!withCloudflare) {
@@ -135,6 +138,7 @@ export async function doctor(
   } else if (!token) {
     // Secrets cannot be read back: their presence on the forge stands in for the check.
     if (secrets.includes("CLOUDFLARE_API_TOKEN") && secrets.includes("CLOUDFLARE_ACCOUNT_ID")) add("Resources", "ok", "workers.dev", "not re-checked (no saved Cloudflare login on this machine)");
+    else if (notInstalled) add("Resources", "skip", "workers.dev", notInstalled.message);
     else add("Resources", "skip", "workers.dev", "run `pnpm --filter @factory/harness exec wrangler login` to check it");
   } else {
     try {

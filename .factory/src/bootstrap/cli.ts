@@ -10,7 +10,7 @@ import { commonSteps } from "./common.ts";
 import { runDestroy } from "./destroy.ts";
 import { doctor, formatReport, type Sections } from "./doctor.ts";
 import { GhCli } from "./github.ts";
-import { chooseTarget, gitOrigin } from "./target.ts";
+import { confirmTarget, gitOrigin, resolveTarget } from "./target.ts";
 import { GitHubTokenApi } from "./token.ts";
 import { clackPrompter } from "./prompter.ts";
 import { domainSteps } from "./domain.ts";
@@ -21,6 +21,8 @@ import { PREVIEWS_ENABLED, previewSteps } from "./previews.ts";
 import { ResendApi } from "./resend.ts";
 import { StripeApi } from "./stripe.ts";
 import { BILLING_MISSING_FEATURE, billingEnvironment, billingSteps, migratePrices } from "./billing.ts";
+import { checkAdmin, checkTools } from "./preflight.ts";
+import { ToolsCli } from "./tools.ts";
 import { NeonCli } from "./neon.ts";
 import { WranglerCli } from "./wrangler.ts";
 import { runSteps, type BootstrapDeps, type ProductIdentity, type StepContext } from "./steps.ts";
@@ -107,7 +109,10 @@ export async function runBootstrap(argv: string[], deps: BootstrapDeps): Promise
     deps.log(`Unknown command: ${command}\n\n${USAGE}`);
     return 1;
   }
-  if (!(await chooseTarget(deps, values.repo))) return 1;
+  const target = await resolveTarget(deps, values.repo);
+  if (!target || !(await checkTools(deps))) return 1;
+  const repo = await confirmTarget(deps, target);
+  if (!repo || !checkAdmin(deps, repo)) return 1;
   return dispatch(positionals, values.redo ?? [], deps);
 }
 
@@ -351,6 +356,7 @@ if (import.meta.main) {
   try {
     process.exitCode = await runBootstrap(process.argv.slice(2), {
       github: new GhCli(),
+      tools: new ToolsCli({ env }),
       origin: gitOrigin,
       cloudflare: (token) => new CloudflareApi(token),
       wrangler: new WranglerCli({ env }),
