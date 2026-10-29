@@ -92,12 +92,14 @@ const ONE_WAY = /one-way/i;
 /**
  * Whether the pull request declares a one-way door: in the Door field of its Merge Danger section (the `pr` skill's
  * heading, from it to the next heading; text elsewhere decides nothing), or in the Door line of a Triage comment of its
- * issue. It can only hold a merge, never free one, so any source saying one-way is enough, whoever wrote it.
+ * issue. It can only hold a merge, never free one, so any source saying one-way is enough, whoever wrote it, and an
+ * issue that cannot be read counts as one-way.
  */
 async function declaredOneWay(ctx: CommandContext, pr: PullRequest, body: string): Promise<boolean> {
   if (mergeDangerOneWay(body)) return true;
   const issue = Number(pr.branch.slice(ctx.config.branchPrefix.length));
-  const comments = await ctx.tracker.issue(issue).then((i) => i.comments, () => []);
+  const comments = await ctx.tracker.issue(issue).then((i) => i.comments, () => null);
+  if (comments === null) return true;
   return comments.some((c) => c.body.includes(TRIAGE_MARKER) && c.body.split(/\r?\n/).some((line) => ONE_WAY.test(DOOR_FIELD.exec(line)?.[1] ?? "")));
 }
 
