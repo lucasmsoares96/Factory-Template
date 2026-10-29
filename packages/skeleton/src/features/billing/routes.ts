@@ -16,7 +16,7 @@ const Event = z.object({ type: z.string().min(1), object: z.record(z.string(), z
 
 /**
  * The fake Stripe's own routes, `/api/fake-stripe/*`: the Checkout page and the
- * controls tests use (advance the clock, end a person's Subscriptions, edit a Plan's metadata, make Stripe fail, send an event, read
+ * controls tests use (advance the clock, end a person's Subscriptions, fail a person's payment, edit a Plan's metadata, make Stripe fail, send an event, read
  * the calls, start over). They answer only where the fake runs (`STRIPE_FAKE`);
  * anywhere else they are a 404. Plain routes: no OpenAPI, no MCP.
  */
@@ -59,6 +59,11 @@ export function fakeStripeRoutes(entitlements: readonly string[]) {
     const body = Ending.safeParse(await c.req.json().catch(() => null));
     if (!body.success) return c.json(apiError("VALIDATION_FAILED"), 400);
     return c.json({ ended: await fake(c).endSubscriptions(body.data.email) });
+  });
+  router.post("/fake-stripe/control/fail-payment", async (c) => {
+    const body = Ending.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json(apiError("VALIDATION_FAILED"), 400);
+    return c.json({ failed: await fake(c).failPayment(body.data.email) });
   });
   router.post("/fake-stripe/control/fail", async (c) => {
     const body = Failing.safeParse(await c.req.json().catch(() => null));
