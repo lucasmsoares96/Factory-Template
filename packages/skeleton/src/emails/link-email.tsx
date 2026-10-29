@@ -78,3 +78,35 @@ export function linkEmail({
     </Html>,
   );
 }
+
+/** The i18n texts of an email that only informs (no link). */
+export type NoticeEmailTexts = Omit<LinkEmailTexts, "button" | "fallback">;
+
+/** An email that tells the user something happened: heading, greeting, body and a closing line. */
+export function noticeEmail({
+  to,
+  texts,
+  values,
+}: {
+  to: string;
+  texts: NoticeEmailTexts;
+  values: Record<string, string>;
+}): Promise<Email> {
+  return renderEmail(
+    to,
+    format(texts.subject, values),
+    <Html>
+      <Head />
+      <Preview>{format(texts.preview, values)}</Preview>
+      <Body style={styles.body}>
+        <Container style={styles.container}>
+          <Heading style={styles.heading}>{format(texts.heading, values)}</Heading>
+          <Text style={styles.text}>{format(texts.greeting, values)}</Text>
+          <Text style={styles.text}>{format(texts.body, values)}</Text>
+          <Hr />
+          <Text style={styles.small}>{format(texts.ignore, values)}</Text>
+        </Container>
+      </Body>
+    </Html>,
+  );
+}

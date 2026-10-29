@@ -6,7 +6,6 @@ import { getCompanyHandler, getCompanyHandlerResponse404 } from "../../src/gen/m
 import { getLastCompanyHandler, getLastCompanyHandlerResponse404 } from "../../src/gen/msw/getLastCompanyHandler.ts";
 import { getMeHandler } from "../../src/gen/msw/getMeHandler.ts";
 import { getNavHandler } from "../../src/gen/msw/getNavHandler.ts";
-import { leaveCompanyHandler, leaveCompanyHandlerResponse409 } from "../../src/gen/msw/leaveCompanyHandler.ts";
 import { listCompaniesHandler } from "../../src/gen/msw/listCompaniesHandler.ts";
 import { listInvitationsHandler } from "../../src/gen/msw/listInvitationsHandler.ts";
 import { listMembersHandler } from "../../src/gen/msw/listMembersHandler.ts";
@@ -79,11 +78,6 @@ function companiesApi(companies: (typeof acme)[]) {
       removeMemberHandler(({ params }) => {
         memberCalls.push({ remove: params.userId });
         members.items.splice(members.items.findIndex(({ userId }) => userId === params.userId), 1);
-        return new HttpResponse(null, { status: 204 });
-      }),
-      leaveCompanyHandler(({ params }) => {
-        memberCalls.push({ leave: params.companyId });
-        companies.splice(companies.findIndex(({ id }) => id === params.companyId), 1);
         return new HttpResponse(null, { status: 204 });
       }),
       // The Owner's page also shows the pending Invitations (none here).
@@ -336,7 +330,7 @@ test("transferring asks for the Member and the Company's name, then shows the ne
   expect(router.state.location.pathname).toBe(`/c/${acme.id}`);
 });
 
-test("the Owner sees a role choice and Remove for every other Member, and Leave", async ({ worker }) => {
+test("the Owner sees a role choice and Remove for every other Member", async ({ worker }) => {
   const api = companiesApi([{ ...acme }]);
   worker.use(...api.handlers);
   const { screen, t } = await renderSpa({ path: `/c/${acme.id}` });
@@ -346,10 +340,9 @@ test("the Owner sees a role choice and Remove for every other Member, and Leave"
   await expect.element(table.getByRole("combobox", { name: format(m.roleOf, { name: "Bruno Lima" }) })).toHaveValue("employee");
   await expect.element(table.getByRole("combobox", { name: format(m.roleOf, { name: "Carla Dias" }) })).toHaveValue("manager");
   await expect.element(table.getByRole("button", { name: format(m.remove, { name: "Carla Dias" }) })).toBeVisible();
-  // Nobody changes their own role, and the Owner leaves through Leave.
+  // Nobody changes or removes themselves.
   await expect.element(table.getByRole("combobox", { name: format(m.roleOf, { name: ana.name }) })).not.toBeInTheDocument();
   await expect.element(table.getByRole("button", { name: format(m.remove, { name: ana.name }) })).not.toBeInTheDocument();
-  await expect.element(screen.getByRole("button", { name: t.companies.leave.submit })).toBeVisible();
 });
 
 test("the Owner changes a Member's role and removes a Member from the table", async ({ worker }) => {
@@ -371,10 +364,10 @@ test("the Owner changes a Member's role and removes a Member from the table", as
   expect(api.memberCalls).toEqual([{ change: "user-3", body: { role: "employee" } }, { remove: "user-2" }]);
 });
 
-test("an Employee sees only Leave, and leaving goes to another Company", async ({ worker }) => {
+test("an Employee sees the table and nothing to act with: no Remove, no role choice, no way to leave", async ({ worker }) => {
   const api = companiesApi([{ ...globex }, { ...acme }]);
   worker.use(...api.handlers);
-  const { screen, router, t } = await renderSpa({ path: `/c/${globex.id}` });
+  const { screen, t } = await renderSpa({ path: `/c/${globex.id}` });
   const m = t.companies.members;
 
   const table = screen.getByRole("table", { name: t.companies.page.members });
@@ -382,31 +375,7 @@ test("an Employee sees only Leave, and leaving goes to another Company", async (
   expect(table.getByRole("combobox").elements()).toHaveLength(0);
   expect(table.getByRole("button").elements()).toHaveLength(0);
   await expect.element(screen.getByRole("button", { name: format(m.remove, { name: "Bruno Lima" }) })).not.toBeInTheDocument();
-  await screen.getByRole("button", { name: t.companies.leave.submit }).click();
-
-  await expect.element(screen.getByRole("heading", { level: 1, name: acme.name })).toBeVisible();
-  expect(router.state.location.pathname).toBe(`/c/${acme.id}`);
-  expect(api.memberCalls).toEqual([{ leave: globex.id }]);
-});
-
-test("the Owner who tries to leave is told to transfer the ownership first, in their language", async ({ worker }) => {
-  const t = messagesFor("pt-BR");
-  worker.use(...companiesApi([{ ...acme }]).handlers);
-  worker.use(
-    getNavHandler(nav(t)),
-    leaveCompanyHandler(() =>
-      leaveCompanyHandlerResponse409({
-        code: "OWNER_MUST_TRANSFER",
-        message: "The Owner cannot leave the Company. Transfer its ownership to another Member first.",
-      }),
-    ),
-  );
-  const { screen, router } = await renderSpa({ path: `/c/${acme.id}`, locale: "pt-BR" });
-
-  await screen.getByRole("button", { name: t.companies.leave.submit }).click();
-
-  await expect.element(screen.getByRole("alert")).toHaveTextContent(t.errors.OWNER_MUST_TRANSFER);
-  expect(router.state.location.pathname).toBe(`/c/${acme.id}`);
+  expect(api.memberCalls).toEqual([]);
 });
 
 test("a transfer the API refuses is shown translated, and the user stays Owner", async ({ worker }) => {

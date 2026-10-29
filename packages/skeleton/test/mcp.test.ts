@@ -189,7 +189,6 @@ test("a `write` Connection sees every tool and its writes reach the route as the
     "getNote",
     "getPlan",
     "inviteFromNotes",
-    "leaveCompany",
     "listCompanies",
     "listConnections",
     "listInvitations",
@@ -325,11 +324,6 @@ test("an agent manages Members as the Owner, and a removed Member's agent gets N
     expect(result.isError, name).toBe(true);
     expect(result.content).toEqual([{ type: "text", text: "NOT_FOUND: Not found." }]);
   }
-  const left = await carlas.client.callTool({ name: "leaveCompany", arguments: { companyId: company.id } });
-  expect(left.isError).toBeFalsy();
-  expect((await carlas.client.callTool({ name: "getCompany", arguments: { companyId: company.id } })).content).toEqual([
-    { type: "text", text: "NOT_FOUND: Not found." },
-  ]);
   for (const { client } of [owner, brunos, carlas]) await client.close();
 });
 
