@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { StripeClient, StripePlanSpec } from "./clients.ts";
+import { entitlementMetadata, missingEntitlements, type EntitlementValue } from "./entitlements.ts";
 import { keyCreationUrl, keyMode, type KeyMode } from "./billing-permissions.ts";
 import { productionEnvironment, productSecretName, secretScope } from "./domain.ts";
 import { previewScope } from "./previews.ts";
@@ -54,6 +55,8 @@ const Answers = z.object({
   annual: z.boolean(),
   discount: z.number(),
   trialDays: z.number(),
+  /** What each plan (by key) grants, by Entitlement name. A record made before Entitlements existed has none. */
+  entitlements: z.record(z.string(), z.record(z.string(), z.union([z.boolean(), z.number()]))).default({}),
 });
 export type BillingAnswers = z.infer<typeof Answers>;
 
@@ -131,7 +134,29 @@ export async function askAnswers(ctx: StepContext): Promise<BillingAnswers> {
     return answer !== "" && value >= 0 && value < 100 ? { value } : { error: "The discount is a percentage from 0 to 99." };
   }) : 0;
   const trialDays = await ask(ctx, "billing-trial-days", "Days of free trial on the paid plans (0 = none)", number(0, true, "The days"));
-  return { currency, fixed, perSeat, free, annual, discount, trialDays };
+  return { currency, fixed, perSeat, free, annual, discount, trialDays, entitlements: {} };
+}
+
+const entitlementAnswer = (answer: string): Parsed<EntitlementValue> => {
+  const word = answer.toLowerCase();
+  if (["on", "yes", "true"].includes(word)) return { value: true };
+  if (["off", "no", "false"].includes(word)) return { value: false };
+  return number(0, true, "An Entitlement")(answer);
+};
+
+/**
+ * Asks, for each plan and each of `names`, whether the plan grants the Entitlement (on, off or a number) and returns the
+ * answers added to the ones already recorded.
+ */
+export async function askEntitlements(ctx: StepContext, product: ProductIdentity, answers: BillingAnswers, names: readonly string[]): Promise<BillingAnswers["entitlements"]> {
+  const granted: BillingAnswers["entitlements"] = Object.fromEntries(Object.entries(answers.entitlements).map(([plan, values]) => [plan, { ...values }]));
+  for (const spec of planSpecs(product.id, answers)) {
+    for (const name of names) {
+      const value = await ask(ctx, "billing-entitlement", `Entitlement "${name}" in the plan ${spec.name}: on, off or a number`, entitlementAnswer);
+      granted[spec.key] = { ...granted[spec.key], [name]: value };
+    }
+  }
+  return granted;
 }
 
 /**
@@ -222,6 +247,7 @@ export function plansStep(product: ProductIdentity): Step {
       let answers = redo ? undefined : await recordedAnswers(ctx, product.id);
       if (!answers) {
         answers = await askAnswers(ctx);
+        answers.entitlements = await askEntitlements(ctx, product, answers, product.entitlements ?? []);
         await ctx.github.setVariable(names.plans, JSON.stringify(answers));
       }
       await ctx.github.setVariable(names.synced, "false");
@@ -231,7 +257,47 @@ export function plansStep(product: ProductIdentity): Step {
         await writeAccount(ctx, stripe, mode, product.id, specs);
       }
       await ctx.github.setVariable(names.synced, "true");
-      ctx.log("  Set each plan's entitlements in Stripe: product metadata `entitlement_<name>` (true, false or a number), the names the Product's billing feature lists.");
+      await writeEntitlements(ctx, product, answers);
+    },
+  };
+}
+
+/** `entitlement_<name>` on each plan's product, in both accounts; one already set is left alone. */
+async function writeEntitlements(ctx: StepContext, product: ProductIdentity, answers: BillingAnswers): Promise<void> {
+  for (const mode of ["sandbox", "live"] as const) {
+    const stripe = ctx.stripe(await stripeKey(ctx, product, mode));
+    for (const [plan, values] of Object.entries(answers.entitlements)) {
+      const added = await stripe.ensureEntitlements(product.id, plan, values);
+      if (added.length > 0) ctx.log(`  ${mode}: plan ${plan} now sets ${added.map((name) => `${name}=${entitlementMetadata(values[name]!)}`).join(", ")}`);
+    }
+  }
+}
+
+const unplaced = (product: ProductIdentity, answers: BillingAnswers | undefined) => missingEntitlements(product.entitlements ?? [], Object.values(answers?.entitlements ?? {}).map((entitlements) => ({ entitlements })));
+
+/** Which plans grant each Entitlement the Product's code declares. Asks only about names that no plan sets yet. */
+export function entitlementsStep(product: ProductIdentity): Step {
+  const names = billingNames(product.id);
+  return {
+    id: "entitlements",
+    title: "Entitlements of each plan (sandbox and real account)",
+    async check(ctx) {
+      const variables = await ctx.github.listVariables();
+      if (variables[names.plans] === undefined) return { done: false, detail: "no plans yet" };
+      const missing = unplaced(product, await recordedAnswers(ctx, product.id));
+      return missing.length === 0 ? { done: true } : { done: false, detail: `in no plan: ${missing.join(", ")}` };
+    },
+    async run(ctx) {
+      const answers = await recordedAnswers(ctx, product.id);
+      if (!answers) throw new Error(`No plans recorded yet: run \`pnpm bootstrap billing ${product.id} --redo plans\` first.`);
+      const missing = unplaced(product, answers);
+      if (missing.length === 0) {
+        ctx.log("  every Entitlement the code declares is already in a plan");
+        return;
+      }
+      answers.entitlements = await askEntitlements(ctx, product, answers, missing);
+      await ctx.github.setVariable(names.plans, JSON.stringify(answers));
+      await writeEntitlements(ctx, product, answers);
     },
   };
 }
@@ -269,7 +335,7 @@ export function webhookStep(product: ProductIdentity): Step {
 }
 
 export function billingSteps(product: ProductIdentity): Step[] {
-  return [keysStep(product), plansStep(product), webhookStep(product)];
+  return [keysStep(product), plansStep(product), entitlementsStep(product), webhookStep(product)];
 }
 
 export const BILLING_MISSING_FEATURE = (productId: string) =>
