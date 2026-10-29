@@ -272,6 +272,33 @@ describe("factory publish: Escalation", () => {
     expect(comment).toContain(RUN_URL);
   });
 
+  it.each([
+    ["a pr-feedback round", ["--pr", "55"]],
+    ["an update of a branch", ["--pr", "55", "--flow", "update-branch"]],
+  ])("publishes nothing for %s whose work was cancelled and left no result.json", async (_name, args) => {
+    const repo = await checkout();
+    const w = world({ repo, branches: { "factory/issue-7": OLD_SHA }, prs: [{ number: 55, branch: "factory/issue-7", draft: false, headSha: OLD_SHA }] });
+    await w.tracker.swapLabel(7, "ready-for-agent", "in-progress");
+
+    expect(await w.factory("publish", "7", "--repo", repo, "--in", await tempDir("factory-empty-"), "--start-sha", OLD_SHA, "--run-url", RUN_URL, "--work-result", "cancelled", ...args)).toBe(0);
+
+    expect(lastJson(w.logs)).toMatchObject({ outcome: "discarded" });
+    expect(w.codeHost.writes).toEqual([]);
+    expect(w.codeHost.pushes).toEqual([]);
+    expect(w.tracker.commentsOn(7)).toEqual([]);
+    expect(w.tracker.labelsOf(7)).toEqual(["in-progress"]);
+  });
+
+  it("still escalates infra for an issue run whose work was cancelled: that flow is unchanged", async () => {
+    const repo = await checkout();
+    const w = world({ repo });
+    await w.factory("claim", "7");
+
+    expect(await w.factory("publish", "7", "--repo", repo, "--in", await tempDir("factory-empty-"), "--work-result", "cancelled")).toBe(0);
+
+    expect(lastJson(w.logs)).toMatchObject({ outcome: "escalated", reason: "infra" });
+  });
+
   it("escalates with reason infra when result.json does not match the schema, pushing nothing", async () => {
     const artifacts = await tempDir("factory-artifacts-");
     await writeFile(join(artifacts, "result.json"), JSON.stringify({ version: 1, issue: 7, outcome: "merged" }));
