@@ -155,7 +155,7 @@ const nonEmpty = z.string().min(1);
 /** A repo variable is text: `"false"` turns a switch off, `"true"` on. */
 const flag = z.union([z.boolean(), z.enum(["true", "false"]).transform((v) => v === "true")]);
 
-const configSchema = z.object({
+export const configSchema = z.object({
   models: z.object({ development: nonEmpty, review: nonEmpty, triage: nonEmpty, pullRequest: nonEmpty, retro: nonEmpty }),
   timeouts: z.object({ development: positiveInt, review: positiveInt, e2e: positiveInt, pullRequest: positiveInt, triage: positiveInt, retro: positiveInt, total: positiveInt }),
   pricing: z.object({ inputPerMTok: z.coerce.number().nonnegative(), outputPerMTok: z.coerce.number().nonnegative() }),
@@ -201,6 +201,26 @@ export function configVariables(): string[] {
       value !== null && typeof value === "object" ? walk(value as Record<string, unknown>, [...path, key]) : [variableName([...path, key])],
     );
   return walk(defaultConfig, []);
+}
+
+/** The text values a setting accepts when they are a closed list (`z.enum`, `flag`); empty otherwise. */
+function closedValues(schema: z.ZodType): string[] {
+  if (schema instanceof z.ZodEnum) return schema.options.map(String);
+  if (schema instanceof z.ZodUnion) return (schema.options as z.ZodType[]).flatMap(closedValues);
+  if (schema instanceof z.ZodPipe) return closedValues(schema.in as z.ZodType);
+  return [];
+}
+
+/** Every repo variable whose setting is a closed list of values, with those values and the default. */
+export function closedVariables(): { name: string; values: string[]; fallback: string }[] {
+  const walk = (shape: Record<string, z.ZodType>, defaults: Record<string, unknown>, path: string[]): { name: string; values: string[]; fallback: string }[] =>
+    Object.entries(shape).flatMap(([key, schema]) => {
+      const at = [...path, key];
+      if (schema instanceof z.ZodObject) return walk(schema.shape, defaults[key] as Record<string, unknown>, at);
+      const values = closedValues(schema);
+      return values.length > 0 ? [{ name: variableName(at), values, fallback: String(defaults[key]) }] : [];
+    });
+  return walk(configSchema.shape, defaultConfig, []);
 }
 
 /** Defaults with every `FACTORY_*` override from `env` applied and validated. */
