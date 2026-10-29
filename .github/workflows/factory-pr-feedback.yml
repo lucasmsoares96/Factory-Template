@@ -29,11 +29,17 @@ on:
         description: Pull request number (the round `resume` starts again)
         type: string
         required: true
+      retry:
+        description: The round started again by `publish` after a discard (a second discard comments on the PR)
+        type: boolean
+        required: false
+        default: false
 
 permissions: {}
 
 env:
   PR: ${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
+  RETRY: ${{ inputs.retry && 'true' || '' }}
   FACTORY_ADAPTERS: github
 
 jobs:
@@ -107,7 +113,8 @@ jobs:
     env:
       ISSUE: ${{ needs.claim.outputs.issue }}
       PR: ${{ needs.claim.outputs.pr }}
-    # The same group as the issue flow: one run per issue at a time. The guarantee is the lease of `publish`.
+    # The same group as the issue flow and as `publish` below: one run per issue at a time. `work` reads the branch
+    # (the `startSha` of its result.json) only after it holds the group; the lease of `publish` is the safety net.
     concurrency:
       group: factory-${{ needs.claim.outputs.issue }}
       cancel-in-progress: false
@@ -188,6 +195,12 @@ jobs:
 
   publish:
     needs: [claim, work]
+    # The group of `work` (and of the update of this issue's branch): the push is not interleaved with another run's
+    # `work`, which reads the branch once it holds the group. Never cancelled: a run that did the work publishes it.
+    concurrency:
+      group: factory-${{ needs.claim.outputs.issue }}
+      cancel-in-progress: false
+      queue: max
     # Also when `work` failed, timed out or was cancelled: with no result.json it escalates "infra".
     if: ${{ always() && needs.claim.outputs.claimed == 'true' }}
     runs-on: ubuntu-latest
@@ -237,7 +250,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/out"
           gh --version | head -1
-          pnpm factory publish "$ISSUE" --in "$RUNNER_TEMP/out" --pr "$PR" --start-sha "$START_SHA"
+          pnpm factory publish "$ISSUE" --in "$RUNNER_TEMP/out" --pr "$PR" --start-sha "$START_SHA" ${RETRY:+--retry}
       # The end of the run, whatever happened: never with FACTORY_TOKEN, whose label events would start workflows.
       - name: working off
         if: always()
