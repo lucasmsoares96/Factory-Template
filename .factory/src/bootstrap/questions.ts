@@ -39,6 +39,7 @@ export const QUESTIONS = {
   "workers-dev-subdomain": q("common", "required", "WORKERS_DEV_SUBDOMAIN", "workers.dev subdomain of the account; not needed once it exists"),
   "factory-language": q("common", "required", "FACTORY_LANGUAGE", "Language of the Factory's public text (en or pt-BR); not needed once the variable exists"),
   "product-domain": q("domain", "conditional", "PRODUCT_DOMAIN", "Domain of a Product whose product.config.ts has none"),
+  "domain-setup": terminal("domain", "Whether to set the domain up now, at the end of all"),
   "resend-setup": terminal("domain", "Whether to set Resend up now"),
   "resend-key": q("domain", "optional", "RESEND_API_KEY", "Full-access Resend key, used for this run only; without it Resend is deferred"),
   "neon-org": q("product", "conditional", "NEON_ORG_ID", "Neon organization, when the login sees more than one"),
