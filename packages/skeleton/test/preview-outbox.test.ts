@@ -56,6 +56,31 @@ describe("GET /api/preview/outbox", () => {
     expect(body.emails[0]!.html).toContain("/api/auth/verify-email");
   });
 
+  test("in a preview it answers HTML to a browser, with clickable links and emails that cannot run script", async () => {
+    const email = `visitor-${randomUUID()}@example.com`;
+    await workers.preview.post("/api/auth/sign-up/email", { name: "Bia Lima", email, password: "correct horse battery", callbackURL: "/email-verified" });
+    const url = `/api/preview/outbox?to=${encodeURIComponent(email)}`;
+    let page = "";
+    await expect
+      .poll(async () => {
+        const response = await workers.preview.fetch(url, { headers: { accept: "text/html" } });
+        expect(response.headers.get("content-type")).toContain("text/html");
+        page = await response.text();
+        return page.includes("/api/auth/verify-email");
+      })
+      .toBe(true);
+    expect(page).toContain(email);
+    expect(page).toMatch(/<a href="[^"]*\/api\/auth\/verify-email[^"]*"/);
+    const href = page.match(/<a href="([^"]*\/api\/auth\/verify-email[^"]*)"/)![1]!;
+    expect(href).toContain("&callbackURL=");
+    expect(href).not.toContain("&amp;");
+    const frame = await workers.preview.fetch(`/api/preview/outbox/email?to=${encodeURIComponent(email)}&index=0`);
+    expect(frame.headers.get("content-security-policy")).toMatch(/^sandbox/);
+    expect(page).toMatch(/<iframe sandbox="[^"]*"/);
+    expect((await workers.production.fetch(url, { headers: { accept: "text/html" } })).status).toBe(404);
+    expect((await workers.production.fetch(`/api/preview/outbox/email?to=${encodeURIComponent(email)}&index=0`)).status).toBe(404);
+  });
+
   test("needs an address: it never lists the whole outbox", async () => {
     const response = await workers.preview.fetch("/api/preview/outbox");
     expect(response.status).toBe(400);
