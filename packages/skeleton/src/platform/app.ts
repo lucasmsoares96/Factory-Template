@@ -1,6 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { swaggerUI } from "@hono/swagger-ui";
 import { messagesFor } from "../i18n/index.ts";
+import type { ExecutionContext } from "hono";
 import type { ProductConfig } from "../product.ts";
 import { account } from "../features/account/index.ts";
 import { companies } from "../features/companies/index.ts";
@@ -11,7 +12,7 @@ import { database } from "./db.ts";
 import { emailContext } from "./email.ts";
 import { assertUniqueFeatures, type Feature } from "./feature.ts";
 import type { SkeletonEnv } from "./env.ts";
-import { createRouter, handleErrors } from "./errors.ts";
+import { apiError, createRouter, handleErrors } from "./errors.ts";
 import { health } from "./health.ts";
 import { buildLocale } from "./locale.ts";
 import { AUTHORIZE_PATH, mcpBridge } from "./mcp/connections.ts";
@@ -19,6 +20,7 @@ import type { McpTool } from "./mcp/tool.ts";
 import { navRoutes } from "./nav.ts";
 import { openApiConfig } from "./openapi.ts";
 import { previewOutbox } from "./preview-outbox.ts";
+import { PURGE_ARCHIVED, PURGE_ARCHIVED_PATH, purgeArchivedAccounts } from "./purge-archived.ts";
 
 export { openApiConfig };
 
@@ -64,6 +66,11 @@ export function createApp({ product, features: productFeatures = [], mcpTools = 
   api.route("/", navRoutes({ features, t }));
   // Answers only in a preview (see preview-outbox.ts); anywhere else it is a 404.
   api.route("/", previewOutbox);
+  // The daily sweep of archived accounts: only the Worker's own `scheduled` run reaches it.
+  api.post(PURGE_ARCHIVED_PATH, async (c) => {
+    if (!(PURGE_ARCHIVED in c.env)) return c.json(apiError("NOT_FOUND"), 404);
+    return c.json({ purged: await purgeArchivedAccounts(c) });
+  });
   for (const feature of features) {
     const router = createRouter();
     feature.api(router);
@@ -76,5 +83,13 @@ export function createApp({ product, features: productFeatures = [], mcpTools = 
   app.use(AUTHORIZE_PATH, database, auth);
   app.route("/", mcp.routes);
   handleErrors(app);
-  return app;
+  // The Worker's cron trigger (daily, in the Product's wrangler config) deletes the accounts
+  // whose 30 days of archive are over. It calls its own route so the sweep gets the request's
+  // usual context (database, auth, features).
+  return Object.assign(app, {
+    async scheduled(_controller: unknown, env: SkeletonEnv["Bindings"], ctx: ExecutionContext) {
+      const response = await app.request(`/api${PURGE_ARCHIVED_PATH}`, { method: "POST" }, { ...env, [PURGE_ARCHIVED]: true }, ctx);
+      if (!response.ok) throw new Error(`Deleting the archived accounts failed: ${response.status}.`);
+    },
+  });
 }
