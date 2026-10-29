@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
 import type { VerifyStep } from "../src/adapters/fake/fake-verify.ts";
-import { checkout, commitFile, lastJson, OWNER, tempDir, unmarked, world, type WorldOptions } from "./helpers.ts";
+import { checkout, commitFile, lastJson, OWNER, tempDir, unmarked, world, type WorldOptions, ISSUE_VERDICTS } from "./helpers.ts";
 
 const OLD_SHA = "0123456789abcdef0123456789abcdef01234567";
 const text = "## Summary\n\n```text\ngreet\n```\n\n## Merge Danger\n\n**Door:** two-way";
@@ -14,7 +14,7 @@ const developFile = (path: string): AgentStep => async ({ cwd }) => {
   return { usage: { inputTokens: 10_000, outputTokens: 1_000 } };
 };
 const review: AgentStep = () => ({
-  output: `<review>${JSON.stringify({ summary: "Reviewed.", inline: [] })}</review>`,
+  output: `<review>${JSON.stringify({ summary: "Reviewed.", inline: [], criteria: ISSUE_VERDICTS })}</review>`,
   usage: { inputTokens: 5_000, outputTokens: 500 },
 });
 const writes = (body = text): AgentStep => () => ({ output: `<pull-request>${body}</pull-request>`, usage: stageUsage });
@@ -101,7 +101,7 @@ describe("pull request body assembled by publish", () => {
     const { w } = await pipeline(ready(noBlock));
 
     const pr = w.codeHost.prs[0]!;
-    expect(unmarked(pr.body)).toBe("Implemented by the Factory.\n\nCloses #7");
+    expect(unmarked(pr.body)).toBe("Implemented by the Factory.\n\n## Acceptance criteria verdicts\n\n- [x] `greet()` returns a greeting. — `src/greet.test.ts` › greets the user\n\nCloses #7");
     const footer = pr.reviews[0]!.body;
     expect(footer).toContain("The Pull Request Stage failed");
     expect(footer).toContain("<pull-request>");

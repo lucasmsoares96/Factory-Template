@@ -213,3 +213,6 @@ export function manualClock() {
   let ms = 0;
   return { now: () => ms, advance: (minutes: number) => void (ms += minutes * 60_000) };
 }
+
+/** The final Review's verdicts for the one criterion of `ISSUE_BODY`: a run is ready only with a verdict for each. */
+export const ISSUE_VERDICTS = [{ criterion: "`greet()` returns a greeting.", met: true, proof: "`src/greet.test.ts` › greets the user" }];
