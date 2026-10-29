@@ -1,5 +1,5 @@
 import { createRoute, z } from "@hono/zod-openapi";
-import { and, asc, eq, ne, sql } from "drizzle-orm";
+import { and, asc, eq, isNotNull, ne, sql } from "drizzle-orm";
 import { companies, memberRoles, members, users } from "../../db/schema.ts";
 import { apiError, createRouter, errorResponse } from "../../platform/errors.ts";
 import { emitCompanyDeleting, emitMemberJoined } from "../../platform/feature.ts";
@@ -8,10 +8,13 @@ import {
   CompanyParams,
   companyNotFoundResponse,
   forbiddenResponse,
+  memberSuspendedResponse,
   requireMember,
+  requireMemberEvenSuspended,
   requireOwner,
 } from "../../platform/member.ts";
 import { PageQuery, afterPosition, cursorPosition, pageOf, toPage } from "../../platform/pagination.ts";
+import { reconcileSeats, reconcileSeatsOfCompany } from "../../platform/suspension.ts";
 
 const role = z.string().openapi({
   description: "The Member's role: `owner`, `employee`, or a role the Product adds.",
@@ -54,10 +57,26 @@ const CompanyMember = z
     name: z.string().openapi({ description: "The Member's name.", example: "Ana Souza" }),
     email: z.email().openapi({ description: "The Member's email.", example: "ana@example.com" }),
     role,
+    suspended: z.boolean().openapi({
+      description: "Whether the Member is suspended: they keep their place but cannot enter the Company, because the Owner's Seats fall short.",
+      example: false,
+    }),
   })
   .openapi("CompanyMember");
 
 const CompanyMemberPage = pageOf(CompanyMember, "CompanyMemberPage");
+
+const SuspendedMember = z
+  .object({
+    userId: z.string().openapi({ description: "The Member's user id.", example: "8yW1kQfV0d3sLx9bTq2nZ" }),
+    name: z.string().openapi({ description: "The Member's name.", example: "Ana Souza" }),
+    email: z.email().openapi({ description: "The Member's email.", example: "ana@example.com" }),
+    role,
+    suspendedAt: z.iso.datetime().openapi({ description: "When the Member lost access.", example: "2026-10-29T12:00:00.000Z" }),
+  })
+  .openapi("SuspendedMember");
+
+const SuspendedMemberPage = pageOf(SuspendedMember, "SuspendedMemberPage");
 
 const invalidCursor = "`limit` is out of range, or `cursor` is not one this list answered.";
 
@@ -120,6 +139,7 @@ const getCompany = createRoute({
   responses: {
     200: { description: "The Company.", content: { "application/json": { schema: Company } } },
     401: unauthenticatedResponse,
+    403: memberSuspendedResponse,
     404: companyNotFoundResponse,
   },
 });
@@ -130,13 +150,32 @@ const listMembers = createRoute({
   operationId: "listMembers",
   summary: "List a Company's Members",
   description:
-    "Answers the Members of a Company the signed-in user belongs to (name, email and role), in the order they joined: a page of `limit` (50 by default) and the `nextCursor` of the next page.",
+    "Answers the Members of a Company the signed-in user belongs to (name, email, role and whether they are suspended), in the order they joined: a page of `limit` (50 by default) and the `nextCursor` of the next page.",
   middleware: [requireIdentity, requireMember] as const,
   request: { params: CompanyParams, query: PageQuery },
   responses: {
     200: { description: "A page of the Company's Members.", content: { "application/json": { schema: CompanyMemberPage } } },
     400: errorResponse(invalidCursor, "VALIDATION_FAILED"),
     401: unauthenticatedResponse,
+    403: memberSuspendedResponse,
+    404: companyNotFoundResponse,
+  },
+});
+
+const listSuspendedMembers = createRoute({
+  method: "get",
+  path: "/companies/{companyId}/suspended-members",
+  operationId: "listSuspendedMembers",
+  summary: "List a Company's Suspended Members",
+  description:
+    "The Owner sees the Members of the Company who cannot enter it because the Owner's Seats fall short, the one suspended the longest first (the first to come back when a Seat is free): a page of `limit` (50 by default) and the `nextCursor` of the next page. Only the Owner may.",
+  middleware: [requireIdentity, requireMember, requireOwner] as const,
+  request: { params: CompanyParams, query: PageQuery },
+  responses: {
+    200: { description: "A page of the Company's Suspended Members.", content: { "application/json": { schema: SuspendedMemberPage } } },
+    400: errorResponse(invalidCursor, "VALIDATION_FAILED"),
+    401: unauthenticatedResponse,
+    403: forbiddenResponse,
     404: companyNotFoundResponse,
   },
 });
@@ -226,9 +265,10 @@ const changeMemberRole = createRoute({
     400: errorResponse("The role is missing, `owner`, or not one of the Product's.", "VALIDATION_FAILED"),
     401: unauthenticatedResponse,
     403: errorResponse(
-      "The signed-in user is not the Owner (`FORBIDDEN`), or the Member is the signed-in user (`OWN_ROLE`).",
+      "The signed-in user is not the Owner (`FORBIDDEN`), the Member is the signed-in user (`OWN_ROLE`), or the signed-in user is a Suspended Member (`MEMBER_SUSPENDED`).",
       "FORBIDDEN",
       "OWN_ROLE",
+      "MEMBER_SUSPENDED",
     ),
     404: memberNotFound,
   },
@@ -258,8 +298,8 @@ const leaveCompany = createRoute({
   operationId: "leaveCompany",
   summary: "Leave a Company",
   description:
-    "The signed-in user stops being a Member of the Company. From the next call on, they get 404 on every route of the Company, their agents included. The Owner cannot leave before transferring the ownership (`OWNER_MUST_TRANSFER`).",
-  middleware: [requireIdentity, requireMember] as const,
+    "The signed-in user stops being a Member of the Company, a Suspended Member too. From the next call on, they get 404 on every route of the Company, their agents included. The Owner cannot leave before transferring the ownership (`OWNER_MUST_TRANSFER`).",
+  middleware: [requireIdentity, requireMemberEvenSuspended] as const,
   request: { params: CompanyParams },
   responses: {
     204: { description: "The signed-in user is no longer a Member." },
@@ -341,7 +381,7 @@ export const companiesApi = createRouter()
     const position = cursorPosition(cursor);
     if (position === null) return c.json(apiError("VALIDATION_FAILED"), 400);
     const rows = await c.var.db
-      .select({ userId: users.id, name: users.name, email: users.email, role: members.role, joinedAt: members.createdAt })
+      .select({ userId: users.id, name: users.name, email: users.email, role: members.role, suspendedAt: members.suspendedAt, joinedAt: members.createdAt })
       .from(members)
       .innerJoin(users, eq(users.id, members.userId))
       .where(and(eq(members.companyId, c.var.member.companyId), afterPosition(position, members.createdAt, members.userId)))
@@ -349,8 +389,27 @@ export const companiesApi = createRouter()
       .limit(limit + 1);
     return c.json(
       toPage(rows, limit, {
-        item: ({ userId, name, email, role }) => ({ userId, name, email, role }),
+        item: ({ userId, name, email, role, suspendedAt }) => ({ userId, name, email, role, suspended: suspendedAt !== null }),
         position: (row) => ({ at: row.joinedAt, id: row.userId }),
+      }),
+      200,
+    );
+  })
+  .openapi(listSuspendedMembers, async (c) => {
+    const { limit, cursor } = c.req.valid("query");
+    const position = cursorPosition(cursor);
+    if (position === null) return c.json(apiError("VALIDATION_FAILED"), 400);
+    const rows = await c.var.db
+      .select({ userId: users.id, name: users.name, email: users.email, role: members.role, suspendedAt: members.suspendedAt })
+      .from(members)
+      .innerJoin(users, eq(users.id, members.userId))
+      .where(and(eq(members.companyId, c.var.member.companyId), isNotNull(members.suspendedAt), afterPosition(position, members.suspendedAt, members.userId)))
+      .orderBy(asc(members.suspendedAt), asc(members.userId))
+      .limit(limit + 1);
+    return c.json(
+      toPage(rows, limit, {
+        item: ({ userId, name, email, role, suspendedAt }) => ({ userId, name, email, role, suspendedAt: suspendedAt!.toISOString() }),
+        position: (row) => ({ at: row.suspendedAt!, id: row.userId }),
       }),
       200,
     );
@@ -367,7 +426,7 @@ export const companiesApi = createRouter()
     return c.json(toCompany({ ...company, role: c.var.member.role }), 200);
   })
   .openapi(deleteCompany, async (c) => {
-    const { companyId } = c.var.member;
+    const { companyId, userId } = c.var.member;
     const { name } = c.req.valid("json");
     // One transaction: a hook that throws leaves the Company and everything in it,
     // and the row lock keeps a concurrent rename from slipping past the confirmation.
@@ -383,6 +442,8 @@ export const companiesApi = createRouter()
     });
     if (outcome === "NOT_FOUND") return c.json(apiError("NOT_FOUND"), 404);
     if (outcome === "CONFIRMATION_MISMATCH") return c.json(apiError("CONFIRMATION_MISMATCH"), 400);
+    // Its people no longer take Seats: whoever waited comes back.
+    await reconcileSeats(c, userId);
     return c.body(null, 204);
   })
   .openapi(changeMemberRole, async (c) => {
@@ -397,10 +458,10 @@ export const companiesApi = createRouter()
       .update(members)
       .set({ role })
       .where(notTheOwner(companyId, userId))
-      .returning({ userId: members.userId });
+      .returning({ userId: members.userId, suspendedAt: members.suspendedAt });
     if (!changed) return c.json(apiError("NOT_FOUND"), 404);
     const [member] = await c.var.db.select({ name: users.name, email: users.email }).from(users).where(eq(users.id, userId));
-    return c.json({ userId, name: member!.name, email: member!.email, role }, 200);
+    return c.json({ userId, name: member!.name, email: member!.email, role, suspended: changed.suspendedAt !== null }, 200);
   })
   .openapi(removeMember, async (c) => {
     const { companyId, userId: callerId } = c.var.member;
@@ -412,6 +473,8 @@ export const companiesApi = createRouter()
       .where(notTheOwner(companyId, userId))
       .returning({ userId: members.userId });
     if (!removed) return c.json(apiError("NOT_FOUND"), 404);
+    // Their Seat is free (unless they are in another Company of the Owner): whoever waited longest comes back.
+    await reconcileSeats(c, callerId);
     return c.body(null, 204);
   })
   .openapi(leaveCompany, async (c) => {
@@ -423,5 +486,6 @@ export const companiesApi = createRouter()
       .returning({ userId: members.userId });
     // Removed after `requireMember` found the Member.
     if (!left) return c.json(apiError("NOT_FOUND"), 404);
+    await reconcileSeatsOfCompany(c, companyId);
     return c.body(null, 204);
   });
