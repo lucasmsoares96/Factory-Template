@@ -135,7 +135,7 @@ describe("pnpm bootstrap factory: Factory module", () => {
   });
 
   it("without a terminal, the Merge Mode is human, asked of nobody", async () => {
-    const w = factoryWorld({ "merge-mode": undefined as never }, { CLAUDE_CODE_OAUTH_TOKEN: "x" });
+    const w = factoryWorld({ "merge-mode": undefined as never }, { CLAUDE_CODE_OAUTH_TOKEN: "x", FACTORY_TOKEN: PAT });
     w.deps.interactive = false;
 
     const { code } = await w.run("factory");
@@ -179,7 +179,7 @@ describe("pnpm bootstrap factory: Factory module", () => {
   });
 
   it("without a terminal or FACTORY_MERGE_MODE, never sets all", async () => {
-    const w = factoryWorld({ "merge-mode": "all", "merge-mode-confirm": "all" }, { CLAUDE_CODE_OAUTH_TOKEN: "x" });
+    const w = factoryWorld({ "merge-mode": "all", "merge-mode-confirm": "all" }, { CLAUDE_CODE_OAUTH_TOKEN: "x", FACTORY_TOKEN: PAT });
     w.deps.interactive = false;
 
     await w.run("factory");
@@ -189,7 +189,7 @@ describe("pnpm bootstrap factory: Factory module", () => {
   });
 
   it("without a terminal, takes all only from FACTORY_MERGE_MODE in the environment", async () => {
-    const w = factoryWorld({ "merge-mode": undefined as never }, { CLAUDE_CODE_OAUTH_TOKEN: "x", FACTORY_MERGE_MODE: "all" });
+    const w = factoryWorld({ "merge-mode": undefined as never }, { CLAUDE_CODE_OAUTH_TOKEN: "x", FACTORY_TOKEN: PAT, FACTORY_MERGE_MODE: "all" });
     w.deps.interactive = false;
 
     expect((await w.run("factory")).code).toBe(0);

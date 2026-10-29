@@ -1,4 +1,5 @@
 import type { FactoryConfig } from "../config.ts";
+import { missingVariables, MissingVariables, type QuestionId } from "./questions.ts";
 import type { AccountsClient, CloudflareClient, GitHubClient, NeonClient, Prompter, ResendClient, StripeClient, TokenClient, ToolsClient, WranglerAuth } from "./clients.ts";
 
 /** The part of a Product's identity (ticket 07) the wizard reads; it never rewrites the file. */
@@ -62,6 +63,10 @@ export interface StepContext extends BootstrapDeps {
 export interface Step {
   id: string;
   title: string;
+  /** The required questions `run` may ask. Without a terminal, the run checks their variables before the first step. */
+  asks?: QuestionId[] | ((ctx: StepContext) => Promise<QuestionId[]>);
+  /** Whether `run` will ask them, when that is not simply "the step is not done". */
+  needs?(ctx: StepContext): Promise<boolean>;
   /** Reads the current state; a step that is `done` is skipped. */
   check(ctx: StepContext): Promise<{ done: boolean; detail?: string }>;
   run(ctx: StepContext): Promise<void>;
@@ -73,6 +78,8 @@ export async function runSteps(steps: Step[], ctx: StepContext, redo: string[]):
   const unknown = redo.filter((id) => !known.includes(id));
   if (unknown.length > 0) throw new Error(`Unknown step: ${unknown.join(", ")}. Steps: ${known.join(", ")}.`);
 
+  if (ctx.interactive === false) await requireVariables(steps, ctx, redo);
+
   for (const step of steps) {
     const state = await step.check(ctx);
     if (state.done && !redo.includes(step.id)) {
@@ -82,4 +89,18 @@ export async function runSteps(steps: Step[], ctx: StepContext, redo: string[]):
     ctx.log(`- ${step.title}: ${redo.includes(step.id) ? "redoing" : "running"}`);
     await step.run({ ...ctx, redo });
   }
+}
+
+/**
+ * Without a terminal, before the first step: every variable that the steps with work will need and the environment lacks.
+ * A step has work when it is not done or is named by `redo`; the failure lists all the missing variables, not the first.
+ */
+async function requireVariables(steps: Step[], ctx: StepContext, redo: string[]): Promise<void> {
+  const ids: QuestionId[] = [];
+  for (const step of steps) {
+    if (!step.asks) continue;
+    if (redo.includes(step.id) || (step.needs ? await step.needs({ ...ctx, redo }) : !(await step.check({ ...ctx, redo })).done)) ids.push(...(typeof step.asks === "function" ? await step.asks({ ...ctx, redo }) : step.asks));
+  }
+  const missing = missingVariables(ids, ctx.env);
+  if (missing.length > 0) throw new MissingVariables(missing);
 }
