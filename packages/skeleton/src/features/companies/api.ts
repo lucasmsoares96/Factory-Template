@@ -1,6 +1,7 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
-import { companies, memberRoles, members, users } from "../../db/schema.ts";
+import { LIVE_SUBSCRIPTION_STATUSES, companies, memberRoles, members, subscriptions, users } from "../../db/schema.ts";
+import { accountRemovedEmail } from "../../emails/account-removed.tsx";
 import { apiError, createRouter, errorResponse } from "../../platform/errors.ts";
 import { emitCompanyDeleting, emitMemberJoined } from "../../platform/feature.ts";
 import { requireIdentity, unauthenticatedResponse } from "../../platform/identity.ts";
@@ -12,6 +13,7 @@ import {
   requireOwner,
   skeletonRole,
 } from "../../platform/member.ts";
+import { revokeAccess } from "../../platform/revoke-access.ts";
 import { PageQuery, afterPosition, cursorPosition, pageOf, toPage } from "../../platform/pagination.ts";
 
 const role = z.string().openapi({
@@ -275,7 +277,7 @@ const removeMember = createRoute({
   operationId: "removeMember",
   summary: "Remove a Member from a Company",
   description:
-    "The Owner removes another Member from the Company. From the next call on, the removed user gets 404 on every route of the Company, their agents included. The Owner cannot remove themselves (`OWNER_MUST_TRANSFER`).",
+    "The Owner removes another Member from the Company: only the Owner revokes access, a Member cannot leave on their own. From the next call on, the removed user gets 404 on every route of the Company, their agents included. When the removed user's account was created by an Invitation and this was their last Company, the account is deleted and they are told by email, unless they have a live Subscription: then only the membership ends. The Owner cannot remove themselves (`OWNER_MUST_TRANSFER`).",
   middleware: [requireIdentity, requireMember, requireOwner] as const,
   request: { params: MemberParams },
   responses: {
@@ -283,23 +285,6 @@ const removeMember = createRoute({
     401: unauthenticatedResponse,
     403: forbiddenResponse,
     404: memberNotFound,
-    409: ownerMustTransfer,
-  },
-});
-
-const leaveCompany = createRoute({
-  method: "post",
-  path: "/companies/{companyId}/leave",
-  operationId: "leaveCompany",
-  summary: "Leave a Company",
-  description:
-    "The signed-in user stops being a Member of the Company. From the next call on, they get 404 on every route of the Company, their agents included. The Owner cannot leave before transferring the ownership (`OWNER_MUST_TRANSFER`).",
-  middleware: [requireIdentity, requireMember] as const,
-  request: { params: CompanyParams },
-  responses: {
-    204: { description: "The signed-in user is no longer a Member." },
-    401: unauthenticatedResponse,
-    404: companyNotFoundResponse,
     409: ownerMustTransfer,
   },
 });
@@ -478,22 +463,41 @@ export const companiesApi = createRouter()
     const { companyId, userId: callerId } = c.var.member;
     const { userId } = c.req.valid("param");
     if (userId === callerId) return c.json(apiError("OWNER_MUST_TRANSFER"), 409);
-    // No Connection is revoked: `requireMember` refuses the user's agents on their next call.
-    const [removed] = await c.var.db
-      .delete(members)
-      .where(notTheOwner(companyId, userId))
-      .returning({ userId: members.userId });
-    if (!removed) return c.json(apiError("NOT_FOUND"), 404);
-    return c.body(null, 204);
-  })
-  .openapi(leaveCompany, async (c) => {
-    const { companyId, userId, role } = c.var.member;
-    if (role === "owner") return c.json(apiError("OWNER_MUST_TRANSFER"), 409);
-    const [left] = await c.var.db
-      .delete(members)
-      .where(notTheOwner(companyId, userId))
-      .returning({ userId: members.userId });
-    // Removed after `requireMember` found the Member.
-    if (!left) return c.json(apiError("NOT_FOUND"), 404);
+    // No Connection is revoked when the account stays: `requireMember` refuses the user's agents on their next call.
+    const outcome = await c.var.db.transaction(async (tx) => {
+      const [removed] = await tx
+        .delete(members)
+        .where(notTheOwner(companyId, userId))
+        .returning({ userId: members.userId });
+      if (!removed) return null;
+      const [stillMember] = await tx.select({ companyId: members.companyId }).from(members).where(eq(members.userId, userId)).limit(1);
+      if (stillMember) return { deleted: null };
+      const [user] = await tx
+        .select({ id: users.id, name: users.name, email: users.email, createdByInvitation: users.createdByInvitation })
+        .from(users)
+        .where(eq(users.id, userId));
+      if (!user?.createdByInvitation) return { deleted: null };
+      const [paying] = await tx
+        .select({ id: subscriptions.id })
+        .from(subscriptions)
+        .where(and(eq(subscriptions.referenceId, userId), inArray(subscriptions.status, [...LIVE_SUBSCRIPTION_STATUSES])))
+        .limit(1);
+      if (paying) return { deleted: null };
+      // The account goes with its sessions, grants and Members (`ON DELETE CASCADE`), as when the person deletes it.
+      await revokeAccess(c, user);
+      await tx.delete(users).where(eq(users.id, userId));
+      return { deleted: user };
+    });
+    if (!outcome) return c.json(apiError("NOT_FOUND"), 404);
+    if (outcome.deleted) {
+      const [company] = await c.var.db.select({ name: companies.name }).from(companies).where(eq(companies.id, companyId));
+      const { t, sendEmail } = c.var;
+      // After the response: a failing email must not undo a deletion that happened.
+      c.var.defer(
+        accountRemovedEmail({ t, user: outcome.deleted, companyName: company?.name ?? "" })
+          .then(sendEmail)
+          .catch((error: unknown) => console.error("account-removed email failed", error)),
+      );
+    }
     return c.body(null, 204);
   });

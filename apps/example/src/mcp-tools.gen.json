@@ -796,43 +796,6 @@
     }
   },
   {
-    "name": "leaveCompany",
-    "title": "Leave a Company",
-    "description": "The signed-in user stops being a Member of the Company. From the next call on, they get 404 on every route of the Company, their agents included. The Owner cannot leave before transferring the ownership (`OWNER_MUST_TRANSFER`).",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "companyId": {
-          "type": "string",
-          "description": "The Company's id.",
-          "example": "2f1c6a0e-8d1b-4a51-9f3e-6b0c1d2e3f40"
-        }
-      },
-      "required": [
-        "companyId"
-      ],
-      "additionalProperties": false
-    },
-    "annotations": {
-      "title": "Leave a Company",
-      "readOnlyHint": false,
-      "destructiveHint": false,
-      "idempotentHint": false,
-      "openWorldHint": false
-    },
-    "scope": "write",
-    "http": {
-      "method": "POST",
-      "path": "/api/companies/{companyId}/leave",
-      "pathParams": [
-        "companyId"
-      ],
-      "queryParams": [],
-      "body": false,
-      "output": "none"
-    }
-  },
-  {
     "name": "listCompanies",
     "title": "List the signed-in user's Companies",
     "description": "Answers the Companies the signed-in user is a Member of, with their role in each, in the order they joined: a page of `limit` (50 by default) and the `nextCursor` of the next page.",
@@ -1264,7 +1227,7 @@
   {
     "name": "removeMember",
     "title": "Remove a Member from a Company",
-    "description": "The Owner removes another Member from the Company. From the next call on, the removed user gets 404 on every route of the Company, their agents included. The Owner cannot remove themselves (`OWNER_MUST_TRANSFER`).",
+    "description": "The Owner removes another Member from the Company: only the Owner revokes access, a Member cannot leave on their own. From the next call on, the removed user gets 404 on every route of the Company, their agents included. When the removed user's account was created by an Invitation and this was their last Company, the account is deleted and they are told by email, unless they have a live Subscription: then only the membership ends. The Owner cannot remove themselves (`OWNER_MUST_TRANSFER`).",
     "inputSchema": {
       "type": "object",
       "properties": {

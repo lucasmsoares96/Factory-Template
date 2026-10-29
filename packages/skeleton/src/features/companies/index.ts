@@ -4,7 +4,7 @@ import { companiesApi } from "./api.ts";
 /**
  * Companies and their Members: create and list the user's Companies, the
  * Company page (`routes/`, at `/c/<companyId>`) with its Members (the Owner
- * changes their roles and removes them; a Member leaves), and the Company
+ * changes their roles and removes them; no Member leaves on their own), and the Company
  * switcher of the signed-in shell. Every route of a Company sits under
  * `/api/companies/{companyId}/...` behind `requireMember`. `createApp()` mounts
  * it in every Product, before the Product's features.

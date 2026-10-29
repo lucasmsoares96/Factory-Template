@@ -2,7 +2,7 @@ import { createRoute, z } from "@hono/zod-openapi";
 import { eq } from "drizzle-orm";
 import type { MiddlewareHandler } from "hono";
 import { createMiddleware } from "hono/factory";
-import { subscriptions } from "../../db/schema.ts";
+import { LIVE_SUBSCRIPTION_STATUSES, subscriptions } from "../../db/schema.ts";
 import type { SkeletonEnv } from "../../platform/env.ts";
 import { apiError, createRouter, errorResponse } from "../../platform/errors.ts";
 import { requireIdentity, unauthenticatedResponse } from "../../platform/identity.ts";
@@ -63,7 +63,7 @@ const billingOn = (entitlements: readonly string[]): MiddlewareHandler<SkeletonE
     await next();
   });
 
-const LIVE = ["active", "trialing", "past_due"] as const;
+const LIVE = LIVE_SUBSCRIPTION_STATUSES;
 
 const getPlanRoute = (on: MiddlewareHandler<SkeletonEnv>) =>
   createRoute({

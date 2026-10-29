@@ -129,12 +129,6 @@ export const ptBR: Messages = {
       removeButton: "Remover",
       removed: "{name} não é mais Member da Company.",
     },
-    leave: {
-      title: "Sair da Company",
-      description: "Você deixa de ser Member e perde o acesso a ela na hora, inclusive pelos agentes. Só um novo convite traz você de volta.",
-      submit: "Sair da Company",
-      submitting: "Saindo…",
-    },
     settings: {
       title: "Configurações da Company",
       description: "Só o Owner vê estas ações.",
@@ -308,6 +302,14 @@ export const ptBR: Messages = {
       button: "Escolher uma senha nova",
       fallback: "Se o botão não funcionar, abra este link:",
       ignore: "Se não foi você que pediu, pode ignorar este email: a sua senha continua a mesma.",
+    },
+    accountRemoved: {
+      subject: "Sua conta no {appName} foi apagada",
+      preview: "A {companyName} removeu você, então sua conta foi apagada.",
+      heading: "Sua conta foi apagada",
+      greeting: "Olá, {name},",
+      body: "Sua conta no {appName} pertencia à {companyName}, e você foi removido dela. Sem nenhuma Company, sua conta e seus dados foram apagados.",
+      ignore: "Você pode criar uma conta de novo se for convidado para outra Company.",
     },
     invitation: {
       subject: "{inviterName} convidou você para entrar na {companyName}",

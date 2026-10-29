@@ -134,12 +134,6 @@ export const en = {
       removeButton: "Remove",
       removed: "{name} is no longer a Member of the Company.",
     },
-    leave: {
-      title: "Leave the Company",
-      description: "You stop being a Member and lose access to it right away, your agents included. Only a new Invitation brings you back.",
-      submit: "Leave Company",
-      submitting: "Leaving…",
-    },
     settings: {
       title: "Company settings",
       description: "Only the Owner sees these actions.",
@@ -313,6 +307,14 @@ export const en = {
       button: "Choose a new password",
       fallback: "If the button does not work, open this link:",
       ignore: "If you did not ask for this, you can ignore this email: your password stays the same.",
+    },
+    accountRemoved: {
+      subject: "Your {appName} account was deleted",
+      preview: "{companyName} removed you, so your account is gone.",
+      heading: "Your account was deleted",
+      greeting: "Hi {name},",
+      body: "Your {appName} account belonged to {companyName}, and you were removed from it. With no Company left, your account and its data were deleted.",
+      ignore: "You can sign up again if you are invited to another Company.",
     },
     invitation: {
       subject: "{inviterName} invited you to join {companyName}",

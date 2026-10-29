@@ -4,10 +4,11 @@ import { APIError, createAuthMiddleware, getSessionFromCtx, isAPIError } from "b
 import { and, asc, eq } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { decode, verify } from "hono/jwt";
-import { authSchema, companies, members, users } from "../db/schema.ts";
+import { authSchema, companies, invitations, members, users } from "../db/schema.ts";
 import { changeEmailEmail } from "../emails/change-email.tsx";
 import { resetPasswordEmail } from "../emails/reset-password.tsx";
 import { verificationEmail } from "../emails/verify-email.tsx";
+import { hashToken } from "../features/invitations/service.ts";
 import type { Messages } from "../i18n/index.ts";
 import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from "./password-rules.ts";
 import { AUTH_BASE_PATH } from "./auth-base-path.ts";
@@ -100,6 +101,17 @@ function isOwnPath(url: string, baseURL: string): boolean {
   return url.startsWith("/") && new URL(url, origin).origin === origin;
 }
 
+/** The Invitation token in the sign-up's `callbackURL` (`/email-verified?redirect=/invitations/<token>`), if any. */
+function invitationToken(callbackURL: unknown): string | undefined {
+  if (typeof callbackURL !== "string") return undefined;
+  try {
+    const redirect = new URL(callbackURL, "http://localhost").searchParams.get("redirect");
+    return redirect?.match(/^\/invitations\/([\w-]+)$/)?.[1];
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * The Skeleton's Better Auth config: email and password, with a verified email
  * required before any session. The Worker builds one per request (bindings only
@@ -152,6 +164,23 @@ export function authOptions({
       // The verification email goes to the new address; until its link is opened
       // the account keeps the old email, for signing in too.
       changeEmail: { enabled: true },
+    },
+    databaseHooks: {
+      user: {
+        create: {
+          // Signing up from an Invitation's link (the verification link carries it back as
+          // `redirect`) makes an account that belongs to the Company: see `removeMember`.
+          after: async (user, ctx) => {
+            const token = invitationToken(ctx?.body?.callbackURL);
+            if (!token) return;
+            const [invitation] = await db
+              .select({ id: invitations.id })
+              .from(invitations)
+              .where(and(eq(invitations.tokenHash, await hashToken(token)), eq(invitations.email, user.email.toLowerCase())));
+            if (invitation) await db.update(users).set({ createdByInvitation: true }).where(eq(users.id, user.id));
+          },
+        },
+      },
     },
     emailVerification: {
       sendOnSignUp: true,

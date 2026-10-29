@@ -1,14 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { migrateDatabase } from "../src/node/migrate.ts";
-import { mockResend } from "../src/node/resend-mock.ts";
+import { linkIn } from "../src/node/email-link.ts";
+import { mockResend, type SentEmail } from "../src/node/resend-mock.ts";
 import { createTestAuth } from "./support/auth.ts";
 import { createEmptyDatabase } from "./support/database.ts";
 import { startTestWorker, type TestWorker } from "./support/worker.ts";
 
 // Seam 1: the Worker over HTTP. Every test brings its own users and Companies.
 
-const resend = mockResend(() => {});
+const sent: SentEmail[] = [];
+const resend = mockResend((email) => sent.push(email));
 let db: Awaited<ReturnType<typeof createEmptyDatabase>>;
 let worker: TestWorker;
 let testAuth: Awaited<ReturnType<typeof createTestAuth>>;
@@ -181,7 +183,6 @@ test("a removed Member's writes on the Company answer 404, not 403, and change n
     ["POST", `/api/companies/${company.id}/invitations`, { email: "eve@example.com", role: "employee" }],
     ["PATCH", `/api/companies/${company.id}/members/${carla.user.id}`, { role: "employee" }],
     ["DELETE", `/api/companies/${company.id}/members/${carla.user.id}`, undefined],
-    ["POST", `/api/companies/${company.id}/leave`, undefined],
   ] as const) {
     const response = await api(path, { cookie: bruno.cookie, method, body });
     expect(response.status, `${method} ${path}`).toBe(404);
@@ -235,40 +236,118 @@ test("removing a user who is not a Member answers 404, and the Owner removing th
 
 const leave = (companyId: string, cookie?: string) => api(`/api/companies/${companyId}/leave`, { cookie, method: "POST" });
 
-test("an Employee, or a Product's role, leaves the Company and loses access to it at once", async () => {
-  const { ana, bruno, carla, company } = await acme();
+test("there is no route to leave a Company: a Member cannot, the Owner neither", async () => {
+  const { ana, bruno, company } = await acme();
 
-  for (const member of [bruno, carla]) {
-    const response = await leave(company.id, member.cookie);
-    expect(response.status).toBe(204);
-    for (const path of companyRoutes(company.id)) expect((await api(path, { cookie: member.cookie })).status, path).toBe(404);
-    expect((await leave(company.id, member.cookie)).status).toBe(404);
-  }
-  expect(await db.query(`SELECT user_id FROM skeleton.members WHERE company_id = '${company.id}'`)).toEqual([
-    { user_id: ana.user.id },
-  ]);
-});
-
-test("the Owner who tries to leave answers 409 OWNER_MUST_TRANSFER and stays the Owner", async () => {
-  const { ana, company } = await acme();
-
-  const response = await leave(company.id, ana.cookie);
-
-  expect(response.status).toBe(409);
-  expect(await response.json()).toEqual({
-    code: "OWNER_MUST_TRANSFER",
-    message: "The Owner cannot leave the Company. Transfer its ownership to another Member first.",
-  });
+  for (const caller of [bruno, ana]) expect((await leave(company.id, caller.cookie)).status).toBe(404);
+  expect(await roleOf(company.id, bruno.user.id)).toEqual([{ role: "employee" }]);
   expect(await roleOf(company.id, ana.user.id)).toEqual([{ role: "owner" }]);
 });
 
-test("changing a role, removing and leaving answer 401 UNAUTHENTICATED without a session", async () => {
+/**
+ * Invites a new address to the Company and signs it up from the link, as the SPA does
+ * (the verification link carries the Invitation's path back as `redirect`), then accepts.
+ * Returns the person signed in; `createdByInvitation` says how their account was made.
+ */
+async function joinByInvitation(company: { id: string }, ownerCookie: string, name = "Dora Reis") {
+  const email = `invited-${randomUUID()}@example.com`;
+  const invited = await api(`/api/companies/${company.id}/invitations`, { cookie: ownerCookie, method: "POST", body: { email, role: "employee" } });
+  expect(invited.status).toBe(201);
+  await expect.poll(() => sent.some((e) => e.to.includes(email))).toBe(true);
+  const token = linkIn(sent.findLast((e) => e.to.includes(email))!.html, "/invitations/").split("/invitations/")[1]!;
+  const callbackURL = `/email-verified?${new URLSearchParams({ redirect: `/invitations/${token}` })}`;
+  const signedUp = await worker.post("/api/auth/sign-up/email", { name, email, password: "correct horse battery", callbackURL });
+  expect(signedUp.status).toBe(200);
+  await db.query(`UPDATE skeleton.users SET email_verified = true WHERE email = '${email}'`);
+  const [user] = await db.query<{ id: string }>(`SELECT id FROM skeleton.users WHERE email = '${email}'`);
+  const cookie = (await testAuth.getAuthHeaders({ userId: user!.id })).get("cookie")!;
+  expect((await api(`/api/invitations/${token}/accept`, { cookie, method: "POST" })).status).toBe(200);
+  return { user: { id: user!.id, email }, cookie };
+}
+
+const userRows = (userId: string) => db.query(`SELECT 1 FROM skeleton.users WHERE id = '${userId}'`);
+
+test("removing the last Company of an account created by an Invitation deletes the account and emails the person", async () => {
+  const ana = await signedInUser("Ana Souza");
+  const company = await createCompany(ana.cookie, "Acme");
+  const dora = await joinByInvitation(company, ana.cookie);
+  expect(await db.query(`SELECT created_by_invitation FROM skeleton.users WHERE id = '${dora.user.id}'`)).toEqual([{ created_by_invitation: true }]);
+
+  expect((await removeMember(company.id, dora.user.id, ana.cookie)).status).toBe(204);
+
+  expect(await userRows(dora.user.id)).toEqual([]);
+  expect((await api("/api/me", { cookie: dora.cookie })).status).toBe(401);
+  await expect.poll(() => sent.filter((e) => e.to.includes(dora.user.email)).map((e) => e.subject)).toEqual(expect.arrayContaining([expect.stringContaining("account was deleted")]));
+});
+
+test("a person with a live Subscription keeps the account when removed from the last Company", async () => {
+  const ana = await signedInUser("Ana Souza");
+  const company = await createCompany(ana.cookie, "Acme");
+  const dora = await joinByInvitation(company, ana.cookie);
+  await db.query(`INSERT INTO skeleton.subscriptions (id, plan, reference_id, status) VALUES ('${randomUUID()}', 'pro', '${dora.user.id}', 'active')`);
+
+  expect((await removeMember(company.id, dora.user.id, ana.cookie)).status).toBe(204);
+
+  expect(await userRows(dora.user.id)).toEqual([{ "?column?": 1 }]);
+  expect(await roleOf(company.id, dora.user.id)).toEqual([]);
+  expect((await api("/api/me", { cookie: dora.cookie })).status).toBe(200);
+});
+
+test("a canceled Subscription does not keep the account", async () => {
+  const ana = await signedInUser("Ana Souza");
+  const company = await createCompany(ana.cookie, "Acme");
+  const dora = await joinByInvitation(company, ana.cookie);
+  await db.query(`INSERT INTO skeleton.subscriptions (id, plan, reference_id, status) VALUES ('${randomUUID()}', 'pro', '${dora.user.id}', 'canceled')`);
+
+  expect((await removeMember(company.id, dora.user.id, ana.cookie)).status).toBe(204);
+
+  expect(await userRows(dora.user.id)).toEqual([]);
+});
+
+test("removing an account created by an Invitation from one of several Companies keeps the account", async () => {
+  const ana = await signedInUser("Ana Souza");
+  const acmeCompany = await createCompany(ana.cookie, "Acme");
+  const globex = await createCompany((await signedInUser("Gil")).cookie, "Globex");
+  const dora = await joinByInvitation(acmeCompany, ana.cookie);
+  await join(globex.id, dora.user.id);
+
+  expect((await removeMember(acmeCompany.id, dora.user.id, ana.cookie)).status).toBe(204);
+
+  expect(await userRows(dora.user.id)).toEqual([{ "?column?": 1 }]);
+  expect(await roleOf(globex.id, dora.user.id)).toEqual([{ role: "employee" }]);
+});
+
+test("a person who created the account on their own keeps it when removed, even after accepting an Invitation", async () => {
+  const { ana, bruno, company } = await acme();
+  expect(await db.query(`SELECT created_by_invitation FROM skeleton.users WHERE id = '${bruno.user.id}'`)).toEqual([{ created_by_invitation: false }]);
+
+  expect((await removeMember(company.id, bruno.user.id, ana.cookie)).status).toBe(204);
+
+  expect(await userRows(bruno.user.id)).toEqual([{ "?column?": 1 }]);
+  expect((await api("/api/me", { cookie: bruno.cookie })).status).toBe(200);
+});
+
+test("signing up with the link of an Invitation for another address does not mark the account", async () => {
+  const ana = await signedInUser("Ana Souza");
+  const company = await createCompany(ana.cookie, "Acme");
+  const email = `invited-${randomUUID()}@example.com`;
+  await api(`/api/companies/${company.id}/invitations`, { cookie: ana.cookie, method: "POST", body: { email, role: "employee" } });
+  await expect.poll(() => sent.some((e) => e.to.includes(email))).toBe(true);
+  const token = linkIn(sent.findLast((e) => e.to.includes(email))!.html, "/invitations/").split("/invitations/")[1]!;
+  const other = `other-${randomUUID()}@example.com`;
+  const callbackURL = `/email-verified?${new URLSearchParams({ redirect: `/invitations/${token}` })}`;
+
+  await worker.post("/api/auth/sign-up/email", { name: "Eve", email: other, password: "correct horse battery", callbackURL });
+
+  expect(await db.query(`SELECT created_by_invitation FROM skeleton.users WHERE email = '${other}'`)).toEqual([{ created_by_invitation: false }]);
+});
+
+test("changing a role and removing answer 401 UNAUTHENTICATED without a session", async () => {
   const { bruno, company } = await acme();
 
   for (const response of [
     await changeRole(company.id, bruno.user.id, "", "manager"),
     await removeMember(company.id, bruno.user.id),
-    await leave(company.id),
   ]) {
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ code: "UNAUTHENTICATED", message: "Sign in to continue." });
@@ -288,7 +367,6 @@ test("the Members' routes are described in the OpenAPI document with every respo
     expect.arrayContaining([
       ["changeMemberRole", "/api/companies/{companyId}/members/{userId}", ["200", "400", "401", "403", "404"]],
       ["removeMember", "/api/companies/{companyId}/members/{userId}", ["204", "401", "403", "404", "409"]],
-      ["leaveCompany", "/api/companies/{companyId}/leave", ["204", "401", "404", "409"]],
     ]),
   );
 });
