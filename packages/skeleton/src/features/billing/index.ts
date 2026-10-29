@@ -52,9 +52,10 @@ export function billing<const Name extends string>({ entitlements }: { entitleme
           stripeClient: on.stripe,
           stripeWebhookSecret: on.webhookSecret,
           subscription: { enabled: true, requireEmailVerification: true, plans: async () =>
-              (await on.plans()).priced.map(({ id, priceId, lookupKey, trialDays }) => ({
+              (await on.plans()).priced.map(({ id, priceId, lookupKey, yearly, trialDays }) => ({
                 name: id,
                 ...(lookupKey ? { lookupKey } : { priceId }),
+                ...(yearly ? (yearly.lookupKey ? { annualDiscountLookupKey: yearly.lookupKey } : { annualDiscountPriceId: yearly.priceId }) : {}),
                 // The plugin gives the trial to a person's first Subscription only (any past trial refuses it).
                 ...(trialDays > 0 ? { freeTrial: { days: trialDays } } : {}),
               })),
@@ -74,7 +75,8 @@ export function billing<const Name extends string>({ entitlements }: { entitleme
       const on = billingFor(c, entitlements);
       if (!on) return undefined;
       try {
-        return seatsOf((await planOf(c.var.db, await on.plans(), ownerId)).plan);
+        const { plan, live } = await planOf(c.var.db, await on.plans(), ownerId);
+        return seatsOf(plan, live);
       } catch (error) {
         if (options?.strict) throw error;
         // Stripe is down: keep the Owner at the free Plan's one Seat rather than let the limit lapse.
