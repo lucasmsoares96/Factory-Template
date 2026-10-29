@@ -24,6 +24,23 @@ export const CompanyParams = z.object({
   companyId: z.string().openapi({ description: "The Company's id.", example: "2f1c6a0e-8d1b-4a51-9f3e-6b0c1d2e3f40" }),
 });
 
+function resolveMember({ allowSuspended }: { allowSuspended: boolean }) {
+  return createMiddleware<SkeletonEnv>(async (c, next) => {
+    const companyId = c.req.param("companyId");
+    const userId = c.var.identity.user.id;
+    const [member] = companyId
+      ? await c.var.db
+          .select({ role: members.role, suspendedAt: members.suspendedAt })
+          .from(members)
+          .where(and(eq(members.companyId, companyId), eq(members.userId, userId)))
+      : [];
+    if (!member || !companyId) return c.json(apiError("NOT_FOUND"), 404);
+    if (member.suspendedAt && !allowSuspended) return c.json(apiError("MEMBER_SUSPENDED"), 403);
+    c.set("member", { companyId, userId, role: member.role });
+    await next();
+  });
+}
+
 /**
  * The single place that resolves who the caller is in the Company of the path,
  * and the only permission check of the Company routes, the Skeleton's and the
@@ -31,21 +48,14 @@ export const CompanyParams = z.object({
  * `{companyId}`: it sets `c.var.member`, or answers 404 `NOT_FOUND` when the
  * caller is not a Member, exactly as if the Company did not exist, so nobody
  * learns of another user's Companies by their id. Declare that 404 with
- * `companyNotFoundResponse`.
+ * `companyNotFoundResponse`. A Suspended Member (the Owner's Seats fell short)
+ * answers 403 `MEMBER_SUSPENDED` on every route behind it, agents included;
+ * declare it with `memberSuspendedResponse`.
  */
-export const requireMember = createMiddleware<SkeletonEnv>(async (c, next) => {
-  const companyId = c.req.param("companyId");
-  const userId = c.var.identity.user.id;
-  const [member] = companyId
-    ? await c.var.db
-        .select({ role: members.role })
-        .from(members)
-        .where(and(eq(members.companyId, companyId), eq(members.userId, userId)))
-    : [];
-  if (!member || !companyId) return c.json(apiError("NOT_FOUND"), 404);
-  c.set("member", { companyId, userId, role: member.role });
-  await next();
-});
+export const requireMember = resolveMember({ allowSuspended: false });
+
+/** Like `requireMember`, but a Suspended Member gets through: only for what they may still do, such as leaving. */
+export const requireMemberEvenSuspended = resolveMember({ allowSuspended: true });
 
 /**
  * Lets only the Company's Owner through: any other role answers 403
@@ -57,10 +67,20 @@ export const requireOwner = createMiddleware<SkeletonEnv>(async (c, next) => {
 });
 
 /** The 403 every route behind `requireOwner` declares in its `responses`. */
-export const forbiddenResponse = errorResponse("The signed-in user's role in the Company does not allow this.", "FORBIDDEN");
+export const forbiddenResponse = errorResponse(
+  "The signed-in user's role in the Company does not allow this (`FORBIDDEN`), or they are a Suspended Member of it (`MEMBER_SUSPENDED`).",
+  "FORBIDDEN",
+  "MEMBER_SUSPENDED",
+);
 
 /** The 404 every route behind `requireMember` declares in its `responses`. */
 export const companyNotFoundResponse = errorResponse(
   "No such Company, or the signed-in user is not one of its Members.",
   "NOT_FOUND",
+);
+
+/** The 403 every route behind `requireMember` declares in its `responses`. */
+export const memberSuspendedResponse = errorResponse(
+  "The signed-in user is a Suspended Member of the Company: the Owner's Seats fall short.",
+  "MEMBER_SUSPENDED",
 );
