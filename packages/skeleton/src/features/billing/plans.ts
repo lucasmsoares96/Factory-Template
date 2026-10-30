@@ -5,7 +5,7 @@ import type Stripe from "stripe";
  * it is (`kind`: `free`, `fixed` or `per_seat`), how many Seats a fixed or free
  * one gives (`seats`), the Product it belongs to (`productId`), the free trial of a
  * fixed one (`trial_days`) and what it unlocks (`entitlement_<name>`: `true`, `false` or a number). A paid Plan has
- * an active monthly price, found by its lookup key.
+ * an active monthly price and may have an active yearly one.
  */
 export type Plan = {
   /** The Stripe product's id: what `subscribe` takes. */
@@ -18,12 +18,20 @@ export type Plan = {
   /** The monthly price, in the currency's smallest unit; `null` for the free Plan. */
   price: { amount: number; currency: string; interval: "month" } | null;
   entitlements: Record<string, boolean | number>;
+  /** The yearly price, when the Plan has one; for a Plan priced per Seat it is per Seat too. */
+  yearlyPrice: { amount: number; currency: string; interval: "year" } | null;
+  /** The fewest Seats a Plan priced per Seat sells: one more than the biggest fixed Plan gives. `null` for the others. */
+  minSeats: number | null;
   /** The days of free trial a first Subscription gets; 0 for no trial. Only a `fixed` Plan has one. */
   trialDays: number;
 };
 
-/** A Plan with the Stripe price that Checkout charges. */
-export type StripePlan = Plan & { priceId: string; lookupKey: string | null };
+/** A Plan with the Stripe prices that Checkout charges. */
+export type StripePlan = Plan & {
+  priceId: string;
+  lookupKey: string | null;
+  yearly: { priceId: string; lookupKey: string | null } | null;
+};
 
 /** `granted`: the Entitlement names some Plan's metadata sets; one in no Plan is unset (see `entitlementFor`). */
 export type PlanCatalog = { plans: Plan[]; priced: StripePlan[]; granted: ReadonlySet<string> };
@@ -45,7 +53,8 @@ function trialDaysOf(kind: Plan["kind"], raw: string | undefined): number {
 /**
  * Reads the Product's Plans from Stripe: the active products tagged with its id
  * and a known `kind`, each with its monthly price. A product that is not a Plan
- * of this Product, or a paid one without a monthly price, is left out.
+ * of this Product, or a paid one without a monthly price, is left out. A Plan priced per Seat gets its minimum of
+ * Seats from the fixed Plans.
  */
 export async function readPlans(
   stripe: Stripe,
@@ -62,10 +71,13 @@ export async function readPlans(
     const { productId: owner, kind, seats } = product.metadata;
     const known = KINDS.find((candidate) => candidate === kind);
     if (owner !== productId || !known) continue;
-    const price = prices.data.find((candidate) => {
-      const target = typeof candidate.product === "string" ? candidate.product : candidate.product.id;
-      return target === product.id && candidate.recurring?.interval === "month" && candidate.unit_amount !== null;
-    });
+    const priceOf = (interval: "month" | "year") =>
+      prices.data.find((candidate) => {
+        const target = typeof candidate.product === "string" ? candidate.product : candidate.product.id;
+        return target === product.id && candidate.recurring?.interval === interval && candidate.unit_amount !== null;
+      });
+    const price = priceOf("month");
+    const yearly = known === "free" ? undefined : priceOf("year");
     if (known !== "free" && !price) continue;
     const plan: Plan = {
       id: product.id,
@@ -74,13 +86,24 @@ export async function readPlans(
       kind: known,
       seats: known === "per_seat" || seats === undefined || !Number.isFinite(Number(seats)) ? null : Number(seats),
       price: price && known !== "free" ? { amount: price.unit_amount!, currency: price.currency, interval: "month" } : null,
+      yearlyPrice: yearly ? { amount: yearly.unit_amount!, currency: yearly.currency, interval: "year" } : null,
+      minSeats: null,
       trialDays: trialDaysOf(known, product.metadata.trial_days),
       entitlements: Object.fromEntries(entitlements.map((name) => [name, entitlementValue(product.metadata[`entitlement_${name}`])])),
     };
     for (const name of entitlements) if (`entitlement_${name}` in product.metadata) granted.add(name);
     plans.push(plan);
-    if (price && known !== "free") priced.push({ ...plan, priceId: price.id, lookupKey: price.lookup_key });
+    if (price && known !== "free") {
+      priced.push({
+        ...plan,
+        priceId: price.id,
+        lookupKey: price.lookup_key,
+        yearly: yearly ? { priceId: yearly.id, lookupKey: yearly.lookup_key } : null,
+      });
+    }
   }
+  const biggestFixed = Math.max(0, ...plans.filter((plan) => plan.kind === "fixed").map((plan) => plan.seats ?? 0));
+  for (const plan of [...plans, ...priced]) if (plan.kind === "per_seat") plan.minSeats = biggestFixed + 1;
   return { plans, priced, granted };
 }
 

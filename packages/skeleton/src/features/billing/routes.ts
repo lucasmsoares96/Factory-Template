@@ -4,12 +4,13 @@ import type { SkeletonEnv } from "../../platform/env.ts";
 import { apiError, createRouter } from "../../platform/errors.ts";
 import { billingFor, isFakeStripe } from "./context.ts";
 import { FAKE_STRIPE_PATH, type FakeStripe } from "./fake-stripe/fake-stripe.ts";
-import { checkoutPage } from "./fake-stripe/pages.ts";
+import { checkoutPage, portalPage } from "./fake-stripe/pages.ts";
 import { forgetPlans } from "./plans.ts";
 
 const Advance = z.object({ seconds: z.number().int().positive(), paymentFails: z.boolean().optional() });
 const Ending = z.object({ email: z.string().min(1) });
 const Failing = z.object({ on: z.boolean() });
+const Authenticate = z.object({ subscription: z.string().min(1), passes: z.boolean() });
 const Cancel = z.object({ subscription: z.string().min(1) });
 const Customer = z.object({ email: z.string().min(1) });
 const OutsideSubscription = z.object({ customer: z.string().min(1), plan: z.string().min(1), quantity: z.number().int().positive(), trialDays: z.number().int().nonnegative() });
@@ -18,7 +19,7 @@ const Event = z.object({ type: z.string().min(1), object: z.record(z.string(), z
 
 /**
  * The fake Stripe's own routes, `/api/fake-stripe/*`: the Checkout page and the
- * controls tests use (advance the clock, end a person's Subscriptions, fail a person's payment, edit a Plan's metadata, make Stripe fail, send an event, read
+ * controls tests use (advance the clock, settle a change the bank asked to confirm, end a person's Subscriptions, fail a person's payment, edit a Plan's metadata, make Stripe fail, send an event, read
  * the calls, start over). They answer only where the fake runs (`STRIPE_FAKE`);
  * anywhere else they are a 404. Plain routes: no OpenAPI, no MCP.
  */
@@ -51,6 +52,35 @@ export function fakeStripeRoutes(entitlements: readonly string[]) {
       return c.redirect(result.next, 303);
     });
   }
+  router.get("/fake-stripe/portal/:id", async (c) => {
+    const details = await fake(c).portalDetails(c.req.param("id"));
+    if (!details) return c.json(apiError("NOT_FOUND"), 404);
+    return c.html(
+      portalPage({
+        sessionId: details.session.id,
+        from: details.from as never,
+        to: details.to as never,
+        due: details.due,
+        currency: details.currency,
+        declined: c.req.query("declined") === "1",
+        backUrl: details.session.return_url,
+        base: FAKE_STRIPE_PATH,
+      }),
+    );
+  });
+  for (const outcome of ["pay", "authenticate", "decline"] as const) {
+    router.post(`/fake-stripe/portal/:id/${outcome}`, async (c) => {
+      const result = await fake(c).completePortal(c.req.param("id"), outcome);
+      if (!result) return c.json(apiError("NOT_FOUND"), 404);
+      return c.redirect(result.next, 303);
+    });
+  }
+  router.post("/fake-stripe/control/authenticate", async (c) => {
+    const body = Authenticate.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json(apiError("VALIDATION_FAILED"), 400);
+    if (!(await fake(c).authenticate(body.data.subscription, body.data.passes))) return c.json(apiError("NOT_FOUND"), 404);
+    return c.json({ subscription: body.data.subscription, passes: body.data.passes });
+  });
   router.post("/fake-stripe/control/advance", async (c) => {
     const body = Advance.safeParse(await c.req.json().catch(() => null));
     if (!body.success) return c.json(apiError("VALIDATION_FAILED"), 400);

@@ -801,6 +801,45 @@
                   ],
                   "description": "The monthly price; `null` for the free Plan."
                 },
+                "yearlyPrice": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "amount": {
+                      "type": "integer",
+                      "description": "The yearly price in the currency's smallest unit (cents). For a Plan priced per Seat it is per Seat.",
+                      "example": 19000
+                    },
+                    "currency": {
+                      "type": "string",
+                      "description": "The lower-case ISO currency code.",
+                      "example": "usd"
+                    },
+                    "interval": {
+                      "type": "string",
+                      "enum": [
+                        "year"
+                      ],
+                      "description": "How often the price is charged."
+                    }
+                  },
+                  "required": [
+                    "amount",
+                    "currency",
+                    "interval"
+                  ],
+                  "description": "The yearly price; `null` when the Plan is not sold by the year."
+                },
+                "minSeats": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "description": "The fewest Seats a `per_seat` Plan sells: one more than the biggest fixed Plan gives. `null` for the other kinds.",
+                  "example": 11
+                },
                 "trialDays": {
                   "type": "integer",
                   "description": "The days of free trial a person's first Subscription to this Plan gets; 0 when there is none. Only a `fixed` Plan has one, and a person has one trial ever.",
@@ -832,6 +871,8 @@
                 "kind",
                 "seats",
                 "price",
+                "yearlyPrice",
+                "minSeats",
                 "trialDays",
                 "entitlements"
               ]
@@ -871,6 +912,69 @@
               "description": "Whether the Subscription ends when the current period does.",
               "example": false
             },
+            "interval": {
+              "type": "string",
+              "enum": [
+                "month",
+                "year"
+              ],
+              "description": "How often the person pays.",
+              "example": "month"
+            },
+            "seats": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "The Seats bought, for a Plan priced per Seat; `null` for the others.",
+              "example": 12
+            },
+            "scheduledChange": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "plan": {
+                  "type": "string",
+                  "description": "The id of the Plan the Subscription moves to.",
+                  "example": "prod_Rk2pQ9vT4mWs1a"
+                },
+                "interval": {
+                  "type": "string",
+                  "enum": [
+                    "month",
+                    "year"
+                  ],
+                  "description": "How often the person pays after the change.",
+                  "example": "month"
+                },
+                "seats": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "description": "The Seats bought after the change, for a Plan priced per Seat.",
+                  "example": 12
+                },
+                "at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time",
+                  "description": "When the change applies: the end of the paid period.",
+                  "example": "2026-11-28T12:00:00.000Z"
+                }
+              },
+              "required": [
+                "plan",
+                "interval",
+                "seats",
+                "at"
+              ],
+              "description": "A change the person scheduled for the end of the paid period; `null` when there is none."
+            },
             "pastDueUntil": {
               "type": [
                 "string",
@@ -890,6 +994,9 @@
             "status",
             "periodEnd",
             "cancelAtPeriodEnd",
+            "interval",
+            "seats",
+            "scheduledChange",
             "pastDueUntil",
             "losingAccess"
           ],
@@ -967,6 +1074,45 @@
                 ],
                 "description": "The monthly price; `null` for the free Plan."
               },
+              "yearlyPrice": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "amount": {
+                    "type": "integer",
+                    "description": "The yearly price in the currency's smallest unit (cents). For a Plan priced per Seat it is per Seat.",
+                    "example": 19000
+                  },
+                  "currency": {
+                    "type": "string",
+                    "description": "The lower-case ISO currency code.",
+                    "example": "usd"
+                  },
+                  "interval": {
+                    "type": "string",
+                    "enum": [
+                      "year"
+                    ],
+                    "description": "How often the price is charged."
+                  }
+                },
+                "required": [
+                  "amount",
+                  "currency",
+                  "interval"
+                ],
+                "description": "The yearly price; `null` when the Plan is not sold by the year."
+              },
+              "minSeats": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "The fewest Seats a `per_seat` Plan sells: one more than the biggest fixed Plan gives. `null` for the other kinds.",
+                "example": 11
+              },
               "trialDays": {
                 "type": "integer",
                 "description": "The days of free trial a person's first Subscription to this Plan gets; 0 when there is none. Only a `fixed` Plan has one, and a person has one trial ever.",
@@ -998,6 +1144,8 @@
               "kind",
               "seats",
               "price",
+              "yearlyPrice",
+              "minSeats",
               "trialDays",
               "entitlements"
             ]
