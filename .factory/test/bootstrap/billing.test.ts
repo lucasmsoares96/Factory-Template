@@ -36,6 +36,13 @@ function billingWorld(extra: Record<string, string | boolean | string[]> = {}, e
   return w;
 }
 
+/** The questions of the plans, asked again with these prices (the scripted queues are spent by the first run). */
+function again(w: ReturnType<typeof billingWorld>, prices: string[]) {
+  w.prompter.script("billing-fixed-name", ["Pro", "Team", ""]);
+  w.prompter.script("billing-fixed-seats", ["3", "10"]);
+  w.prompter.script("billing-fixed-price", prices);
+}
+
 /** The example Product declares these in `billing({ entitlements })`. */
 function declaring(w: ReturnType<typeof billingWorld>, entitlements: string[]) {
   w.products.set("example", { ...w.products.get("example")!, entitlements });
@@ -215,6 +222,143 @@ describe("pnpm bootstrap billing", () => {
 
     expect(output).toContain("example_pro_monthly exist with another amount");
     expect(w.stripe.live.prices.get("example_pro_monthly")?.amount).toBe(999);
+  });
+
+  it("--redo plans with a new amount makes a new price with the same lookup key, archives the old one and leaves Subscriptions on it, in both accounts", async () => {
+    const w = billingWorld();
+    await w.run("billing", "example");
+    const oldIds = [w.stripe.sandbox, w.stripe.live].map((account) => account.prices.get("example_pro_monthly")!.id);
+    for (const account of [w.stripe.sandbox, w.stripe.live]) account.subscriptions.push({ id: "sub_1", priceId: account.prices.get("example_pro_monthly")!.id, status: "active", renewsAt: 1_900_000_000 });
+    again(w, ["29", "49.90"]);
+
+    const { code, output } = await w.run("billing", "example", "--redo", "plans");
+
+    expect(code).toBe(0);
+    for (const [at, account] of [w.stripe.sandbox, w.stripe.live].entries()) {
+      expect(account.prices.get("example_pro_monthly")).toMatchObject({ amount: 2900 });
+      expect(account.prices.get("example_pro_monthly")!.id).not.toBe(oldIds[at]);
+      expect(account.archivedPrices).toContainEqual(expect.objectContaining({ id: oldIds[at], lookupKey: "example_pro_monthly", amount: 1900 }));
+      expect(account.prices.get("example_team_monthly")?.amount).toBe(4990);
+      expect(account.subscriptions).toEqual([{ id: "sub_1", priceId: oldIds[at], status: "active", renewsAt: 1_900_000_000 }]);
+    }
+    expect(output).toContain("sandbox: replaced example_pro_monthly");
+    expect(output).toContain("live: replaced example_pro_monthly");
+  });
+
+  it("--redo plans adds new plans and archives removed ones in both accounts", async () => {
+    const w = billingWorld();
+    await w.run("billing", "example");
+    w.prompter.script("billing-fixed-name", ["Pro", "Business", ""]);
+    w.prompter.script("billing-fixed-seats", ["3", "20"]);
+    w.prompter.script("billing-fixed-price", ["19", "99"]);
+
+    const { output } = await w.run("billing", "example", "--redo", "plans");
+
+    for (const key of [SANDBOX, LIVE]) {
+      expect((await w.stripe.forKey(key).listPlans("example")).map((plan) => plan.key)).toEqual(["business", "free", "per-seat", "pro"]);
+    }
+    expect(w.stripe.live.prices.has("example_business_monthly")).toBe(true);
+    expect(output).toContain("live: archived the removed plan(s) team");
+    expect(output).toContain("sandbox: created product business");
+  });
+
+  it("without --redo, a rerun archives nothing and replaces nothing", async () => {
+    const w = billingWorld();
+    await w.run("billing", "example");
+    const before = stripeWrites(w);
+
+    await w.run("billing", "example");
+
+    expect(stripeWrites(w)).toBe(before);
+    expect(w.stripe.live.archivedPlans.size).toBe(0);
+    expect(w.stripe.live.archivedPrices).toEqual([]);
+  });
+
+  describe("migrate-prices", () => {
+    async function repriced() {
+      const w = billingWorld();
+      await w.run("billing", "example");
+      const live = w.stripe.live;
+      const oldId = live.prices.get("example_pro_monthly")!.id;
+      live.subscriptions.push(
+        { id: "sub_a", priceId: oldId, status: "active", renewsAt: 1_900_000_000 },
+        { id: "sub_b", priceId: oldId, status: "trialing", renewsAt: 1_900_100_000 },
+        { id: "sub_canceled", priceId: oldId, status: "canceled", renewsAt: 1_900_000_000 },
+      );
+      again(w, ["29", "49.90"]);
+      await w.run("billing", "example", "--redo", "plans");
+      return { w, live, newId: live.prices.get("example_pro_monthly")!.id };
+    }
+
+    it("shows how many Subscriptions will change and, once confirmed, schedules the new price for each one's renewal", async () => {
+      const { w, live, newId } = await repriced();
+      w.prompter.script("billing-migrate-prices", true);
+
+      const { code, output } = await w.run("billing", "example", "migrate-prices");
+
+      expect(code).toBe(0);
+      expect(output).toContain("2 Subscription(s) will move to the new price at their next renewal");
+      expect(output).toContain("example_pro_monthly: 2 from 19.00 USD to 29.00 USD");
+      expect(output).toContain("Scheduled 2 of 2.");
+      expect(live.subscriptions.filter((sub) => sub.scheduledTo === newId).map((sub) => sub.id)).toEqual(["sub_a", "sub_b"]);
+      expect(live.subscriptions.find((sub) => sub.id === "sub_canceled")!.scheduledTo).toBeUndefined();
+      expect(w.stripe.sandbox.subscriptions).toEqual([]);
+    });
+
+    it("changes nothing when the confirmation is refused", async () => {
+      const { w, live } = await repriced();
+      w.prompter.script("billing-migrate-prices", false);
+      const before = live.writes;
+
+      const { code, output } = await w.run("billing", "example", "migrate-prices");
+
+      expect(code).toBe(0);
+      expect(output).toContain("Nothing changed.");
+      expect(live.writes).toBe(before);
+    });
+
+    it("does not ask a second time for Subscriptions already scheduled", async () => {
+      const { w } = await repriced();
+      w.prompter.script("billing-migrate-prices", true);
+      await w.run("billing", "example", "migrate-prices");
+      w.prompter.asked.length = 0;
+
+      const { output } = await w.run("billing", "example", "migrate-prices");
+
+      expect(output).toContain("nothing to migrate");
+      expect(w.prompter.asked).not.toContain("billing-migrate-prices");
+    });
+
+    it("says nothing is to migrate when no price was replaced", async () => {
+      const w = billingWorld();
+      await w.run("billing", "example");
+
+      const { code, output } = await w.run("billing", "example", "migrate-prices");
+
+      expect(code).toBe(0);
+      expect(output).toContain("nothing to migrate");
+    });
+
+    it("asks to redo the webhook first when the endpoint does not send schedule events", async () => {
+      const { w, live } = await repriced();
+      live.webhooks[0]!.events = ["customer.subscription.updated"];
+
+      const { code, output } = await w.run("billing", "example", "migrate-prices");
+
+      expect(code).toBe(1);
+      expect(output).toContain("--redo webhook");
+      expect(w.prompter.asked).not.toContain("billing-migrate-prices");
+    });
+
+    it("needs a terminal", async () => {
+      const { w } = await repriced();
+      w.deps.interactive = false;
+
+      const { code, output } = await w.run("billing", "example", "migrate-prices");
+
+      expect(code).toBe(1);
+      expect(output).toContain("no terminal");
+    });
   });
 
   it("ends with the doctor: everything in place passes", async () => {
