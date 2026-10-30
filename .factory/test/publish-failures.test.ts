@@ -297,6 +297,7 @@ describe("factory publish: Escalation", () => {
     expect(await w.factory("publish", "7", "--repo", repo, "--in", await tempDir("factory-empty-"), "--work-result", "cancelled")).toBe(0);
 
     expect(lastJson(w.logs)).toMatchObject({ outcome: "escalated", reason: "infra" });
+    expect(w.logs.join("\n")).toContain("was cancelled and left no result.json: escalating as infra");
   });
 
   it("escalates with reason infra when result.json does not match the schema, pushing nothing", async () => {
