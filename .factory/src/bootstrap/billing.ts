@@ -11,7 +11,10 @@ import type { ProductIdentity, Step, StepContext } from "./steps.ts";
 /** Where the Worker's billing answers Stripe's events (the Better Auth Stripe plugin's route). */
 export const WEBHOOK_PATH = "/api/auth/stripe/webhook";
 
-const ENV_KEYS = { sandbox: "STRIPE_SANDBOX_KEY", live: "STRIPE_LIVE_KEY" } as const;
+const ENV_KEYS = { sandbox: "STRIPE_SANDBOX_KEY", live: "STRIPE_LIVE_KEY", ci: "STRIPE_CI_KEY" } as const;
+
+/** The repo secret with the key of the CI sandbox: one per repo, because the fake Stripe it checks belongs to the Skeleton. */
+export const CI_KEY_SECRET = "STRIPE_CI_KEY";
 const KEY_TRIES = 3;
 
 /** The secrets and variables billing records for a Product, all with the `<ID>_` prefix. */
@@ -41,7 +44,9 @@ export function billingEnvironment(productId: string): string[] {
     "Read from the environment (each skips its prompt):",
     `  ${ENV_KEYS.sandbox}  restricted key of the Stripe sandbox that Previews use`,
     `  ${ENV_KEYS.live}  restricted key of the real Stripe account`,
+    `  ${ENV_KEYS.ci}  restricted key of a second sandbox, only for the weekly contract test (asked once per repo)`,
     `Secrets recorded (${productionEnvironment(productId)} unless noted):`,
+    `  ${CI_KEY_SECRET}  (repo level; the contract test workflow is the only one that reads it)`,
     `  ${names.liveKey}`,
     `  ${names.webhookSecret}`,
     `  ${names.sandboxKey}  (in the ${productId}-preview environment)`,
@@ -164,40 +169,45 @@ export async function askEntitlements(ctx: StepContext, product: ProductIdentity
   return granted;
 }
 
+type KeySlot = KeyMode | "ci";
+
 /**
  * The key of one account for this run: memory, then the environment, then (with a person to ask) a hidden prompt after the
- * pre-filled creation link. A key of the other account, or one lacking permissions, is named and asked again.
+ * pre-filled creation link. A key of the other account, or one lacking permissions, is named and asked again. The `ci` slot is
+ * a sandbox key too, but of a sandbox of its own, so it may not be the key Previews use.
  */
-export async function stripeKey(ctx: StepContext, product: ProductIdentity, mode: KeyMode): Promise<string> {
-  const kept = ctx.memory.stripeKeys?.[mode];
+export async function stripeKey(ctx: StepContext, product: ProductIdentity, slot: KeySlot): Promise<string> {
+  const kept = ctx.memory.stripeKeys?.[slot];
   if (kept) return kept;
-  const fromEnv = ctx.env[ENV_KEYS[mode]] || undefined;
-  if (!fromEnv && !ctx.interactive) throw new Error(`No Stripe ${mode} key: export ${ENV_KEYS[mode]} or run in a terminal.`);
-  const label = mode === "sandbox" ? "the sandbox that Previews use" : "the real account";
+  const mode: KeyMode = slot === "live" ? "live" : "sandbox";
+  const fromEnv = ctx.env[ENV_KEYS[slot]] || undefined;
+  if (!fromEnv && !ctx.interactive) throw new Error(`No Stripe ${slot} key: export ${ENV_KEYS[slot]} or run in a terminal.`);
+  const label = slot === "sandbox" ? "the sandbox that Previews use" : slot === "ci" ? "the sandbox for CI (a different one from the Previews' sandbox)" : "the real account";
   let announced = false;
   for (let attempt = 1; attempt <= KEY_TRIES; attempt++) {
     let key = attempt === 1 ? fromEnv : undefined;
     if (!key) {
       if (!announced) {
-        ctx.prompter.link(`Create a restricted key in ${label} (name and permissions are filled in; only click Create key, then copy it):`, keyCreationUrl(`${product.id}-billing-${mode === "sandbox" ? "sandbox" : "live"}`, mode));
+        ctx.prompter.link(`Create a restricted key in ${label} (name and permissions are filled in; only click Create key, then copy it):`, keyCreationUrl(`${product.id}-billing-${slot}`, mode));
         announced = true;
       }
-      key = (await ctx.prompter.password({ id: `stripe-${mode}-key`, message: `Paste the ${mode} key (hidden; stored only as a secret)` })).trim();
+      key = (await ctx.prompter.password({ id: `stripe-${slot}-key`, message: `Paste the ${slot} key (hidden; stored only as a secret)` })).trim();
     }
-    const problem = await keyProblem(ctx, key, mode);
+    const problem = await keyProblem(ctx, key, mode, slot);
     if (!problem) {
-      ctx.memory.stripeKeys = { ...ctx.memory.stripeKeys, [mode]: key };
+      ctx.memory.stripeKeys = { ...ctx.memory.stripeKeys, [slot]: key };
       return key;
     }
     ctx.log(`  ${problem}`);
   }
-  throw new Error(`No usable Stripe ${mode} key after ${KEY_TRIES} tries.`);
+  throw new Error(`No usable Stripe ${slot} key after ${KEY_TRIES} tries.`);
 }
 
-async function keyProblem(ctx: StepContext, key: string, mode: KeyMode): Promise<string | undefined> {
+async function keyProblem(ctx: StepContext, key: string, mode: KeyMode, slot: KeySlot): Promise<string | undefined> {
   const found = keyMode(key);
   if (!found) return "That is not a Stripe key (it starts with rk_test_, rk_live_, sk_test_ or sk_live_).";
   if (found !== mode) return `That is a ${found} key; this one must be from ${mode === "sandbox" ? "the sandbox" : "the real account"}.`;
+  if (slot === "ci" && key === ctx.memory.stripeKeys?.sandbox) return "That is the key of the sandbox Previews use; the CI sandbox must be another one.";
   try {
     const missing = await ctx.stripe(key).missingPermissions();
     if (missing.length > 0) return `The key lacks ${missing.join(", ")}: create it again with the link above.`;
@@ -223,6 +233,20 @@ export function keysStep(product: ProductIdentity): Step {
       const liveSet = (await ctx.github.listSecrets(await secretScope(ctx, product.id))).includes(names.liveKey);
       if (redo || !sandboxSet) await ctx.github.setSecret(names.sandboxKey, await stripeKey(ctx, product, "sandbox"), await previewScope(ctx, product.id));
       if (redo || !liveSet) await ctx.github.setSecret(names.liveKey, await stripeKey(ctx, product, "live"), await secretScope(ctx, product.id));
+    },
+  };
+}
+
+/** The key of the CI sandbox, once per repo: it is skipped when the repo secret exists, and never read again. */
+export function ciKeyStep(product: ProductIdentity): Step {
+  return {
+    id: "ci-key",
+    title: `Stripe key of the CI sandbox (${CI_KEY_SECRET}, for the weekly contract test)`,
+    async check(ctx) {
+      return { done: (await ctx.github.listSecrets()).includes(CI_KEY_SECRET) };
+    },
+    async run(ctx) {
+      await ctx.github.setSecret(CI_KEY_SECRET, await stripeKey(ctx, product, "ci"));
     },
   };
 }
@@ -447,7 +471,7 @@ async function trialPlan(ctx: StepContext, product: ProductIdentity, url: string
 }
 
 export function billingSteps(product: ProductIdentity): Step[] {
-  return [keysStep(product), plansStep(product), entitlementsStep(product), webhookStep(product), existingStep(product)];
+  return [keysStep(product), ciKeyStep(product), plansStep(product), entitlementsStep(product), webhookStep(product), existingStep(product)];
 }
 
 export const BILLING_MISSING_FEATURE = (productId: string) =>
