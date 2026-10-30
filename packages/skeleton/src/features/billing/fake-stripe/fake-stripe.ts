@@ -186,7 +186,7 @@ export class FakeStripe {
     for (const item of Object.values<Json>(params.items ?? {})) {
       const price = await this.store.get<Obj>("price", item.price);
       if (!price) return missing("price", item.price);
-      items.push({ id: id("si"), object: "subscription_item", price, quantity: Number(item.quantity ?? 1), current_period_start: now, current_period_end: trialEnd ?? addMonth(now) });
+      items.push({ id: id("si"), object: "subscription_item", price, quantity: Number(item.quantity ?? 1), current_period_start: now, current_period_end: trialEnd ?? addInterval(now, intervalOf(price)) });
     }
     const subscription: Obj = {
       id: id("sub"),
