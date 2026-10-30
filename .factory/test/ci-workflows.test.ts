@@ -302,7 +302,7 @@ describe.each([[WORKFLOWS_DIR]])("PR previews in %s", (dir) => {
     const withSecrets = Object.entries(jobs).filter(([, job]) => /secrets[.[]/.test(textOf(job))).map(([id]) => id);
     expect(withSecrets).toEqual(["deploy"]);
     const text = textOf(jobs.deploy!);
-    expect(text.match(/secrets\[[^\]]*\]|secrets\.\w+/g)?.sort()).toEqual(["secrets.CLOUDFLARE_ACCOUNT_ID", "secrets.CLOUDFLARE_API_TOKEN", "secrets[format('{0}PREVIEW_NEON_API_KEY', matrix.prefix)]", "secrets[format('{0}PREVIEW_ACCOUNT_PASSWORD', matrix.prefix)]"].sort());
+    expect(text.match(/secrets\[[^\]]*\]|secrets\.\w+/g)?.sort()).toEqual(["secrets.CLOUDFLARE_ACCOUNT_ID", "secrets.CLOUDFLARE_API_TOKEN", "secrets[format('{0}PREVIEW_NEON_API_KEY', matrix.prefix)]", "secrets[format('{0}PREVIEW_ACCOUNT_PASSWORD', matrix.prefix)]", "secrets[format('{0}PREVIEW_STRIPE_SECRET_KEY', matrix.prefix)]"].sort());
     // The previews' account password is in the environment of the one step that upserts the account, after the migrations.
     const holders = steps(jobs.deploy!).filter((step) => JSON.stringify(step).includes("PREVIEW_ACCOUNT_PASSWORD"));
     expect(holders.map((step) => step.name)).toEqual(["default account"]);
@@ -310,6 +310,41 @@ describe.each([[WORKFLOWS_DIR]])("PR previews in %s", (dir) => {
     const script = runs(jobs.deploy!).join("\n");
     expect(script.indexOf("deploy.ts migrate")).toBeLessThan(script.indexOf("previews.ts account"));
     expect(Object.entries(jobs).filter(([, job]) => /CLOUDFLARE|NEON_API_KEY|wrangler/.test(textOf(job))).map(([id]) => id)).toEqual(["deploy"]);
+  });
+
+  it("the Stripe sandbox key is in the environment of the one `billing` step, and only the deploy job of the PR workflow has it", () => {
+    const holders = steps(jobs.deploy!).filter((step) => JSON.stringify(step).includes("PREVIEW_STRIPE_SECRET_KEY"));
+    expect(holders.map((step) => step.name)).toEqual(["billing"]);
+    expect(holders[0]!.env).toEqual({ STRIPE_SANDBOX_KEY: "${{ secrets[format('{0}PREVIEW_STRIPE_SECRET_KEY', matrix.prefix)] }}" });
+    expect(Object.entries(jobs).filter(([, job]) => /STRIPE/.test(textOf(job))).map(([id]) => id)).toEqual(["deploy"]);
+    // Neither the key nor the endpoint's secret is a job-wide variable, a step output or an artifact.
+    expect(JSON.stringify(jobs.deploy!.env)).not.toMatch(/STRIPE/);
+    expect(textOf(jobs.smoke!)).not.toMatch(/STRIPE/);
+    const upload = steps(jobs.deploy!).filter((step) => step.uses?.startsWith("actions/upload-artifact@"));
+    expect(upload.map((step) => step.with?.path)).toEqual(["${{ runner.temp }}/result/result.json"]);
+  });
+
+  it("`deploy` registers the PR's endpoint once the URL is known, deploys again with the secrets only when it did, and drops the secrets file at the end", () => {
+    const job = jobs.deploy!;
+    const names = steps(job).map((step) => step.name);
+    expect(names.indexOf("preview URL")).toBeLessThan(names.indexOf("billing"));
+    expect(names.indexOf("billing")).toBeLessThan(names.indexOf("wrangler preview with billing"));
+    expect(names.indexOf("wrangler preview with billing")).toBeLessThan(names.indexOf("remove the Worker's secrets file"));
+    const billing = steps(job).find((step) => step.name === "billing")!;
+    expect(billing.if).toContain("steps.url.outcome == 'success'");
+    expect(billing.run).toContain("previews.ts billing");
+    const second = steps(job).find((step) => step.name === "wrangler preview with billing")!;
+    expect(second.if).toBe("steps.billing.outputs.status == 'on'");
+    expect(second.run).toMatch(/wrangler preview --config "\$WRANGLER_CONFIG" --name "pr-\$PR_NUMBER" --worker-name "\$PRODUCT" --secrets-file/);
+    const drop = steps(job).find((step) => step.name === "remove the Worker's secrets file")!;
+    expect(drop.if).toBe("always()");
+    expect(drop.run).toContain("rm -f");
+    // The first deploy leaves the file for the second.
+    expect(steps(job).find((step) => step.name === "wrangler preview")!.run).not.toContain("rm -f");
+    // What the comment says: the status of the billing step reaches the result file; a failure of the second deploy is a failed preview.
+    const result = steps(job).find((step) => step.name === "result")!;
+    expect(result.env?.BILLING).toBe("${{ steps.billing.outputs.status }}");
+    expect(result.env?.STATUS).toContain("steps.wrangler-billing.outcome != 'failure'");
   });
 
   it("`smoke` has no secret, no environment and a read-only token, and tests the URL it was handed through the environment", () => {
@@ -406,13 +441,22 @@ describe.each([[WORKFLOWS_DIR]])("PR previews in %s", (dir) => {
     expect(Object.entries(cleanup.jobs).filter(([, j]) => /secrets[.[]/.test(textOf(j))).map(([id]) => id)).toEqual(["cleanup"]);
   });
 
+  it("the cleanup deletes the PR's Stripe events endpoint, even when another step failed, with the sandbox key in that step only", () => {
+    const job = cleanup.jobs.cleanup!;
+    const step = steps(job).find((s) => s.name === "delete the Stripe events endpoint")!;
+    expect(step.if).toBe("always()");
+    expect(step.run).toContain('previews.ts cleanup-billing --product "$PRODUCT"');
+    expect(step.env).toEqual({ STRIPE_SANDBOX_KEY: "${{ secrets[format('{0}PREVIEW_STRIPE_SECRET_KEY', matrix.prefix)] }}" });
+    expect(steps(job).filter((s) => JSON.stringify(s).includes("STRIPE")).map((s) => s.name)).toEqual(["delete the Stripe events endpoint"]);
+  });
+
   it("every preview step the YAML calls exists as a subcommand of the previews script", () => {
     const source = readFileSync(join(repo, ".factory/src/ci/previews.ts"), "utf8");
     const called = new Set<string>();
     for (const workflow of [pr, cleanup, checkWorkflows(dir).deploy]) {
       for (const job of Object.values(workflow.jobs)) for (const script of runs(job)) for (const m of script.matchAll(/previews\.ts (\S+)/g)) called.add(m[1]!);
     }
-    expect([...called].sort()).toEqual(["account", "base", "bindings", "cleanup", "cleanup-plan", "comment", "config", "database", "gate", "result", "smoke-result", "status", "url"]);
+    expect([...called].sort()).toEqual(["account", "base", "billing", "bindings", "cleanup", "cleanup-billing", "cleanup-plan", "comment", "config", "database", "gate", "result", "smoke-result", "status", "url"]);
     for (const command of called) expect(source, command).toContain(`command === "${command}"`);
   });
 });

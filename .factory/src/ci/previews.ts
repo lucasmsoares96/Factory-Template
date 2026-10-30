@@ -6,6 +6,7 @@
 //   database  the Neon branch `preview/pr-N` from `base` (or "limit reached") and the Worker's secrets file
 //   config    the Worker config of the preview: the PR's built config plus the `previews` block
 //   url       the preview URL from wrangler's output file
+//   billing   (deploy job, after the first deploy) the PR's events endpoint in the Stripe sandbox, or "full"
 //   result    one JSON file about a Product's preview (`result.json`), for the smoke and the comment
 //   status    (smoke job) reads `result.json`: is there a preview to test, and its URL
 //   smoke-result  the smoke's verdict as `smoke.json`
@@ -14,6 +15,7 @@
 //   account   (deploy job, after the migrations) the Default account in the PR's branch: verified user, hash only
 //   base      (deploy of `main`) `base` exists, recreated when missing, and is migrated with the artifact's migrations
 //   cleanup   (PR closed) the Neon branch of the PR is deleted
+//   cleanup-billing  (PR closed) the PR's events endpoint in the Stripe sandbox is deleted
 import { randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -27,6 +29,7 @@ import { productSecretName } from "../bootstrap/domain.ts";
 import { artifactSkeletonMigrations, builtConfigs, deployConfig, parseList, type DeployEntry } from "./deploy.ts";
 import type { MatrixEntry } from "./matrix.ts";
 import { BASE_BRANCH, NeonApi, previewBranchName, type PreviewBranches } from "./neon-api.ts";
+import { previewEnvironment, previewWebhookUrl, StripePreviewApi, WEBHOOK_LIMIT, type PreviewWebhooks } from "./stripe-api.ts";
 
 const PRODUCT_ID = /^[a-z][a-z0-9-]*$/;
 
@@ -112,7 +115,7 @@ const SUPPORTED = (signature: string) => signature === "kv:OAUTH_KV" || signatur
  * Worker Previews require, since previews inherit nothing: the outbox transport and the preview flag, the preview KV for
  * `OAUTH_KV` and the Durable Object bindings. Only those bindings are supported (the preview has no other resource).
  */
-export function previewConfig(built: Config, input: { id: string; kvId: string }): Config {
+export function previewConfig(built: Config, input: { id: string; kvId: string; pr?: number }): Config {
   const unsupported = bindingSignature(built).filter((s) => !SUPPORTED(s));
   if (unsupported.length > 0) throw new Error(`The preview supports OAUTH_KV and Durable Object bindings only; found: ${unsupported.join(", ")}`);
   const kv = [{ binding: "OAUTH_KV", id: input.kvId }];
@@ -121,7 +124,8 @@ export function previewConfig(built: Config, input: { id: string; kvId: string }
     ...deployConfig(built, input.id),
     // The top level mirrors the preview resource, so nothing is provisioned in the account for a preview.
     kv_namespaces: kv,
-    previews: { vars: { ...object(built.vars), EMAIL_TRANSPORT: "outbox", PREVIEW_OUTBOX: "true" }, kv_namespaces: kv, ...durable },
+    // BILLING_ENVIRONMENT tags what billing creates in the shared sandbox (`pr-N`); billing itself needs the sandbox key, a secret.
+    previews: { vars: { ...object(built.vars), EMAIL_TRANSPORT: "outbox", PREVIEW_OUTBOX: "true", ...(input.pr === undefined ? {} : { BILLING_ENVIRONMENT: previewEnvironment(input.pr) }) }, kv_namespaces: kv, ...durable },
   };
 }
 
@@ -163,11 +167,37 @@ export async function removeDatabase(input: { db: PreviewBranches; pr: number })
   return true;
 }
 
+export type BillingResult = { status: "on"; secret: string } | { status: "full" };
+
+/**
+ * The PR's events endpoint in the Stripe sandbox that every Preview of the Product shares. Stripe shows the signing secret
+ * once, so a push replaces the PR's endpoint (its old one goes first, which also frees its place). The sandbox takes
+ * `WEBHOOK_LIMIT` endpoints: with no place left nothing is made and the Preview runs without billing. Only the
+ * endpoints this PR's Preview made are ever deleted.
+ */
+export async function registerBilling(input: { webhooks: PreviewWebhooks; productId: string; pr: number; previewUrl: string }): Promise<BillingResult> {
+  const { webhooks, productId, pr } = input;
+  await removeBilling({ webhooks, productId, pr });
+  if ((await webhooks.list()).length >= WEBHOOK_LIMIT) return { status: "full" };
+  const made = await webhooks.create({ url: previewWebhookUrl(input.previewUrl), productId, environment: previewEnvironment(pr) });
+  return { status: "on", secret: made.secret };
+}
+
+/** Deletes the endpoints this PR's Preview made for the Product. Returns how many there were. */
+export async function removeBilling(input: { webhooks: PreviewWebhooks; productId: string; pr: number }): Promise<number> {
+  const own = (await input.webhooks.list()).filter((w) => w.productId === input.productId && w.environment === previewEnvironment(input.pr));
+  for (const endpoint of own) await input.webhooks.delete(endpoint.id);
+  return own.length;
+}
+
+export type PreviewBilling = "on" | "full" | "unavailable";
 export type PreviewStatus = "deployed" | "bindings-changed" | "limit-reached" | "failed";
 export interface PreviewResult {
   id: string;
   status: PreviewStatus;
   url?: string;
+  /** Billing of the preview; absent when the Product has no sandbox key (no billing to run). */
+  billing?: PreviewBilling;
   /** The smoke of the deployed preview; absent when it was not run. */
   smoke?: "passed" | "failed";
 }
@@ -176,6 +206,7 @@ const resultSchema = z.object({
   id: z.string().regex(PRODUCT_ID),
   status: z.enum(["deployed", "bindings-changed", "limit-reached", "failed"]),
   url: z.string().optional(),
+  billing: z.enum(["on", "full", "unavailable"]).optional(),
 });
 const smokeSchema = z.object({ id: z.string().regex(PRODUCT_ID), smoke: z.enum(["passed", "failed"]) });
 
@@ -232,7 +263,11 @@ export function renderComment(input: { language: Language; trusted: boolean; pre
       else if (result.status === "bindings-changed") cell = m.previewBindingsChanged();
       else if (result.status === "failed") cell = m.previewFailed();
       else if (!result.url || !PREVIEW_HOST.test(result.url)) cell = m.previewBadUrl();
-      else cell = m.previewReady(result.url, result.smoke);
+      else {
+        cell = m.previewReady(result.url, result.smoke);
+        if (result.billing === "full") cell += `<br>${m.previewBillingFull(WEBHOOK_LIMIT)}`;
+        else if (result.billing === "unavailable") cell += `<br>${m.previewBillingUnavailable()}`;
+      }
       lines.push(`| \`${id}\` | ${cell} |`);
     }
   }
@@ -323,6 +358,11 @@ if (import.meta.main) {
     if (!apiKey || !projectId) throw new Error("The preview has no Neon key or project: run `pnpm bootstrap previews <id>`.");
     return new NeonApi({ apiKey, projectId });
   };
+  const stripe = () => {
+    const key = process.env.STRIPE_SANDBOX_KEY;
+    if (!key) throw new Error("The preview has no Stripe sandbox key.");
+    return new StripePreviewApi(key);
+  };
   const config = loadConfig(process.env);
 
   if (command === "gate") {
@@ -377,9 +417,32 @@ if (import.meta.main) {
     if (!configFile) throw new Error("No worker/<name>/wrangler.json in the artifact.");
     const built = JSON.parse(readFileSync(configFile, "utf8")) as Config;
     const path = join(resolve(configFile, ".."), "wrangler.preview.json");
-    writeFileSync(path, JSON.stringify(previewConfig(built, { id: productId(), kvId: need(values["kv-id"], "kv-id") }), null, 2));
+    writeFileSync(path, JSON.stringify(previewConfig(built, { id: productId(), kvId: need(values["kv-id"], "kv-id"), pr: prNumber() }), null, 2));
     output("path", path);
     console.log(path);
+  } else if (command === "billing") {
+    // No sandbox key: the Product has no billing here, and nothing is said. Any failure leaves the preview as it is (no billing).
+    if (!process.env.STRIPE_SANDBOX_KEY) console.log("no Stripe sandbox key: billing is not set up for the previews");
+    else {
+      try {
+        const previewUrl = readFileSync(resolve(need(values["url-file"], "url-file")), "utf8").trim();
+        if (!PREVIEW_HOST.test(previewUrl)) throw new Error("the preview URL is not a workers.dev address");
+        const result = await registerBilling({ webhooks: stripe(), productId: productId(), pr: prNumber(), previewUrl });
+        output("status", result.status);
+        if (result.status === "full") console.log(`the Stripe sandbox has ${WEBHOOK_LIMIT} events endpoints: the preview runs without billing`);
+        else {
+          // The Worker's secrets go to the same file `wrangler preview` reads; nothing secret reaches the log or an output.
+          const file = resolve(need(values.file, "file"));
+          const env = JSON.parse(readFileSync(file, "utf8")) as Record<string, string>;
+          writeFileSync(file, JSON.stringify({ ...env, STRIPE_SECRET_KEY: process.env.STRIPE_SANDBOX_KEY, STRIPE_WEBHOOK_SECRET: result.secret }), { mode: 0o600 });
+          console.log(`events endpoint of ${previewEnvironment(prNumber())} registered`);
+        }
+      } catch (error) {
+        // Stripe's own message only (the SDK never puts the key in it).
+        output("status", "unavailable");
+        console.log(`billing is off in this preview: ${(error as Error).message}`);
+      }
+    }
   } else if (command === "url") {
     const url = previewUrl(readFileSync(resolve(need(values.file, "file")), "utf8"));
     if (!url) throw new Error("wrangler reported no preview URL.");
@@ -389,7 +452,9 @@ if (import.meta.main) {
     const status = need(values.status, "status") as PreviewStatus;
     if (!["deployed", "bindings-changed", "limit-reached", "failed"].includes(status)) throw new Error(`Unknown status ${status}`);
     const url = status === "deployed" && values.file && existsSync(values.file) ? readFileSync(values.file, "utf8").trim() : undefined;
-    const result: PreviewResult = { id, status, ...(url ? { url } : {}) };
+    const billing = process.env.BILLING;
+    if (billing && !["on", "full", "unavailable"].includes(billing)) throw new Error(`Unknown billing ${billing}`);
+    const result: PreviewResult = { id, status, ...(url ? { url } : {}), ...(url && billing ? { billing: billing as PreviewBilling } : {}) };
     writeFileSync(resolve(need(values.out, "out")), JSON.stringify(result));
   } else if (command === "status") {
     const url = deployedPreview(readFileSync(resolve(need(values.file, "file")), "utf8"));
@@ -430,7 +495,10 @@ if (import.meta.main) {
     console.log(`${BASE_BRANCH} ${recreated ? "recreated and " : ""}migrated`);
   } else if (command === "cleanup") {
     console.log((await removeDatabase({ db: neon(), pr: prNumber() })) ? `deleted ${previewBranchName(prNumber())}` : `no Neon branch for pr-${prNumber()}`);
+  } else if (command === "cleanup-billing") {
+    if (!process.env.STRIPE_SANDBOX_KEY) console.log("no Stripe sandbox key: no billing endpoint to delete");
+    else console.log(`${await removeBilling({ webhooks: stripe(), productId: productId(), pr: prNumber() })} events endpoint(s) of ${previewEnvironment(prNumber())} deleted`);
   } else {
-    throw new Error("Usage: previews.ts <gate|bindings|database|account|config|url|result|status|smoke-result|comment|base|cleanup|cleanup-plan>");
+    throw new Error("Usage: previews.ts <gate|bindings|database|account|config|billing|url|result|status|smoke-result|comment|base|cleanup|cleanup-billing|cleanup-plan>");
   }
 }
