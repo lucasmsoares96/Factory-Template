@@ -372,6 +372,150 @@ describe("pnpm bootstrap billing", () => {
   });
 });
 
+describe("pnpm bootstrap billing: the accounts that already exist", () => {
+  const DATABASE = "postgresql://neondb_owner:pw-1@ep-proj-1.eu-central-1.aws.neon.tech/neondb?sslmode=require";
+
+  /** A Product with its production database already holding `accounts`; the plans are Pro (3 Seats), Team (10) and per Seat (from 11). */
+  function worldWithAccounts(accounts: Parameters<ReturnType<typeof billingWorld>["accounts"]["seedAccounts"]>[1], extra: Record<string, string | boolean | string[]> = {}) {
+    const w = billingWorld({ "billing-existing-trial": true, "billing-existing-suspend": true, ...extra });
+    w.neon.projects.push({ id: "proj-1", name: "example", orgId: "org-1", password: "pw-1" });
+    w.github.variables.set("EXAMPLE_ACCOUNT_EMAIL", "admin@example.com");
+    w.accounts.seedAccounts(DATABASE, accounts);
+    return w;
+  }
+  const trials = (w: ReturnType<typeof billingWorld>) => w.stripe.live.trials.map((sub) => [sub.userId, sub.lookupKey, sub.seats, sub.days]);
+  const people = [
+    { email: "one@example.com", seats: 1 },
+    { email: "three@example.com", seats: 3 },
+    { email: "four@example.com", seats: 4 },
+    { email: "ten@example.com", seats: 10 },
+    { email: "fifteen@example.com", seats: 15 },
+    { email: "admin@example.com", seats: 5 },
+    { email: "paid@example.com", seats: 2, subscribed: true },
+  ];
+
+  it("puts each account in a trial on the smallest fixed Plan that holds its people, or on the per-Seat Plan", async () => {
+    const w = worldWithAccounts(people);
+
+    const { code } = await w.run("billing", "example");
+
+    expect(code).toBe(0);
+    expect(trials(w)).toEqual([
+      ["user-one@example.com", "example_pro_monthly", 1, 14],
+      ["user-three@example.com", "example_pro_monthly", 1, 14],
+      ["user-four@example.com", "example_team_monthly", 1, 14],
+      ["user-ten@example.com", "example_team_monthly", 1, 14],
+      ["user-fifteen@example.com", "example_per-seat_monthly", 15, 14],
+    ]);
+    expect(w.stripe.sandbox.trials).toEqual([]);
+  });
+
+  it("links each Stripe customer to its user before the Subscription is made, and leaves the Default account and the subscribed alone", async () => {
+    const w = worldWithAccounts(people);
+
+    await w.run("billing", "example");
+
+    const linked = w.accounts.linkedCustomers(DATABASE);
+    expect(Object.keys(linked).filter((email) => linked[email])).toEqual(["one@example.com", "three@example.com", "four@example.com", "ten@example.com", "fifteen@example.com"]);
+    expect(w.stripe.live.customers.map((customer) => customer.email)).not.toContain("admin@example.com");
+    expect(w.stripe.live.customers.map((customer) => customer.email)).not.toContain("paid@example.com");
+    expect(w.stripe.live.customers.every((customer) => customer.productId === "example")).toBe(true);
+  });
+
+  it("shows how many accounts start a trial and on which Plan, and asks before it does anything", async () => {
+    const w = worldWithAccounts(people, { "billing-existing-trial": false });
+
+    const { output } = await w.run("billing", "example");
+
+    expect(output).toContain("5 accounts will start a 14-day trial with no card");
+    expect(output).toContain("Pro: 2 accounts");
+    expect(output).toContain("Team: 2 accounts");
+    expect(output).toContain("Per Seat (15 Seats): 1 account");
+    expect(output).toContain("The Default account (admin@example.com) stays on Free");
+    expect(w.prompter.asked).toContain("billing-existing-trial");
+    expect(w.stripe.live.trials).toEqual([]);
+    expect(w.stripe.live.customers).toEqual([]);
+    expect(w.github.variables.get("EXAMPLE_BILLING_EXISTING")).toBeUndefined();
+  });
+
+  it("with 0 days nobody starts a trial, and it says how many people will be suspended and asks", async () => {
+    const w = worldWithAccounts(people, { "billing-trial-days": "0" });
+
+    const { code, output } = await w.run("billing", "example");
+
+    expect(code).toBe(0);
+    // Free has one Seat: 2 + 3 + 9 + 14 + 4 people beyond the first (the Default account's too), the subscribed account aside.
+    expect(output).toContain("The trial is 0 days, so nobody starts one. 32 people in 5 accounts will be suspended");
+    expect(w.prompter.asked).toContain("billing-existing-suspend");
+    expect(w.prompter.asked).not.toContain("billing-existing-trial");
+    expect(w.stripe.live.trials).toEqual([]);
+    expect(w.github.variables.get("EXAMPLE_BILLING_EXISTING")).toBe("true");
+  });
+
+  it("with 0 days and a no, it changes nothing and does not mark the step done", async () => {
+    const w = worldWithAccounts(people, { "billing-trial-days": "0", "billing-existing-suspend": false });
+
+    const { output } = await w.run("billing", "example");
+
+    expect(output).toContain("Not confirmed");
+    expect(w.github.variables.get("EXAMPLE_BILLING_EXISTING")).toBeUndefined();
+  });
+
+  it("asks nothing and starts nothing on a rerun", async () => {
+    const w = worldWithAccounts(people);
+    await w.run("billing", "example");
+    const before = { stripe: stripeWrites(w), accounts: w.accounts.writes };
+    w.prompter.asked.length = 0;
+
+    const { output } = await w.run("billing", "example");
+
+    expect(output).toContain("Accounts that already exist (trial, or who is suspended): already done");
+    expect(w.prompter.asked).toEqual([]);
+    expect({ stripe: stripeWrites(w), accounts: w.accounts.writes }).toEqual(before);
+  });
+
+  it("a rerun after a failed run reuses the customer it made and starts no second trial", async () => {
+    const w = worldWithAccounts([{ email: "one@example.com", seats: 1, stripeCustomerId: "cus_made" }]);
+    await w.stripe.forKey(LIVE).startTrial("example", { customerId: "cus_made", userId: "user-one@example.com", lookupKey: "example_pro_monthly", seats: 1, days: 14 });
+
+    await w.run("billing", "example");
+
+    expect(w.stripe.live.customers).toEqual([]);
+    expect(w.stripe.live.trials).toHaveLength(1);
+  });
+
+  it("without a person to ask it starts nothing and says so", async () => {
+    const w = worldWithAccounts(people);
+    w.deps.interactive = false;
+
+    const { output } = await w.run("billing", "example");
+
+    expect(output).toContain("Accounts that already exist");
+    expect(w.stripe.live.trials).toEqual([]);
+    expect(w.github.variables.get("EXAMPLE_BILLING_EXISTING")).toBeUndefined();
+  });
+
+  it("--redo existing shows and asks again", async () => {
+    const w = worldWithAccounts([{ email: "one@example.com", seats: 1 }]);
+    await w.run("billing", "example");
+    w.prompter.asked.length = 0;
+
+    const { output } = await w.run("billing", "example", "--redo", "existing");
+
+    expect(output).toContain("Accounts that already exist (trial, or who is suspended): redoing");
+    expect(w.prompter.asked).toContain("billing-existing-trial");
+  });
+
+  it("says so when the Product has no database yet", async () => {
+    const w = billingWorld();
+
+    const { code, output } = await w.run("billing", "example");
+
+    expect(code).toBe(0);
+    expect(output).toContain("No production database found for example");
+  });
+});
+
 describe("pnpm bootstrap billing: Entitlements", () => {
   it("asks each plan about each declared Entitlement and writes the answers to both accounts", async () => {
     const w = billingWorld(entitlementAnswers("off", "off", "on", "10", "on", "off", "on", "3"));
@@ -599,7 +743,7 @@ describe("pnpm bootstrap env and all", () => {
     const { code, output } = await w.run("env", "example");
 
     expect(code).toBe(0);
-    for (const name of ["STRIPE_SANDBOX_KEY", "STRIPE_LIVE_KEY", "STRIPE_CI_KEY", "EXAMPLE_STRIPE_SECRET_KEY", "EXAMPLE_STRIPE_WEBHOOK_SECRET", "EXAMPLE_PREVIEW_STRIPE_SECRET_KEY", "EXAMPLE_BILLING_PLANS", "EXAMPLE_BILLING_SYNCED"]) {
+    for (const name of ["STRIPE_SANDBOX_KEY", "STRIPE_LIVE_KEY", "STRIPE_CI_KEY", "EXAMPLE_STRIPE_SECRET_KEY", "EXAMPLE_STRIPE_WEBHOOK_SECRET", "EXAMPLE_PREVIEW_STRIPE_SECRET_KEY", "EXAMPLE_BILLING_PLANS", "EXAMPLE_BILLING_SYNCED", "EXAMPLE_BILLING_EXISTING"]) {
       expect(output).toContain(name);
     }
   });
