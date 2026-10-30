@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -14,6 +14,7 @@ import {
   bindingsChanged,
   COMMENT_MARKER,
   parseJsonc,
+  artifactMigrationNames,
   planPreviews,
   prepareDatabase,
   previewConfig,
@@ -384,6 +385,57 @@ describe("the Neon branch of a PR", () => {
 
     expect(again).toMatchObject({ status: "ready", created: false });
     expect(names(project)).toEqual(["base", "preview/pr-7"]);
+  });
+
+  describe("when the PR's migrations changed after the branch applied them", () => {
+    const applied = (names: string[]) => async () => names;
+
+    it("is reused when the PR only added a migration", async () => {
+      const { project, db } = world();
+      await prepareDatabase({ db, pr: 7, limit: 9 });
+      const id = project.branches.find((b) => b.name === "preview/pr-7")!.id;
+
+      const again = await prepareDatabase({ db, pr: 7, limit: 9, migrations: ["a", "b", "new"], appliedMigrations: applied(["a", "b"]) });
+
+      expect(again).toMatchObject({ status: "ready", created: false });
+      expect(again).not.toHaveProperty("recreated");
+      expect(project.branches.find((b) => b.name === "preview/pr-7")!.id).toBe(id);
+    });
+
+    it("is recreated from base when an applied migration was renamed or removed", async () => {
+      const { project, db } = world();
+      await prepareDatabase({ db, pr: 7, limit: 9 });
+      const id = project.branches.find((b) => b.name === "preview/pr-7")!.id;
+
+      const again = await prepareDatabase({ db, pr: 7, limit: 9, migrations: ["a", "renamed"], appliedMigrations: applied(["a", "old"]) });
+
+      expect(again).toMatchObject({ status: "ready", created: true, recreated: { missing: ["old"] } });
+      expect(names(project)).toEqual(["base", "preview/pr-7"]);
+      const branch = project.branches.find((b) => b.name === "preview/pr-7")!;
+      expect(branch.id).not.toBe(id);
+      expect(branch.parent).toBe("br-default");
+    });
+
+    it("does not count as one more Preview when the limit is reached", async () => {
+      const { project, db } = world();
+      for (let pr = 1; pr <= 9; pr++) await prepareDatabase({ db, pr, limit: 9 });
+
+      const again = await prepareDatabase({ db, pr: 3, limit: 9, migrations: ["b"], appliedMigrations: applied(["a"]) });
+
+      expect(again).toMatchObject({ status: "ready", recreated: { missing: ["a"] } });
+      expect(project.branches).toHaveLength(10);
+    });
+
+    it("reads the folder names of the artifact's migration sets", () => {
+      const dir = mkdtempSync(join(tmpdir(), "artifact-"));
+      try {
+        for (const folder of ["skeleton/20260101_a", "product/20260102_b"]) mkdirSync(join(dir, "migrations", folder), { recursive: true });
+        writeFileSync(join(dir, "migrations/product/.gitkeep"), "");
+        expect(artifactMigrationNames(dir).sort()).toEqual(["20260101_a", "20260102_b"]);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
   });
 
   it("is skipped with `limit-reached` when the Product already has 9 previews open", async () => {
