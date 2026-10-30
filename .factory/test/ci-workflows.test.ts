@@ -1080,10 +1080,10 @@ describe("Factory update branches workflow", () => {
     expect(runs(publish).join("\n")).toMatch(/pnpm factory publish \$\{ISSUE:\+"\$ISSUE"\} --flow update-branch /);
   });
 
-  it.each(["factory-issue.yml", "factory-pr-feedback.yml", "factory-update-branches.yml"])("%s: a cancelled `work` (or `image`, `claim`) publishes nothing, by the job results and not by `cancelled()`", (file) => {
+  it.each(["factory-issue.yml", "factory-pr-feedback.yml", "factory-update-branches.yml"])("%s: a cancelled `image` or `claim` publishes nothing (a cancelled `work` too, except in the issue flow, which escalates), by the job results and not by `cancelled()`", (file) => {
     const publish = checkWorkflows(WORKFLOWS_DIR).workflows[file]!.jobs.publish!;
     expect(publish.needs).toEqual(["claim", "image", "work"]);
-    const skipCancelled = "${{ always() && !contains(needs.*.result, 'cancelled') }}";
+    const skipCancelled = file === "factory-issue.yml" ? "${{ always() && needs.claim.result != 'cancelled' && needs.image.result != 'cancelled' }}" : "${{ always() && !contains(needs.*.result, 'cancelled') }}";
     const step = steps(publish).find((s) => s.run?.includes("pnpm factory publish"))!;
     expect(step.if).toBe(skipCancelled);
     expect(step.if).not.toContain("cancelled()");
