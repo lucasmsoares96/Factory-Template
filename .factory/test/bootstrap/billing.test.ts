@@ -36,6 +36,14 @@ function billingWorld(extra: Record<string, string | boolean | string[]> = {}, e
   return w;
 }
 
+/** The example Product declares these in `billing({ entitlements })`. */
+function declaring(w: ReturnType<typeof billingWorld>, entitlements: string[]) {
+  w.products.set("example", { ...w.products.get("example")!, entitlements });
+}
+
+/** Plan order of `answers()`: free, pro, team, per-seat. */
+const entitlementAnswers = (...values: string[]) => ({ "billing-entitlement": values });
+
 const production = (w: ReturnType<typeof billingWorld>) => w.github.environmentSecrets.get("example-production")!;
 const everythingShown = (w: ReturnType<typeof billingWorld>) => JSON.stringify([w.lines, w.prompter.notes, w.prompter.printed]);
 const stripeWrites = (w: ReturnType<typeof billingWorld>) => w.stripe.sandbox.writes + w.stripe.live.writes;
@@ -220,7 +228,117 @@ describe("pnpm bootstrap billing", () => {
   });
 });
 
+describe("pnpm bootstrap billing: Entitlements", () => {
+  it("asks each plan about each declared Entitlement and writes the answers to both accounts", async () => {
+    const w = billingWorld(entitlementAnswers("off", "off", "on", "10", "on", "off", "on", "3"));
+    declaring(w, ["reports", "projects"]);
+
+    const { code } = await w.run("billing", "example");
+
+    expect(code).toBe(0);
+    const expected = {
+      free: { reports: "false", projects: "false" },
+      pro: { reports: "true", projects: "10" },
+      team: { reports: "true", projects: "false" },
+      "per-seat": { reports: "true", projects: "3" },
+    };
+    for (const account of [w.stripe.sandbox, w.stripe.live]) {
+      expect(Object.fromEntries([...account.entitlements].map(([id, values]) => [id.replace("example/", ""), values]))).toEqual(expected);
+    }
+    expect(JSON.parse(w.github.variables.get("EXAMPLE_BILLING_PLANS")!).entitlements.pro).toEqual({ reports: true, projects: 10 });
+  });
+
+  it("asks nothing about Entitlements when the code declares none", async () => {
+    const w = billingWorld();
+
+    await w.run("billing", "example");
+
+    expect(w.prompter.asked).not.toContain("billing-entitlement");
+    expect(w.stripe.live.entitlements.size).toBe(0);
+  });
+
+  it("asks again for an answer that is not on, off or a number", async () => {
+    const w = billingWorld(entitlementAnswers("maybe", "on", "on", "on", "on"));
+    declaring(w, ["reports"]);
+
+    const { code, output } = await w.run("billing", "example");
+
+    expect(code).toBe(0);
+    expect(output).toContain("An Entitlement must be a whole number of at least 0");
+    expect(w.stripe.live.entitlements.get("example/free")).toEqual({ reports: "true" });
+  });
+
+  it("--redo entitlements asks only about the Entitlements that are in no plan", async () => {
+    const w = billingWorld(entitlementAnswers("on", "on", "on", "on"));
+    declaring(w, ["reports"]);
+    await w.run("billing", "example");
+    declaring(w, ["reports", "relatorios"]);
+    w.prompter.asked.length = 0;
+    w.prompter.messages.length = 0;
+    w.prompter.script("billing-entitlement", ["off", "on", "off", "5"]);
+    const { code, output } = await w.run("billing", "example", "--redo", "entitlements");
+
+    expect(code).toBe(0);
+    expect(output).toContain("Entitlements of each plan (sandbox and real account): redoing");
+    expect(w.prompter.asked.filter((id) => id === "billing-entitlement")).toHaveLength(4);
+    expect(w.prompter.messages.filter((message) => message.includes("Entitlement \"")).every((message) => message.includes('"relatorios"'))).toBe(true);
+    for (const account of [w.stripe.sandbox, w.stripe.live]) {
+      expect(account.entitlements.get("example/free")).toEqual({ reports: "true", relatorios: "false" });
+      expect(account.entitlements.get("example/pro")).toEqual({ reports: "true", relatorios: "true" });
+    }
+  });
+
+  it("a plain rerun asks about a newly declared Entitlement too, and about nothing else", async () => {
+    const w = billingWorld(entitlementAnswers("on", "on", "on", "on"));
+    declaring(w, ["reports"]);
+    await w.run("billing", "example");
+    declaring(w, ["reports", "projects"]);
+    w.prompter.script("billing-entitlement", ["1", "2", "3", "4"]);
+    w.prompter.asked.length = 0;
+
+    await w.run("billing", "example");
+
+    expect(w.prompter.asked.filter((id) => id.startsWith("billing-"))).toEqual(Array(4).fill("billing-entitlement"));
+    expect(w.stripe.live.entitlements.get("example/per-seat")).toEqual({ reports: "true", projects: "4" });
+  });
+
+  it("--redo entitlements with every Entitlement in a plan asks and writes nothing", async () => {
+    const w = billingWorld(entitlementAnswers("on", "on", "on", "on"));
+    declaring(w, ["reports"]);
+    await w.run("billing", "example");
+    const before = stripeWrites(w);
+    w.prompter.asked.length = 0;
+
+    const { code, output } = await w.run("billing", "example", "--redo", "entitlements");
+
+    expect(code).toBe(0);
+    expect(output).toContain("already in a plan");
+    expect(w.prompter.asked).toEqual([]);
+    expect(stripeWrites(w)).toBe(before);
+  });
+});
+
 describe("pnpm bootstrap doctor: billing", () => {
+  it("lists the declared Entitlements that are in no plan of the real account", async () => {
+    const w = billingWorld(entitlementAnswers("on", "on", "on", "on"));
+    declaring(w, ["reports"]);
+    await w.run("billing", "example");
+    declaring(w, ["reports", "relatorios", "export"]);
+
+    const { output } = await w.run("doctor", "example");
+
+    expect(output).toMatch(/warn\s+Entitlements\s+in no plan of the real account: relatorios, export: run `pnpm bootstrap billing example` --redo entitlements/);
+  });
+
+  it("passes when every declared Entitlement is in a plan", async () => {
+    const w = billingWorld(entitlementAnswers("on", "on", "on", "on"));
+    declaring(w, ["reports"]);
+
+    const { output } = await w.run("billing", "example");
+
+    expect(output).toMatch(/ok\s+Entitlements\s+1 declared, each in a plan/);
+  });
+
   it("shows no Billing section for a Product with no trace of billing", async () => {
     const w = billingWorld();
 
@@ -365,6 +483,10 @@ describe("pnpm bootstrap env and all", () => {
 });
 
 describe("loadProduct", () => {
+  it("reads the Entitlements the Product declares", async () => {
+    expect((await loadProduct("example")).entitlements).toEqual(["reports", "projects"]);
+  });
+
   it("reads whether the Product lists the billing Feature", async () => {
     expect((await loadProduct("example")).billing).toBe(true);
   });

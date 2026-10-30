@@ -1,6 +1,7 @@
 import { billingNames, CI_KEY_SECRET, webhookUrl } from "./billing.ts";
 import { keyMode, type KeyMode } from "./billing-permissions.ts";
 import type { StripeClient, StripePlanState } from "./clients.ts";
+import { missingEntitlements } from "./entitlements.ts";
 import { secretScope } from "./domain.ts";
 import { previewScope } from "./previews.ts";
 import type { CheckStatus } from "./doctor.ts";
@@ -108,4 +109,16 @@ export async function billingChecks(
       add("warn", "Events endpoint", (error as Error).message);
     }
   } else add("skip", "Events endpoint", "needs the real account's key");
+
+  const declared = product.entitlements ?? [];
+  if (declared.length === 0) add("ok", "Entitlements", "the code declares none");
+  else if (clients.live) {
+    try {
+      const unplaced = missingEntitlements(declared, await clients.live.listPlans(id));
+      if (unplaced.length > 0) add("warn", "Entitlements", `in no plan of the real account: ${unplaced.join(", ")}: ${redo} --redo entitlements`);
+      else add("ok", "Entitlements", `${declared.length} declared, each in a plan`);
+    } catch (error) {
+      add("warn", "Entitlements", (error as Error).message);
+    }
+  } else add("skip", "Entitlements", "needs the real account's key");
 }
