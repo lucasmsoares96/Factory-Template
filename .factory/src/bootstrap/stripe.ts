@@ -1,9 +1,12 @@
 import Stripe from "stripe";
 import type { StripeClient, StripePlanSpec, StripePlanState, StripePriceMigration, StripeWebhook } from "./clients.ts";
+import { entitlementMetadata } from "./entitlements.ts";
 import { BILLING_PERMISSIONS, PORTAL_WRITE_FALLBACK } from "./billing-permissions.ts";
 
 /** The events the Better Auth Stripe plugin handles at `/api/auth/stripe/webhook`. */
 export const WEBHOOK_EVENTS = ["checkout.session.completed", "customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted", "subscription_schedule.updated"];
+
+const ENTITLEMENT_PREFIX = "entitlement_";
 
 /** One read per permission in the key link: a key that lacks it is refused with a 403. */
 const PROBES: Record<(typeof BILLING_PERMISSIONS)[number], (stripe: Stripe) => Promise<unknown>> = {
@@ -70,6 +73,7 @@ export class StripeApi implements StripeClient {
         name: product.name,
         kind: product.metadata.kind ?? "",
         seats: seats !== null && Number.isFinite(seats) ? seats : null,
+        entitlements: Object.fromEntries(Object.entries(product.metadata).filter(([name]) => name.startsWith(ENTITLEMENT_PREFIX)).map(([name, value]) => [name.slice(ENTITLEMENT_PREFIX.length), value])),
         prices: prices
           .filter((price) => (typeof price.product === "string" ? price.product : price.product.id) === product.id && price.unit_amount !== null)
           .map((price) => ({ lookupKey: price.lookup_key ?? "", amount: price.unit_amount!, currency: price.currency, interval: price.recurring?.interval ?? "" }))
@@ -183,6 +187,18 @@ export class StripeApi implements StripeClient {
         { items: items.map((item) => (item.price === migration.fromPriceId ? { ...item, price: migration.toPriceId } : item)), proration_behavior: "none" },
       ],
     });
+  }
+
+  async ensureEntitlements(productId: string, planKey: string, values: Record<string, boolean | number>): Promise<string[]> {
+    for await (const product of this.stripe.products.list({ active: true, limit: 100 })) {
+      if (product.metadata.productId !== productId || product.metadata.plan !== planKey) continue;
+      const added = Object.keys(values).filter((name) => !(`${ENTITLEMENT_PREFIX}${name}` in product.metadata));
+      if (added.length > 0) {
+        await this.stripe.products.update(product.id, { metadata: Object.fromEntries(added.map((name) => [`${ENTITLEMENT_PREFIX}${name}`, entitlementMetadata(values[name]!)])) });
+      }
+      return added;
+    }
+    throw new Error(`Stripe has no product for the plan ${planKey}.`);
   }
 
   async ensurePaymentMethods(): Promise<"updated" | "unchanged"> {
