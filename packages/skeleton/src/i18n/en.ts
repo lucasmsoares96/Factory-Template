@@ -367,6 +367,16 @@ export const en = {
       fallback: "If the button does not work, open this link:",
       ignore: "If you want to keep {planName}, you do not need to do anything.",
     },
+    priceChange: {
+      subject: "The price of {planName} is changing on {startsOn}",
+      preview: "The price of {planName} on {appName} changes from {oldPrice} to {newPrice}.",
+      heading: "Your plan's price is changing",
+      greeting: "Hi {name},",
+      body: "The price of {planName} on {appName} changes from {oldPrice} to {newPrice}. The new price starts at your next renewal, on {startsOn}. Until then nothing changes. If you do not want to continue, you can cancel on the plan page before that date.",
+      button: "Manage your plan",
+      fallback: "If the button does not work, open this link:",
+      ignore: "If you are happy with the new price, you do not need to do anything.",
+    },
     paymentFailed: {
       subject: "Your {appName} payment failed",
       preview: "Update your card by {deadline} to keep {planName}.",

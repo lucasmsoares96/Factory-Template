@@ -1,6 +1,6 @@
 import Stripe from "stripe";
 import { describe, expect, it } from "vitest";
-import { StripeApi } from "../../src/bootstrap/stripe.ts";
+import { StripeApi, WEBHOOK_EVENTS } from "../../src/bootstrap/stripe.ts";
 
 type Obj = Record<string, any>;
 
@@ -25,6 +25,8 @@ class FakeStripeApi {
   readonly customers: Obj[] = [];
   readonly subscriptions: Obj[] = [];
   readonly keys: string[] = [];
+  readonly schedules: Obj[] = [];
+  readonly scheduleUpdates: Obj[] = [];
   readonly methods: Obj[] = [{ id: "pmc_1", is_default: true, card: { display_preference: { preference: "on" } }, apple_pay: { display_preference: { preference: "off" } }, google_pay: { display_preference: { preference: "off" } } }];
   readonly calls: string[] = [];
   /** Resources whose reads the key is refused. */
@@ -51,6 +53,8 @@ class FakeStripeApi {
         const keys = params.lookup_keys ? Object.values(params.lookup_keys) : undefined;
         return list(this.prices.filter((p) => (!keys || keys.includes(p.lookup_key)) && (params.active === undefined || String(p.active) === params.active)));
       }
+      if (path === "subscriptions") return list(this.subscriptions.filter((sub) => !params.price || sub.items.data.some((item: Obj) => item.price.id === params.price)));
+      if (resource === "subscriptions") return Response.json(this.subscriptions.find((sub) => path.endsWith(sub.id)));
       if (path === "billing_portal/configurations") return list(this.portals);
       if (path === "webhook_endpoints") return list(this.webhooks);
       if (path === "payment_method_configurations") return list(this.methods);
@@ -65,12 +69,29 @@ class FakeStripeApi {
     if (method === "POST" && path.startsWith("products/")) {
       const found = this.products.find((product) => path.endsWith(product.id as string))!;
       Object.assign(found.metadata, params.metadata ?? {});
+      if (params.active !== undefined) found.active = params.active === "true";
       return Response.json(found);
     }
     if (method === "POST" && path === "prices") {
+      if (params.transfer_lookup_key === "true") for (const old of this.prices) if (old.lookup_key === params.lookup_key) old.lookup_key = null;
       const price = make("price", { object: "price", active: true, product: params.product, currency: params.currency, unit_amount: Number(params.unit_amount), lookup_key: params.lookup_key, nickname: params.nickname, recurring: params.recurring });
       this.prices.push(price);
       return Response.json(price);
+    }
+    if (method === "POST" && (resource === "prices" || resource === "products") && path.includes("/")) {
+      const found = [...this.prices, ...this.products].find((object) => path.endsWith(object.id as string))!;
+      Object.assign(found, { active: params.active === "true" });
+      return Response.json(found);
+    }
+    if (method === "POST" && path === "subscription_schedules") {
+      const sub = this.subscriptions.find((candidate) => candidate.id === params.from_subscription)!;
+      const schedule = make("sub_sched", { object: "subscription_schedule", subscription: sub.id, phases: [{ start_date: 1000, end_date: sub.items.data[0].current_period_end, trial_end: null, items: sub.items.data.map((item: Obj) => ({ price: item.price.id, quantity: item.quantity })) }] });
+      this.schedules.push(schedule);
+      return Response.json(schedule);
+    }
+    if (method === "POST" && path.startsWith("subscription_schedules/")) {
+      this.scheduleUpdates.push(params);
+      return Response.json(this.schedules[0]);
     }
     if (method === "POST" && path === "billing_portal/configurations") {
       const portal = make("bpc", { object: "billing_portal.configuration", metadata: params.metadata ?? {}, features: params.features });
@@ -124,7 +145,7 @@ describe("StripeApi against a fake Stripe", () => {
 
     const result = await api.ensurePlan("example", PRO);
 
-    expect(result).toEqual({ created: ["product pro", "price example_pro_monthly", "price example_pro_yearly"], different: [] });
+    expect(result).toEqual({ created: ["product pro", "price example_pro_monthly", "price example_pro_yearly"], different: [], replaced: [] });
     expect(stripe.products[0]).toMatchObject({ name: "Pro", metadata: { productId: "example", kind: "fixed", seats: "3", plan: "pro", trial_days: "7" } });
     expect(stripe.prices.map((p) => [p.lookup_key, p.nickname, p.unit_amount, p.recurring.interval, p.currency])).toEqual([
       ["example_pro_monthly", "example_pro_monthly", 1900, "month", "usd"],
@@ -137,10 +158,75 @@ describe("StripeApi against a fake Stripe", () => {
     await api.ensurePlan("example", PRO);
     const calls = stripe.calls.filter((c) => c.startsWith("POST")).length;
 
-    expect(await api.ensurePlan("example", PRO)).toEqual({ created: [], different: [] });
-    expect(await api.ensurePlan("example", { ...PRO, prices: [{ lookupKey: "example_pro_monthly", amount: 2500, interval: "month" }] })).toEqual({ created: [], different: ["example_pro_monthly"] });
+    expect(await api.ensurePlan("example", PRO)).toEqual({ created: [], different: [], replaced: [] });
+    expect(await api.ensurePlan("example", { ...PRO, prices: [{ lookupKey: "example_pro_monthly", amount: 2500, interval: "month" }] })).toEqual({ created: [], different: ["example_pro_monthly"], replaced: [] });
 
     expect(stripe.calls.filter((c) => c.startsWith("POST")).length).toBe(calls);
+  });
+
+  it("replaces a price with another amount: the new one takes the lookup key and the old one is archived", async () => {
+    const { stripe, api } = client();
+    await api.ensurePlan("example", PRO);
+    const [oldMonthly] = stripe.prices;
+
+    const result = await api.ensurePlan("example", { ...PRO, prices: [{ lookupKey: "example_pro_monthly", amount: 2500, interval: "month" }] }, { replace: true });
+
+    expect(result).toEqual({ created: [], different: [], replaced: ["example_pro_monthly"] });
+    expect(oldMonthly).toMatchObject({ active: false, lookup_key: null, nickname: "example_pro_monthly", unit_amount: 1900 });
+    const created = stripe.prices.at(-1)!;
+    expect(created).toMatchObject({ active: true, lookup_key: "example_pro_monthly", nickname: "example_pro_monthly", unit_amount: 2500 });
+    expect(stripe.calls).toContain(`POST prices/${oldMonthly!.id}`);
+  });
+
+  it("archives the plans the answers no longer list, with their prices, and only those of the Product", async () => {
+    const { stripe, api } = client();
+    await api.ensurePlan("example", PRO);
+    await api.ensurePlan("example", { ...PRO, key: "team", name: "Team", prices: [] });
+    stripe.products.push({ id: "prod_other", active: true, name: "Other", metadata: { productId: "another", plan: "pro" } });
+    stripe.prices.forEach((price) => (price.product = stripe.products[0]!.id));
+
+    expect(await api.archivePlansExcept("example", ["team"])).toEqual(["pro"]);
+
+    expect(stripe.products.map((product) => [product.name, product.active])).toEqual([["Pro", false], ["Team", true], ["Other", true]]);
+    expect(stripe.prices.every((price) => price.active === false)).toBe(true);
+  });
+
+  describe("price migrations", () => {
+    async function repriced() {
+      const { stripe, api } = client();
+      await api.ensurePlan("example", PRO);
+      const oldId = stripe.prices[0]!.id as string;
+      await api.ensurePlan("example", { ...PRO, prices: [{ lookupKey: "example_pro_monthly", amount: 2500, interval: "month" }] }, { replace: true });
+      const subscription = (id: string, status: string, schedule: string | null = null) => ({ id, status, schedule, metadata: { userId: "u1", productId: "example" }, items: { data: [{ price: { id: oldId }, quantity: 2, current_period_end: 1_900_000_000 }] } });
+      stripe.subscriptions.push(subscription("sub_a", "active"), subscription("sub_c", "canceled"), subscription("sub_s", "active", "sub_sched_x"));
+      return { stripe, api, oldId, newId: stripe.prices.at(-1)!.id as string };
+    }
+
+    it("lists the live Subscriptions still on the old price, with no schedule", async () => {
+      const { api, oldId, newId } = await repriced();
+
+      expect(await api.listPriceMigrations("example")).toEqual([
+        { subscriptionId: "sub_a", lookupKey: "example_pro_monthly", fromPriceId: oldId, toPriceId: newId, oldAmount: 1900, newAmount: 2500, currency: "usd", renewsAt: 1_900_000_000 },
+      ]);
+    });
+
+    it("schedules the new price after the current period, with no proration, keeping the Subscription's metadata and quantity", async () => {
+      const { stripe, api, oldId, newId } = await repriced();
+      const [migration] = await api.listPriceMigrations("example");
+
+      await api.schedulePriceMigration(migration!);
+
+      expect(stripe.scheduleUpdates).toHaveLength(1);
+      expect(stripe.scheduleUpdates[0]).toMatchObject({
+        end_behavior: "release",
+        proration_behavior: "none",
+        metadata: { userId: "u1", productId: "example", priceChange: "true" },
+        phases: {
+          "0": { start_date: "1000", end_date: "1900000000", items: { "0": { price: oldId, quantity: "2" } } },
+          "1": { proration_behavior: "none", items: { "0": { price: newId, quantity: "2" } } },
+        },
+      });
+    });
   });
 
   it("reads the plans back, only those of the Product", async () => {
@@ -190,7 +276,7 @@ describe("StripeApi against a fake Stripe", () => {
 
     expect(made.secret).toMatch(/^whsec_/);
     expect(stripe.webhooks[0]!.enabled_events).toContain("customer.subscription.updated");
-    expect(await api.listWebhooks("example")).toEqual([{ id: made.id, url: "https://example.com/api/auth/stripe/webhook" }]);
+    expect(await api.listWebhooks("example")).toEqual([{ id: made.id, url: "https://example.com/api/auth/stripe/webhook", events: WEBHOOK_EVENTS }]);
     expect(await api.listWebhooks("another")).toEqual([]);
     await api.deleteWebhook(made.id);
     expect(stripe.webhooks).toEqual([]);

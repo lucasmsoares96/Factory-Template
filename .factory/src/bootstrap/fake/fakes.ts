@@ -28,9 +28,11 @@ import {
   type StripeClient,
   type StripePlanSpec,
   type StripePlanState,
+  type StripePriceMigration,
   type StripeWebhook,
   type WorkerDomain,
 } from "../clients.ts";
+import { WEBHOOK_EVENTS } from "../stripe.ts";
 
 /** In-memory forge. `writes` counts every mutation so tests can prove a run created nothing. */
 export class FakeGitHub implements GitHubClient {
@@ -740,12 +742,19 @@ export class FakeStripeAccount {
   /** Amounts the prices were made with, by lookup key (a price never changes). */
   /** `entitlement_<name>` metadata of each plan (`<product>/<plan>`). */
   readonly entitlements = new Map<string, Record<string, string>>();
-  readonly prices = new Map<string, { amount: number; currency: string; interval: string }>();
+  readonly prices = new Map<string, { id: string; amount: number; currency: string; interval: string }>();
+  /** Prices a newer one replaced (same lookup key), kept for the Subscriptions still on them. */
+  readonly archivedPrices: { id: string; lookupKey: string; amount: number; currency: string; interval: string }[] = [];
+  /** Plans (`<product>/<key>`) archived because the answers no longer list them. */
+  readonly archivedPlans = new Set<string>();
+  /** Subscriptions a test puts on a price (by id); `scheduledTo` is set once the new price is scheduled for the renewal. */
+  readonly subscriptions: { id: string; priceId: string; status: string; renewsAt: number; hasSchedule?: boolean; scheduledTo?: string }[] = [];
+  priceCount = 0;
   readonly webhooks: (StripeWebhook & { productId: string; secret: string })[] = [];
   readonly portals = new Set<string>();
   readonly customers: { id: string; productId: string; userId: string; email: string }[] = [];
   /** Trials started with no card (Stripe cancels each when it ends): the price, the Seats and the days. */
-  readonly subscriptions: { customerId: string; productId: string; userId: string; lookupKey: string; seats: number; days: number }[] = [];
+  readonly trials: { customerId: string; productId: string; userId: string; lookupKey: string; seats: number; days: number }[] = [];
   paymentMethodsOn = false;
   writes = 0;
 }
@@ -778,8 +787,9 @@ export class FakeStripe {
       },
       listPlans: async (productId): Promise<StripePlanState[]> => {
         check();
-        return [...account.plans.values()]
-          .filter((plan) => plan.productId === productId)
+        return [...account.plans.entries()]
+          .filter(([id, plan]) => plan.productId === productId && !account.archivedPlans.has(id))
+          .map(([, plan]) => plan)
           .map((plan) => ({
             key: plan.key,
             name: plan.name,
@@ -787,33 +797,80 @@ export class FakeStripe {
             seats: plan.seats,
             entitlements: { ...account.entitlements.get(`${productId}/${plan.key}`) },
             prices: plan.prices
-              .map((price) => ({ lookupKey: price.lookupKey, ...account.prices.get(price.lookupKey)! }))
+              .map((price) => {
+                const { amount, currency, interval } = account.prices.get(price.lookupKey)!;
+                return { lookupKey: price.lookupKey, amount, currency, interval };
+              })
               .sort((a, b) => a.lookupKey.localeCompare(b.lookupKey)),
           }))
           .sort((a, b) => a.key.localeCompare(b.key));
       },
-      ensurePlan: async (productId, plan) => {
+      ensurePlan: async (productId, plan, options) => {
         check();
         const created: string[] = [];
         const different: string[] = [];
+        const replaced: string[] = [];
         const id = `${productId}/${plan.key}`;
-        if (!account.plans.has(id)) {
+        if (!account.plans.has(id) || account.archivedPlans.has(id)) {
           account.plans.set(id, { ...plan, productId, prices: [] });
+          account.archivedPlans.delete(id);
           account.writes++;
           created.push(`product ${plan.key}`);
         }
         for (const price of plan.prices) {
           const found = account.prices.get(price.lookupKey);
-          if (found) {
-            if (found.amount !== price.amount || found.currency !== plan.currency) different.push(price.lookupKey);
+          const changed = found !== undefined && (found.amount !== price.amount || found.currency !== plan.currency);
+          if (found && !(changed && options?.replace)) {
+            if (changed) different.push(price.lookupKey);
             continue;
           }
-          account.prices.set(price.lookupKey, { amount: price.amount, currency: plan.currency, interval: price.interval });
-          account.plans.get(id)!.prices.push(price);
-          account.writes++;
-          created.push(`price ${price.lookupKey}`);
+          if (found) {
+            account.archivedPrices.push({ ...found, lookupKey: price.lookupKey });
+            account.writes += 2;
+            replaced.push(price.lookupKey);
+          } else {
+            account.writes++;
+            created.push(`price ${price.lookupKey}`);
+          }
+          account.prices.set(price.lookupKey, { id: `price_${++account.priceCount}`, amount: price.amount, currency: plan.currency, interval: price.interval });
+          const plans = account.plans.get(id)!;
+          plans.prices = [...plans.prices.filter((p) => p.lookupKey !== price.lookupKey), price];
         }
-        return { created, different };
+        return { created, different, replaced };
+      },
+      archivePlansExcept: async (productId, keep) => {
+        check();
+        const archived: string[] = [];
+        for (const [id, plan] of account.plans) {
+          if (plan.productId !== productId || account.archivedPlans.has(id) || keep.includes(plan.key)) continue;
+          account.archivedPlans.add(id);
+          for (const price of plan.prices) {
+            const found = account.prices.get(price.lookupKey);
+            if (found) account.archivedPrices.push({ ...found, lookupKey: price.lookupKey });
+            account.prices.delete(price.lookupKey);
+          }
+          account.writes++;
+          archived.push(plan.key);
+        }
+        return archived.sort();
+      },
+      listPriceMigrations: async (): Promise<StripePriceMigration[]> => {
+        check();
+        const migrations: StripePriceMigration[] = [];
+        for (const old of account.archivedPrices) {
+          const next = account.prices.get(old.lookupKey);
+          if (!next) continue;
+          for (const sub of account.subscriptions) {
+            if (sub.priceId !== old.id || sub.hasSchedule || sub.scheduledTo || !["active", "trialing", "past_due"].includes(sub.status)) continue;
+            migrations.push({ subscriptionId: sub.id, lookupKey: old.lookupKey, fromPriceId: old.id, toPriceId: next.id, oldAmount: old.amount, newAmount: next.amount, currency: next.currency, renewsAt: sub.renewsAt });
+          }
+        }
+        return migrations;
+      },
+      schedulePriceMigration: async (migration) => {
+        check();
+        account.writes++;
+        account.subscriptions.find((sub) => sub.id === migration.subscriptionId)!.scheduledTo = migration.toPriceId;
       },
       ensureEntitlements: async (productId, planKey, values) => {
         check();
@@ -842,12 +899,12 @@ export class FakeStripe {
       },
       listWebhooks: async (productId) => {
         check();
-        return account.webhooks.filter((hook) => hook.productId === productId).map(({ id, url }) => ({ id, url }));
+        return account.webhooks.filter((hook) => hook.productId === productId).map(({ id, url, events }) => ({ id, url, events }));
       },
       createWebhook: async (productId, url) => {
         check();
         account.writes++;
-        const hook = { id: `we_${++this.webhookCount}`, url, productId, secret: `whsec_fake_${this.webhookCount}` };
+        const hook = { id: `we_${++this.webhookCount}`, url, productId, events: WEBHOOK_EVENTS, secret: `whsec_fake_${this.webhookCount}` };
         account.webhooks.push(hook);
         return { id: hook.id, secret: hook.secret };
       },
@@ -868,9 +925,9 @@ export class FakeStripe {
       },
       startTrial: async (productId, trial) => {
         check();
-        if (account.subscriptions.some((sub) => sub.customerId === trial.customerId)) return "exists";
+        if (account.trials.some((sub) => sub.customerId === trial.customerId)) return "exists";
         account.writes++;
-        account.subscriptions.push({ productId, ...trial });
+        account.trials.push({ productId, ...trial });
         return "started";
       },
     };

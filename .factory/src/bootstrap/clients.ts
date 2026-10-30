@@ -376,6 +376,23 @@ export interface StripePlanState {
 export interface StripeWebhook {
   id: string;
   url: string;
+  /** The events the endpoint is sent. */
+  events: string[];
+}
+
+/** A Subscription still on a price that a newer one replaced (same nickname), and the price it moves to at its next renewal. */
+export interface StripePriceMigration {
+  subscriptionId: string;
+  /** Nickname of the prices: `<product>_<plan>_<monthly|yearly>`. */
+  lookupKey: string;
+  fromPriceId: string;
+  toPriceId: string;
+  /** In the currency's smallest unit. */
+  oldAmount: number;
+  newAmount: number;
+  currency: string;
+  /** Unix seconds: where the current period ends and the new price starts. */
+  renewsAt: number;
 }
 
 /**
@@ -387,8 +404,18 @@ export interface StripeClient {
   missingPermissions(): Promise<string[]>;
   /** The active products tagged with `productId`, with their active prices. */
   listPlans(productId: string): Promise<StripePlanState[]>;
-  /** Creates the product and the prices that are missing. `different` names the prices that exist with another amount (left alone). */
-  ensurePlan(productId: string, plan: StripePlanSpec): Promise<{ created: string[]; different: string[] }>;
+  /**
+   * Creates the product and the prices that are missing. A price that exists with another amount or currency is left alone
+   * (`different`), unless `replace`: then a new price takes its nickname and lookup key and the old one is archived
+   * (`replaced`); its Subscriptions stay on the old price.
+   */
+  ensurePlan(productId: string, plan: StripePlanSpec, options?: { replace?: boolean }): Promise<{ created: string[]; different: string[]; replaced: string[] }>;
+  /** Archives the Product's plans (product and prices) whose key is not in `keep`; answers the keys archived. Subscriptions are untouched. */
+  archivePlansExcept(productId: string, keep: string[]): Promise<string[]>;
+  /** The Subscriptions of the Product still on an archived price whose lookup key now belongs to a newer one, with no schedule yet. */
+  listPriceMigrations(productId: string): Promise<StripePriceMigration[]>;
+  /** Moves one Subscription to its new price at the end of the current period (a subscription schedule), with no proration. */
+  schedulePriceMigration(migration: StripePriceMigration): Promise<void>;
   /** Sets `entitlement_<name>` on the Plan's product for each name it does not have yet (one that is set is left alone). Returns the names added. */
   ensureEntitlements(productId: string, planKey: string, values: Record<string, boolean | number>): Promise<string[]>;
   /** Turns card, Apple Pay and Google Pay on in the default payment method configuration. */
