@@ -92,6 +92,7 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
       ctx.log(messages("en").discarded(reason));
       return { issue: number, outcome: "discarded", reason };
     }
+    if (options.workResult === "cancelled") ctx.log(messages("en").cancelledWorkEscalates(number));
     return escalate(ctx, issue, { reason: "infra", result: null, detail: (error as Error).message, pr: null, runUrl: options.runUrl }, round, options.dispatchRetro);
   }
   if (result.outcome === "paused") return pause(ctx, issue, result, options);
