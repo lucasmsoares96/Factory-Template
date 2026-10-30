@@ -384,6 +384,16 @@ export const ptBR: Messages = {
       fallback: "Se o botão não funcionar, abra este link:",
       ignore: "Se quiser manter o {planName}, não precisa fazer nada.",
     },
+    priceChange: {
+      subject: "O preço do {planName} muda em {startsOn}",
+      preview: "O preço do {planName} no {appName} muda de {oldPrice} para {newPrice}.",
+      heading: "O preço do seu plano vai mudar",
+      greeting: "Olá, {name},",
+      body: "O preço do {planName} no {appName} muda de {oldPrice} para {newPrice}. O novo preço vale a partir da sua próxima renovação, em {startsOn}. Até lá nada muda. Se não quiser continuar, cancele na página do plano antes dessa data.",
+      button: "Gerenciar o plano",
+      fallback: "Se o botão não funcionar, abra este link:",
+      ignore: "Se estiver de acordo com o novo preço, não precisa fazer nada.",
+    },
     paymentFailed: {
       subject: "O pagamento do {appName} falhou",
       preview: "Atualize o cartão até {deadline} para manter o {planName}.",
