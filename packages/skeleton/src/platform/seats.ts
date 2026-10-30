@@ -10,6 +10,8 @@ export type SeatPerson = {
   name: string | null;
   email: string;
   status: "owner" | "member" | "invited";
+  /** Whether the Member is suspended (a Seat they still hold). Never the Owner or an invited address. */
+  suspended: boolean;
 };
 
 /**
@@ -28,7 +30,7 @@ export async function seatPeople(db: Database | Transaction, ownerId: string): P
   const people: SeatPerson[] = [];
   for (const company of owned) {
     const inCompany = await db
-      .select({ name: users.name, email: users.email, role: members.role })
+      .select({ name: users.name, email: users.email, role: members.role, suspendedAt: members.suspendedAt })
       .from(members)
       .innerJoin(users, eq(users.id, members.userId))
       .where(eq(members.companyId, company.id))
@@ -39,9 +41,9 @@ export async function seatPeople(db: Database | Transaction, ownerId: string): P
       .where(and(eq(invitations.companyId, company.id), isNull(invitations.acceptedAt), isNull(invitations.canceledAt)))
       .orderBy(asc(invitations.createdAt), asc(invitations.id));
     for (const person of inCompany) {
-      people.push({ companyId: company.id, companyName: company.name, name: person.name, email: person.email, status: person.role === "owner" ? "owner" : "member" });
+      people.push({ companyId: company.id, companyName: company.name, name: person.name, email: person.email, status: person.role === "owner" ? "owner" : "member", suspended: person.role !== "owner" && person.suspendedAt !== null });
     }
-    for (const { email } of invited) people.push({ companyId: company.id, companyName: company.name, name: null, email, status: "invited" });
+    for (const { email } of invited) people.push({ companyId: company.id, companyName: company.name, name: null, email, status: "invited", suspended: false });
   }
   return people;
 }
@@ -49,6 +51,31 @@ export async function seatPeople(db: Database | Transaction, ownerId: string): P
 /** The Seats `people` take: one for each distinct address, however many Companies they are in. */
 export function countSeats(people: readonly Pick<SeatPerson, "email">[]): number {
   return new Set(people.map((person) => person.email.toLowerCase())).size;
+}
+
+/**
+ * How many people would lose access if the Owner's Seats fell to `limit`, the way `applySeatLimit` decides: pending
+ * Invitations go first, so only what is still over the limit after them suspends people. Nobody already suspended and
+ * never the Owner counts. A `null` limit loses nobody.
+ */
+export function countLosingAccess(people: readonly SeatPerson[], limit: number | null): number {
+  if (limit === null) return 0;
+  const byEmail = new Map<string, SeatPerson["status"]>();
+  const suspended = new Set<string>();
+  for (const person of people) {
+    const email = person.email.toLowerCase();
+    if (person.suspended) suspended.add(email);
+    const known = byEmail.get(email);
+    if (known === "owner" || (known === "member" && person.status === "invited")) continue;
+    byEmail.set(email, person.status);
+  }
+  const statuses = [...byEmail.entries()];
+  const invitedOnly = statuses.filter(([, status]) => status === "invited").length;
+  const active = statuses.filter(([email, status]) => status !== "invited" && !suspended.has(email));
+  const over = Math.max(0, active.length + invitedOnly - limit);
+  const canceled = Math.min(over, invitedOnly);
+  const losing = over - canceled;
+  return Math.min(losing, active.filter(([, status]) => status === "member").length);
 }
 
 /** Whether `email` already holds a Seat among `people`. */
