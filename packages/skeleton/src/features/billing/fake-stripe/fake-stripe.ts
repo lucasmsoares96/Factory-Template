@@ -609,6 +609,11 @@ export class FakeStripe {
     return calls.reverse().map(({ method, path, params }) => ({ method, path, params }));
   }
 
+  /** The events the fake sent, oldest first. */
+  async events(): Promise<Obj[]> {
+    return (await this.store.list<Obj>("event")).reverse();
+  }
+
   /** The plans the fake starts with: Free (no price, 1 Seat), Pro and Team (fixed, monthly), with `reports` and `projects` Entitlements. */
   private async seedCatalog() {
     const { productId, seed } = this.deps;
