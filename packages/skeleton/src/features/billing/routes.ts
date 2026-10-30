@@ -12,7 +12,7 @@ const Ending = z.object({ email: z.string().min(1) });
 const Failing = z.object({ on: z.boolean() });
 const Cancel = z.object({ subscription: z.string().min(1) });
 const Product = z.object({ id: z.string().min(1), metadata: z.record(z.string(), z.string()) });
-const Event = z.object({ type: z.string().min(1), object: z.record(z.string(), z.unknown()) });
+const Event = z.object({ type: z.string().min(1), object: z.record(z.string(), z.unknown()), previousAttributes: z.record(z.string(), z.unknown()).optional() });
 
 /**
  * The fake Stripe's own routes, `/api/fake-stripe/*`: the Checkout page and the
@@ -74,7 +74,7 @@ export function fakeStripeRoutes(entitlements: readonly string[]) {
   router.post("/fake-stripe/control/events", async (c) => {
     const body = Event.safeParse(await c.req.json().catch(() => null));
     if (!body.success) return c.json(apiError("VALIDATION_FAILED"), 400);
-    return c.json({ webhookStatus: await fake(c).emit(body.data.type, body.data.object) });
+    return c.json({ webhookStatus: await fake(c).emit(body.data.type, body.data.object, body.data.previousAttributes) });
   });
   router.post("/fake-stripe/control/cancel", async (c) => {
     const body = Cancel.safeParse(await c.req.json().catch(() => null));

@@ -66,6 +66,7 @@ export const QUESTIONS = {
   "billing-trial-days": q("billing", "optional", "BILLING_TRIAL_DAYS", "Days of free trial on the paid plans", { default: "0" }),
   "billing-entitlement": q("billing", "optional", "BILLING_ENTITLEMENT", "What every plan grants of each Entitlement without a terminal (on, off or a number)", { default: "off" }),
   "billing-setup": terminal("billing", "Whether to set billing up after the Production module"),
+  "billing-migrate-prices": terminal("billing", "Whether to schedule the new price for the Subscriptions still on an archived one"),
   "factory-token": q("factory", "required", "FACTORY_TOKEN", "Fine-grained token limited to this repository (stored as a secret); not needed once the secret exists"),
   "merge-mode": q("factory", "optional", "FACTORY_MERGE_MODE", "Merge Mode (human, safe or all)", { default: "human" }),
   "merge-mode-confirm": terminal("factory", "Typed confirmation of the Merge Mode all"),

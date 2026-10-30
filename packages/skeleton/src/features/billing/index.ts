@@ -6,6 +6,7 @@ import type { Context } from "hono";
 import type { SkeletonEnv } from "../../platform/env.ts";
 import { entitlementFor, planOf } from "./entitlements.ts";
 import { billingEnabled, billingFor } from "./context.ts";
+import { sendPriceChange } from "./price-change.ts";
 import { sendTrialEnding } from "./trial-ending.ts";
 import { sendSubscriptionNotices } from "./notices.ts";
 import { reconcileOnSubscriptionEvent } from "./suspension.ts";
@@ -62,6 +63,7 @@ export function billing<const Name extends string>({ entitlements }: { entitleme
           },
           onEvent: async (event) => {
             await sendTrialEnding(c, on, event);
+            await sendPriceChange(c, on, event);
             await sendSubscriptionNotices(c, on, event);
             await reconcileOnSubscriptionEvent(c, event);
           },
