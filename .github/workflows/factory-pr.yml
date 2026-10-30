@@ -343,18 +343,39 @@ jobs:
           WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-output.ndjson
         run: |
           pnpm --filter @factory/harness exec wrangler preview --config "$WRANGLER_CONFIG" --name "pr-$PR_NUMBER" --worker-name "$PRODUCT" --secrets-file "$RUNNER_TEMP/preview/worker-env.json" --ignore-base-config
-          rm -f "$RUNNER_TEMP/preview/worker-env.json"
       - name: preview URL
         id: url
         if: steps.wrangler.outcome == 'success'
         run: |
           mkdir -p "$RUNNER_TEMP/result"
           node .factory/src/ci/previews.ts url --file "$RUNNER_TEMP/wrangler-output.ndjson" > "$RUNNER_TEMP/result/url.txt"
+      # Billing. All Previews of a Product share one Stripe sandbox, and Stripe sends every event to every endpoint, so each
+      # one has its own endpoint (tagged `pr-N`) and the Worker ignores the events of the others. The endpoint's address is
+      # the preview URL, known only now, and Stripe shows its secret once: the Worker is deployed again with the sandbox key
+      # and that secret. No place left in the sandbox (16 endpoints), or an error: the preview stays as deployed, without
+      # billing, and the comment says so. Only the events endpoints are touched: no plan or Entitlement is ever written.
+      - name: billing
+        id: billing
+        if: steps.url.outcome == 'success'
+        env:
+          STRIPE_SANDBOX_KEY: ${{ secrets[format('{0}PREVIEW_STRIPE_SECRET_KEY', matrix.prefix)] }}
+        run: node .factory/src/ci/previews.ts billing --product "$PRODUCT" --url-file "$RUNNER_TEMP/result/url.txt" --file "$RUNNER_TEMP/preview/worker-env.json"
+      - name: wrangler preview with billing
+        id: wrangler-billing
+        if: steps.billing.outputs.status == 'on'
+        env:
+          WRANGLER_CONFIG: ${{ steps.config.outputs.path }}
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-output-billing.ndjson
+        run: pnpm --filter @factory/harness exec wrangler preview --config "$WRANGLER_CONFIG" --name "pr-$PR_NUMBER" --worker-name "$PRODUCT" --secrets-file "$RUNNER_TEMP/preview/worker-env.json" --ignore-base-config
+      - name: remove the Worker's secrets file
+        if: always()
+        run: rm -f "$RUNNER_TEMP/preview/worker-env.json"
       # One small JSON file per Product for the smoke and the comment; it is written whatever happened above.
       - name: result
         if: always()
         env:
-          STATUS: ${{ steps.bindings.outputs.changed == 'true' && 'bindings-changed' || steps.database.outputs.skipped == 'limit-reached' && 'limit-reached' || steps.url.outcome == 'success' && 'deployed' || 'failed' }}
+          STATUS: ${{ steps.bindings.outputs.changed == 'true' && 'bindings-changed' || steps.database.outputs.skipped == 'limit-reached' && 'limit-reached' || steps.url.outcome == 'success' && steps.wrangler-billing.outcome != 'failure' && 'deployed' || 'failed' }}
+          BILLING: ${{ steps.billing.outputs.status }}
         run: |
           mkdir -p "$RUNNER_TEMP/result"
           node .factory/src/ci/previews.ts result --product "$PRODUCT" --status "$STATUS" --file "$RUNNER_TEMP/result/url.txt" --out "$RUNNER_TEMP/result/result.json"

@@ -12,13 +12,15 @@ export type Billing = {
   stripe: Stripe;
   webhookSecret: string;
   productId: string;
+  /** The Preview's tag (`pr-N`); `undefined` in production. */
+  environment: string | undefined;
   fake: FakeStripe | undefined;
   plans(): Promise<PlanCatalog>;
 };
 
 const WEBHOOK_SECRET_FAKE = "whsec_fake";
 
-type StripeEnv = { STRIPE_SECRET_KEY?: string; STRIPE_FAKE?: string };
+type StripeEnv = { STRIPE_SECRET_KEY?: string; STRIPE_FAKE?: string; BILLING_ENVIRONMENT?: string };
 
 /** The fake runs only with `STRIPE_FAKE=true` (`pnpm dev`, the tests), and never beside a live key. */
 export const isFakeStripe = (env: StripeEnv) => env.STRIPE_FAKE === "true" && !env.STRIPE_SECRET_KEY?.startsWith("sk_live_");
@@ -68,6 +70,7 @@ function createBilling(c: Context<SkeletonEnv>, entitlements: readonly string[])
   return {
     stripe,
     productId,
+    environment: c.env.BILLING_ENVIRONMENT || undefined,
     fake,
     webhookSecret: fake ? c.env.STRIPE_WEBHOOK_SECRET || WEBHOOK_SECRET_FAKE : (c.env.STRIPE_WEBHOOK_SECRET ?? ""),
     plans: () => (reading ??= cachedPlans(productId, () => readPlans(stripe, { productId, entitlements }))),
