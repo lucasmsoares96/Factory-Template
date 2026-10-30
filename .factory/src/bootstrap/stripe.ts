@@ -246,4 +246,29 @@ export class StripeApi implements StripeClient {
   async deleteWebhook(id: string): Promise<void> {
     await this.stripe.webhookEndpoints.del(id);
   }
+
+  async createCustomer(productId: string, person: { userId: string; email: string; name: string }): Promise<string> {
+    // `userId` is what the Better Auth Stripe plugin tags its own customers with; the user's row carries the customer id.
+    const customer = await this.stripe.customers.create({ email: person.email, name: person.name, metadata: { productId, userId: person.userId, customerType: "user" } }, { idempotencyKey: `${productId}-customer-${person.userId}` });
+    return customer.id;
+  }
+
+  async startTrial(productId: string, trial: { customerId: string; userId: string; lookupKey: string; seats: number; days: number }): Promise<"started" | "exists"> {
+    const existing = await this.stripe.subscriptions.list({ customer: trial.customerId, status: "all", limit: 1 });
+    if (existing.data.length > 0) return "exists";
+    const price = (await this.stripe.prices.list({ lookup_keys: [trial.lookupKey], active: true, limit: 1 })).data[0];
+    if (!price) throw new Error(`No price ${trial.lookupKey} in Stripe: run the plans step again.`);
+    await this.stripe.subscriptions.create(
+      {
+        customer: trial.customerId,
+        items: [{ price: price.id, quantity: trial.seats }],
+        trial_period_days: trial.days,
+        // No card was given: when the trial ends Stripe cancels the Subscription instead of asking for a payment.
+        trial_settings: { end_behavior: { missing_payment_method: "cancel" } },
+        metadata: { productId, userId: trial.userId, referenceId: trial.userId },
+      },
+      { idempotencyKey: `${productId}-trial-${trial.userId}` },
+    );
+    return "started";
+  }
 }

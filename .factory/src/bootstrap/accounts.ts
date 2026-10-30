@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import type { AccountsClient } from "./clients.ts";
+import type { AccountsClient, ExistingAccount } from "./clients.ts";
 import { productSecretName } from "./domain.ts";
 
 /**
@@ -24,5 +24,11 @@ export class SkeletonAccounts implements AccountsClient {
   }
   async upsertUser(databaseUrl: string, user: { email: string; name: string; password: string }) {
     return (await import("../../../packages/skeleton/src/node/accounts.ts")).upsertVerifiedUser({ databaseUrl, ...user });
+  }
+  async listAccounts(databaseUrl: string): Promise<ExistingAccount[]> {
+    return (await import("../../../packages/skeleton/src/node/accounts.ts")).listAccountsWithSeats({ databaseUrl });
+  }
+  async linkStripeCustomer(databaseUrl: string, userId: string, customerId: string) {
+    return (await import("../../../packages/skeleton/src/node/accounts.ts")).linkStripeCustomer({ databaseUrl, userId, customerId });
   }
 }
