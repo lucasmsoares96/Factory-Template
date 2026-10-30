@@ -1,0 +1,68 @@
+# The contract test of the fake Stripe: once a week and on every push to the default branch, `stripe-contract.ts` runs
+# against the real Stripe, in a sandbox that only CI uses (not the one Previews use), and checks that the subscription
+# and renewal events have the shape the Skeleton's fake Stripe produces. It deletes what an earlier run left at the start
+# and its test clock at the end. This is the only workflow that reads STRIPE_CI_KEY (the repo secret that
+# `pnpm bootstrap billing <id>` sets once per repo); with no key it does nothing. A failure opens an issue (or comments on
+# the one still open), from a second job that holds no secret.
+name: Stripe contract
+
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: stripe-contract
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: corepack enable pnpm && pnpm install --frozen-lockfile --ignore-scripts --filter @factory/harness
+      - name: contract test
+        env:
+          STRIPE_CI_KEY: ${{ secrets.STRIPE_CI_KEY }}
+        run: node .factory/src/ci/stripe-contract.ts
+
+  report:
+    needs: contract
+    if: ${{ failure() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: open an issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TITLE: "The fake Stripe no longer matches the real Stripe"
+        run: |
+          body="The weekly Stripe contract test failed: $RUN_URL
+
+          The fake Stripe of the Skeleton (packages/skeleton/src/features/billing/fake-stripe/) no longer imitates what Stripe sends. Read the run's log, then fix the fake and \`shapes.ts\` together."
+          open=$(gh issue list --state open --search "\"$TITLE\" in:title" --json number,title --jq "[.[] | select(.title == \"$TITLE\")][0].number // empty")
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --body "Failed again: $RUN_URL"
+          else
+            gh issue create --title "$TITLE" --body "$body"
+          fi

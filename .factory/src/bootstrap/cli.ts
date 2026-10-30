@@ -52,7 +52,7 @@ Commands:
                          in PREVIEW_PRODUCTS. One Neon login per run, only when there is Neon work. Turns
                          PREVIEWS_ENABLED on once the doctor of the previews passes.
   billing <id>           Per Product, the optional billing module (after product; the Product must list the billing
-                         Feature): a restricted Stripe key for the Previews sandbox and one for the real account (a
+                         Feature): a restricted Stripe key for the Previews sandbox, one for the real account and (once per repo) one for a CI sandbox (a
                          pre-filled link each; hidden prompt, or STRIPE_SANDBOX_KEY / STRIPE_LIVE_KEY), the plans,
                          payment methods and Customer Portal written to both accounts, and the real account's events
                          endpoint. The deploy hands the key and the endpoint secret to the Worker once all are set.
@@ -88,7 +88,7 @@ Options:
                          for the domain command: resend-domain, dns-records, restricted-resend-key, worker-domain;
                          for the product command: neon-project, github-environment, database-secrets, auth-secret,
                          default-account (asks again, resets the password and the secret), the four domain steps, main-ruleset, deploy-products;
-                         for the billing command: keys (makes both keys again), plans (asks the plans again; a changed amount becomes a new price with the old nickname and the old one is archived, new plans are added and removed ones archived, in both accounts), webhook (a new endpoint and secret);
+                         for the billing command: keys (makes both keys again), ci-key (asks for the CI sandbox key again), plans (asks the plans again; a changed amount becomes a new price with the old nickname and the old one is archived, new plans are added and removed ones archived, in both accounts), webhook (a new endpoint and secret);
                          for the previews command: preview-environment, preview-neon-project, preview-neon-key, preview-kv,
                          preview-account (asks again, replaces the password), preview-products;
                          for the factory command: labels, factory-token (asks for the token again), claude-auth, auto-merge,
@@ -156,7 +156,7 @@ async function dispatch(positionals: string[], redo: string[], deps: BootstrapDe
   }
   if (command === "billing") {
     if (!productId) {
-      deps.log(`Usage: pnpm bootstrap billing <id> [migrate-prices] [--redo keys|plans|entitlements|webhook]`);
+      deps.log(`Usage: pnpm bootstrap billing <id> [migrate-prices] [--redo keys|ci-key|plans|entitlements|webhook]`);
       return 1;
     }
     const product = await productOrAsk(deps, productId);
