@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
+import { CONTRACT_EVENT_TYPES, eventProblems } from "../src/features/billing/fake-stripe/shapes.ts";
 import { stripeSignature } from "../src/features/billing/fake-stripe/sign.ts";
 import { migrateDatabase } from "../src/node/migrate.ts";
 import type { McpTool } from "../src/platform/mcp/tool.ts";
@@ -257,6 +258,25 @@ test("advancing Stripe's clock renews the Subscription and the period moves on",
 
   expect(after.subscription).toMatchObject({ status: "active" });
   expect(Date.parse(after.subscription!.periodEnd)).toBeGreaterThan(Date.parse(before.subscription!.periodEnd));
+});
+
+test("the events the fake sends for signing up and for a renewal have the shape the contract test holds Stripe to", async () => {
+  const { cookie } = await signedInUser();
+  const checkout = await openCheckout(cookie, "prod_fake_pro");
+  await worker.fetch(`${checkout}/pay`, { method: "POST", redirect: "manual" });
+  await worker.post("/api/fake-stripe/control/advance", { seconds: 40 * 24 * 60 * 60 });
+
+  const { events } = (await (await worker.fetch("/api/fake-stripe/control/events")).json()) as { events: { type: string }[] };
+
+  const contract = events.filter((event) => (CONTRACT_EVENT_TYPES as readonly string[]).includes(event.type));
+  expect(contract.map((event) => event.type)).toEqual(["customer.subscription.created", "customer.subscription.updated"]);
+  expect(contract.flatMap((event) => eventProblems(event))).toEqual([]);
+});
+
+test("the shape check names every field that differs", () => {
+  expect(eventProblems({ id: "evt_1", object: "event", type: "customer.subscription.updated", created: "now", livemode: false, pending_webhooks: 0, data: { object: { id: "sub_1" } } })).toEqual(
+    expect.arrayContaining(["customer.subscription.updated created: expected number, got string", "customer.subscription.updated data.object.status: expected string, got undefined"]),
+  );
 });
 
 test("a person who already has a Subscription cannot subscribe again", async () => {
