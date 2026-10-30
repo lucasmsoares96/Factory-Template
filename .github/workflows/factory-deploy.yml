@@ -194,6 +194,19 @@ jobs:
           path: ${{ runner.temp }}/url
           if-no-files-found: error
           retention-days: 1
+      # Billing: the Entitlements the code declares that no production plan sets. A failure here never fails the deploy.
+      - name: entitlements without a plan
+        continue-on-error: true
+        env:
+          PRODUCT: ${{ matrix.id }}
+          STRIPE_KEY: ${{ secrets[format('{0}STRIPE_SECRET_KEY', matrix.prefix)] }}
+        run: node .factory/src/ci/entitlements.ts check --product "$PRODUCT" --out "$RUNNER_TEMP/entitlements/entitlements.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: entitlements-${{ matrix.id }}
+          path: ${{ runner.temp }}/entitlements
+          if-no-files-found: ignore
+          retention-days: 1
 
   # The `base` branch of the Product's preview database: made again when missing, then migrated with the same artifact,
   # so a preview starts from the schema of the default branch. Its only secret is the Neon key limited to the preview
@@ -235,6 +248,41 @@ jobs:
           NEON_API_KEY: ${{ secrets[format('{0}PREVIEW_NEON_API_KEY', matrix.prefix)] }}
           NEON_PROJECT_ID: ${{ vars[format('{0}PREVIEW_NEON_PROJECT_ID', matrix.prefix)] }}
         run: node .factory/src/ci/previews.ts base --dir "$RUNNER_TEMP/artifact"
+
+  # Comments on the merged PR when a deployed Product declares an Entitlement that no production plan sets. It holds no
+  # secret: the production Stripe key stays in `deploy`, which hands over only the names, as an artifact.
+  entitlements-notice:
+    name: entitlements notice
+    needs: [plan, deploy]
+    if: needs.deploy.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          filter: blob:none
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: corepack enable pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
+        with:
+          pattern: entitlements-*
+          path: ${{ runner.temp }}/entitlements
+      - name: comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          FACTORY_LANGUAGE: ${{ vars.FACTORY_LANGUAGE }}
+        run: node .factory/src/ci/entitlements.ts notice --results "$RUNNER_TEMP/entitlements"
 
   # Against the deployed URL, with a real sign-in: a red smoke is a red deploy, and an `exceededCpu` on the password
   # hash shows here. The only secret is the account's password (`<ID>_ACCOUNT_PASSWORD`, a user made by the

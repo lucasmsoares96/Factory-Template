@@ -62,6 +62,11 @@ class FakeStripeApi {
       this.products.push(product);
       return Response.json(product);
     }
+    if (method === "POST" && path.startsWith("products/")) {
+      const found = this.products.find((product) => path.endsWith(product.id as string))!;
+      Object.assign(found.metadata, params.metadata ?? {});
+      return Response.json(found);
+    }
     if (method === "POST" && path === "prices") {
       const price = make("price", { object: "price", active: true, product: params.product, currency: params.currency, unit_amount: Number(params.unit_amount), lookup_key: params.lookup_key, nickname: params.nickname, recurring: params.recurring });
       this.prices.push(price);
@@ -144,8 +149,20 @@ describe("StripeApi against a fake Stripe", () => {
     stripe.products.push({ id: "prod_other", active: true, name: "Other", metadata: { productId: "another", plan: "x" } });
 
     expect(await api.listPlans("example")).toEqual([
-      { key: "pro", name: "Pro", kind: "fixed", seats: 3, prices: [{ lookupKey: "example_pro_monthly", amount: 1900, currency: "usd", interval: "month" }, { lookupKey: "example_pro_yearly", amount: 18240, currency: "usd", interval: "year" }] },
+      { key: "pro", name: "Pro", kind: "fixed", seats: 3, entitlements: {}, prices: [{ lookupKey: "example_pro_monthly", amount: 1900, currency: "usd", interval: "month" }, { lookupKey: "example_pro_yearly", amount: 18240, currency: "usd", interval: "year" }] },
     ]);
+  });
+
+  it("adds entitlement_<name> to a plan's product, leaves one that is set alone, and reads them back", async () => {
+    const { stripe, api } = client();
+    await api.ensurePlan("example", PRO);
+
+    expect(await api.ensureEntitlements("example", "pro", { reports: true, projects: 10 })).toEqual(["reports", "projects"]);
+    expect(await api.ensureEntitlements("example", "pro", { reports: false, seats: 0 })).toEqual(["seats"]);
+
+    expect(stripe.products[0]!.metadata).toMatchObject({ entitlement_reports: "true", entitlement_projects: "10", entitlement_seats: "0" });
+    expect((await api.listPlans("example"))[0]!.entitlements).toEqual({ reports: "true", projects: "10", seats: "0" });
+    await expect(api.ensureEntitlements("example", "nope", { reports: true })).rejects.toThrow(/no product for the plan nope/);
   });
 
   it("turns card, Apple Pay and Google Pay on once", async () => {
