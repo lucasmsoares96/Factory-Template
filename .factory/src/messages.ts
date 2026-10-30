@@ -414,6 +414,14 @@ export const catalog = {
     en: (url: string, smoke: "passed" | "failed" | undefined) => `${url} (smoke ${smoke ?? "not run"})`,
     "pt-BR": (url, smoke) => `${url} (smoke ${smoke === "passed" ? "passou" : smoke === "failed" ? "falhou" : "não rodou"})`,
   }),
+  previewBillingFull: text({
+    en: (limit: number): string => `billing is off in this preview: the Stripe sandbox already has ${limit} events endpoints (the most it takes). Close a PR with a preview, then push again.`,
+    "pt-BR": (limit) => `a cobrança está desligada neste preview: a sandbox da Stripe já tem ${limit} endereços de eventos (o máximo que ela aceita). Feche um PR com preview e faça um novo push.`,
+  }),
+  previewBillingUnavailable: text({
+    en: (): string => "billing is off in this preview: Stripe did not accept its events endpoint (see the run)",
+    "pt-BR": () => "a cobrança está desligada neste preview: a Stripe não aceitou o endereço de eventos dele (veja a execução)",
+  }),
   previewFooter: text({
     en: (sha: string) => `Commit ${sha}. The preview and its database are deleted when the PR closes.`,
     "pt-BR": (sha) => `Commit ${sha}. O preview e o banco de dados dele são apagados quando o PR fecha.`,
