@@ -515,7 +515,7 @@ export function billingApi(entitlements: readonly string[]) {
         const api = c.var.auth().api as unknown as PluginApi;
         const session = await api.upgradeSubscription({
           headers: c.req.raw.headers,
-          // Every customer and Subscription Stripe creates here carries the Product's id.
+          // Every customer and Subscription Stripe creates here carries the Product's id and, in a Preview, its tag.
           body: {
             plan: plan.id,
             annual: interval === "year",
@@ -523,7 +523,7 @@ export function billingApi(entitlements: readonly string[]) {
             successUrl: PLAN_PAGE,
             cancelUrl: PLAN_PAGE,
             disableRedirect: true,
-            metadata: { productId: billing.productId },
+            metadata: { productId: billing.productId, ...(billing.environment ? { environment: billing.environment } : {}) },
           },
         });
         if (session.url) return c.json({ url: session.url }, 200);
@@ -569,7 +569,7 @@ export function billingApi(entitlements: readonly string[]) {
             cancelUrl: PLAN_PAGE,
             returnUrl: PLAN_PAGE,
             disableRedirect: true,
-            metadata: { productId: billing.productId },
+            metadata: { productId: billing.productId, ...(billing.environment ? { environment: billing.environment } : {}) },
           },
         });
         if (session.url) {
