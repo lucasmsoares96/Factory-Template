@@ -1,10 +1,12 @@
 import { z } from "zod";
-import type { StripeClient, StripePlanSpec, StripePriceMigration } from "./clients.ts";
+import type { ExistingAccount, StripeClient, StripePlanSpec, StripePriceMigration } from "./clients.ts";
+import { accountNames } from "./accounts.ts";
 import { entitlementMetadata, missingEntitlements, type EntitlementValue } from "./entitlements.ts";
 import { keyCreationUrl, keyMode, type KeyMode } from "./billing-permissions.ts";
 import { productionEnvironment, productSecretName, secretScope } from "./domain.ts";
 import { previewScope } from "./previews.ts";
 import type { QuestionId } from "./questions.ts";
+import { productionDatabaseUrl } from "./product.ts";
 import type { ProductIdentity, Step, StepContext } from "./steps.ts";
 
 /** Where the Worker's billing answers Stripe's events (the Better Auth Stripe plugin's route). */
@@ -29,6 +31,8 @@ export function billingNames(productId: string) {
     plans: productSecretName(productId, "BILLING_PLANS"),
     /** Variable: set once the plans, payment methods and portal are written in both accounts. */
     synced: productSecretName(productId, "BILLING_SYNCED"),
+    /** Variable: set once the accounts that existed before billing were given their trial (or the suspensions confirmed). */
+    existing: productSecretName(productId, "BILLING_EXISTING"),
   };
 }
 
@@ -46,6 +50,7 @@ export function billingRecorded(productId: string): string[] {
     "Variables recorded:",
     `  ${names.plans}  the answers about the plans`,
     `  ${names.synced}  the plans are written in both accounts`,
+    `  ${names.existing}  the accounts that existed before billing were given their trial`,
   ];
 }
 
@@ -369,6 +374,113 @@ export function webhookStep(product: ProductIdentity): Step {
   };
 }
 
+/** The trial of an account that existed before billing: the Plan (a key of `planSpecs`) and the Seats it is started with. */
+export type TrialPlacement = { plan: StripePlanSpec; seats: number; fits: boolean };
+
+/**
+ * The smallest fixed Plan with room for the account's people; else the per-Seat Plan with the Seats it needs (at least its
+ * minimum); else the biggest fixed Plan, which does not fit (`fits: false`: the suspension acts at the trial's end).
+ */
+export function placeTrial(specs: StripePlanSpec[], seats: number): TrialPlacement | undefined {
+  const fixed = specs.filter((spec) => spec.kind === "fixed").sort((a, b) => a.seats! - b.seats!);
+  const fitting = fixed.find((spec) => spec.seats! >= seats);
+  if (fitting) return { plan: fitting, seats: 1, fits: true };
+  const perSeat = specs.find((spec) => spec.kind === "per_seat");
+  if (perSeat) return { plan: perSeat, seats: Math.max(seats, perSeat.minSeats ?? 1), fits: true };
+  const biggest = fixed.at(-1);
+  return biggest && { plan: biggest, seats: 1, fits: false };
+}
+
+const plural = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
+
+/**
+ * Turning billing on for a Product that already has accounts must not take anyone's access away that day. With trial days,
+ * every account that can sign in (but the Default account, which stays on Free, and the ones billing already knows) gets a
+ * trial with no card, for the same days as the usual trial and on the smallest Plan that holds its people; it ends with no
+ * charge, the account goes back to Free and the Seat limit suspends the newest. With no trial days nobody starts one, and the
+ * people the Free Plan's one Seat leaves out are named before the person confirms.
+ */
+export function existingStep(product: ProductIdentity): Step {
+  const names = billingNames(product.id);
+  return {
+    id: "existing",
+    title: "Accounts that already exist (trial, or who is suspended)",
+    async check(ctx) {
+      return { done: (await ctx.github.listVariables())[names.existing] === "true" };
+    },
+    async run(ctx) {
+      const answers = await recordedAnswers(ctx, product.id);
+      if (!answers) throw new Error("The plans are not recorded yet: run the plans step first.");
+      const url = await productionDatabaseUrl(ctx, product, ctx.interactive ?? false);
+      if (!url) {
+        ctx.log(`  No production database found for ${product.id}: run \`pnpm bootstrap product ${product.id}\` first, then this command again.`);
+        return;
+      }
+      const all = await ctx.accounts.listAccounts(url);
+      const defaultEmail = (await ctx.github.listVariables())[accountNames(product.id).email]?.toLowerCase();
+      const known = all.filter((account) => !account.subscribed);
+      if (known.length === 0) {
+        ctx.log("  No account exists yet: nothing to carry over.");
+        await ctx.github.setVariable(names.existing, "true");
+        return;
+      }
+      const confirmed = answers.trialDays > 0 ? await trialPlan(ctx, product, url, answers, known, defaultEmail) : await suspensionPlan(ctx, known);
+      if (confirmed) await ctx.github.setVariable(names.existing, "true");
+    },
+  };
+}
+
+async function suspensionPlan(ctx: StepContext, accounts: ExistingAccount[]): Promise<boolean> {
+  // A person without a Subscription is on the Free Plan: its one Seat.
+  const over = accounts.filter((account) => account.seats > 1);
+  const people = over.reduce((sum, account) => sum + account.seats - 1, 0);
+  ctx.log(`  The trial is 0 days, so nobody starts one. ${plural(people, "person", "people")} in ${plural(over.length, "account")} will be suspended (the newest first) because the Free Plan has one Seat.`);
+  if (people === 0) return true;
+  const yes = await ctx.prompter.confirm({ id: "billing-existing-suspend", message: `Turn billing on knowing that ${plural(people, "person", "people")} will be suspended?`, initial: false });
+  if (!yes) ctx.log("  Not confirmed. Raise the trial days (`--redo plans`) or run this command again when you are ready.");
+  return yes;
+}
+
+async function trialPlan(ctx: StepContext, product: ProductIdentity, url: string, answers: BillingAnswers, accounts: ExistingAccount[], defaultEmail: string | undefined): Promise<boolean> {
+  const specs = planSpecs(product.id, answers);
+  const placed: { account: ExistingAccount; placement: TrialPlacement }[] = [];
+  for (const account of accounts) {
+    if (account.email.toLowerCase() === defaultEmail) continue;
+    const placement = placeTrial(specs, account.seats);
+    if (placement) placed.push({ account, placement });
+  }
+  if (placed.length === 0) {
+    ctx.log("  No account needs a trial (the Default account stays on Free, and there is no paid Plan to try).");
+    return true;
+  }
+  ctx.log(`  ${plural(placed.length, "account")} will start a ${answers.trialDays}-day trial with no card:`);
+  const byPlan = new Map<string, number>();
+  for (const { account, placement } of placed) {
+    const label = `${placement.plan.name}${placement.plan.kind === "per_seat" ? ` (${placement.seats} Seats)` : ""}`;
+    byPlan.set(label, (byPlan.get(label) ?? 0) + 1);
+    if (!placement.fits) ctx.log(`  ! ${account.email} takes ${account.seats} Seats, more than any Plan holds: the suspension acts at the end of the trial.`);
+  }
+  for (const [label, count] of byPlan) ctx.log(`    ${label}: ${plural(count, "account")}`);
+  if (defaultEmail) ctx.log(`  The Default account (${defaultEmail}) stays on Free, like any account without a Subscription.`);
+  ctx.log("  When a trial ends with no card it ends with no charge, the person goes back to Free, and the newest people beyond its one Seat are suspended. It is their only trial.");
+  if (!(await ctx.prompter.confirm({ id: "billing-existing-trial", message: `Start the trials of ${plural(placed.length, "account")} now?`, initial: false }))) {
+    ctx.log("  Not confirmed: nobody was changed. Run this command again when you are ready.");
+    return false;
+  }
+  // The real account only: the accounts are the production database's.
+  const stripe = ctx.stripe(await stripeKey(ctx, product, "live"));
+  let started = 0;
+  for (const { account, placement } of placed) {
+    // The customer is linked to the user before the Subscription exists: Stripe's event finds the user by it.
+    const customerId = account.stripeCustomerId ?? (await stripe.createCustomer(product.id, { userId: account.id, email: account.email, name: account.name }));
+    if (!account.stripeCustomerId) await ctx.accounts.linkStripeCustomer(url, account.id, customerId);
+    const lookupKey = placement.plan.prices[0]!.lookupKey;
+    if ((await stripe.startTrial(product.id, { customerId, userId: account.id, lookupKey, seats: placement.seats, days: answers.trialDays })) === "started") started++;
+  }
+  ctx.log(`  started ${plural(started, "trial")}; Stripe's events record them when the Worker is running with billing on.`);
+  return true;
+}
+
 const DAY_FORMAT = new Intl.DateTimeFormat("en", { dateStyle: "medium", timeZone: "UTC" });
 
 function money(amount: number, currency: string): string {
@@ -424,7 +536,7 @@ export async function migratePrices(ctx: StepContext, product: ProductIdentity):
 }
 
 export function billingSteps(product: ProductIdentity): Step[] {
-  return [keysStep(product), ciKeyStep(product), plansStep(product), entitlementsStep(product), webhookStep(product)];
+  return [keysStep(product), ciKeyStep(product), plansStep(product), entitlementsStep(product), webhookStep(product), existingStep(product)];
 }
 
 export const BILLING_MISSING_FEATURE = (productId: string) =>

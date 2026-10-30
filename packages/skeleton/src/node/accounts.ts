@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { hashPassword } from "better-auth/crypto";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { accounts, users } from "../db/schema.ts";
+import { accounts, subscriptions, users } from "../db/schema.ts";
+import { countSeats, seatPeople } from "../platform/seats.ts";
 
 export { passwordProblem, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from "../platform/password-rules.ts";
 
@@ -80,4 +81,40 @@ export async function upsertVerifiedUser({ databaseUrl, email, name, password }:
       return "password-reset" as const;
     }),
   );
+}
+
+/** An account that exists in the database, as `pnpm bootstrap billing` sees it when it turns billing on. */
+export type ExistingAccount = {
+  id: string;
+  email: string;
+  name: string;
+  /** The Seats the people in the Companies the account owns take (the Owner's own at least). */
+  seats: number;
+  /** The account has a Subscription row, of any status. */
+  subscribed: boolean;
+  stripeCustomerId: string | null;
+};
+
+/** The accounts that can sign in (verified, not archived), oldest first, with the Seats they take and whether billing already knows them. */
+export function listAccountsWithSeats({ databaseUrl }: { databaseUrl: string }): Promise<ExistingAccount[]> {
+  return withDb(databaseUrl, async (db) => {
+    const rows = await db
+      .select({ id: users.id, email: users.email, name: users.name, stripeCustomerId: users.stripeCustomerId })
+      .from(users)
+      .where(and(eq(users.emailVerified, true), isNull(users.archivedAt)))
+      .orderBy(asc(users.createdAt), asc(users.id));
+    const withSubscription = new Set((await db.select({ id: subscriptions.referenceId }).from(subscriptions)).map((row) => row.id));
+    const found: ExistingAccount[] = [];
+    for (const row of rows) {
+      found.push({ ...row, seats: Math.max(countSeats(await seatPeople(db, row.id)), 1), subscribed: withSubscription.has(row.id) });
+    }
+    return found;
+  });
+}
+
+/** Records the Stripe customer of a user, where `@better-auth/stripe` looks for it when a Subscription event arrives. */
+export function linkStripeCustomer({ databaseUrl, userId, customerId }: { databaseUrl: string; userId: string; customerId: string }): Promise<void> {
+  return withDb(databaseUrl, async (db) => {
+    await db.update(users).set({ stripeCustomerId: customerId }).where(eq(users.id, userId));
+  });
 }

@@ -293,6 +293,22 @@ export interface AccountsClient {
   verifiedUserExists(databaseUrl: string, email: string): Promise<boolean>;
   /** A verified user who signs in with `password`; an existing email gets verified and its password reset. */
   upsertUser(databaseUrl: string, user: { email: string; name: string; password: string }): Promise<"created" | "password-reset">;
+  /** The accounts that can sign in, with the Seats the people in the Companies they own take, and whether billing already knows them. */
+  listAccounts(databaseUrl: string): Promise<ExistingAccount[]>;
+  /** Records the Stripe customer of a user, where the Worker's billing looks for it when a Subscription event arrives. */
+  linkStripeCustomer(databaseUrl: string, userId: string, customerId: string): Promise<void>;
+}
+
+/** An account of the production database, as billing sees it when it is turned on for a Product that already has accounts. */
+export interface ExistingAccount {
+  id: string;
+  email: string;
+  name: string;
+  /** Seats the people in the Companies the account owns take (at least the account's own). */
+  seats: number;
+  /** The account has a Subscription row, of any status. */
+  subscribed: boolean;
+  stripeCustomerId: string | null;
 }
 
 /** A DNS record Resend asks for. `name` is relative to the domain, as Resend gives it. */
@@ -411,6 +427,13 @@ export interface StripeClient {
   /** The signing secret is returned by Stripe only now. */
   createWebhook(productId: string, url: string): Promise<{ id: string; secret: string }>;
   deleteWebhook(id: string): Promise<void>;
+  /** A Stripe customer for a person, tagged with the Product's id and the user's id. */
+  createCustomer(productId: string, person: { userId: string; email: string; name: string }): Promise<string>;
+  /**
+   * Starts a trial with no card on the price `lookupKey` for `seats`: it ends with no charge and no payment method asked for
+   * (Stripe cancels it). A customer that already has a Subscription is left alone: `exists`.
+   */
+  startTrial(productId: string, trial: { customerId: string; userId: string; lookupKey: string; seats: number; days: number }): Promise<"started" | "exists">;
 }
 
 /** What a wizard step asks of the person. Answers are never logged. */

@@ -92,7 +92,8 @@ Options:
                          for the domain command: resend-domain, dns-records, restricted-resend-key, worker-domain;
                          for the product command: neon-project, github-environment, database-secrets, auth-secret,
                          default-account (asks again, resets the password and the secret), the four domain steps, main-ruleset, deploy-products;
-                         for the billing command: keys (makes both keys again), ci-key (asks for the CI sandbox key again), plans (asks the plans again; a changed amount becomes a new price with the old nickname and the old one is archived, new plans are added and removed ones archived, in both accounts), webhook (a new endpoint and secret);
+                         for the billing command: keys (makes both keys again), ci-key (asks for the CI sandbox key again), plans (asks the plans again; a changed amount becomes a new price with the old nickname and the old one is archived, new plans are added and removed ones archived, in both accounts), webhook (a new endpoint and secret),
+                         existing (shows and confirms again what happens to the accounts that already exist);
                          for the previews command: preview-environment, preview-neon-project, preview-neon-key, preview-kv,
                          preview-account (asks again, replaces the password), preview-products;
                          for the factory command: labels, factory-token (asks for the token again), claude-auth, auto-merge,
@@ -194,7 +195,7 @@ async function dispatch(positionals: string[], redo: string[], deps: BootstrapDe
   }
   if (command === "billing") {
     if (!productId) {
-      deps.log(`Usage: pnpm bootstrap billing <id> [migrate-prices] [--redo keys|ci-key|plans|entitlements|webhook]`);
+      deps.log(`Usage: pnpm bootstrap billing <id> [migrate-prices] [--redo keys|ci-key|plans|entitlements|webhook|existing]`);
       return 1;
     }
     const product = await productOrAsk(deps, productId);
