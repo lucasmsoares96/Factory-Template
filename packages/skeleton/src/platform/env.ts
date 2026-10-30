@@ -45,6 +45,12 @@ export type SkeletonBindings = {
    * so that `pnpm dev` can set it. Never set where real money moves; a live key (`sk_live_`) turns it off.
    */
   STRIPE_FAKE?: string;
+  /**
+   * `pr-N` only in a Preview (set by the deploy's preview config, next to the sandbox's `STRIPE_SECRET_KEY`): every Stripe
+   * customer and Subscription billing creates carries it (`environment` metadata), and the Worker answers 200 and does
+   * nothing for an event without this tag. Production leaves it unset and ignores the events that carry any.
+   */
+  BILLING_ENVIRONMENT?: string;
   /** The KV namespace where `workers-oauth-provider` keeps the MCP Connections (clients, grants, tokens). */
   OAUTH_KV: object;
   /** Set only on a tool's in-Worker route call (see `MCP_CONNECTION`). */

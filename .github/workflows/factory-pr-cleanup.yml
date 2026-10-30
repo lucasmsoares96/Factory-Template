@@ -1,6 +1,6 @@
 # When a pull request closes (merged or not), every Product's preview of it goes: the Worker Preview `pr-N` and the
-# Neon branch `preview/pr-N`. It runs the code of the default branch on a fresh VM and never reads anything from the
-# PR but its number. Shows as skipped until PREVIEWS_ENABLED is set by `pnpm bootstrap previews <id>`.
+# Neon branch `preview/pr-N`, and its events endpoint in the Stripe sandbox. It runs the code of the default branch on
+# a fresh VM and never reads anything from the PR but its number. Shows as skipped until PREVIEWS_ENABLED is set by `pnpm bootstrap previews <id>`.
 name: PR cleanup
 
 on:
@@ -84,3 +84,10 @@ jobs:
           NEON_API_KEY: ${{ secrets[format('{0}PREVIEW_NEON_API_KEY', matrix.prefix)] }}
           NEON_PROJECT_ID: ${{ vars[format('{0}PREVIEW_NEON_PROJECT_ID', matrix.prefix)] }}
         run: node .factory/src/ci/previews.ts cleanup
+      # The PR's events endpoint in the Stripe sandbox (only the endpoints tagged for this PR and Product). It runs even if a
+      # step above failed, so a place in the sandbox's 16 is never held by a closed PR.
+      - name: delete the Stripe events endpoint
+        if: always()
+        env:
+          STRIPE_SANDBOX_KEY: ${{ secrets[format('{0}PREVIEW_STRIPE_SECRET_KEY', matrix.prefix)] }}
+        run: node .factory/src/ci/previews.ts cleanup-billing --product "$PRODUCT"
