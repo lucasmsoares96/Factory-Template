@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { StripeClient, StripePlanSpec } from "./clients.ts";
+import type { StripeClient, StripePlanSpec, StripePriceMigration } from "./clients.ts";
 import { entitlementMetadata, missingEntitlements, type EntitlementValue } from "./entitlements.ts";
 import { keyCreationUrl, keyMode, type KeyMode } from "./billing-permissions.ts";
 import { productionEnvironment, productSecretName, secretScope } from "./domain.ts";
@@ -278,7 +278,7 @@ export function plansStep(product: ProductIdentity): Step {
       const specs = planSpecs(product.id, answers);
       for (const mode of ["sandbox", "live"] as const) {
         const stripe = ctx.stripe(await stripeKey(ctx, product, mode));
-        await writeAccount(ctx, stripe, mode, product.id, specs);
+        await writeAccount(ctx, stripe, mode, product.id, specs, redo);
       }
       await ctx.github.setVariable(names.synced, "true");
       await writeEntitlements(ctx, product, answers);
@@ -326,11 +326,17 @@ export function entitlementsStep(product: ProductIdentity): Step {
   };
 }
 
-async function writeAccount(ctx: StepContext, stripe: StripeClient, mode: KeyMode, productId: string, specs: StripePlanSpec[]): Promise<void> {
+async function writeAccount(ctx: StepContext, stripe: StripeClient, mode: KeyMode, productId: string, specs: StripePlanSpec[], redo: boolean): Promise<void> {
   for (const spec of specs) {
-    const { created, different } = await stripe.ensurePlan(productId, spec);
+    // With --redo plans the answers are the truth: a price with another amount is replaced (new price, same lookup key, old archived).
+    const { created, different, replaced } = await stripe.ensurePlan(productId, spec, { replace: redo });
     if (created.length > 0) ctx.log(`  ${mode}: created ${created.join(", ")}`);
-    if (different.length > 0) ctx.log(`  ${mode}: ${different.join(", ")} exist with another amount or currency (a Stripe price cannot change; left alone)`);
+    if (replaced.length > 0) ctx.log(`  ${mode}: replaced ${replaced.join(", ")} with a new price (the old one is archived; its Subscriptions stay on it until \`pnpm bootstrap billing ${productId} migrate-prices\`)`);
+    if (different.length > 0) ctx.log(`  ${mode}: ${different.join(", ")} exist with another amount or currency (a Stripe price cannot change; left alone, --redo plans replaces it)`);
+  }
+  if (redo) {
+    const removed = await stripe.archivePlansExcept(productId, specs.map((spec) => spec.key));
+    if (removed.length > 0) ctx.log(`  ${mode}: archived the removed plan(s) ${removed.join(", ")} (their Subscriptions are untouched)`);
   }
   const methods = await stripe.ensurePaymentMethods();
   const portal = await stripe.ensurePortal(productId);
@@ -356,6 +362,60 @@ export function webhookStep(product: ProductIdentity): Step {
       ctx.log(`  created the endpoint ${webhookUrl(product)}${old.length > 0 ? ` and removed ${old.length} old one(s)` : ""}`);
     },
   };
+}
+
+const DAY_FORMAT = new Intl.DateTimeFormat("en", { dateStyle: "medium", timeZone: "UTC" });
+
+function money(amount: number, currency: string): string {
+  const digits = fractionDigits(currency);
+  return `${(amount / 10 ** digits).toFixed(digits)} ${currency.toUpperCase()}`;
+}
+
+/**
+ * `pnpm bootstrap billing <id> migrate-prices`: moves the real account's Subscriptions that are still on an archived price to
+ * the new one at their next renewal. Shows how many change and asks first; each Owner then gets the Worker's price-change
+ * email, sent when Stripe tells the events endpoint about the schedule. Returns the exit code.
+ */
+export async function migratePrices(ctx: StepContext, product: ProductIdentity): Promise<number> {
+  if (!ctx.interactive) {
+    ctx.log("migrate-prices asks for a confirmation and there is no terminal to ask: run it in a terminal.");
+    return 1;
+  }
+  const stripe = ctx.stripe(await stripeKey(ctx, product, "live"));
+  const endpoint = (await stripe.listWebhooks(product.id)).find((hook) => hook.url === webhookUrl(product));
+  if (!endpoint?.events.includes("subscription_schedule.updated")) {
+    ctx.log(`The events endpoint does not send subscription_schedule.updated, so the Owners would not get the price-change email. Run \`pnpm bootstrap billing ${product.id} --redo webhook\` first, then this command again.`);
+    return 1;
+  }
+  const migrations = await stripe.listPriceMigrations(product.id);
+  if (migrations.length === 0) {
+    ctx.log("No Subscription is on an old price: nothing to migrate.");
+    return 0;
+  }
+  ctx.log(`${migrations.length} Subscription(s) will move to the new price at their next renewal:`);
+  const groups = new Map<string, StripePriceMigration[]>();
+  for (const migration of migrations) groups.set(migration.lookupKey, [...(groups.get(migration.lookupKey) ?? []), migration]);
+  for (const [lookupKey, group] of [...groups].sort(([a], [b]) => a.localeCompare(b))) {
+    const [first] = group;
+    ctx.log(`  ${lookupKey}: ${group.length} from ${money(first!.oldAmount, first!.currency)} to ${money(first!.newAmount, first!.currency)}`);
+  }
+  const next = Math.min(...migrations.map((migration) => migration.renewsAt));
+  ctx.log(`Nothing is charged differently before each renewal (the first is on ${DAY_FORMAT.format(new Date(next * 1000))}). Each Owner gets an email with the old price, the new one and the date.`);
+  if (!(await ctx.prompter.confirm({ id: "billing-migrate-prices", message: `Schedule the new price for these ${migrations.length} Subscription(s) and email their Owners?`, initial: false }))) {
+    ctx.log("Nothing changed.");
+    return 0;
+  }
+  let done = 0;
+  for (const migration of migrations) {
+    try {
+      await stripe.schedulePriceMigration(migration);
+      done++;
+    } catch (error) {
+      ctx.log(`  ${migration.subscriptionId}: ${(error as Error).message}`);
+    }
+  }
+  ctx.log(`Scheduled ${done} of ${migrations.length}.${done < migrations.length ? " Run this command again for the rest." : ""}`);
+  return done === migrations.length ? 0 : 1;
 }
 
 export function billingSteps(product: ProductIdentity): Step[] {
