@@ -1,6 +1,7 @@
 import {
   CloudflareRefused,
   type AccountsClient,
+  type ExistingAccount,
   type CloudflareAccount,
   type CloudflareClient,
   type CloudflareDnsRecord,
@@ -539,18 +540,37 @@ export class FakeNeon {
  * ran before the first insert; an insert into a database nobody migrated fails like Postgres would (no table).
  */
 export class FakeAccounts implements AccountsClient {
-  readonly databases = new Map<string, { migrated: boolean; users: Map<string, { password: string; verified: boolean }> }>();
+  readonly databases = new Map<string, { migrated: boolean; users: Map<string, { password: string; verified: boolean }>; existing: ExistingAccount[] }>();
   readonly events: string[] = [];
   writes = 0;
 
   private database(url: string) {
     let found = this.databases.get(url);
-    if (!found) this.databases.set(url, (found = { migrated: false, users: new Map() }));
+    if (!found) this.databases.set(url, (found = { migrated: false, users: new Map(), existing: [] }));
     return found;
   }
   async migrate(url: string, productId: string): Promise<void> {
     this.events.push(`migrate ${productId}`);
     this.database(url).migrated = true;
+  }
+  /** Accounts that were in the database before billing, with their Seats. */
+  seedAccounts(url: string, accounts: (Partial<ExistingAccount> & Pick<ExistingAccount, "email">)[]): void {
+    const db = this.database(url);
+    for (const account of accounts) {
+      db.existing.push({ id: `user-${account.email}`, name: account.email.split("@")[0]!, seats: 1, subscribed: false, stripeCustomerId: null, ...account });
+    }
+  }
+  /** The customer ids linked to users, by email. */
+  linkedCustomers(url: string): Record<string, string | null> {
+    return Object.fromEntries(this.database(url).existing.map((account) => [account.email, account.stripeCustomerId]));
+  }
+  async listAccounts(url: string): Promise<ExistingAccount[]> {
+    return this.database(url).existing.map((account) => ({ ...account }));
+  }
+  async linkStripeCustomer(url: string, userId: string, customerId: string): Promise<void> {
+    this.writes++;
+    const account = this.database(url).existing.find((candidate) => candidate.id === userId);
+    if (account) account.stripeCustomerId = customerId;
   }
   async userExists(url: string, email: string): Promise<boolean> {
     return this.database(url).users.has(email.toLowerCase());
@@ -732,6 +752,9 @@ export class FakeStripeAccount {
   priceCount = 0;
   readonly webhooks: (StripeWebhook & { productId: string; secret: string })[] = [];
   readonly portals = new Set<string>();
+  readonly customers: { id: string; productId: string; userId: string; email: string }[] = [];
+  /** Trials started with no card (Stripe cancels each when it ends): the price, the Seats and the days. */
+  readonly trials: { customerId: string; productId: string; userId: string; lookupKey: string; seats: number; days: number }[] = [];
   paymentMethodsOn = false;
   writes = 0;
 }
@@ -890,6 +913,22 @@ export class FakeStripe {
         account.writes++;
         const at = account.webhooks.findIndex((hook) => hook.id === id);
         if (at >= 0) account.webhooks.splice(at, 1);
+      },
+      createCustomer: async (productId, person) => {
+        check();
+        const found = account.customers.find((customer) => customer.productId === productId && customer.userId === person.userId);
+        if (found) return found.id;
+        account.writes++;
+        const customer = { id: `cus_${account.customers.length + 1}`, productId, userId: person.userId, email: person.email };
+        account.customers.push(customer);
+        return customer.id;
+      },
+      startTrial: async (productId, trial) => {
+        check();
+        if (account.trials.some((sub) => sub.customerId === trial.customerId)) return "exists";
+        account.writes++;
+        account.trials.push({ productId, ...trial });
+        return "started";
       },
     };
   }

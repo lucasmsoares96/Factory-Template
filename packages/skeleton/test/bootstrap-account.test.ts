@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { migrateDatabase } from "../src/node/migrate.ts";
 import { mockResend } from "../src/node/resend-mock.ts";
-import { passwordProblem, upsertVerifiedUser, userExists, verifiedUserExists } from "../src/node/accounts.ts";
+import { linkStripeCustomer, listAccountsWithSeats, passwordProblem, upsertVerifiedUser, userExists, verifiedUserExists } from "../src/node/accounts.ts";
 import { createEmptyDatabase } from "./support/database.ts";
 import { startTestWorker, type TestWorker } from "./support/worker.ts";
 
@@ -74,4 +74,34 @@ test("passwordProblem applies the rules sign-up applies", async () => {
   const email = `short-${randomUUID()}@example.com`;
   const tooShort = await worker.post("/api/auth/sign-up/email", { name: "S", email, password: "short", callbackURL: "/" });
   expect(tooShort.status).toBe(400);
+});
+
+test("the accounts that exist before billing are listed with the Seats they take, and a Stripe customer is linked to one", async () => {
+  const owner = `owner-${randomUUID()}@example.com`;
+  const member = `member-${randomUUID()}@example.com`;
+  const loner = `loner-${randomUUID()}@example.com`;
+  const subscribed = `paid-${randomUUID()}@example.com`;
+  const archived = `gone-${randomUUID()}@example.com`;
+  for (const email of [owner, member, loner, subscribed, archived]) await upsertVerifiedUser({ databaseUrl: db.url, email, name: email.split("-")[0]!, password: "correct horse battery" });
+  const id = async (email: string) => (await db.query<{ id: string }>(`SELECT id FROM skeleton.users WHERE email = '${email}'`))[0]!.id;
+  await db.query(`INSERT INTO skeleton.companies (id, name) VALUES ('c-seats-1', 'Acme'), ('c-seats-2', 'Beta')`);
+  await db.query(`INSERT INTO skeleton.members (company_id, user_id, role) VALUES ('c-seats-1', '${await id(owner)}', 'owner'), ('c-seats-1', '${await id(member)}', 'employee'), ('c-seats-2', '${await id(owner)}', 'owner'), ('c-seats-2', '${await id(member)}', 'employee')`);
+  await db.query(`INSERT INTO skeleton.invitations (id, company_id, email, role, token_hash, invited_by, expires_at) SELECT 'inv-seats-1', 'c-seats-2', 'guest@example.com', 'employee', 'hash-seats-1', '${await id(owner)}', now() + interval '7 days'`);
+  await db.query(`INSERT INTO skeleton.subscriptions (id, plan, reference_id, status) VALUES ('sub-seats-1', 'prod_x', '${await id(subscribed)}', 'canceled')`);
+  await db.query(`UPDATE skeleton.users SET archived_at = now() WHERE email = '${archived}'`);
+
+  const listed = await listAccountsWithSeats({ databaseUrl: db.url });
+  const byEmail = Object.fromEntries(listed.map((account) => [account.email, account]));
+
+  // Owner, the Member (once, though in two Companies) and the pending Invitation.
+  expect(byEmail[owner]).toMatchObject({ seats: 3, subscribed: false, stripeCustomerId: null });
+  expect(byEmail[member]).toMatchObject({ seats: 1 });
+  expect(byEmail[loner]).toMatchObject({ seats: 1 });
+  expect(byEmail[subscribed]).toMatchObject({ subscribed: true });
+  expect(byEmail[archived]).toBeUndefined();
+
+  await linkStripeCustomer({ databaseUrl: db.url, userId: byEmail[owner]!.id, customerId: "cus_linked" });
+  const [row] = await db.query<{ stripe_customer_id: string }>(`SELECT stripe_customer_id FROM skeleton.users WHERE email = '${owner}'`);
+  expect(row?.stripe_customer_id).toBe("cus_linked");
+  expect((await listAccountsWithSeats({ databaseUrl: db.url })).find((account) => account.email === owner)?.stripeCustomerId).toBe("cus_linked");
 });

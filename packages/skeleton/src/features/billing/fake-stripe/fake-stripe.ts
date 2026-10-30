@@ -106,6 +106,7 @@ export class FakeStripe {
     }
     if (route === "GET /v1/prices") return this.listPrices(params);
     if (route === "POST /v1/checkout/sessions") return this.createSession(params);
+    if (route === "POST /v1/subscriptions") return this.createSubscription(params);
     if (route === "GET /v1/subscriptions") {
       const subs = (await this.store.list<Obj>("subscription")).filter(
         (s) => (!params.customer || s.customer === params.customer) && (!params.status || params.status === "all" || s.status === params.status),
@@ -154,6 +155,46 @@ export class FakeStripe {
     };
     await this.store.put("customer", customer);
     return json(customer);
+  }
+
+  /**
+   * `POST /v1/subscriptions`: a Subscription made through the API, with no Checkout (the way `pnpm bootstrap billing`
+   * starts the trial of an account that already existed). With `trial_period_days` it is `trialing`, and with
+   * `trial_settings.end_behavior.missing_payment_method=cancel` and no card (the fake keeps none) it ends when the trial does.
+   * Sends `customer.subscription.created`, as Stripe does.
+   */
+  private async createSubscription(params: Json) {
+    if (!(await this.store.get("customer", params.customer))) return missing("customer", params.customer);
+    const now = await this.now();
+    const trialDays = Number(params.trial_period_days ?? 0);
+    const trialEnd = trialDays > 0 ? now + trialDays * 24 * 60 * 60 : null;
+    const items = [];
+    for (const item of Object.values<Json>(params.items ?? {})) {
+      const price = await this.store.get<Obj>("price", item.price);
+      if (!price) return missing("price", item.price);
+      items.push({ id: id("si"), object: "subscription_item", price, quantity: Number(item.quantity ?? 1), current_period_start: now, current_period_end: trialEnd ?? addMonth(now) });
+    }
+    const subscription: Obj = {
+      id: id("sub"),
+      object: "subscription",
+      customer: params.customer,
+      status: trialEnd ? "trialing" : "active",
+      metadata: params.metadata ?? {},
+      items: { object: "list", data: items, has_more: false, url: "/v1/subscription_items" },
+      cancel_at_period_end: false,
+      cancel_at: null,
+      canceled_at: null,
+      ended_at: null,
+      trial_start: trialEnd ? now : null,
+      trial_end: trialEnd,
+      trial_settings: params.trial_settings ?? null,
+      default_payment_method: null,
+      schedule: null,
+      created: now,
+    };
+    await this.store.put("subscription", subscription);
+    await this.emit("customer.subscription.created", subscription);
+    return json(subscription);
   }
 
   private async listPrices(params: Json) {
@@ -290,7 +331,7 @@ export class FakeStripe {
   /**
    * Moves Stripe's clock forward and lets every Subscription whose period ended
    * renew (or end, when it was set to cancel at the period's end). A trial ends
-   * the same way, with the first charge, and sends `trial_will_end` once its end
+   * the same way, with the first charge (a trial made through the API with no card to charge ends instead), and sends `trial_will_end` once its end
    * is 3 days away. With
    * `paymentFails` the renewals fail instead and the Subscriptions go past due.
    */
@@ -315,7 +356,8 @@ export class FakeStripe {
         continue;
       }
       if (item.current_period_end > now) continue;
-      if (sub.cancel_at_period_end) {
+      const endsWithoutCard = sub.status === "trialing" && !sub.default_payment_method && sub.trial_settings?.end_behavior?.missing_payment_method === "cancel";
+      if (sub.cancel_at_period_end || endsWithoutCard) {
         const ended = await this.store.put("subscription", { ...sub, status: "canceled", ended_at: now, canceled_at: sub.canceled_at ?? now });
         await this.emit("customer.subscription.deleted", ended);
       } else if (paymentFails) {
