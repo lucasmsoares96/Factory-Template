@@ -24,7 +24,7 @@ export type FakeStripeDeps = {
 type Json = Record<string, any>;
 type Obj = StoredObject & Json;
 
-const MONTH_PRICE = { currency: "usd", interval: "month" } as const;
+const CURRENCY = "usd";
 const TRIAL_WARNING = 3 * 24 * 60 * 60;
 /** How long the fake keeps retrying a failed renewal before it gives up and ends the Subscription. */
 export const RETRY_DAYS = PAYMENT_RETRY_DAYS;
@@ -34,11 +34,14 @@ const CLOCK = "setting_clock";
 
 const id = (prefix: string) => `${prefix}_${crypto.randomUUID().replaceAll("-", "").slice(0, 24)}`;
 
-function addMonth(seconds: number): number {
+function addInterval(seconds: number, interval: "month" | "year" = "month"): number {
   const date = new Date(seconds * 1000);
-  date.setUTCMonth(date.getUTCMonth() + 1);
+  if (interval === "year") date.setUTCFullYear(date.getUTCFullYear() + 1);
+  else date.setUTCMonth(date.getUTCMonth() + 1);
   return Math.floor(date.getTime() / 1000);
 }
+
+const intervalOf = (price: Json): "month" | "year" => (price.recurring?.interval === "year" ? "year" : "month");
 
 function json(body: unknown, status = 200) {
   return Response.json(body, { status });
@@ -114,12 +117,23 @@ export class FakeStripe {
       return list(subs, path);
     }
     if (route === "GET /v1/billing_portal/configurations") {
-      const configurations = (await this.store.list<Obj>("portal")).filter((p) => params.active === undefined || String(p.active) === params.active);
+      const configurations = (await this.store.list<Obj>("portal")).filter((p) => p.object === "billing_portal.configuration" && (params.active === undefined || String(p.active) === params.active));
       return list(configurations, path);
     }
-    if (route === "POST /v1/billing_portal/sessions") {
-      if (params.configuration && !(await this.store.get("portal", params.configuration))) return missing("billing portal configuration", params.configuration);
-      return json({ id: id("bps"), object: "billing_portal.session", customer: params.customer, configuration: params.configuration ?? PORTAL_CONFIGURATION, url: params.return_url });
+    if (route === "POST /v1/billing_portal/sessions") return this.createPortalSession(params);
+    if (route === "GET /v1/subscription_schedules") {
+      const schedules = (await this.store.list<Obj>("schedule")).filter((schedule) => !params.customer || schedule.customer === params.customer);
+      return list(schedules, path);
+    }
+    if (route === "POST /v1/subscription_schedules") return this.createSchedule(params);
+    const scheduleRoute = /^(GET|POST) \/v1\/subscription_schedules\/([^/]+?)(\/release)?$/.exec(route);
+    if (scheduleRoute) {
+      const [, method, scheduleId, release] = scheduleRoute as unknown as [string, string, string, string | undefined];
+      const schedule = await this.store.get<Obj>("schedule", decodeURIComponent(scheduleId));
+      if (!schedule) return missing("subscription schedule", scheduleId);
+      if (release) return json(await this.releaseSchedule(schedule));
+      if (method === "GET") return json(schedule);
+      return json(await this.updateSchedule(schedule, params));
     }
     const update = /^POST \/v1\/subscriptions\/([^/]+)$/.exec(route);
     if (update && params.cancel_at_period_end !== undefined) {
@@ -172,7 +186,7 @@ export class FakeStripe {
     for (const item of Object.values<Json>(params.items ?? {})) {
       const price = await this.store.get<Obj>("price", item.price);
       if (!price) return missing("price", item.price);
-      items.push({ id: id("si"), object: "subscription_item", price, quantity: Number(item.quantity ?? 1), current_period_start: now, current_period_end: trialEnd ?? addMonth(now) });
+      items.push({ id: id("si"), object: "subscription_item", price, quantity: Number(item.quantity ?? 1), current_period_start: now, current_period_end: trialEnd ?? addInterval(now, intervalOf(price)) });
     }
     const subscription: Obj = {
       id: id("sub"),
@@ -236,6 +250,167 @@ export class FakeStripe {
     return json(session);
   }
 
+  /**
+   * `POST /v1/billing_portal/sessions`. With the `subscription_update_confirm` flow it keeps what the person is about to
+   * change (the Subscription's item, the new price and quantity) and answers the fake confirmation page, where they pay;
+   * any other session just points back to the app.
+   */
+  private async createPortalSession(params: Json) {
+    if (params.configuration && !(await this.store.get("portal", params.configuration))) return missing("billing portal configuration", params.configuration);
+    const sessionId = id("bps");
+    const confirm = params.flow_data?.type === "subscription_update_confirm" ? params.flow_data.subscription_update_confirm : undefined;
+    const returnUrl = params.flow_data?.after_completion?.redirect?.return_url ?? params.return_url;
+    if (!confirm) return json({ id: sessionId, object: "billing_portal.session", customer: params.customer, configuration: params.configuration ?? PORTAL_CONFIGURATION, url: params.return_url });
+    const sub = await this.store.get<Obj>("subscription", confirm.subscription);
+    if (!sub) return missing("subscription", confirm.subscription);
+    const items: Json[] = Object.values(confirm.items ?? {});
+    for (const item of items) {
+      if (!(await this.store.get("price", item.price))) return missing("price", item.price);
+    }
+    const session: Obj = {
+      id: sessionId,
+      object: "billing_portal.session",
+      customer: params.customer,
+      configuration: params.configuration ?? PORTAL_CONFIGURATION,
+      subscription: sub.id,
+      items: items.map((item) => ({ id: item.id, price: item.price, quantity: Number(item.quantity ?? 1) })),
+      status: "open",
+      return_url: returnUrl,
+      url: `${this.deps.origin}${FAKE_STRIPE_PATH}/portal/${sessionId}`,
+    };
+    await this.store.put("portal", session);
+    return json(session);
+  }
+
+  /** `POST /v1/subscription_schedules` from a Subscription: one phase, the current period, as Stripe makes it. */
+  private async createSchedule(params: Json) {
+    const sub = await this.store.get<Obj>("subscription", params.from_subscription);
+    if (!sub) return missing("subscription", params.from_subscription);
+    const item = sub.items.data[0];
+    const schedule: Obj = {
+      id: id("sub_sched"),
+      object: "subscription_schedule",
+      customer: sub.customer,
+      subscription: sub.id,
+      status: "active",
+      end_behavior: "release",
+      metadata: {},
+      phases: [{ start_date: item.current_period_start, end_date: item.current_period_end, items: sub.items.data.map((i: Json) => ({ price: i.price.id, quantity: i.quantity })) }],
+      created: await this.now(),
+    };
+    await this.store.put("schedule", schedule);
+    await this.store.put("subscription", { ...sub, schedule: schedule.id });
+    return json(schedule);
+  }
+
+  /** `POST /v1/subscription_schedules/{id}`: replaces the phases and merges the metadata. */
+  private async updateSchedule(schedule: Obj, params: Json) {
+    const phases: Json[] = Object.values(params.phases ?? {});
+    return this.store.put("schedule", {
+      ...schedule,
+      ...(params.end_behavior ? { end_behavior: params.end_behavior } : {}),
+      metadata: { ...schedule.metadata, ...params.metadata },
+      phases: phases.length
+        ? phases.map((phase) => ({
+            start_date: Number(phase.start_date),
+            ...(phase.end_date ? { end_date: Number(phase.end_date) } : {}),
+            ...(phase.proration_behavior ? { proration_behavior: phase.proration_behavior } : {}),
+            items: Object.values<Json>(phase.items ?? {}).map((item) => ({ price: item.price, quantity: Number(item.quantity ?? 1) })),
+          }))
+        : schedule.phases,
+    });
+  }
+
+  /** `POST /v1/subscription_schedules/{id}/release`: the Subscription goes on as it is, with no change waiting. */
+  private async releaseSchedule(schedule: Obj) {
+    const sub = await this.store.get<Obj>("subscription", schedule.subscription);
+    if (sub?.schedule === schedule.id) await this.store.put("subscription", { ...sub, schedule: null });
+    return this.store.put("schedule", { ...schedule, status: "released" });
+  }
+
+  /** What the confirmation page shows: the change and what is charged for it today. */
+  async portalDetails(sessionId: string) {
+    const session = await this.store.get<Obj>("portal", sessionId);
+    const sub = session && (await this.store.get<Obj>("subscription", session.subscription));
+    if (!session || !sub) return undefined;
+    const old = sub.items.data[0];
+    const next = session.items[0];
+    const price = (await this.store.get<Obj>("price", next.price))!;
+    const [oldProduct, newProduct] = await Promise.all([this.store.get<Obj>("product", old.price.product), this.store.get<Obj>("product", price.product)]);
+    const now = await this.now();
+    const span = old.current_period_end - old.current_period_start;
+    const remaining = span > 0 ? Math.min(1, Math.max(0, (old.current_period_end - now) / span)) : 0;
+    const before = old.price.unit_amount * old.quantity;
+    const after = price.unit_amount * next.quantity;
+    // A trial is not charged; a new interval starts a new period now, crediting what is left of the old one.
+    const due =
+      sub.status === "trialing" ? 0 : intervalOf(price) !== intervalOf(old.price) ? Math.max(0, after - Math.round(before * remaining)) : Math.max(0, Math.round((after - before) * remaining));
+    return {
+      session,
+      from: { name: oldProduct?.name ?? "", price: old.price, quantity: old.quantity },
+      to: { name: newProduct?.name ?? "", price, quantity: next.quantity },
+      due,
+      currency: price.currency as string,
+    };
+  }
+
+  /**
+   * The person answers the confirmation page. `pay`: the card is charged and the Subscription changes. `authenticate`:
+   * the bank asks for confirmation (3D Secure): nothing changes until `authenticate` (the control) says it passed.
+   * `decline`: the card is declined, nothing changes. Answers where the browser goes next, `undefined` for an unknown session.
+   */
+  async completePortal(sessionId: string, outcome: "pay" | "authenticate" | "decline") {
+    const session = await this.store.get<Obj>("portal", sessionId);
+    if (!session) return undefined;
+    const back = String(session.return_url);
+    if (session.status !== "open") return { next: back };
+    if (outcome === "decline") return { next: `${this.deps.origin}${FAKE_STRIPE_PATH}/portal/${sessionId}?declined=1` };
+    const sub = await this.store.get<Obj>("subscription", session.subscription);
+    if (!sub) return undefined;
+    if (outcome === "pay") {
+      await this.store.put("portal", { ...session, status: "complete" });
+      await this.emit("customer.subscription.updated", await this.applyItems(sub, session.items));
+    } else {
+      await this.store.put("portal", { ...session, status: "requires_action" });
+      const pending = await this.store.put("subscription", {
+        ...sub,
+        pending_update: { subscription_items: session.items, expires_at: (await this.now()) + 23 * 60 * 60 },
+      });
+      await this.emit("customer.subscription.updated", pending);
+    }
+    return { next: back };
+  }
+
+  /** The bank's confirmation of a pending change: it passes (the change applies) or fails (it is dropped). */
+  async authenticate(subscriptionId: string, passes: boolean) {
+    const sub = await this.store.get<Obj>("subscription", subscriptionId);
+    if (!sub?.pending_update) return undefined;
+    const updated = passes
+      ? await this.applyItems(sub, sub.pending_update.subscription_items)
+      : await this.store.put("subscription", { ...sub, pending_update: null });
+    await this.emit("customer.subscription.updated", updated);
+    return updated;
+  }
+
+  /**
+   * Puts the new price and quantity on the Subscription's item. A change of interval starts a new period now (unless
+   * the Subscription is in its trial, which goes on).
+   */
+  private async applyItems(sub: Obj, changes: { price: string; quantity: number }[]) {
+    const now = await this.now();
+    const old = sub.items.data[0];
+    const change = changes[0]!;
+    const price = (await this.store.get<Obj>("price", change.price))!;
+    const restarts = intervalOf(price) !== intervalOf(old.price) && sub.status !== "trialing";
+    const item = {
+      ...old,
+      price,
+      quantity: Number(change.quantity),
+      ...(restarts ? { current_period_start: now, current_period_end: addInterval(now, intervalOf(price)) } : {}),
+    };
+    return this.store.put("subscription", { ...sub, pending_update: null, items: { ...sub.items, data: [item] } });
+  }
+
   /** What the Checkout page shows: the session, the products and prices it charges. */
   async checkoutDetails(sessionId: string) {
     const session = await this.store.get<Obj>("checkout", sessionId);
@@ -274,7 +449,7 @@ export class FakeStripe {
     const items = [];
     for (const line of session.line_items as { price: string; quantity: number }[]) {
       const price = (await this.store.get<Obj>("price", line.price))!;
-      items.push({ id: id("si"), object: "subscription_item", price, quantity: line.quantity, current_period_start: now, current_period_end: trialEnd ?? addMonth(now) });
+      items.push({ id: id("si"), object: "subscription_item", price, quantity: line.quantity, current_period_start: now, current_period_end: trialEnd ?? addInterval(now, intervalOf(price)) });
     }
     const subscription: Obj = {
       id: id("sub"),
@@ -356,16 +531,29 @@ export class FakeStripe {
         continue;
       }
       if (item.current_period_end > now) continue;
+      const schedule = sub.schedule ? await this.store.get<Obj>("schedule", sub.schedule) : undefined;
+      const next = schedule?.status === "active" ? schedule.phases[1] : undefined;
+      if (next && !sub.cancel_at_period_end && !paymentFails) {
+        // The scheduled change starts with the new period: the paid one ran out.
+        const items = [];
+        for (const line of next.items as { price: string; quantity: number }[]) {
+          const price = (await this.store.get<Obj>("price", line.price))!;
+          items.push({ id: id("si"), object: "subscription_item", price, quantity: line.quantity, current_period_start: next.start_date, current_period_end: addInterval(next.start_date, intervalOf(price)) });
+        }
+        await this.store.put("schedule", { ...schedule!, status: "completed" });
+        await this.emit("customer.subscription.updated", await this.store.put("subscription", { ...sub, status: "active", schedule: null, items: { ...sub.items, data: items } }), { status: sub.status });
+        continue;
+      }
       const endsWithoutCard = sub.status === "trialing" && !sub.default_payment_method && sub.trial_settings?.end_behavior?.missing_payment_method === "cancel";
       if (sub.cancel_at_period_end || endsWithoutCard) {
         const ended = await this.store.put("subscription", { ...sub, status: "canceled", ended_at: now, canceled_at: sub.canceled_at ?? now });
         await this.emit("customer.subscription.deleted", ended);
       } else if (paymentFails) {
         // The new period starts at the failed charge; the Subscription stays past due while Stripe retries.
-        const items = sub.items.data.map((i: Json) => ({ ...i, current_period_start: i.current_period_end, current_period_end: addMonth(i.current_period_end) }));
+        const items = sub.items.data.map((i: Json) => ({ ...i, current_period_start: i.current_period_end, current_period_end: addInterval(i.current_period_end, intervalOf(i.price)) }));
         await this.emit("customer.subscription.updated", await this.store.put("subscription", { ...sub, status: "past_due", items: { ...sub.items, data: items } }), { status: sub.status });
       } else {
-        const items = sub.items.data.map((i: Json) => ({ ...i, current_period_start: i.current_period_end, current_period_end: addMonth(i.current_period_end) }));
+        const items = sub.items.data.map((i: Json) => ({ ...i, current_period_start: i.current_period_end, current_period_end: addInterval(i.current_period_end, intervalOf(i.price)) }));
         await this.emit("customer.subscription.updated", await this.store.put("subscription", { ...sub, status: "active", items: { ...sub.items, data: items } }), { status: sub.status });
       }
     }
@@ -398,7 +586,7 @@ export class FakeStripe {
     let failed = 0;
     for (const sub of await this.store.list<Obj>("subscription")) {
       if (!customers.has(sub.customer) || !["active", "trialing"].includes(sub.status)) continue;
-      const items = sub.items.data.map((i: Json) => ({ ...i, current_period_start: now, current_period_end: addMonth(now) }));
+      const items = sub.items.data.map((i: Json) => ({ ...i, current_period_start: now, current_period_end: addInterval(now, intervalOf(i.price)) }));
       await this.emit("customer.subscription.updated", await this.store.put("subscription", { ...sub, status: "past_due", items: { ...sub.items, data: items } }), { status: sub.status });
       failed += 1;
     }
@@ -482,11 +670,11 @@ export class FakeStripe {
       created,
     });
     // The last thing seeded is the marker, so a concurrent request never reads a half-seeded catalog.
-    if (await this.store.get("price", "price_fake_team_monthly")) return;
+    if (await this.store.get("price", "price_fake_team_yearly")) return;
     const plans = [
-      { key: "free", seats: 1, amount: null, reports: "false", projects: "1" },
-      { key: "pro", seats: 3, amount: 1900, reports: "true", projects: "5" },
-      { key: "team", seats: 10, amount: 4900, reports: "true", projects: "20" },
+      { key: "free", seats: 1, amount: null, yearly: null, reports: "false", projects: "1" },
+      { key: "pro", seats: 3, amount: 1900, yearly: 19000, reports: "true", projects: "5" },
+      { key: "team", seats: 10, amount: 4900, yearly: 49000, reports: "true", projects: "20" },
     ] as const;
     for (const plan of plans) {
       const product: Obj = {
@@ -500,20 +688,22 @@ export class FakeStripe {
       };
       await this.store.put("product", product);
       if (plan.amount === null) continue;
-      await this.store.put("price", {
-        id: `price_fake_${plan.key}_monthly`,
-        object: "price",
-        active: true,
-        product: product.id,
-        currency: MONTH_PRICE.currency,
-        unit_amount: plan.amount,
-        lookup_key: `${productId}_${plan.key}_monthly`,
-        nickname: null,
-        type: "recurring",
-        recurring: { interval: MONTH_PRICE.interval, interval_count: 1, usage_type: "licensed" },
-        metadata: {},
-        created,
-      });
+      for (const [interval, amount] of [["month", plan.amount], ["year", plan.yearly]] as const) {
+        await this.store.put("price", {
+          id: `price_fake_${plan.key}_${interval === "year" ? "yearly" : "monthly"}`,
+          object: "price",
+          active: true,
+          product: product.id,
+          currency: CURRENCY,
+          unit_amount: amount,
+          lookup_key: `${productId}_${plan.key}_${interval === "year" ? "yearly" : "monthly"}`,
+          nickname: null,
+          type: "recurring",
+          recurring: { interval, interval_count: 1, usage_type: "licensed" },
+          metadata: {},
+          created,
+        });
+      }
     }
   }
 }
