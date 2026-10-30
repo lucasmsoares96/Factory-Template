@@ -633,6 +633,8 @@ export class FakePrompter implements Prompter {
   readonly notes: string[] = [];
   /** Lines through `link`: written verbatim, one per entry. */
   readonly printed: string[] = [];
+  /** The message of every `text` prompt, in order. */
+  readonly messages: string[] = [];
   columns = 80;
   private readonly answers: Record<string, string | boolean | string[]>;
 
@@ -640,9 +642,9 @@ export class FakePrompter implements Prompter {
     this.answers = answers;
   }
 
-  /** Changes what a later ask of `id` answers (a test redoing a step with other answers). */
-  script(id: string, value: string | boolean | string[]): void {
-    this.answers[id] = value;
+  /** Replaces the scripted answer of a prompt (a list is a queue). */
+  script(id: string, answer: string | boolean | string[]): void {
+    this.answers[id] = answer;
   }
 
   note(message: string): void {
@@ -661,7 +663,8 @@ export class FakePrompter implements Prompter {
     if (Array.isArray(value)) return (value.length > 1 ? value.shift() : value[0]) as string;
     return value;
   }
-  async text(input: { id: string }): Promise<string> {
+  async text(input: { id: string; message?: string }): Promise<string> {
+    this.messages.push(input.message ?? "");
     return String(this.answer(input.id));
   }
   async password(input: { id: string }): Promise<string> {
@@ -717,6 +720,8 @@ export class FakeTokens {
 export class FakeStripeAccount {
   readonly plans = new Map<string, StripePlanSpec & { productId: string }>();
   /** Amounts the prices were made with, by lookup key (a price never changes). */
+  /** `entitlement_<name>` metadata of each plan (`<product>/<plan>`). */
+  readonly entitlements = new Map<string, Record<string, string>>();
   readonly prices = new Map<string, { id: string; amount: number; currency: string; interval: string }>();
   /** Prices a newer one replaced (same lookup key), kept for the Subscriptions still on them. */
   readonly archivedPrices: { id: string; lookupKey: string; amount: number; currency: string; interval: string }[] = [];
@@ -767,6 +772,7 @@ export class FakeStripe {
             name: plan.name,
             kind: plan.kind,
             seats: plan.seats,
+            entitlements: { ...account.entitlements.get(`${productId}/${plan.key}`) },
             prices: plan.prices
               .map((price) => {
                 const { amount, currency, interval } = account.prices.get(price.lookupKey)!;
@@ -842,6 +848,17 @@ export class FakeStripe {
         check();
         account.writes++;
         account.subscriptions.find((sub) => sub.id === migration.subscriptionId)!.scheduledTo = migration.toPriceId;
+      },
+      ensureEntitlements: async (productId, planKey, values) => {
+        check();
+        const id = `${productId}/${planKey}`;
+        if (!account.plans.has(id)) throw new Error(`Stripe has no product for the plan ${planKey}.`);
+        const held = account.entitlements.get(id) ?? {};
+        const added = Object.keys(values).filter((name) => !(name in held));
+        for (const name of added) held[name] = String(values[name]);
+        account.entitlements.set(id, held);
+        if (added.length > 0) account.writes++;
+        return added;
       },
       ensurePaymentMethods: async () => {
         check();
