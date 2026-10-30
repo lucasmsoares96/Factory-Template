@@ -15,6 +15,7 @@ import {
   COMMENT_MARKER,
   parseJsonc,
   artifactMigrationNames,
+  databaseLog,
   planPreviews,
   prepareDatabase,
   previewConfig,
@@ -424,6 +425,12 @@ describe("the Neon branch of a PR", () => {
 
       expect(again).toMatchObject({ status: "ready", recreated: { missing: ["a"] } });
       expect(project.branches).toHaveLength(10);
+    });
+
+    it("logs that the branch was recreated and which migration made it so", () => {
+      const ready = { status: "ready" as const, directUrl: "d", pooledUrl: "p" };
+      expect(databaseLog("preview/pr-7", { ...ready, created: true, recreated: { missing: ["old"] } })).toMatch(/recreated from base.*renamed: old/);
+      expect(databaseLog("preview/pr-7", { ...ready, created: false })).toBe("Neon branch preview/pr-7 reused");
     });
 
     it("reads the folder names of the artifact's migration sets", () => {

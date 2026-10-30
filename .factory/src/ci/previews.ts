@@ -186,6 +186,12 @@ export async function prepareDatabase(input: {
   };
 }
 
+/** The job log line for a ready database: created, reused, or recreated and why. */
+export function databaseLog(branch: string, result: Extract<DatabaseResult, { status: "ready" }>): string {
+  if (result.recreated) return `Neon branch ${branch} recreated from base: the migration(s) it had applied are gone from the PR or were renamed: ${result.recreated.missing.join(", ")}`;
+  return `Neon branch ${branch} ${result.created ? "created from base" : "reused"}`;
+}
+
 /** The migration folder names of an artifact: the Skeleton's and the Product's, which is what the journals record as `name`. */
 export function artifactMigrationNames(dir: string): string[] {
   const names: string[] = [];
@@ -465,9 +471,7 @@ if (import.meta.main) {
       // Files, not step outputs: nothing secret goes through the Actions log or its output store.
       writeFileSync(join(out, "direct-url"), result.directUrl, { mode: 0o600 });
       writeFileSync(join(out, "worker-env.json"), JSON.stringify({ DATABASE_URL: result.pooledUrl, BETTER_AUTH_SECRET: randomBytes(32).toString("base64url") }), { mode: 0o600 });
-      const name = previewBranchName(prNumber());
-      if (result.recreated) console.log(`Neon branch ${name} recreated from base: the migration(s) it had applied are gone from the PR or were renamed: ${result.recreated.missing.join(", ")}`);
-      else console.log(`Neon branch ${name} ${result.created ? "created from base" : "reused"}`);
+      console.log(databaseLog(previewBranchName(prNumber()), result));
     }
   } else if (command === "account") {
     // The email and the previews' own password come from the environment of this one step; both empty means no account.
