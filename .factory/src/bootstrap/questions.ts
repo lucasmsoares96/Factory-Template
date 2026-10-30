@@ -52,6 +52,7 @@ export const QUESTIONS = {
   "preview-account-password-confirm": q("previews", "optional", "PREVIEW_ACCOUNT_PASSWORD", "The same password, typed again"),
   "stripe-sandbox-key": q("billing", "required", "STRIPE_SANDBOX_KEY", "Restricted key of the Stripe sandbox that Previews use"),
   "stripe-live-key": q("billing", "required", "STRIPE_LIVE_KEY", "Restricted key of the real Stripe account"),
+  "stripe-ci-key": q("billing", "required", "STRIPE_CI_KEY", "Restricted key of a second sandbox, only for the weekly contract test; not needed once the secret exists"),
   "stripe-sandbox-key-check": terminal("billing", "Stripe sandbox key to check billing in the doctor"),
   "stripe-live-key-check": terminal("billing", "Stripe live key to check billing in the doctor"),
   "billing-currency": q("billing", "required", "BILLING_CURRENCY", "Currency of the prices (ISO code, e.g. usd); not needed once the plans are recorded"),
