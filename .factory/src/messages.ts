@@ -238,6 +238,7 @@ export const catalog = {
 
   // The other comments of `publish`.
   discarded: text({ en: (reason: string) => `Run discarded: ${reason}. Nothing was pushed.`, "pt-BR": (reason) => `Execução descartada: ${reason}. Nada foi enviado.` }),
+  cancelledWorkEscalates: text({ en: (issue: number) => `work for #${issue} was cancelled and left no result.json: escalating as infra`, "pt-BR": (issue) => `o work de #${issue} foi cancelado e não deixou result.json: escalando como infra` }),
   discardedTwice: text({
     en: (reason: string) => `The Factory discarded this feedback round twice and pushed nothing: ${reason}. The round was started again once from the new head of the branch and the branch moved again. Comment again to start another round.`,
     "pt-BR": (reason) => `A Factory descartou esta rodada de feedback duas vezes e não enviou nada: ${reason}. A rodada recomeçou uma vez a partir do novo head do branch e o branch mudou de novo. Comente outra vez para iniciar outra rodada.`,
