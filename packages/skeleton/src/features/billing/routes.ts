@@ -3,7 +3,7 @@ import { createMiddleware } from "hono/factory";
 import type { SkeletonEnv } from "../../platform/env.ts";
 import { apiError, createRouter } from "../../platform/errors.ts";
 import { billingFor, isFakeStripe } from "./context.ts";
-import { FAKE_STRIPE_PATH } from "./fake-stripe/fake-stripe.ts";
+import { FAKE_STRIPE_PATH, type FakeStripe } from "./fake-stripe/fake-stripe.ts";
 import { checkoutPage } from "./fake-stripe/pages.ts";
 import { forgetPlans } from "./plans.ts";
 
@@ -11,6 +11,8 @@ const Advance = z.object({ seconds: z.number().int().positive(), paymentFails: z
 const Ending = z.object({ email: z.string().min(1) });
 const Failing = z.object({ on: z.boolean() });
 const Cancel = z.object({ subscription: z.string().min(1) });
+const Customer = z.object({ email: z.string().min(1) });
+const OutsideSubscription = z.object({ customer: z.string().min(1), plan: z.string().min(1), quantity: z.number().int().positive(), trialDays: z.number().int().nonnegative() });
 const Product = z.object({ id: z.string().min(1), metadata: z.record(z.string(), z.string()) });
 const Event = z.object({ type: z.string().min(1), object: z.record(z.string(), z.unknown()), previousAttributes: z.record(z.string(), z.unknown()).optional() });
 
@@ -83,6 +85,27 @@ export function fakeStripeRoutes(entitlements: readonly string[]) {
     if (!updated) return c.json(apiError("NOT_FOUND"), 404);
     return c.json({ subscription: body.data.subscription });
   });
+  router.post("/fake-stripe/control/customers", async (c) => {
+    const body = Customer.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json(apiError("VALIDATION_FAILED"), 400);
+    return c.json(await stripeCall(fake(c), "/v1/customers", { email: body.data.email, metadata: { productId: c.var.productId } }));
+  });
+  // What `pnpm bootstrap billing` does for an account that existed before billing: a Subscription through the API, no Checkout.
+  router.post("/fake-stripe/control/outside-subscription", async (c) => {
+    const body = OutsideSubscription.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json(apiError("VALIDATION_FAILED"), 400);
+    const { customer, plan, quantity, trialDays } = body.data;
+    const catalog = await billingFor(c, entitlements)!.plans();
+    const priced = catalog.priced.find((candidate) => candidate.id === plan);
+    if (!priced) return c.json(apiError("NOT_FOUND"), 404);
+    const subscription = await stripeCall(fake(c), "/v1/subscriptions", {
+      customer,
+      items: { 0: { price: priced.priceId, quantity } },
+      ...(trialDays > 0 ? { trial_period_days: trialDays, trial_settings: { end_behavior: { missing_payment_method: "cancel" } } } : {}),
+      metadata: { productId: c.var.productId },
+    });
+    return c.json({ subscription: subscription.id });
+  });
   router.get("/fake-stripe/control/subscriptions", async (c) => c.json({ subscriptions: await fake(c).subscriptions() }));
   router.post("/fake-stripe/control/products", async (c) => {
     const body = Product.safeParse(await c.req.json().catch(() => null));
@@ -99,4 +122,20 @@ export function fakeStripeRoutes(entitlements: readonly string[]) {
     return c.json({ reset: true });
   });
   return router;
+}
+
+/** A call to the fake's Stripe API, the way the Stripe SDK sends it (a form body). */
+async function stripeCall(fake: FakeStripe, path: string, params: Record<string, unknown>) {
+  const response = await fake.handle(new Request(`http://fake-stripe${path}`, { method: "POST", body: formBody(params) }));
+  return (await response.json()) as { id: string };
+}
+
+/** Stripe's form encoding: `items[0][price]=...`. */
+function formBody(params: Record<string, unknown>, prefix = ""): string {
+  return Object.entries(params)
+    .map(([key, value]) => {
+      const name = prefix ? `${prefix}[${key}]` : key;
+      return typeof value === "object" && value !== null ? formBody(value as Record<string, unknown>, name) : `${encodeURIComponent(name)}=${encodeURIComponent(String(value))}`;
+    })
+    .join("&");
 }

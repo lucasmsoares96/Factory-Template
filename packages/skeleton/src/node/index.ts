@@ -1,4 +1,4 @@
-export { verifiedUserExists, passwordProblem, upsertVerifiedUser, userExists } from "./accounts.ts";
+export { linkStripeCustomer, listAccountsWithSeats, passwordProblem, upsertVerifiedUser, userExists, verifiedUserExists, type ExistingAccount } from "./accounts.ts";
 export { builtWorkerConfig } from "./built-worker.ts";
 export { migrateDatabase } from "./migrate.ts";
 export { ensurePostgres, type Postgres } from "./postgres.ts";
