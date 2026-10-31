@@ -5,6 +5,7 @@ import { entitlementMetadata, missingEntitlements, type EntitlementValue } from 
 import { keyCreationUrl, keyMode, type KeyMode } from "./billing-permissions.ts";
 import { productionEnvironment, productSecretName, secretScope } from "./domain.ts";
 import { previewScope } from "./previews.ts";
+import type { QuestionId } from "./questions.ts";
 import { productionDatabaseUrl } from "./product.ts";
 import type { ProductIdentity, Step, StepContext } from "./steps.ts";
 
@@ -37,14 +38,10 @@ export function billingNames(productId: string) {
 
 export const webhookUrl = (product: ProductIdentity) => `https://${product.domain}${WEBHOOK_PATH}`;
 
-/** What `pnpm bootstrap env` prints: the variables the module reads from the environment, and what it records on the forge. */
-export function billingEnvironment(productId: string): string[] {
+/** What `pnpm bootstrap env <id>` adds for billing after the variables it reads: what the module records on the forge. */
+export function billingRecorded(productId: string): string[] {
   const names = billingNames(productId);
   return [
-    "Read from the environment (each skips its prompt):",
-    `  ${ENV_KEYS.sandbox}  restricted key of the Stripe sandbox that Previews use`,
-    `  ${ENV_KEYS.live}  restricted key of the real Stripe account`,
-    `  ${ENV_KEYS.ci}  restricted key of a second sandbox, only for the weekly contract test (asked once per repo)`,
     `Secrets recorded (${productionEnvironment(productId)} unless noted):`,
     `  ${CI_KEY_SECRET}  (repo level; the contract test workflow is the only one that reads it)`,
     `  ${names.liveKey}`,
@@ -98,7 +95,7 @@ function fractionDigits(currency: string): number {
 
 type Parsed<T> = { value: T } | { error: string };
 
-async function ask<T>(ctx: StepContext, id: string, message: string, parse: (answer: string) => Parsed<T>): Promise<T> {
+async function ask<T>(ctx: StepContext, id: QuestionId, message: string, parse: (answer: string) => Parsed<T>): Promise<T> {
   for (let attempt = 1; attempt <= KEY_TRIES; attempt++) {
     const parsed = parse((await ctx.prompter.text({ id, message })).trim());
     if ("value" in parsed) return parsed.value;
@@ -222,6 +219,7 @@ export function keysStep(product: ProductIdentity): Step {
   return {
     id: "keys",
     title: `Stripe keys (${names.sandboxKey}, ${names.liveKey})`,
+    asks: ["stripe-sandbox-key", "stripe-live-key"],
     async check(ctx) {
       const live = (await ctx.github.listSecrets(await secretScope(ctx, product.id))).includes(names.liveKey);
       const sandbox = (await ctx.github.listSecrets(await previewScope(ctx, product.id))).includes(names.sandboxKey);
@@ -242,6 +240,7 @@ export function ciKeyStep(product: ProductIdentity): Step {
   return {
     id: "ci-key",
     title: `Stripe key of the CI sandbox (${CI_KEY_SECRET}, for the weekly contract test)`,
+    asks: ["stripe-ci-key"],
     async check(ctx) {
       return { done: (await ctx.github.listSecrets()).includes(CI_KEY_SECRET) };
     },
@@ -267,6 +266,11 @@ export function plansStep(product: ProductIdentity): Step {
   return {
     id: "plans",
     title: "Plans, payment methods and Customer Portal (sandbox and real account)",
+    // Writing the plans needs both keys, even when the keys step is done: a secret cannot be read back.
+    async asks(ctx) {
+      const recorded = !ctx.redo?.includes("plans") && (await recordedAnswers(ctx, product.id)) !== undefined;
+      return recorded ? ["stripe-sandbox-key", "stripe-live-key"] : ["billing-currency", "stripe-sandbox-key", "stripe-live-key"];
+    },
     async check(ctx) {
       const variables = await ctx.github.listVariables();
       return { done: variables[names.plans] !== undefined && variables[names.synced] === "true" };
@@ -354,6 +358,7 @@ export function webhookStep(product: ProductIdentity): Step {
   return {
     id: "webhook",
     title: `Stripe events endpoint (${webhookUrl(product)})`,
+    asks: ["stripe-live-key"],
     async check(ctx) {
       return { done: (await ctx.github.listSecrets(await secretScope(ctx, product.id))).includes(names.webhookSecret) };
     },
