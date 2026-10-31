@@ -53,7 +53,7 @@
       "source": "microsoft/playwright-cli",
       "sourceType": "github",
       "skillPath": "skills/playwright-cli/SKILL.md",
-      "computedHash": "ffbd59a973d4e2c19c6ecc31254a14497069c362f1d1820b6a6cfbe62de34a73"
+      "computedHash": "56941c3c0464ad22ccdf3ec975fc4bd518c5daea34b73329c232bc1f37f9a6b7"
     },
     "pr": {
       "source": "mattpocock/skills",
