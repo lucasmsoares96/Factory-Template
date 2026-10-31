@@ -376,8 +376,8 @@ describe("pnpm bootstrap billing: the accounts that already exist", () => {
   const DATABASE = "postgresql://neondb_owner:pw-1@ep-proj-1.eu-central-1.aws.neon.tech/neondb?sslmode=require";
 
   /** A Product with its production database already holding `accounts`; the plans are Pro (3 Seats), Team (10) and per Seat (from 11). */
-  function worldWithAccounts(accounts: Parameters<ReturnType<typeof billingWorld>["accounts"]["seedAccounts"]>[1], extra: Record<string, string | boolean | string[]> = {}) {
-    const w = billingWorld({ "billing-existing-trial": true, "billing-existing-suspend": true, ...extra });
+  function worldWithAccounts(accounts: Parameters<ReturnType<typeof billingWorld>["accounts"]["seedAccounts"]>[1], extra: Record<string, string | boolean | string[]> = {}, env: Record<string, string | undefined> = ENV) {
+    const w = billingWorld({ "billing-existing-trial": true, "billing-existing-suspend": true, ...extra }, env);
     w.neon.projects.push({ id: "proj-1", name: "example", orgId: "org-1", password: "pw-1" });
     w.github.variables.set("EXAMPLE_ACCOUNT_EMAIL", "admin@example.com");
     w.accounts.seedAccounts(DATABASE, accounts);
@@ -485,7 +485,7 @@ describe("pnpm bootstrap billing: the accounts that already exist", () => {
   });
 
   it("without a person to ask it starts nothing and says so", async () => {
-    const w = worldWithAccounts(people);
+    const w = worldWithAccounts(people, {}, { ...ENV, BILLING_CURRENCY: "usd" });
     w.deps.interactive = false;
 
     const { output } = await w.run("billing", "example");
