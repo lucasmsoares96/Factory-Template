@@ -3,7 +3,7 @@
 // the pull request's code only ever reaches it as an allowlisted artifact.
 //   gate      which Products get a preview (affected ∩ PREVIEW_PRODUCTS) and whether the author or the label allows it
 //   bindings  the PR's Worker bindings against the ones of `main`: different means "preview skipped"
-//   database  the Neon branch `preview/pr-N` from `base` (or "limit reached") and the Worker's secrets file
+//   database  the Neon branch `preview/pr-N` from `base` (or "limit reached"; made again when a migration it applied is gone from the PR) and the Worker's secrets file
 //   config    the Worker config of the preview: the PR's built config plus the `previews` block
 //   url       the preview URL from wrangler's output file
 //   billing   (deploy job, after the first deploy) the PR's events endpoint in the Stripe sandbox, or "full"
@@ -139,24 +139,90 @@ export function previewUrl(ndjson: string): string | undefined {
 }
 
 export type DatabaseResult =
-  | { status: "ready"; directUrl: string; pooledUrl: string; created: boolean }
+  | { status: "ready"; directUrl: string; pooledUrl: string; created: boolean; recreated?: { missing: string[] } }
   | { status: "skipped"; reason: "limit-reached" };
 
 /**
  * The Neon branch of the PR. A push to a PR that already has one reuses it (the migrations apply on top); a new one is
  * made from `base`, unless `limit` previews of the Product are already open. A branch of Neon's free plan is a hard
  * limit, so `limit` is 9 (`base` + 9 = 10).
+ *
+ * The migrator runs a migration whose folder name is not in the journal, so a migration the branch already applied that
+ * was regenerated under another name would run twice. When `migrations` (the folder names of the PR) is given, a branch
+ * whose journal (`appliedMigrations`) names one that the PR no longer has is deleted and made again from `base`; that
+ * frees its place first, so it never counts as one Preview more.
  */
-export async function prepareDatabase(input: { db: PreviewBranches; pr: number; limit: number }): Promise<DatabaseResult> {
+export async function prepareDatabase(input: {
+  db: PreviewBranches;
+  pr: number;
+  limit: number;
+  migrations?: string[];
+  appliedMigrations?: (directUrl: string) => Promise<string[]>;
+}): Promise<DatabaseResult> {
   const { db, pr, limit } = input;
   const { branch: base } = await db.ensureBase();
   let branch = await db.findBranch(previewBranchName(pr));
+  let recreated: { missing: string[] } | undefined;
+  if (branch && input.migrations && input.appliedMigrations) {
+    const current = new Set(input.migrations);
+    const missing = (await input.appliedMigrations(await db.connectionUri(branch.id, { pooled: false }))).filter((name) => !current.has(name));
+    if (missing.length > 0) {
+      await db.deleteBranch(branch.id);
+      branch = undefined;
+      recreated = { missing };
+    }
+  }
   const created = branch === undefined;
   if (!branch) {
     if ((await db.listPreviewBranches()).length >= limit) return { status: "skipped", reason: "limit-reached" };
     branch = await db.createBranch(previewBranchName(pr), base.id);
   }
-  return { status: "ready", created, directUrl: await db.connectionUri(branch.id, { pooled: false }), pooledUrl: await db.connectionUri(branch.id, { pooled: true }) };
+  return {
+    status: "ready",
+    created,
+    ...(recreated ? { recreated } : {}),
+    directUrl: await db.connectionUri(branch.id, { pooled: false }),
+    pooledUrl: await db.connectionUri(branch.id, { pooled: true }),
+  };
+}
+
+/** The job log line for a ready database: created, reused, or recreated and why. */
+export function databaseLog(branch: string, result: Extract<DatabaseResult, { status: "ready" }>): string {
+  if (result.recreated) return `Neon branch ${branch} recreated from base: the migration(s) it had applied are gone from the PR or were renamed: ${result.recreated.missing.join(", ")}`;
+  return `Neon branch ${branch} ${result.created ? "created from base" : "reused"}`;
+}
+
+/** The migration folder names of an artifact: the Skeleton's and the Product's, which is what the journals record as `name`. */
+export function artifactMigrationNames(dir: string): string[] {
+  const names: string[] = [];
+  for (const set of ["skeleton", "product"]) {
+    const folder = join(dir, "migrations", set);
+    if (!existsSync(folder)) continue;
+    for (const entry of readdirSync(folder, { withFileTypes: true })) if (entry.isDirectory()) names.push(entry.name);
+  }
+  return names;
+}
+
+/** The `name` of every migration the branch's journals (Skeleton and Product) record. A journal row without a name (an older drizzle) is left out. */
+export async function journalMigrationNames(directUrl: string): Promise<string[]> {
+  const { default: pg } = await import("pg");
+  const client = new pg.Client({ connectionString: directUrl });
+  await client.connect();
+  try {
+    const names: string[] = [];
+    for (const table of ["__skeleton_migrations", "__product_migrations"]) {
+      try {
+        const { rows } = await client.query<{ name: string | null }>(`select name from drizzle.${table}`);
+        for (const row of rows) if (row.name) names.push(row.name);
+      } catch (error) {
+        // 42P01 (no such table) or 42703 (no `name` column): the branch never recorded names there.
+        if (!["42P01", "42703"].includes((error as { code?: string }).code ?? "")) throw error;
+      }
+    }
+    return names;
+  } finally {
+    await client.end();
+  }
 }
 
 /** Deletes the PR's branch when there is one. Returns whether it existed. */
@@ -391,7 +457,13 @@ if (import.meta.main) {
     output("changed", String(changed));
   } else if (command === "database") {
     const out = resolve(need(values.out, "out"));
-    const result = await prepareDatabase({ db: neon(), pr: prNumber(), limit: config.previewLimit });
+    const migrationsDir = values.dir ? resolve(values.dir) : undefined;
+    const result = await prepareDatabase({
+      db: neon(),
+      pr: prNumber(),
+      limit: config.previewLimit,
+      ...(migrationsDir ? { migrations: artifactMigrationNames(migrationsDir), appliedMigrations: journalMigrationNames } : {}),
+    });
     output("skipped", result.status === "skipped" ? result.reason : "");
     if (result.status === "skipped") console.log("preview skipped: limit reached");
     else {
@@ -399,7 +471,7 @@ if (import.meta.main) {
       // Files, not step outputs: nothing secret goes through the Actions log or its output store.
       writeFileSync(join(out, "direct-url"), result.directUrl, { mode: 0o600 });
       writeFileSync(join(out, "worker-env.json"), JSON.stringify({ DATABASE_URL: result.pooledUrl, BETTER_AUTH_SECRET: randomBytes(32).toString("base64url") }), { mode: 0o600 });
-      console.log(`Neon branch ${previewBranchName(prNumber())} ${result.created ? "created from base" : "reused"}`);
+      console.log(databaseLog(previewBranchName(prNumber()), result));
     }
   } else if (command === "account") {
     // The email and the previews' own password come from the environment of this one step; both empty means no account.

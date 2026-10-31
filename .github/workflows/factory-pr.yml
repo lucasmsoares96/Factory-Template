@@ -314,7 +314,7 @@ jobs:
           NEON_API_KEY: ${{ secrets[format('{0}PREVIEW_NEON_API_KEY', matrix.prefix)] }}
           NEON_PROJECT_ID: ${{ vars[format('{0}PREVIEW_NEON_PROJECT_ID', matrix.prefix)] }}
           FACTORY_PREVIEW_LIMIT: ${{ vars.FACTORY_PREVIEW_LIMIT }}
-        run: node .factory/src/ci/previews.ts database --out "$RUNNER_TEMP/preview"
+        run: node .factory/src/ci/previews.ts database --dir "$RUNNER_TEMP/artifact" --out "$RUNNER_TEMP/preview"
       - name: config of the preview
         id: config
         if: steps.bindings.outputs.changed == 'false' && steps.database.outputs.skipped == ''
