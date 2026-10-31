@@ -121,7 +121,7 @@ export function previewNeonKeyStep(product: ProductIdentity): Step {
         }
       }
       if (!key) {
-        if (ctx.memory.neonKeyDeclined || !ctx.interactive) return ctx.log(`  ${names.neonKey} was not set: ${ctx.interactive ? "skipped earlier in this run" : "no terminal to ask"}. Run this command again with a terminal.`);
+        if (ctx.memory.neonKeyDeclined || (!ctx.interactive && !ctx.env.PREVIEW_NEON_API_KEY)) return ctx.log(`  ${names.neonKey} was not set: ${ctx.interactive ? "skipped earlier in this run" : "no terminal to ask"}. Run this command again with a terminal.`);
         ctx.prompter.link(`Create a project-scoped key in the Neon Console (Organization, Settings, API keys, Create new, scope: Project, project ${previewProjectName(product.id)}):`, NEON_CONSOLE);
         key = (await ctx.prompter.password({ id: "preview-neon-key", message: "Paste the project-scoped Neon API key (hidden; kept only as a secret; leave empty to skip)" })).trim();
         if (!key) {
@@ -172,7 +172,7 @@ export function previewAccountStep(product: ProductIdentity): Step {
     },
     async run(ctx) {
       if (!(await ctx.github.listVariables())[email]) return ctx.log(`  ${email} is not set: run \`pnpm bootstrap product ${product.id}\` first, then this command again.`);
-      if (!ctx.interactive) return ctx.log(`  ${names.accountPassword} was not set: no terminal to ask. Run this command again with a terminal.`);
+      if (!ctx.interactive && !ctx.env.PREVIEW_ACCOUNT_PASSWORD) return ctx.log(`  ${names.accountPassword} was not set: no terminal to ask and no PREVIEW_ACCOUNT_PASSWORD. Run this command again with a terminal or the variable.`);
       const password = await askPassword(ctx, "preview-account-password", "Password of the default account in the previews (hidden; different from production; kept only as a secret)");
       await ctx.github.setSecret(names.accountPassword, password, await previewScope(ctx, product.id));
     },

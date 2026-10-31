@@ -218,7 +218,7 @@ async function createAccount(ctx: StepContext, url: string, product: ProductIden
 const PASSWORD_ATTEMPTS = 3;
 
 /** Asks twice (hidden) and applies the sign-up's password rules. The answer lives in the caller's frame only. */
-export async function askPassword(ctx: StepContext, id: string, message = "Password of the default account (hidden; kept only as the deploy secret)"): Promise<string> {
+export async function askPassword(ctx: StepContext, id: "default-account-password" | "preview-account-password", message = "Password of the default account (hidden; kept only as the deploy secret)"): Promise<string> {
   for (let attempt = 1; attempt <= PASSWORD_ATTEMPTS; attempt++) {
     const password = await ctx.prompter.password({ id, message });
     const problem = passwordProblem(password);
@@ -241,6 +241,7 @@ export function defaultAccountStep(product: ProductIdentity): Step {
   return {
     id: "default-account",
     title: `Default account in the ${product.id} production database (${passwordName}, ${emailName}; the app and the smoke sign in as it)`,
+    asks: ["default-account-email", "default-account-password", "default-account-password-confirm"],
     async check(ctx) {
       const email = (await ctx.github.listVariables())[emailName];
       if (!email || (await missingSecrets(ctx, product.id, [passwordName])).length > 0) return { done: false };
