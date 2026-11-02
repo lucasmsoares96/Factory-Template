@@ -48,8 +48,10 @@ export const inlineCommentSchema = z.object({
 
 /** The Review's verdict on one acceptance criterion of the issue. */
 export const criterionVerdictSchema = z.object({
-  /** The criterion, as the issue words it. */
-  criterion: z.string().min(1),
+  /** The criterion's number in the issue's list, from 1: the Review answers by number. */
+  id: z.number().int().positive().optional(),
+  /** The criterion as the issue words it: the harness fills it from the issue by `id`; the Review does not write it. */
+  criterion: z.string().default(""),
   met: z.boolean(),
   /** The test or the `@evidence` print that proves it; why not, when it is not met. */
   proof: z.string().min(1),
