@@ -13,6 +13,10 @@ Issues and specs for this repo live in the forge's issue tracker (GitHub by defa
 
 Infer the repo from `git remote -v`; `gh` does this automatically when run inside a clone.
 
+## Acceptance criteria
+
+Each item of `## Acceptance criteria` describes one behaviour that a test proves. The Review gives a verdict per item, by its number in the list. The Factory always runs `pnpm factory:verify` before it opens the pull request, so the verify is never a criterion: an issue with an item that cites it (`factory:verify`, or the CI `verify`) goes to `needs-info` at `claim`, and the line must come out of the list.
+
 ## Pull requests as a triage surface
 
 **PRs as a request surface: no.** _(Set to `yes` if this repo treats external PRs as feature requests; `/triage` reads this flag.)_

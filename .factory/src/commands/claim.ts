@@ -1,5 +1,5 @@
 import { issueBranch } from "../config.ts";
-import { guard, isFactoryComment, type GuardDecision, type Refusal } from "../guard.ts";
+import { guard, isFactoryComment, verifyCriterion, type GuardDecision, type Refusal } from "../guard.ts";
 import { messages } from "../messages.ts";
 import type { CommandContext } from "./context.ts";
 import { startWorking } from "./working.ts";
@@ -43,6 +43,11 @@ async function answerRefusal(ctx: CommandContext, decision: Exclude<GuardDecisio
     case "missing-acceptance-criteria":
       if (await tracker.swapLabel(number, ready, config.labels.needsInfo)) {
         await tracker.comment(number, m.missingCriteria(ready));
+      }
+      return;
+    case "verify-criterion":
+      if (await tracker.swapLabel(number, ready, config.labels.needsInfo)) {
+        await tracker.comment(number, m.verifyCriterion(ready, verifyCriterion(decision.issue.body) ?? ""));
       }
       return;
     case "missing-seams":

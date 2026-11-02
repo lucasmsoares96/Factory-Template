@@ -1,5 +1,6 @@
 import { issueBranch, type FactoryConfig } from "./config.ts";
 import type { CodeHost } from "./seams/code-host.ts";
+import { criteriaItems } from "./criteria.ts";
 import { isMarked } from "./marker.ts";
 import type { Issue, LabelOrigin, Tracker } from "./seams/tracker.ts";
 
@@ -10,6 +11,7 @@ export type Refusal =
   | "parent-spec"
   | "open-pr"
   | "missing-acceptance-criteria"
+  | "verify-criterion"
   | "missing-seams"
   | "session-limit"
   | "blocked";
@@ -22,6 +24,15 @@ export type GuardDecision =
 export const TRIAGE_MARKER = "<!-- factory:triage -->";
 
 const heading = (title: string) => new RegExp(`^##\\s+${title}\\s*$`, "im");
+
+/**
+ * The first criterion that names the verify (`factory:verify`, or the CI `verify`). The Factory always runs the
+ * verify, so a criterion describes a behaviour a test proves, not the command.
+ */
+export function verifyCriterion(body: string): string | null {
+  const command = /`?pnpm (?:run )?factory:verify`?|`?factory:verify`?|`verify`/i;
+  return criteriaItems(body).find((item) => command.test(item)) ?? null;
+}
 
 /**
  * Deterministic check that the Factory may start work on an issue, read from
@@ -47,6 +58,7 @@ export async function guard(
   const pr = await codeHost.openPrFor(issueBranch(config, number));
   if (pr && !pr.draft) return refuse("open-pr");
   if (!heading("Acceptance criteria").test(issue.body)) return refuse("missing-acceptance-criteria");
+  if (verifyCriterion(issue.body) !== null) return refuse("verify-criterion");
   if (!(await hasSeams(issue, config, tracker))) return refuse("missing-seams");
   const waitingOn = (await tracker.blockers(number)).filter((b) => !b.done).map((b) => b.number);
   if (waitingOn.length > 0) return { ok: false, reason: "blocked", issue, waitingOn };
