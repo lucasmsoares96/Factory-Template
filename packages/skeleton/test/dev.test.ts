@@ -17,15 +17,15 @@ class FakeProcess extends EventEmitter {
     return true;
   }
 }
-type Call = { command: string; args: string[]; env?: NodeJS.ProcessEnv; process: FakeProcess };
+type Call = { command: string; args: string[]; env?: NodeJS.ProcessEnv; cwd?: string; process: FakeProcess };
 
 function harness(env: NodeJS.ProcessEnv = {}) {
   const calls: Call[] = [];
   const exits: number[] = [];
   const logs: string[] = [];
-  const spawn = ((command: string, args: string[], options: { env?: NodeJS.ProcessEnv }) => {
+  const spawn = ((command: string, args: string[], options: { env?: NodeJS.ProcessEnv; cwd?: string }) => {
     const process = new FakeProcess();
-    calls.push({ command, args, env: options.env, process });
+    calls.push({ command, args, env: options.env, cwd: options.cwd, process });
     return process;
   }) as never;
   const run = (stripe: boolean) =>
@@ -58,6 +58,7 @@ test("--stripe starts stripe listen, then Vite with the secret it printed", asyn
   const started = h.run(true);
   await tick();
   expect(h.calls).toHaveLength(1);
+  expect(h.calls[0]!.cwd).not.toBe("/app");
   expect(h.calls[0]!.args).toEqual([
     "exec", "stripe", "listen", "--api-key", "rk_test_abc", "--forward-to", "localhost:5173/api/auth/stripe/webhook",
   ]);
@@ -95,4 +96,15 @@ test("if stripe listen ends before printing a secret, nothing else starts", asyn
   await started;
   expect(h.calls).toHaveLength(1);
   expect(h.exits).toEqual([1]);
+});
+
+test("a SIGTERM to the command stops stripe listen and Vite", async () => {
+  const h = harness({ STRIPE_SECRET_KEY: "sk_test_abc" });
+  const started = h.run(true);
+  await tick();
+  h.calls[0]!.process.stdout.write("Ready! Your webhook signing secret is whsec_x\n");
+  await started;
+  process.emit("SIGTERM");
+  expect(h.calls.every((c) => c.process.killed)).toBe(true);
+  expect(h.exits).toEqual([130]);
 });
