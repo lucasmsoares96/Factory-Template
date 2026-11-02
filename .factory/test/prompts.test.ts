@@ -183,6 +183,7 @@ describe("prompt templates", () => {
     expect(prompts.development).toContain("abc1234 feat: greet #7");
     expect(prompts.development).toContain("E2E failed running `pnpm factory:verify`.");
     expect(prompts.development).toContain("<needs-human>");
+    expect(prompts.development).toContain("omit the tag");
     expect(prompts.review).toContain("<review>");
     expect(prompts.triage).toContain("<triage>");
     expect(prompts["pull-request"]).toContain("<pull-request>");
