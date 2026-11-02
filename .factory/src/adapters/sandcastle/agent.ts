@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AGENT_ENV_ALLOWLIST, pick } from "../../env.ts";
 import { Git } from "../../git.ts";
-import { AgentSessionError, MAX_EXTRACTION_RETRIES, SessionLimitError, type Agent, type AgentRun, type Extraction, type Stage, type Usage } from "../../seams/agent.ts";
+import { AgentSessionError, judge, MAX_EXTRACTION_RETRIES, SessionLimitError, type Agent, type AgentRun, type Extraction, type Stage, type Usage } from "../../seams/agent.ts";
 import type { SessionRequest, SessionResponse } from "./session.ts";
 
 export { AGENT_ENV_ALLOWLIST };
@@ -50,17 +50,20 @@ export class SandcastleAgent implements Agent {
     let retries = 0;
     const { extract } = options;
     // Resumed only to extract the block, never to continue the work; the Stage timeout covers it.
-    while (extract && !timedOut && !extract.valid(first.output) && retries < MAX_EXTRACTION_RETRIES && sessionId) {
+    let verdict = extract && !timedOut ? await judge(extract, first.output) : null;
+    while (extract && verdict && !verdict.ok && !timedOut && retries < MAX_EXTRACTION_RETRIES && sessionId) {
       const left = options.timeoutMs - (Date.now() - started);
       if (left <= 0) {
         timedOut = true;
         break;
       }
       retries++;
-      const resumed = await this.session(name, `${name}-resume${retries}`, extract.ask, options, env, left, sessionId);
+      const resumed = await this.session(name, `${name}-resume${retries}`, verdict.ask, options, env, left, sessionId);
       usage = { inputTokens: usage.inputTokens + resumed.usage.inputTokens, outputTokens: usage.outputTokens + resumed.usage.outputTokens };
       timedOut = resumed.timedOut;
-      if (!timedOut && extract.valid(resumed.output)) {
+      if (timedOut) break;
+      verdict = await judge(extract, resumed.output);
+      if (verdict.ok) {
         output = resumed.output;
         break;
       }
