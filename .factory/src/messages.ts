@@ -30,9 +30,9 @@ export const catalog = {
   }),
   verifyCriterion: text({
     en: (ready: string, item: string): string =>
-      `The Factory always runs \`pnpm factory:verify\` before it opens the pull request, so it is not an acceptance criterion. Remove this line from \`## Acceptance criteria\` and re-add \`${ready}\`: ${item}`,
+      `The Factory always runs \`pnpm factory:verify\` before it opens the pull request, so the command is not an acceptance criterion: describe the behaviour a test proves. Remove this line from \`## Acceptance criteria\` and re-add \`${ready}\`: ${item}`,
     "pt-BR": (ready, item) =>
-      `A Factory sempre roda o \`pnpm factory:verify\` antes de abrir o pull request, então ele não é um critério de aceitação. Remova esta linha de \`## Acceptance criteria\` e coloque \`${ready}\` de novo: ${item}`,
+      `A Factory sempre roda o \`pnpm factory:verify\` antes de abrir o pull request, então o comando não é um critério de aceitação: descreva o comportamento que um teste prova. Remova esta linha de \`## Acceptance criteria\` e coloque \`${ready}\` de novo: ${item}`,
   }),
   missingSeams: text({
     en: (): string => "No agreed seams: the parent spec has no `## Testing Decisions` and there is no Triage comment. Sent to Triage.",

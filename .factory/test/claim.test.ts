@@ -191,7 +191,7 @@ describe("factory claim", () => {
     "`pnpm factory:verify` passes.",
     "O `verify` do CI fica verde.",
     "The CI `verify` job is green",
-  ])("sends an issue whose criterion only asks for the verify (%s) to needs-info, with no run", async (item) => {
+  ])("sends an issue whose criterion names the verify (%s) to needs-info, with no run", async (item) => {
     const w = world({ issues: readyIssue({ body: `## Acceptance criteria\n\n- [ ] \`greet()\` returns a greeting.\n- [ ] ${item}\n` }) });
 
     await w.factory("claim", "7");
@@ -210,12 +210,12 @@ describe("factory claim", () => {
     expect(w.tracker.commentsOn(7).map((c) => c.body).join("\n")).toContain("sempre roda");
   });
 
-  it("keeps an issue whose criterion names the verify beside a real behaviour", async () => {
+  it("also refuses a criterion that names the verify beside a real behaviour", async () => {
     const w = world({ issues: readyIssue({ body: "## Acceptance criteria\n\n- [ ] The footer shows the year, and `pnpm factory:verify` passes.\n" }) });
 
     await w.factory("claim", "7");
 
-    expect(lastJson(w.logs)).toMatchObject({ claimed: true });
+    expect(lastJson(w.logs)).toEqual({ claimed: false, issue: 7, reason: "verify-criterion" });
   });
 
   it("sends an issue without seams to Triage", async () => {
