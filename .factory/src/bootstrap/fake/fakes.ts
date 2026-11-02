@@ -671,6 +671,8 @@ export class FakePrompter implements Prompter {
   readonly notes: string[] = [];
   /** Lines through `link`: written verbatim, one per entry. */
   readonly printed: string[] = [];
+  /** Every `link` and `password`, in order: `link:<url>` and `password:<id>`. */
+  readonly sequence: string[] = [];
   /** The message of every `text` prompt, in order. */
   readonly messages: string[] = [];
   columns = 80;
@@ -692,6 +694,7 @@ export class FakePrompter implements Prompter {
   }
   link(message: string, url: string): void {
     this.printed.push(message, url);
+    this.sequence.push(`link:${url}`);
   }
   private answer(id: string): string | boolean {
     this.asked.push(id);
@@ -706,6 +709,7 @@ export class FakePrompter implements Prompter {
     return String(this.answer(input.id));
   }
   async password(input: { id: string }): Promise<string> {
+    this.sequence.push(`password:${input.id}`);
     return String(this.answer(input.id));
   }
   async select<T extends string>(input: { id: string }): Promise<T> {

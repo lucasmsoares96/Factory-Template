@@ -25,6 +25,15 @@ export async function secretScope(ctx: StepContext, productId: string): Promise<
 
 const RESEND_KEYS_URL = "https://resend.com/api-keys"; // checked against the Resend docs 2026-10-20
 
+/**
+ * The link and steps for the full-access Resend key. Resend has no link with the fields filled in (docs read 2026-11-02),
+ * so the name and permission are in the text. Shared by the bootstrap and the doctor.
+ */
+export function showResendKeyLink(ctx: StepContext, productId: string): void {
+  ctx.prompter.link(`Create a Resend API key here (Add API Key, name: ${productId}-bootstrap, permission: Full access):`, RESEND_KEYS_URL);
+  ctx.log("The key is used only during this run to create the domain, the DNS records and a sending-only key restricted to the domain. It is never stored.");
+}
+
 /** Resend is optional: ask before any key prompt. Returns the pasted key, or undefined (and marks Resend deferred). */
 async function askForResendKey(ctx: StepContext, productId: string): Promise<string | undefined> {
   const defer = (why: string) => {
@@ -42,8 +51,7 @@ async function askForResendKey(ctx: StepContext, productId: string): Promise<str
     ],
   });
   if (choice !== "now") return defer("Resend deferred:");
-  ctx.prompter.link("Create a Resend API key here (Add API Key, permission: Full access):", RESEND_KEYS_URL);
-  ctx.log("The key is used only during this run to create the domain, the DNS records and a sending-only key restricted to the domain. It is never stored.");
+  showResendKeyLink(ctx, productId);
   const key = (await ctx.prompter.password({ id: "resend-key", message: "Paste the full-access Resend API key (not stored; leave empty to skip)" })).trim();
   return key || defer("No key given: Resend deferred.");
 }

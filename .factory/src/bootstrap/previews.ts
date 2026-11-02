@@ -108,6 +108,13 @@ export const previewKeyName = (productId: string): string => `${productId}-previ
 const NEON_CONSOLE = "https://console.neon.tech";
 
 /**
+ * Where the person creates the key. The Neon docs (read 2026-11-02) give no deep link, only "switch to the organization,
+ * Settings, API keys", so the URL is the organization's Console path when the org is known (it is not documented: the text
+ * repeats the steps), else the root of the Console.
+ */
+export const neonKeysUrl = (orgId: string | undefined): string => (orgId ? `${NEON_CONSOLE}/app/${orgId}/settings/api-keys` : NEON_CONSOLE);
+
+/**
  * The project-scoped Neon key the preview deploy uses to branch. Minted with the login of this run when Neon allows it
  * (the docs say a first key comes from the Console and are silent on OAuth); when it refuses, the person pastes one
  * (hidden, stored only as the secret); empty skips it, and the answer is remembered for the run.
@@ -124,11 +131,12 @@ export function previewNeonKeyStep(product: ProductIdentity): Step {
       const projectId = ctx.memory.previewProject?.[product.id] ?? (await ctx.github.listVariables())[names.neonProject];
       if (!projectId) return ctx.log("  No preview project yet: the preview-neon-project step must run first.");
       let key: string | undefined;
+      let orgId: string | undefined;
       const neon = await neonHandle(ctx, true);
       if (neon) {
         try {
           // Neon refuses a repeated name, and an old key whose secret is gone guards nothing: revoke it, then mint the new one.
-          const orgId = await neonOrgId(ctx, neon);
+          orgId = await neonOrgId(ctx, neon);
           for (const old of await previewKeysOf(neon, orgId, product.id, [projectId])) {
             await neon.revokeApiKey(old.id, orgId);
             ctx.log(`  Revoked the old Neon key ${old.name} (${old.id}): its secret was gone.`);
@@ -140,7 +148,9 @@ export function previewNeonKeyStep(product: ProductIdentity): Step {
       }
       if (!key) {
         if (ctx.memory.neonKeyDeclined || (!ctx.interactive && !ctx.env.PREVIEW_NEON_API_KEY)) return ctx.log(`  ${names.neonKey} was not set: ${ctx.interactive ? "skipped earlier in this run" : "no terminal to ask"}. Run this command again with a terminal.`);
-        ctx.prompter.link(`Create a project-scoped key in the Neon Console (Organization, Settings, API keys, Create new, scope: Project, project ${previewProjectName(product.id)}):`, NEON_CONSOLE);
+        const project = previewProjectName(product.id);
+        orgId ??= ctx.memory.neonOrg?.id;
+        ctx.prompter.link(`Create a key in the Neon Console, on the API keys page of the organization that holds ${project} (Settings, API keys, Create new, name: ${previewKeyName(product.id)}, scope: Project, project: ${project}):`, neonKeysUrl(orgId));
         key = (await ctx.prompter.password({ id: "preview-neon-key", message: "Paste the project-scoped Neon API key (hidden; kept only as a secret; leave empty to skip)" })).trim();
         if (!key) {
           ctx.memory.neonKeyDeclined = true;
