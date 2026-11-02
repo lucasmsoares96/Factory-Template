@@ -544,7 +544,7 @@ export class FakeNeon {
         this.orgIdsSeen.push(orgId);
         const project = this.projects.find((p) => p.id === projectId);
         if (!project) throw new Error("Neon: project not found (404).");
-        return `postgresql://neondb_owner:${project.password}@ep-${project.id}${pooled ? "-pooler" : ""}.eu-central-1.aws.neon.tech/neondb?sslmode=require`;
+        return `postgresql://neondb_owner:${project.password}@ep-${project.id}${pooled ? "-pooler" : ""}.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require`;
       },
       close: async () => {
         session.closed++;

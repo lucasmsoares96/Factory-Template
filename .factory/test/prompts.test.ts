@@ -94,6 +94,9 @@ describe("prompt templates", () => {
       "Never run `pnpm bootstrap destroy`.",
       "Do not push, open pull requests, comment, or change labels",
       "check the current official documentation",
+      "Never write a secret out in full, not even a fake one",
+      "give its shape",
+      "never the value",
     ]) {
       expect(prompt).toContain(rule);
     }
@@ -222,6 +225,7 @@ describe("prompt templates", () => {
     expect(prompts.development).toContain("abc1234 feat: greet #7");
     expect(prompts.development).toContain("E2E failed running `pnpm factory:verify`.");
     expect(prompts.development).toContain("<needs-human>");
+    expect(prompts.development).toContain("omit the tag");
     expect(prompts.review).toContain("<review>");
     expect(prompts.triage).toContain("<triage>");
     expect(prompts["pull-request"]).toContain("<pull-request>");

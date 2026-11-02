@@ -6,7 +6,7 @@ const server = createTestHarness({
   workers: [
     {
       configPath: builtWorkerConfig(import.meta.dirname + "/.."),
-      secrets: { DATABASE_URL: process.env.DATABASE_URL ?? "", BETTER_AUTH_SECRET: "e2e-secret-at-least-32-characters-long" },
+      secrets: { DATABASE_URL: process.env.DATABASE_URL ?? "", BETTER_AUTH_SECRET: "e2e-".repeat(10) },
     },
   ],
 });
