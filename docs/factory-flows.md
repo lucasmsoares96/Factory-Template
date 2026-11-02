@@ -16,7 +16,7 @@ The detail of the Factory's flows on the forge: which workflow runs which jobs, 
 
 - The write adapters add it (`marked`) to every text: issue and PR comments, PR body, reviews and their inline comments, thread replies, the Triage comment. Callers do not.
 - Readers:
-  - `openThreads`: a thread whose last comment is marked is the Factory's turn. Every comment must come from a `write`+ author, so a stranger's forged marker never reaches the agent. In the Conversation tab, writers' comments and review bodies after the last marked one are open (see [PR feedback](#pr-feedback)).
+  - `openThreads`: a thread whose last comment is marked is the Factory's turn. Every comment must come from a `write`+ author, so a stranger's forged marker never reaches the agent. In the Conversation tab, writers' comments and review bodies are open until a marked round reply cites their id in `<!-- factory:answers ... -->`; no other marked comment closes one (see [PR feedback](#pr-feedback)).
   - `guard.isFactoryComment`: Triage and Waiting comments, marker plus a `write`+ author.
   - the `wait` job's `if` in `factory-pr-feedback.yml`.
 - A human comment that contains the marker is ignored (accepted trade).
@@ -152,7 +152,7 @@ A feedback round and an update of the same branch share one queue: the concurren
 What a round reads:
 
 - A thread is open until a Factory-marked comment has the last word (the Factory never resolves one).
-- The Conversation tab (`CodeHost.conversation`: issue comments and submitted review bodies, oldest first) has no threads: every comment and review body by a writer after the last Factory-marked entry is a request of the round (`comment-<id>`, `review-<id>`, `in="conversation"` in the prompt). Entries by non-writers and by `github-actions[bot]` are never read.
+- The Conversation tab (`CodeHost.conversation`: issue comments and submitted review bodies, oldest first) has no threads: every comment and review body by a writer is a request of the round until the round's reply cites its id (`<!-- factory:answers comment-1 review-2 -->`; the update-branch, Previews, discard and session-limit comments close nothing) (`comment-<id>`, `review-<id>`, `in="conversation"` in the prompt). Entries by non-writers and by `github-actions[bot]` are never read.
 
 What `work` does:
 
