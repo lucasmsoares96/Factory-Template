@@ -2,6 +2,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Adapters } from "../commands/context.ts";
 import type { FactoryConfig } from "../config.ts";
+import { GitleaksScanner } from "./gitleaks/gitleaks-scanner.ts";
 import { FactoryVerify } from "./factory-verify.ts";
 import { GitHubCodeHost } from "./github/github-code-host.ts";
 import { GitHubTracker } from "./github/github-tracker.ts";
@@ -13,8 +14,8 @@ import { SandcastleAgent } from "./sandcastle/agent.ts";
  * Builds the real adapters selected by `FACTORY_ADAPTERS`:
  * - `local`: Markdown Tracker over `FACTORY_TRACKER_DIR`, the local CodeHost
  *   (the branch lands in `FACTORY_LOCAL_REMOTE`, default the repo itself),
- *   Sandcastle with stream-json in `FACTORY_SESSIONS_DIR`, and
- *   `pnpm factory:verify`. `pnpm factory local` sets these in the container.
+ *   Sandcastle with stream-json in `FACTORY_SESSIONS_DIR`,
+ *   `pnpm factory:verify` and the gitleaks scanner. `pnpm factory local` sets these in the container.
  * - `github`: the GitHub Tracker and CodeHost (REST) with the same Sandcastle Agent and `factory:verify`. The token is
  *   `FACTORY_TOKEN` (the `publish` job) or else `GITHUB_TOKEN` (`claim`, and the read-only `work`); the repo is
  *   `GITHUB_REPOSITORY`. `jobToken` takes `GITHUB_TOKEN` even next to `FACTORY_TOKEN`: `publish` labels with it and
@@ -31,7 +32,7 @@ export function adaptersFromEnv(
   throw new Error(
     kind
       ? `FACTORY_ADAPTERS=${kind} is not available. Known values: local, github.`
-      : "Set FACTORY_ADAPTERS to choose the Tracker, CodeHost, Agent and Verify adapters (local, github).",
+      : "Set FACTORY_ADAPTERS to choose the Tracker, CodeHost, Agent, Verify and scanner adapters (local, github).",
   );
 }
 
@@ -45,6 +46,7 @@ function localAdapters(env: Record<string, string | undefined>, { config, repo }
     codeHost: new LocalCodeHost({ remote: env.FACTORY_LOCAL_REMOTE || repo, from: repo, files: tracker.files, config, self }),
     agent: new SandcastleAgent({ repo, sessionsDir: env.FACTORY_SESSIONS_DIR || join(tmpdir(), "factory-sessions"), env }),
     verify: new FactoryVerify({ repo, env, echo: process.stderr }),
+    scanner: new GitleaksScanner(),
   };
 }
 
@@ -59,5 +61,6 @@ function githubAdapters(env: Record<string, string | undefined>, { config, repo,
     codeHost: new GitHubCodeHost({ ...api, baseBranch: config.baseBranch, cwd: repo }),
     agent: new SandcastleAgent({ repo, sessionsDir: env.FACTORY_SESSIONS_DIR || join(tmpdir(), "factory-sessions"), env }),
     verify: new FactoryVerify({ repo, env, echo: process.stderr }),
+    scanner: new GitleaksScanner(),
   };
 }

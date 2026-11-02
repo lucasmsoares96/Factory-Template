@@ -5,11 +5,12 @@ import { forForge } from "../forge-text.ts";
 import { Git } from "../git.ts";
 import { messages, type Language, type Messages } from "../messages.ts";
 import { isHarnessPath, isSensitivePath } from "../paths.ts";
-import { attemptLine, costFooter, escalationComment, fence, lastFailure, verdictsSection, type EscalationReason } from "../report.ts";
+import { attemptLine, costFooter, escalationComment, fence, lastFailure, SECRET_SCAN_CONFIG, verdictsSection, type EscalationReason } from "../report.ts";
 import { BUNDLE_FILE, EVIDENCE_DIR, RESULT_FILE, readResult, type CriterionVerdict, type FactoryResult } from "../result.ts";
 import { skeletonPaths } from "../scope.ts";
 import { fromTouchedSpecs, isSpecPath, shownIn, withEvidence, type TouchedSpec } from "../pull-request-evidence.ts";
 import type { EvidenceImage, PullRequest } from "../seams/code-host.ts";
+import type { SecretFinding } from "../seams/secret-scanner.ts";
 import type { Issue } from "../seams/tracker.ts";
 import { armResumeSweep, sessionLimitComment, utcMinute, type Wait } from "../session-limit.ts";
 import type { CommandContext } from "./context.ts";
@@ -97,6 +98,9 @@ export async function publish(ctx: CommandContext, number: number, options: Publ
   }
   if (result.outcome === "paused") return pause(ctx, issue, result, options);
 
+  const held = await secretScan(ctx, git, result, options.repo);
+  if (held) return escalate(ctx, issue, { reason: held.reason, result: null, ...held.report, pr: null, runUrl: options.runUrl, held: true }, round, options.dispatchRetro);
+
   const head = result.head;
   const changed = head ? await changedFiles(git, result.base, head) : [];
   if (!head) return escalate(ctx, issue, { reason: escalationReason(result), result, pr: null, runUrl: options.runUrl }, round, options.dispatchRetro);
@@ -173,6 +177,9 @@ export async function publishPrUpdate(ctx: CommandContext, number: number, optio
   }
   if (result.head === null || result.head === options.startSha) return { pr: number, outcome: "up-to-date", reason: `already contains ${config.baseBranch}` };
 
+  const held = await secretScan(ctx, git, result, options.repo);
+  if (held) return stop(held.reason, `${held.update(config.language)}${runLine(options.runUrl, config.language)}`);
+
   const push = await codeHost.push({ branch: pr.branch, sha: result.head, expectedSha: options.startSha });
   if (!push.ok) return discarded();
   const fixes = result.attempts.length > 1 ? `${m.updateFixed()}\n\n${result.attempts.map((a) => `- ${attemptLine(a, config.language)}`).join("\n")}` : m.updateVerified();
@@ -246,6 +253,51 @@ async function discard(ctx: CommandContext, number: number, reason: DiscardReaso
     }
   }
   return { issue: number, outcome: "discarded", reason: reason(messages("en")) };
+}
+
+type SecretHold = {
+  reason: "needs-human" | "infra";
+  report: { secrets: SecretFinding[] } | { detail: string };
+  /** The comment on a pull request whose update was held. */
+  update: (language: Language) => string;
+};
+
+/**
+ * The secret scan, before anything is written: the commits of the bundle (base to head) and every text of the result
+ * (pull request body, Review, replies, the Stage output an Escalation quotes) and the commit messages. A finding, or a
+ * scanner that could not run, holds the run: nothing is pushed or published. The comment names the place and the rule,
+ * never the value, and does not quote the result.
+ */
+async function secretScan(ctx: CommandContext, git: Git, result: FactoryResult, repo: string): Promise<SecretHold | null> {
+  try {
+    const texts = publishedTexts(result);
+    if (result.head) {
+      const messagesText = await git.run("log", "--format=%B", `${result.base}..${result.head}`);
+      texts.push({ name: "commit messages", text: messagesText });
+    }
+    const secrets = await ctx.scanner.scan({ repo, base: result.base, head: result.head, texts });
+    if (secrets.length === 0) return null;
+    ctx.log(`The secret scan found ${secrets.length} finding(s); nothing is pushed.`);
+    return {
+      reason: "needs-human",
+      report: { secrets },
+      update: (language) => {
+        const m = messages(language);
+        return [m.headlineSecrets(), "", m.secretsFound(), ...secrets.map((f) => m.secretFinding(f.source, f.line, f.rule)), "", m.secretsNext(SECRET_SCAN_CONFIG)].join("\n");
+      },
+    };
+  } catch (error) {
+    const detail = (error as Error).message;
+    return { reason: "infra", report: { detail: messages(ctx.config.language).secretScanFailed(detail) }, update: (language) => messages(language).secretScanFailed(detail) };
+  }
+}
+
+/** Every string of the result, with its path in it: what the Factory is about to publish. A commit hash is not text. */
+function publishedTexts(value: unknown, path = "result"): { name: string; text: string }[] {
+  if (typeof value === "string") return /^[0-9a-f]{40,64}$/.test(value) || value === "" ? [] : [{ name: path, text: value }];
+  if (Array.isArray(value)) return value.flatMap((item, i) => publishedTexts(item, `${path}[${i}]`));
+  if (typeof value === "object" && value !== null) return Object.entries(value).flatMap(([key, item]) => publishedTexts(item, `${path}.${key}`));
+  return [];
 }
 
 /** result.json plus the branch from the bundle; any mismatch is an infra failure. */

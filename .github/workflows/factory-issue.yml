@@ -193,6 +193,10 @@ jobs:
         with:
           name: work-out
           path: ${{ runner.temp }}/out
+      # The secret scan of `publish`: the pinned gitleaks, checked against its sha256, from the default branch's checkout.
+      - name: gitleaks
+        if: ${{ always() && needs.claim.result != 'cancelled' && needs.image.result != 'cancelled' }}
+        run: sudo bash .factory/image/install-gitleaks.sh /usr/local/bin
       # A `work` that timed out is `cancelled` too: it still publishes, so the issue escalates instead of staying silent.
       - name: publish
         id: publish

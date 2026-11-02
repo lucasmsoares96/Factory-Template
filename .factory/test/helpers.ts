@@ -7,6 +7,7 @@ import { afterAll, afterEach } from "vitest";
 import { FakeAgent, type AgentStep } from "../src/adapters/fake/fake-agent.ts";
 import { FakeCodeHost, type FakePullRequestSeed } from "../src/adapters/fake/fake-code-host.ts";
 import { FakeTracker, type FakeIssueInput } from "../src/adapters/fake/fake-tracker.ts";
+import { FakeSecretScanner } from "../src/adapters/fake/fake-secret-scanner.ts";
 import { FakeVerify, type VerifyStep } from "../src/adapters/fake/fake-verify.ts";
 import { FACTORY_MARKER } from "../src/marker.ts";
 import type { Stage } from "../src/seams/agent.ts";
@@ -148,6 +149,7 @@ export interface World {
   codeHost: FakeCodeHost;
   agent: FakeAgent;
   verify: FakeVerify;
+  scanner: FakeSecretScanner;
   env: Record<string, string>;
   logs: string[];
   /** Runs `pnpm factory <argv>` against the fakes; returns the exit code. */
@@ -168,6 +170,8 @@ export interface WorldOptions {
   env?: Record<string, string>;
   /** The code host of the job token (`jobToken: true`); the forge token's one when absent. */
   jobCodeHost?: FakeCodeHost;
+  /** The secret scanner of `publish`; finds nothing when absent. */
+  scanner?: FakeSecretScanner;
 }
 
 export function world(options: WorldOptions = {}): World {
@@ -180,6 +184,7 @@ export function world(options: WorldOptions = {}): World {
   const repo = options.repo ?? "/nonexistent";
   const agent = new FakeAgent(repo, options.agent ?? {});
   const verify = new FakeVerify(repo, "test-results/evidence", options.verify ?? []);
+  const scanner = options.scanner ?? new FakeSecretScanner();
   const env: Record<string, string> = { ...options.env };
   const logs: string[] = [];
   return {
@@ -187,13 +192,14 @@ export function world(options: WorldOptions = {}): World {
     codeHost,
     agent,
     verify,
+    scanner,
     env,
     logs,
     factory: (...argv) =>
       runFactory(argv, {
         env,
         log: (line) => logs.push(line),
-        adapters: ({ jobToken }) => ({ tracker, codeHost: (jobToken && options.jobCodeHost) || codeHost, agent, verify }),
+        adapters: ({ jobToken }) => ({ tracker, codeHost: (jobToken && options.jobCodeHost) || codeHost, agent, verify, scanner }),
         ...(options.now ? { now: options.now } : {}),
       }),
   };

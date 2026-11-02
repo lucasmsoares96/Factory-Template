@@ -70,7 +70,7 @@ async function setup(options: Pick<WorldOptions, "issues" | "prs" | "agent" | "e
   });
   const runLogs = options.runLogs ?? new FakeRunLogs();
   const factory = (...argv: string[]) =>
-    runFactory(argv, { env: w.env, log: (line) => w.logs.push(line), adapters: () => ({ tracker: w.tracker, codeHost: w.codeHost, agent: w.agent, verify: w.verify }), runLogs: () => runLogs, ...(options.now ? { now: options.now } : {}) });
+    runFactory(argv, { env: w.env, log: (line) => w.logs.push(line), adapters: () => ({ tracker: w.tracker, codeHost: w.codeHost, agent: w.agent, verify: w.verify, scanner: w.scanner }), runLogs: () => runLogs, ...(options.now ? { now: options.now } : {}) });
   return { w, runLogs, factory };
 }
 

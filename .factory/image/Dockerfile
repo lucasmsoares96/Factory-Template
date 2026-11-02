@@ -10,8 +10,8 @@ ARG PNPM_VERSION
 ARG PLAYWRIGHT_VERSION
 ARG CLAUDE_CODE_VERSION
 
-COPY setup.sh /tmp/setup.sh
-# setup.sh empties /tmp (itself included) when it is done.
+COPY setup.sh install-gitleaks.sh /tmp/
+# setup.sh empties /tmp (itself and install-gitleaks.sh included) when it is done.
 RUN bash /tmp/setup.sh
 
 # Defaults for the processes the image runs directly. The agent's sessions get
