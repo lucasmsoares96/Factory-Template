@@ -340,6 +340,19 @@ describe("ResendApi (fake fetch)", () => {
   });
 });
 
+describe("the reason of a failed neonctl or wrangler", () => {
+  const stderr = "ERROR: choose another unique name for api key\n undefined\n/repo/.factory:\n ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command \"neonctl\" not found or failed\n pnpm recursive exec failed";
+  it("shows the ERROR line of Neon, not the pnpm frame, and never stdout", async () => {
+    const { stderrReason } = await import("../../src/bootstrap/stderr-reason.ts");
+    const reason = stderrReason(stderr);
+    expect(reason).toBe("ERROR: choose another unique name for api key");
+  });
+  it("falls back to the last unframed lines when there is no ERROR line", async () => {
+    const { stderrReason } = await import("../../src/bootstrap/stderr-reason.ts");
+    expect(stderrReason("a failure\nELIFECYCLE  Command failed\n pnpm recursive exec failed")).toBe("a failure");
+  });
+});
+
 describe("NeonCli (fake neonctl)", () => {
   type Call = { args: string[]; env: Record<string, string>; inherit?: boolean };
   /** `loggedIn`: whether `neonctl me` succeeds, i.e. neonctl already has a saved login on this machine. */
