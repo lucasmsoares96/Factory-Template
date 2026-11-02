@@ -14,6 +14,7 @@ import type { SecretFinding } from "../seams/secret-scanner.ts";
 import type { Issue } from "../seams/tracker.ts";
 import { armResumeSweep, sessionLimitComment, utcMinute, type Wait } from "../session-limit.ts";
 import type { CommandContext } from "./context.ts";
+import { answersTag } from "./pr-threads.ts";
 
 export type PublishResult =
   | { issue: number; outcome: "ready"; pr: number; url: string }
@@ -454,13 +455,15 @@ async function postReplies(ctx: CommandContext, pr: number, threadReplies: Facto
     const thread = known.find((t) => t.id === reply.threadId);
     if (thread) await ctx.codeHost.replyToThread(pr, thread.id, `${m.decision(reply.decision)}: ${reply.body}`);
   }
+  const answered: string[] = [];
   const answers = (await ctx.codeHost.conversation(pr)).flatMap((request) => {
     const reply = threadReplies.find((r) => r.threadId === request.id);
     if (!reply) return [];
+    answered.push(request.id);
     const quote = request.body.trim().split("\n").map((line) => `> ${line}`.trimEnd());
     return [[m.quoted(request.author, request.kind === "review"), ...quote, "", `${m.decision(reply.decision)}: ${reply.body}`].join("\n")];
   });
-  if (answers.length > 0) await ctx.codeHost.commentPr(pr, answers.join("\n\n---\n\n"));
+  if (answers.length > 0) await ctx.codeHost.commentPr(pr, `${answers.join("\n\n---\n\n")}\n\n${answersTag(answered)}`);
 }
 
 /** Escalation: the report on the issue, then in-progress → ready-for-human. */
