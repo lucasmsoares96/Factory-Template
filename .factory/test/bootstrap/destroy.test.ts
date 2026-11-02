@@ -17,6 +17,7 @@ async function built(answers: Record<string, string | boolean | string[]> = {}, 
   for (const label of labelSpecs(w.deps.config)) w.github.labels.set(label.name, label);
   w.tokens.add(PAT, { push: true });
   w.products.set("shop", { id: "shop", title: "Shop", emailFrom: "Shop <no-reply@shop.test>", domain: "shop.test" });
+  await w.run();
   for (const id of ["example", "shop"]) {
     await w.run("product", id);
     await w.run("previews", id);
@@ -145,17 +146,46 @@ describe("pnpm bootstrap destroy product <id>", () => {
     expect([...w.github.labels.keys()]).toEqual(labels);
   });
 
-  it("with the last Product, it also removes the main ruleset and the module switches", async () => {
+  it("with the last Product, it removes the module switches but keeps the main ruleset", async () => {
     const w = await built({ "destroy-confirm": ["shop", "example"] });
     await w.run("destroy", "product", "shop");
-    expect(w.github.rulesets).toHaveLength(1);
 
-    const { code } = await w.run("destroy", "product", "example");
+    const { code, output } = await w.run("destroy", "product", "example");
 
     expect(code).toBe(0);
-    expect(w.github.rulesets).toEqual([]);
+    expect(output).not.toContain("ruleset");
+    expect(w.github.rulesets.map((r) => r.name)).toEqual(["main"]);
     for (const name of ["DEPLOY_PRODUCTS", "PREVIEW_PRODUCTS", "DEPLOY_ENABLED", "PREVIEWS_ENABLED"]) expect(w.github.variables.has(name)).toBe(false);
     expect(left(w)).toEqual({ projects: [], workers: [], kvs: [], domains: [] });
+  });
+
+  it("destroy previews keeps the main ruleset and does not list it", async () => {
+    const w = await built({ "destroy-confirm": ["shop", "example"] });
+    await w.run("destroy", "product", "shop");
+
+    const { output } = await w.run("destroy", "previews", "example");
+
+    expect(output).not.toContain("ruleset");
+    expect(w.github.rulesets.map((r) => r.name)).toEqual(["main"]);
+  });
+
+  it("destroy common lists the main ruleset in a warning line and deletes it after the confirmation", async () => {
+    const w = await built({ "destroy-confirm": "common" });
+
+    const { code, output } = await w.run("destroy", "common");
+
+    expect(code).toBe(0);
+    expect(output).toMatch(/!! ruleset main on the default branch/);
+    expect(w.github.rulesets).toEqual([]);
+  });
+
+  it("destroy common keeps the ruleset when the confirmation is wrong", async () => {
+    const w = await built({ "destroy-confirm": "nope" });
+
+    const { code } = await w.run("destroy", "common");
+
+    expect(code).toBe(1);
+    expect(w.github.rulesets.map((r) => r.name)).toEqual(["main"]);
   });
 
   it("falls back to repo-level secrets when the Product has no environment", async () => {
