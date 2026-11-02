@@ -241,6 +241,10 @@ jobs:
         with:
           name: work-out
           path: ${{ runner.temp }}/out
+      # The secret scan of `publish`: the pinned gitleaks, checked against its sha256, from the default branch's checkout.
+      - name: gitleaks
+        if: ${{ always() && !contains(needs.*.result, 'cancelled') }}
+        run: sudo bash .factory/image/install-gitleaks.sh /usr/local/bin
       - name: publish
         id: publish
         if: ${{ always() && !contains(needs.*.result, 'cancelled') }}
