@@ -22,7 +22,7 @@ export interface FakePullRequest extends PullRequest {
   body: string;
   base: string;
   /** Reviews on the PR; `author` is the Factory's login when unset (the ones `submitReview` adds). */
-  reviews: (Review & { author?: string })[];
+  reviews: (Review & { author?: string; state?: string })[];
   /** The images received with the last body write; their references are URLs in `body`. */
   images: EvidenceImage[];
   threads: ReviewThread[];
@@ -178,7 +178,7 @@ export class FakeCodeHost implements CodeHost {
   }
 
   async reviews(pr: number): Promise<SubmittedReview[]> {
-    return this.pr(pr).reviews.map((r) => ({ author: r.author ?? this.self, body: r.body }));
+    return this.pr(pr).reviews.map((r) => ({ author: r.author ?? this.self, body: r.body, state: r.state ?? "COMMENTED" }));
   }
 
   async failedChecks(pr: number, _lines: number): Promise<FailedCheck[]> {

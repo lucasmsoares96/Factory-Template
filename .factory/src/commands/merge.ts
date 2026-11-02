@@ -1,11 +1,13 @@
 import { isProtectedPath, type MergeMode } from "../config.ts";
 import { TRIAGE_MARKER } from "../guard.ts";
 import { catalog, LANGUAGES, messages } from "../messages.ts";
+import { isMarked } from "../marker.ts";
 import type { CodeHost, PrCheck, PullRequest } from "../seams/code-host.ts";
 import type { CommandContext } from "./context.ts";
+import { openThreads } from "./pr-threads.ts";
 
 /** Every condition of a merge without a person, in the order the comment and the output name them. */
-export type MergeCondition = "protected" | "door" | "verify" | "preview" | "criteria" | "deploy";
+export type MergeCondition = "protected" | "door" | "verify" | "preview" | "criteria" | "deploy" | "conversation";
 
 /** The decision on one pull request. */
 export type PrDecision =
@@ -74,6 +76,7 @@ async function decide(ctx: CommandContext, input: MergeInput, pr: PullRequest, d
     preview: previewJobs.every((c) => c.conclusion !== null && PASSED.has(c.conclusion)),
     criteria: allCriteriaMet(body),
     deploy: deploy === null || !DEPLOY_FAILED.has(deploy),
+    conversation: !(await personWaiting(ctx, pr.number)),
   };
   const unmet = (Object.keys(held) as MergeCondition[]).filter((c) => !held[c]);
   if (unmet.length > 0) return { pr: pr.number, merged: false, reason: "conditions", unmet, ...(unmet.includes("protected") ? { protected: protectedFiles } : {}) };
@@ -83,6 +86,32 @@ async function decide(ctx: CommandContext, input: MergeInput, pr: PullRequest, d
   await input.label(pr.number, config.labels.autoMerged);
   await ctx.codeHost.commentPr(pr.number, messages(config.language).autoMerged(config.mergeMode, config.baseBranch, hadPreview(previewJobs), protectedFiles));
   return { pr: pr.number, merged: true };
+}
+
+/**
+ * A person's word still holds the merge: a request waiting for the Factory (`openThreads`), a collaborator with `write`+
+ * whose last verdict is "changes requested" (a comment-only review changes no verdict), or an inline comment of the
+ * Factory's Review that no person with `write`+ answered. The owner's own review state says nothing (the Factory writes
+ * with the owner's token, and a forge does not let an author review their own pull request).
+ */
+async function personWaiting(ctx: CommandContext, pr: number): Promise<boolean> {
+  if ((await openThreads(ctx, ctx.config, pr)).length > 0) return true;
+
+  const verdict = new Map<string, string>();
+  for (const review of await ctx.codeHost.reviews(pr)) {
+    if (["APPROVED", "CHANGES_REQUESTED", "DISMISSED"].includes(review.state)) verdict.set(review.author, review.state);
+  }
+  for (const [author, state] of verdict) {
+    if (state === "CHANGES_REQUESTED" && (await ctx.tracker.canWrite(author))) return true;
+  }
+
+  for (const thread of await ctx.codeHost.threads(pr)) {
+    if (!isMarked(thread.body)) continue;
+    let answered = false;
+    for (const reply of thread.replies) answered ||= !isMarked(reply.body) && (await ctx.tracker.canWrite(reply.author));
+    if (!answered) return true;
+  }
+  return false;
 }
 
 /** The Door field of a line, in every language of the catalog: `**Door:**` or `**Porta:**`. */
