@@ -1,3 +1,4 @@
+import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { labelSpecs } from "../../src/bootstrap/labels.ts";
 import { TOKEN, world } from "./helpers.ts";
@@ -64,5 +65,23 @@ describe("key questions come with a creation link", () => {
     await w.run("doctor", "example");
     expect(w.prompter.sequence).toEqual(expect.arrayContaining(["password:resend-key", "password:stripe-sandbox-key-check"]));
     expect(unlinkedKeyQuestions(w.prompter.sequence)).toEqual([]);
+  });
+});
+
+describe("every key question in the source has a link just above it", () => {
+  const dir = new URL("../../src/bootstrap/", import.meta.url);
+  const WINDOW = 8; // lines above the question where the link call must be
+  it("finds no `password({ id: ... })` for a service key without `link(` or `showResendKeyLink(` before it", () => {
+    const missing: string[] = [];
+    for (const file of readdirSync(dir).filter((f) => f.endsWith(".ts"))) {
+      const lines = readFileSync(new URL(file, dir), "utf8").split("\n");
+      lines.forEach((line, i) => {
+        const id = /\.password\(\{ id: [`"]([^`"]+)[`"]/.exec(line)?.[1];
+        if (!id || /account-password|-confirm$/.test(id)) return;
+        const above = lines.slice(Math.max(0, i - WINDOW), i).join("\n");
+        if (!/\.link\(|showResendKeyLink\(/.test(above)) missing.push(`${file}:${i + 1} ${id}`);
+      });
+    }
+    expect(missing).toEqual([]);
   });
 });
