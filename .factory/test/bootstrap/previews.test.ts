@@ -285,7 +285,7 @@ describe("pnpm bootstrap previews: Previews module", () => {
     await w.run("previews", "my-app");
 
     expect([...w.github.environmentSecrets.get("my-app-preview")!.keys()]).toEqual(["MY_APP_PREVIEW_NEON_API_KEY"]);
-    expect([...w.github.variables.keys()].filter((n) => n.includes("MY_APP"))).toEqual(["MY_APP_PREVIEW_NEON_PROJECT_ID", "MY_APP_PREVIEW_OAUTH_KV_ID"]);
+    expect([...w.github.variables.keys()].filter((n) => n.includes("MY_APP"))).toEqual(["MY_APP_REGION", "MY_APP_PREVIEW_NEON_PROJECT_ID", "MY_APP_PREVIEW_OAUTH_KV_ID"]);
     expect(w.neon.projects.map((p) => p.name)).toEqual(["my-app-preview"]);
   });
 

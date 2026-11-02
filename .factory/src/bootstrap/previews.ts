@@ -1,6 +1,6 @@
 import { cloudflareHandle, productSecretName } from "./domain.ts";
 import { accountNames } from "./accounts.ts";
-import { askPassword, ensureProject, environmentStep, neonHandle, parseProductList } from "./product.ts";
+import { askPassword, ensureProject, environmentStep, neonHandle, parseProductList, regionStep } from "./product.ts";
 import type { ProductIdentity, Step, StepContext } from "./steps.ts";
 
 export const PREVIEW_PRODUCTS = "PREVIEW_PRODUCTS";
@@ -80,7 +80,7 @@ export function previewProjectStep(product: ProductIdentity): Step {
     async run(ctx) {
       const neon = await neonHandle(ctx, true);
       if (!neon) return ctx.log("No Neon session: the preview project was not made. Run again, or export NEON_API_KEY.");
-      const project = await ensureProject(ctx, neon, name, `the preview database of ${product.id}`);
+      const project = await ensureProject(ctx, neon, product.id, "preview", name, `the preview database of ${product.id}`);
       // A new project's default branch is `main`: previews branch from `base`, so it is renamed (a project that has it is left alone).
       const current = await neon.defaultBranchName(project.id);
       if (current !== BASE_BRANCH) {
@@ -199,6 +199,6 @@ export function previewProductsStep(product: ProductIdentity): Step {
  * `PREVIEWS_ENABLED` is not a step: the command turns it on after the doctor of the Product's previews passes.
  */
 export function previewSteps(product: ProductIdentity): Step[] {
-  return [previewEnvironmentStep(product), previewProjectStep(product), previewNeonKeyStep(product), previewKvStep(product), previewAccountStep(product), previewProductsStep(product)];
+  return [previewEnvironmentStep(product), regionStep(product), previewProjectStep(product), previewNeonKeyStep(product), previewKvStep(product), previewAccountStep(product), previewProductsStep(product)];
 }
 

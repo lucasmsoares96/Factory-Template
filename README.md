@@ -20,7 +20,7 @@ read -s -p "GitHub token: " GITHUB_TOKEN; export GITHUB_TOKEN
 
 O fluxo inteiro, em ordem (`<id>` em minúsculas, dígitos e hifens; ex.: `notas`):
 
-1. `pnpm bootstrap product <id>`: cria a pasta `apps/<id>/` se ela não existir (pergunta o título e o domínio, ou lê `--title` e `--domain`; é o mesmo código do `pnpm new-product <id>`) e prepara o banco, os segredos, o ambiente e a conta padrão. Se a pasta já existe, nada nela muda. Ele não faz commit nem push.
+1. `pnpm bootstrap product <id>`: cria a pasta `apps/<id>/` se ela não existir (pergunta o título e o domínio, ou lê `--title` e `--domain`; é o mesmo código do `pnpm new-product <id>`) e prepara o banco (pergunta a região do banco uma vez por Product, com São Paulo, `aws-sa-east-1`, como padrão; sem terminal vem de `NEON_REGION`; a região não muda depois), os segredos, o ambiente e a conta padrão. Se a pasta já existe, nada nela muda. Ele não faz commit nem push.
 2. `pnpm dev <id>`: roda o projeto na sua máquina.
 3. Abra o pull request com `apps/<id>/` e o `pnpm-lock.yaml` (a pasta criada ainda não está no git).
 4. Faça o merge. O Worker só existe depois do primeiro deploy.
@@ -28,3 +28,5 @@ O fluxo inteiro, em ordem (`<id>` em minúsculas, dígitos e hifens; ex.: `notas
 6. Os opcionais, quando quiser: `pnpm bootstrap previews <id>`, `pnpm bootstrap domain <id>` e `pnpm bootstrap billing <id>`.
 
 Quer só a pasta, sem contas nem banco? `pnpm new-product <id>`.
+
+Precisa trocar a região do banco? Ela não muda com o banco criado: rode `pnpm bootstrap destroy db <id>` (apaga só os projetos da Neon e o que depende deles, incluindo a conta padrão; não toca no Worker, nos ambientes nem na regra da `main`), depois `pnpm bootstrap product <id> --redo region` e `pnpm bootstrap previews <id>`. O e-mail e a senha da conta padrão são pedidos de novo.
