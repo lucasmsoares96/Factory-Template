@@ -43,6 +43,7 @@ export const QUESTIONS = {
   "domain-setup": terminal("domain", "Whether to set the domain up now, at the end of all"),
   "resend-setup": terminal("domain", "Whether to set Resend up now"),
   "resend-key": q("domain", "optional", "RESEND_API_KEY", "Full-access Resend key, used for this run only; without it Resend is deferred"),
+  "neon-region": q("product", "required", "NEON_REGION", "Neon region of the Product's databases (production and previews; aws-sa-east-1 is São Paulo); not needed once <ID>_REGION exists"),
   "neon-org": q("product", "conditional", "NEON_ORG_ID", "Neon organization, when the login sees more than one"),
   "neon-project-pick": q("product", "conditional", "NEON_PROJECT_ID", "Neon project, when several have the Product's name"),
   "default-account-email": q("product", "required", "DEFAULT_ACCOUNT_EMAIL", "Email of the Product's default account; not needed once the account exists"),
