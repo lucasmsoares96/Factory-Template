@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { expect, test } from "vitest";
@@ -107,4 +108,20 @@ test("a SIGTERM to the command stops stripe listen and Vite", async () => {
   process.emit("SIGTERM");
   expect(h.calls.every((c) => c.process.killed)).toBe(true);
   expect(h.exits).toEqual([130]);
+});
+
+test("--stripe runs the catalog's Stripe CLI through pnpm exec, never a system stripe", async () => {
+  const h = harness({ STRIPE_SECRET_KEY: "sk_test_abc" });
+  const started = h.run(true);
+  await tick();
+  h.calls[0]!.process.stdout.write("Ready! Your webhook signing secret is whsec_x\n");
+  await started;
+  expect(h.calls.map((c) => c.command)).not.toContain("stripe");
+  expect(h.calls[0]!.command).toBe("pnpm");
+  expect(h.calls[0]!.args.slice(0, 2)).toEqual(["exec", "stripe"]);
+
+  const workspace = readFileSync(new URL("../../../pnpm-workspace.yaml", import.meta.url), "utf8");
+  expect(workspace).toMatch(/^\s+"@stripe\/cli":\s+\d+\.\d+\.\d+\s*(#.*)?$/m);
+  const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  expect(pkg.dependencies["@stripe/cli"]).toBe("catalog:");
 });
