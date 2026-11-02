@@ -50,7 +50,7 @@ describe("GitleaksScanner against the real gitleaks", () => {
 
     const findings = await scanner.scan({ repo, base, head, texts: [] });
 
-    expect(findings.map((f) => [f.source, f.rule])).toEqual([["src/db.ts", "postgres-url-with-password"], ["src/npg.ts", "postgres-url-with-password"]]);
+    expect(findings.map((f) => [f.source, f.rule]).sort()).toEqual([["src/db.ts", "postgres-url-with-password"], ["src/npg.ts", "postgres-url-with-password"]]);
   });
 
   it("scans the texts, naming them by the label they were given", async () => {
