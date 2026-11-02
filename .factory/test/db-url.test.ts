@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import pg from "pg";
+import { describe, expect, it, vi } from "vitest";
 import { withVerifyFull } from "../src/db-url.ts";
 
 // Built from parts: no address with a password is written out in full.
@@ -14,5 +15,20 @@ describe("withVerifyFull", () => {
     expect(withVerifyFull(address("?sslmode=verify-full"))).toBe(address("?sslmode=verify-full"));
     const local = address("", "localhost:5432");
     expect(withVerifyFull(local)).toBe(local);
+  });
+
+  it("makes pg parse the address without its sslmode security warning", () => {
+    const parse = (uri: string) => {
+      const warn = vi.spyOn(process, "emitWarning").mockImplementation(() => {});
+      try {
+        new pg.Client({ connectionString: uri });
+        return warn.mock.calls.length;
+      } finally {
+        warn.mockRestore();
+      }
+    };
+    const neon = address("?sslmode=require&channel_binding=require", "ep-1.neon.tech");
+    expect(parse(neon)).toBeGreaterThan(0);
+    expect(parse(withVerifyFull(neon))).toBe(0);
   });
 });
