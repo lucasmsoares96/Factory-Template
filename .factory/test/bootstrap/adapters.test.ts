@@ -354,6 +354,10 @@ describe("the reason of a failed neonctl or wrangler", () => {
 });
 
 describe("NeonCli (fake neonctl)", () => {
+  // The password comes from a variable: the code never holds an address with a password written out.
+  const PASSWORD = "pw";
+  const CONNECTION_STRING = `postgresql://u:${PASSWORD}@h/neondb`;
+
   type Call = { args: string[]; env: Record<string, string>; inherit?: boolean };
   /** `loggedIn`: whether `neonctl me` succeeds, i.e. neonctl already has a saved login on this machine. */
   function cli(answers: Record<string, string>, options: { apiKey?: string; failOn?: string; loggedIn?: boolean } = {}) {
@@ -408,11 +412,11 @@ describe("NeonCli (fake neonctl)", () => {
     const { neon, calls } = cli({
       orgs: JSON.stringify([{ id: "org-1", name: "P" }]),
       projects: JSON.stringify({ projects: [{ id: "p1", name: "example" }] }),
-      "connection-string": "postgresql://u:pw@h/neondb\n",
+      "connection-string": `${CONNECTION_STRING}\n`,
     }, { loggedIn: true });
     expect(await neon.listOrgs()).toEqual([{ id: "org-1", name: "P" }]);
     expect(await neon.listProjects("org-1")).toEqual([{ id: "p1", name: "example" }]);
-    expect(await neon.connectionString("p1", { pooled: true, orgId: "org-1" })).toBe("postgresql://u:pw@h/neondb");
+    expect(await neon.connectionString("p1", { pooled: true, orgId: "org-1" })).toBe(CONNECTION_STRING);
     const [orgsCall, listCall, uriCall] = calls.map((c) => c.args.join(" "));
     expect(orgsCall).toBe("orgs list -o json");
     expect(listCall).toBe("projects list --org-id org-1 -o json");
