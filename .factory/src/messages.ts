@@ -74,6 +74,14 @@ export const catalog = {
     en: (config: string): string => `Remove the secret and revoke it if it was real, then add the label again. A false positive is fixed in \`${config}\`, in the default branch.`,
     "pt-BR": (config) => `Remova o segredo e revogue-o se for real, e coloque o label de novo. Um falso positivo se resolve em \`${config}\`, na branch padrão.`,
   }),
+  secretTextKept: text({
+    en: (places: string) => `The secret scan still finds what looks like a secret in the text the agent wrote, after it was asked to rewrite it (the value is never shown): ${places}.`,
+    "pt-BR": (places) => `A verificação de segredos ainda acha o que parece ser um segredo no texto que o agente escreveu, depois de pedirem a ele para reescrevê-lo (o valor nunca é mostrado): ${places}.`,
+  }),
+  secretInCommits: text({
+    en: (places: string) => `The secret scan found what looks like a secret in the commits (the value is never shown): ${places}.`,
+    "pt-BR": (places) => `A verificação de segredos achou o que parece ser um segredo nos commits (o valor nunca é mostrado): ${places}.`,
+  }),
   secretScanFailed: text({
     en: (detail: string) => `The secret scan did not run, so nothing was pushed or published: ${detail}`,
     "pt-BR": (detail) => `A verificação de segredos não rodou, então nada foi enviado nem publicado: ${detail}`,

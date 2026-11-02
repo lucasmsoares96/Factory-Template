@@ -15,6 +15,18 @@ export interface Extraction {
   valid(output: string): boolean;
   /** What to tell the resumed session. */
   ask: string;
+  /**
+   * For a block that is well formed but not fit to publish (it holds a secret): what to tell the resumed session
+   * instead of `ask`, or null when it is fit. Runs only on a valid block; async because it may call a scanner.
+   */
+  check?(output: string): Promise<string | null>;
+}
+
+/** Whether `output` satisfies `extract`; when it does not, what to tell the resumed session. */
+export async function judge(extract: Extraction, output: string): Promise<{ ok: true } | { ok: false; ask: string }> {
+  if (!extract.valid(output)) return { ok: false, ask: extract.ask };
+  const problem = (await extract.check?.(output)) ?? null;
+  return problem === null ? { ok: true } : { ok: false, ask: problem };
 }
 
 export type Stage = "development" | "review" | "pull-request" | "triage" | "retro";

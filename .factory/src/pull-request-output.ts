@@ -1,3 +1,4 @@
+import type { StageText } from "./secret-text.ts";
 import type { Extraction } from "./seams/agent.ts";
 
 /**
@@ -14,3 +15,9 @@ export const pullRequestExtraction: Extraction = {
   valid: (output) => parsePullRequestBody(output) !== null,
   ask: "Your last message has no valid <pull-request> block. Reply with the block again, and nothing else: <pull-request>the PR body in Markdown</pull-request>, not empty.",
 };
+
+/** The text of a valid block, as the scanner sees it. */
+export function pullRequestTexts(output: string): StageText[] {
+  const body = parsePullRequestBody(output);
+  return body === null ? [] : [{ name: "pull request body", text: body }];
+}
