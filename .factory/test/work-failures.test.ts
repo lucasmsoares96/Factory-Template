@@ -154,6 +154,19 @@ describe("factory work, when things go wrong", () => {
     expect(result.head).toBe(await git(repo, "rev-parse", "factory/issue-7"));
   });
 
+  it.each(["none", "None.", "N/A", "na", "nothing", "No", "-", "null", "  ", "(none)"])(
+    "ignores a needs-human tag that is only the marker %j",
+    async (marker) => {
+      const done: AgentStep = async (call) => ({ ...(await develop(call)), output: `Done.\n<needs-human>${marker}</needs-human>` });
+      const { run } = await setup({ agent: { development: [done], review: [reviewSays("ok")] }, verify: [{ ok: true }] });
+
+      const result = await run();
+
+      expect(result.outcome).not.toBe("escalated");
+      expect(outline(result)).toEqual(["development:ok review:ok e2e:ok"]);
+    },
+  );
+
   it("reviews only what changed since the last reviewed commit, and summarises every attempt", async () => {
     const finding = { path: "src/greet.ts", line: 1, body: "Name the greeting." };
     const { repo, w, run } = await setup({
