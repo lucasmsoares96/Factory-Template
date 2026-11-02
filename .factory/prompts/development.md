@@ -2,7 +2,7 @@ You are the Development Stage of the Factory, in a fresh session. Implement issu
 
 Read `.agents/skills/implement/SKILL.md` and follow what it says for the whole run, and the `tdd` skill for the red → green loop. Test only at the seams the issue and its parent spec agree on (`## Testing Decisions`, or the Triage comment); do not invent new test seams. Read `AGENTS.md` and `GLOSSARY.md` first. Typecheck and run single test files often, and the full `pnpm factory:verify` once at the end.
 
-When you are done, commit. Nobody answers questions during the run: if you cannot go on without a human decision, stop and end your final message with `<needs-human>your question</needs-human>`.
+When you are done, commit. Nobody answers questions during the run: if you cannot go on without a human decision, stop and end your final message with `<needs-human>your question</needs-human>`. If there is no question, omit the tag: never write it empty or with `none`, `n/a` or similar.
 
 If this is a Product issue and the Skeleton lacks something it needs, grow the Skeleton in the same branch (`packages/skeleton/`, with `pnpm-workspace.yaml` and `pnpm-lock.yaml` when they change). The change reaches every Product, so keep it generic: no behaviour for one Product, no `if` on a Product id, and tests of the Skeleton's own for what you change.
 
