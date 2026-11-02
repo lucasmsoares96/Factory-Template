@@ -4,7 +4,7 @@ import { labelSpecs } from "./labels.ts";
 import { closedVariables, type FactoryConfig } from "../config.ts";
 import { billingChecks, hasBillingTrace } from "./billing-doctor.ts";
 import { MERGE_MODE_VARIABLE } from "./factory.ts";
-import { NO_DNS, NO_LOGIN, deployFirstMessage, productionEnvironment, productSecretName, readDnsState, readWorkerDomainState } from "./domain.ts";
+import { NO_DNS, NO_LOGIN, deployFirstMessage, productionEnvironment, productSecretName, readDnsState, showResendKeyLink, readWorkerDomainState } from "./domain.ts";
 import { hasPreviewTrace, previewEnvironment, previewNames, previewProjectName, previewSecretPresent, PREVIEW_PRODUCTS, BASE_BRANCH } from "./previews.ts";
 import { coversMain, databaseVariables, DEPLOY_PRODUCTS, missingSecrets, neonHandle, neonOrgId, parseProductList, productionDatabaseUrl, productionSecrets, USE_ENVIRONMENTS } from "./product.ts";
 import type { BootstrapDeps, ProductIdentity, StepContext } from "./steps.ts";
@@ -173,6 +173,7 @@ export async function doctor(
         const keyMissing = (await missingSecrets(ctx, product.id, [key])).length > 0;
         domainAdd(keyMissing ? "off" : "ok", key, keyMissing ? `run \`pnpm bootstrap domain ${product.id}\`` : undefined);
         if (options.prompt && deps.interactive && !memory.resendKey && !memory.resendDeferred && !deps.env.RESEND_API_KEY) {
+          showResendKeyLink(ctx, product.id);
           const key = (await deps.prompter.password({ id: "resend-key", message: "Paste a Resend API key to check the domain (not stored; leave empty to skip)" })).trim();
           if (key) memory.resendKey = key;
         }
