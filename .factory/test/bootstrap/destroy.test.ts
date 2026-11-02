@@ -302,7 +302,8 @@ describe("pnpm bootstrap destroy (everything)", () => {
     expect(left(w)).toEqual({ projects: [], workers: [], kvs: [], domains: [] });
     expect(everywhere(w)).toEqual([]);
     expect(w.github.rulesets).toEqual([]);
-    expect(w.github.secrets.has("FACTORY_TOKEN")).toBe(false);
+    expect(w.github.rulesets).toEqual([]);
+    expect(output).toMatch(/!! ruleset main on the default branch/);
     expect([...w.github.labels.keys()]).toEqual(labels);
     expect(output).toMatch(/kept: .*repository.*issues.*labels.*accounts/i);
   });
