@@ -13,8 +13,8 @@ const ana = { id: "user-1", name: "Ana Souza", email: "ana@example.com", pending
 /** The test composition's navigation: the Skeleton's account entry, then a Product feature's (`notes`), and its Company page section. */
 const nav = (t = messagesFor("en")) => ({
   entries: [
-    { label: t.account.nav, to: "/account" },
-    { label: "Notes", to: "/notes" },
+    { label: t.account.nav, to: "/account", icon: "UserRound" },
+    { label: "Notes", to: "/notes", icon: "Circle" },
   ],
   companyPage: [{ label: "Notes", to: "/notes" }],
   accountPage: [],
@@ -52,6 +52,20 @@ test("the signed-in navigation shows home, the account page and every feature's 
   await navigation.getByRole("link", { name: t.account.nav }).click();
   await expect.element(screen.getByRole("heading", { name: t.account.title })).toBeVisible();
   expect(router.state.location.pathname).toBe("/account");
+});
+
+test("the sidebar marks the current page's item active and collapses to icons with its button", async ({ worker }) => {
+  worker.use(getMeHandler(ana), getNavHandler(nav()), noCompany);
+
+  const { screen, t } = await renderSpa({ path: "/account" });
+
+  const navigation = screen.getByRole("navigation", { name: t.nav.label });
+  await expect.element(navigation.getByRole("link", { name: t.account.nav })).toHaveAttribute("data-active");
+  await expect.element(navigation.getByRole("link", { name: t.nav.home })).not.toHaveAttribute("data-active");
+  const root = document.querySelector("[data-slot=sidebar]")!;
+  expect(root.getAttribute("data-state")).toBe("expanded");
+  await screen.getByRole("button", { name: t.nav.toggle }).first().click();
+  expect(root.getAttribute("data-state")).toBe("collapsed");
 });
 
 test("saving a new name on the account page updates the name on top and the home page's title", async ({ worker }) => {

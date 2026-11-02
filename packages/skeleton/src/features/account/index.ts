@@ -18,5 +18,5 @@ export const account = defineFeature({
     app.route("/", accountApi);
     app.route("/", connectionsApi);
   },
-  nav: { label: "account.nav", to: "/account" },
+  nav: { label: "account.nav", to: "/account", icon: "UserRound" },
 });
