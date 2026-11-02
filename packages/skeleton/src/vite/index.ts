@@ -45,6 +45,14 @@ export function skeleton({ dir, routes = [], publicRoutes = [] }: SkeletonViteOp
     ),
     react(),
     tailwindcss(),
-    cloudflare(),
+    // `skeleton dev --stripe` passes the sandbox key and the webhook secret through the
+    // environment; the Worker only reads the secrets its config lists, so list them there
+    // (never in a build or a deploy: production sets them with `wrangler secret`).
+    cloudflare({
+      config: (config) =>
+        process.env.SKELETON_DEV_STRIPE === "true"
+          ? { secrets: { required: [...(config.secrets?.required ?? []), "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"] } }
+          : {},
+    }),
   ];
 }
