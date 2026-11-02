@@ -77,6 +77,9 @@ describe("prompt templates", () => {
       "Never run `pnpm bootstrap destroy`.",
       "Do not push, open pull requests, comment, or change labels",
       "check the current official documentation",
+      "Never write a secret out in full, not even a fake one",
+      "give its shape",
+      "never the value",
     ]) {
       expect(prompt).toContain(rule);
     }
