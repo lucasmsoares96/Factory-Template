@@ -6,6 +6,9 @@ import { useListCompanies } from "../../gen/hooks/useListCompanies.ts";
 import { useMessages } from "../../client/i18n.tsx";
 import { useRoleLabel } from "./role-label.ts";
 
+/** Height of the page header (`h-14`): the menu opens to the right, below it, so it never covers the header. */
+const PAGE_HEADER_HEIGHT = 56;
+
 /**
  * The signed-in shell's Company switcher: the user's Companies (the first page
  * of `GET /api/companies`), the active one being the Company of the URL.
@@ -66,7 +69,7 @@ export function CompanySwitcher() {
             </span>
             <ChevronsUpDown className="ml-auto size-4" />
           </DropdownMenuTrigger>
-          <DropdownMenuContent className="w-56 min-w-56" side={isMobile ? "bottom" : "right"} align="start" sideOffset={4}>
+          <DropdownMenuContent className="w-56 min-w-56" side={isMobile ? "bottom" : "right"} align="start" alignOffset={isMobile ? 0 : PAGE_HEADER_HEIGHT} sideOffset={4}>
             <DropdownMenuGroup>
               <DropdownMenuLabel>{t.companies.switcher.title}</DropdownMenuLabel>
               {items.map((company) => (

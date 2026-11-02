@@ -53,17 +53,43 @@ test(
     await page.getByRole("menuitem", { name: t.companies.switcher.new }).click();
     await expect(page).toHaveURL(/\/c\/new$/);
 
-    // The header of the page is never covered by the sidebar's top.
-    const overlaps = async () => {
-      const header = await page.locator("header").first().boundingBox();
-      const side = await sidebar.locator("[data-slot=sidebar-inner]").boundingBox();
-      return !!header && !!side && header.x < side.x + side.width && header.x + header.width > side.x;
+    // Nothing of the sidebar, closed or open, covers the page header or leaves the screen.
+    const header = page.locator("header").first();
+    const expectClear = async (menu = false) => {
+      const viewport = page.viewportSize()!;
+      const headerBox = await header.boundingBox();
+      const inner = sidebar.locator("[data-slot=sidebar-inner]");
+      const side = (await inner.count()) > 0 ? await inner.boundingBox() : null;
+      expect(headerBox).not.toBeNull();
+      if (side && side.width > 0 && viewport.width >= 768) {
+        expect(headerBox!.x >= side.x + side.width - 1 || headerBox!.x + headerBox!.width <= side.x + 1).toBe(true);
+      }
+      if (menu) {
+        const box = await page.locator("[data-slot=dropdown-menu-content][data-open]").boundingBox();
+        expect(box).not.toBeNull();
+        expect(box!.x).toBeGreaterThanOrEqual(0);
+        expect(box!.y).toBeGreaterThanOrEqual(0);
+        expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width);
+        expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height);
+        const title = await header.getByText(t.app.title).boundingBox();
+        const covers = !!title && box!.x < title.x + title.width && box!.x + box!.width > title.x && box!.y < title.y + title.height && box!.y + box!.height > title.y;
+        expect(covers).toBe(false);
+      }
     };
-    expect(await overlaps()).toBe(false);
+    await expectClear();
+    await companyButton.click();
+    await expectClear(true);
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: t.nav.userMenu }).click();
+    await expectClear(true);
+    await page.keyboard.press("Escape");
 
     const navigation = page.getByRole("navigation", { name: t.nav.label });
     await expect(navigation.getByRole("link", { name: t.account.nav })).toHaveCount(0);
     await page.getByRole("button", { name: t.nav.userMenu }).click();
+    await expect(page.locator("[data-slot=dropdown-menu-content][data-open]")).toHaveCSS("opacity", "1");
+    await expect(page.locator("[role=menuitem][href=\"/account/plan\"]")).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: t.auth.signOut })).toBeVisible();
     await evidence("sidebar-user-menu");
     await page.getByRole("menuitem", { name: t.account.nav }).click();
     await expect(page).toHaveURL(/\/account$/);
@@ -74,11 +100,14 @@ test(
     await page.getByRole("button", { name: t.nav.toggle }).first().click();
     await expect(sidebar).toHaveAttribute("data-state", "collapsed");
     await evidence("sidebar-collapsed");
+    await expectClear();
     await companyButton.click();
     await expect(page.getByRole("menuitem", { name: t.companies.switcher.new })).toBeVisible();
+    await expectClear(true);
     await page.keyboard.press("Escape");
     await page.getByRole("button", { name: t.nav.userMenu }).click();
     await expect(page.getByRole("menuitem", { name: t.auth.signOut })).toBeVisible();
+    await expectClear(true);
     await page.keyboard.press("Escape");
     await page.keyboard.press("ControlOrMeta+b");
     await expect(sidebar).toHaveAttribute("data-state", "expanded");
@@ -88,10 +117,14 @@ test(
     await page.getByRole("button", { name: t.nav.toggle }).first().click();
     await expect(page.getByRole("dialog")).toBeVisible();
     await page.getByRole("dialog").getByRole("button", { name: t.companies.switcher.label, exact: true }).click();
+    await expectClear(true);
     await evidence("sidebar-mobile-company-menu");
     await page.keyboard.press("Escape");
     await evidence("sidebar-mobile");
     await page.getByRole("dialog").getByRole("button", { name: t.nav.userMenu }).click();
+    await expectClear(true);
+    await expect(page.locator("[data-slot=dropdown-menu-content][data-open]")).toHaveCSS("opacity", "1");
+    await evidence("sidebar-mobile-user-menu");
     await page.getByRole("menuitem", { name: t.auth.signOut }).click();
     await expect(page.getByRole("heading", { name: t.auth.signIn.title })).toBeVisible();
   },
