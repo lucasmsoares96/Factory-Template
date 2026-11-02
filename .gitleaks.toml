@@ -1,0 +1,62 @@
+# The rules of the secret scan that `pnpm factory publish` runs before it pushes (docs/factory-flows.md, "Secret scan").
+# It extends gitleaks' default rules with the secrets this repository uses. A false positive is fixed here, in an
+# allowlist below, never by skipping the scan: the Factory always reads this file from the default branch.
+title = "Factory secret scan"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "postgres-url-with-password"
+description = "Postgres connection URL with a password (Neon)"
+regex = '''(?i)postgres(?:ql)?://[^:/\s@'"`]+:([^@\s/'"`]+)@[^\s'"`]+'''
+secretGroup = 1
+keywords = ["postgres"]
+
+  # A placeholder is not a password: ${var}, $VAR, <password>, {password}, %s.
+  [[rules.allowlists]]
+  description = "placeholders"
+  regexes = ['''^(?:\$|<|\{|%)''']
+
+  # The throwaway database of the local stack and of the tests.
+  [[rules.allowlists]]
+  description = "local database"
+  regexTarget = "match"
+  regexes = ['''@(?:localhost|127\.0\.0\.1|postgres)[:/]''']
+
+[[rules]]
+id = "stripe-secret-key"
+description = "Stripe secret or restricted API key"
+regex = '''\b(?:sk|rk)_(?:live|test|prod)_[A-Za-z0-9]{10,}'''
+keywords = ["sk_", "rk_"]
+
+[[rules]]
+id = "stripe-webhook-secret"
+description = "Stripe webhook signing secret"
+regex = '''\bwhsec_[A-Za-z0-9]{16,}'''
+keywords = ["whsec_"]
+
+[[rules]]
+id = "resend-api-key"
+description = "Resend API key"
+regex = '''\bre_[A-Za-z0-9]{6,}_[A-Za-z0-9]{16,}\b|\bre_[A-Za-z0-9]{20,}\b'''
+entropy = 3.0
+keywords = ["re_"]
+
+[[rules]]
+id = "cloudflare-api-token"
+description = "Cloudflare API token or key"
+regex = '''(?i)cloudflare[\w .-]{0,30}(?:token|key|secret)[\w .-]{0,10}['"\s:=]{1,5}([A-Za-z0-9_-]{37,40})\b|\bcf(?:ut|k|at)_[A-Za-z0-9]{36,}'''
+keywords = ["cloudflare", "cfut_", "cfk_", "cfat_"]
+
+[[rules]]
+id = "github-token"
+description = "GitHub personal access, OAuth, app or fine-grained token"
+regex = '''\bgh[pousr]_[A-Za-z0-9]{36,}\b|\bgithub_pat_[A-Za-z0-9_]{50,}\b'''
+keywords = ["ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_"]
+
+# Exceptions: a finding that is not a secret goes here (a path or a regex with a reason), reviewed like any change to
+# this file. Nothing else lets a finding through.
+# [[allowlists]]
+# description = "why this is not a secret"
+# paths = ['''docs/example\.md''']

@@ -51,9 +51,20 @@ The detail of the Factory's flows on the forge: which workflow runs which jobs, 
    - It reads the issue with its read-only job token, which the Agent's env allowlist never passes on.
    - The final Review gives a verdict on each acceptance criterion (`criteria`: criterion, `met`, `proof`). A criterion with no verdict (fewer verdicts than checkboxes in the issue's `## Acceptance criteria`, except in an `update-branch` round) or one that is not met turns a green run into an Escalation `needs-human`; `publish` appends the verdicts to the PR body, after the Pull Request Stage text, and the Escalation comment names each unmet criterion and why.
    - An agent session that fails (`AgentSessionError`) ends the run without failing the job: `result.json` keeps the branch bundle and the session's own message (`session`). At the agent's usage limit (`SessionLimitError`) the outcome is `paused`; any other failure is an Escalation `infra` whose comment shows that message, and whose retry continues from the kept commits (`<!-- factory:continue <sha> -->`). See [Session limit](#session-limit).
-4. `publish`: fresh VM, `FACTORY_TOKEN`, the default branch's harness, `if: always()`: no artifact means Escalation "infra". Outputs `outcome` and `url`. The job token, with `actions: write`, dispatches the Retro of an Escalation. Its last step is `working off` with the job token.
+4. `publish`: fresh VM, `FACTORY_TOKEN`, the default branch's harness, `if: always()`: no artifact means Escalation "infra". Before the push it runs the [secret scan](#secret-scan). Outputs `outcome` and `url`. The job token, with `actions: write`, dispatches the Retro of an Escalation. Its last step is `working off` with the job token.
 5. `notify`: the Merge Gate notice, `pnpm factory notify <N> --outcome ready|escalated [--updated] --url --to`.
    - It runs after `publish` in `factory-issue.yml` and `factory-pr-feedback.yml` with the job's `GITHUB_TOKEN` (never `FACTORY_TOKEN`): the comment appears as `github-actions[bot]`, mentions who applied `ready-for-agent` (`claim` writes `requester` to `$GITHUB_OUTPUT` before the lock) or who commented, and fires no workflow.
+
+## Secret scan
+
+`publish` (the issue, `pr-feedback` and `update-branch` flows) scans for secrets before it writes anything, with gitleaks (`src/adapters/gitleaks/`, behind the `SecretScanner` seam). A key pasted into an ordinary file, a test or the PR text would otherwise be pushed with `FACTORY_TOKEN`, and in a public repository deleting the commit later does not undo the leak.
+
+- What is scanned: the commits of the bundle (`gitleaks git --log-opts base..head`) and every string of `result.json` (PR body, Review summary and inline comments, criteria, thread replies, the Stage output an Escalation quotes) plus the commit messages (`gitleaks dir` over files in a temp directory). Always `--redact`; only the file, line and rule are read from the report.
+- A finding: nothing is pushed and no PR, Review or reply is written. The run is an Escalation `needs-human` (the comment lists `file, line, rule`, never the value, and does not quote the result; in a PR update the PR gets the same list). A scanner that cannot run (not installed, bad config) is an Escalation `infra`: a scan that did not happen never counts as a clean one.
+- Rules: `.gitleaks.toml` at the root, read from the default branch's checkout (a branch cannot change it for its own run). It extends gitleaks' defaults and adds Postgres URLs with a password (Neon; the URL without one and the local stack's are allowed), Stripe `sk_`/`rk_`/`whsec_`, Resend `re_`, Cloudflare and GitHub tokens.
+- A false positive is fixed with an `[[allowlists]]` entry in `.gitleaks.toml`, reviewed like any change to it. There is no option to skip the scan; `gitleaks:allow` comments and `.gitleaksignore` files are turned off.
+- The version is pinned in `.factory/image/install-gitleaks.sh` with the sha256 of each release archive. The Factory image installs it (the scanner's tests need it: without the binary they fail, they do not skip) and the three `publish` jobs install it in a `gitleaks` step. To bump it, change the version and both checksums together.
+- What it does not catch: [known risks](known-risks.md#the-factory).
 
 ## Skeleton changes in a Product issue
 
