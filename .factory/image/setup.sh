@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Installs the Factory toolchain on Ubuntu 24.04, as root: Node (checksum
-# verified), pnpm through corepack, Claude Code, git, python3 (for support
+# verified), pnpm through corepack, gitleaks (checksum verified), Claude Code, git, python3 (for support
 # scripts) and Playwright's Chromium, plus the `factory` user (uid 1001).
 # No Docker CLI: the agent never drives Docker.
 set -euo pipefail
@@ -33,6 +33,9 @@ corepack enable pnpm
 corepack install -g "pnpm@${PNPM_VERSION}"
 # pnpm 12 fetches its native binary on first run: do it now, while COREPACK_HOME is writable.
 pnpm --version
+
+# gitleaks, the secret scanner of `publish` (the tests of the scanner run in this image), version and checksums pinned.
+bash /tmp/install-gitleaks.sh /usr/local/bin
 
 # Claude Code, at the version pinned in .factory/src/config.ts.
 npm install -g --no-fund --no-audit "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
