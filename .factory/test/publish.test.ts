@@ -88,7 +88,7 @@ describe("factory publish", () => {
 
   it("posts a COMMENT review without inline comments when the review has none", async () => {
     const summaryOnly: AgentStep = () => ({
-      output: `<review>${JSON.stringify({ summary: "Fixed the naming myself.", inline: [] })}</review>`,
+      output: `<review>${JSON.stringify({ summary: "Fixed the naming myself.", inline: [], criteria: ISSUE_VERDICTS })}</review>`,
     });
     const { w, exitCode } = await happyPath({ review: summaryOnly });
 

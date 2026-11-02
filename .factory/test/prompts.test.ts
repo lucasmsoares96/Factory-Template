@@ -145,6 +145,12 @@ describe("prompt templates", () => {
     expect(prompts.retro).toContain("<retro>");
   });
 
+  it("gives the Review the issue's criteria numbered from 1, in the issue's order", () => {
+    const two = { ...issue, body: "## Acceptance criteria\n\n- [ ] First.\n- [x] Second.\n" };
+    const prompt = reviewPrompt({ issue: two, log: "", since: null, findings: [], skeleton: false, language });
+    expect(prompt).toContain("1. First.\n2. Second.");
+  });
+
   it("asks the Review to check that a Skeleton change is generic, only when the diff touches the Skeleton", () => {
     const touched = reviewPrompt({ issue, log: "", since: null, findings: [], skeleton: true, language });
     expect(touched).toContain("Check that it is generic");
@@ -161,10 +167,10 @@ describe("prompt templates", () => {
   });
 
   it("asks the Review for a verdict, with its proof, on each acceptance criterion of the issue", () => {
-    expect(prompts.review).toContain("Give a verdict on each acceptance criterion of the issue");
-    expect(prompts.review).toMatch(/"criteria": \[\{"criterion": [^\]]*"met": true, "proof": /);
+    expect(prompts.review).toContain("exactly one per number");
+    expect(prompts.review).toMatch(/"criteria": \[\{"id": 1, "met": true, "proof": /);
     expect(prompts.review).not.toContain("criteriaMetWithoutSkeleton");
-    expect(prompts.review).toContain("belongs to the harness");
+    expect(prompts.review).not.toContain("belongs to the harness");
   });
 
   it("puts the issue, its comments, the branch log and the feedback in the prompt", () => {

@@ -377,6 +377,7 @@ describe("pnpm bootstrap destroy: credentials and partial failures", () => {
 
   it("does not delete a Neon project when several share the name, and says so", async () => {
     const w = await built({ "destroy-confirm": "example" });
+    w.github.variables.delete("EXAMPLE_NEON_PROJECT_ID");
     w.neon.projects.push({ id: "proj-dup", name: "example", orgId: "org-1", password: "pw" });
 
     const { code, output } = await w.run("destroy", "product", "example");

@@ -246,6 +246,8 @@ export interface WorkerDomain {
 export interface NeonProject {
   id: string;
   name: string;
+  /** The region id (e.g. `aws-sa-east-1`); fixed at creation. Absent when the listing did not say. */
+  region?: string;
 }
 
 export interface NeonOrg {
@@ -264,7 +266,8 @@ export interface NeonClient {
   listOrgs(): Promise<NeonOrg[]>;
   /** Every project of the org, any name. Project names are not unique in Neon, so the caller filters and handles duplicates. */
   listProjects(orgId?: string): Promise<NeonProject[]>;
-  createProject(name: string, orgId?: string): Promise<NeonProject>;
+  /** `region` is a Neon region id, passed on as is (not validated against the CLI's list, which lacks aws-sa-east-1). */
+  createProject(name: string, region: string, orgId?: string): Promise<NeonProject>;
   /**
    * An API key that reaches only `projectId` (`neonctl api-keys create --project-id`), shown once. May be refused under
    * an OAuth login (the docs say the first key comes from the Console): the caller then asks for a pasted one.

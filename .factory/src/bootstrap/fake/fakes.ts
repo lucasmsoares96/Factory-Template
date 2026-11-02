@@ -450,6 +450,8 @@ export class FakeWrangler implements WranglerAuth {
 export class FakeNeon {
   readonly orgs: NeonOrg[] = [{ id: "org-1", name: "Personal" }];
   readonly projects: (NeonProject & { orgId: string; password: string; defaultBranch?: string })[] = [];
+  /** Regions `createProject` refuses, with the message Neon would give. */
+  readonly refuseRegions = new Set<string>();
   /** The API keys `createApiKey` made, by project. */
   readonly apiKeys: { name: string; projectId: string; key: string }[] = [];
   /** `createApiKey` is refused (the docs: the first key comes from the Console), as it may be under an OAuth login. */
@@ -485,15 +487,16 @@ export class FakeNeon {
       listProjects: async (orgId) => {
         authed();
         this.orgIdsSeen.push(orgId);
-        return this.projects.filter((p) => !orgId || p.orgId === orgId).map(({ id, name }) => ({ id, name }));
+        return this.projects.filter((p) => !orgId || p.orgId === orgId).map(({ id, name, region }) => ({ id, name, region }));
       },
-      createProject: async (name, orgId) => {
+      createProject: async (name, region, orgId) => {
         authed();
+        if (this.refuseRegions.has(region)) throw new Error(`neonctl projects failed: region ${region} is not supported (400)`);
         this.orgIdsSeen.push(orgId);
         this.writes++;
-        const project = { id: `proj-${this.projects.length + 1}`, name, orgId: orgId ?? "org-1", password: `pw-${this.projects.length + 1}` };
+        const project = { id: `proj-${this.projects.length + 1}`, name, region, orgId: orgId ?? "org-1", password: `pw-${this.projects.length + 1}` };
         this.projects.push(project);
-        return { id: project.id, name: project.name };
+        return { id: project.id, name: project.name, region };
       },
       createApiKey: async (name, projectId) => {
         authed();

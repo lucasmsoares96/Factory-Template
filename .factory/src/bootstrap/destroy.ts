@@ -3,7 +3,7 @@ import type { CloudflareClient, NeonClient, NeonProject, ResendClient } from "./
 import { cloudflareHandle, productionEnvironment } from "./domain.ts";
 import { FACTORY_ENABLED, FACTORY_TOKEN } from "./factory.ts";
 import { accountNames } from "./accounts.ts";
-import { DEPLOY_PRODUCTS, MAIN_RULESET, USE_ENVIRONMENTS, neonHandle, neonOrgId, parseProductList, productionSecrets } from "./product.ts";
+import { DEPLOY_PRODUCTS, MAIN_RULESET, databaseVariables, USE_ENVIRONMENTS, neonHandle, neonOrgId, parseProductList, productionSecrets } from "./product.ts";
 import { PREVIEWS_ENABLED, PREVIEW_PRODUCTS, previewEnvironment, previewNames, previewProjectName } from "./previews.ts";
 import type { ProductIdentity, StepContext } from "./steps.ts";
 
@@ -16,13 +16,15 @@ export type DestroyScope =
   | { kind: "all" }
   | { kind: "product"; id: string }
   | { kind: "previews"; id: string }
+  | { kind: "db"; id: string }
   | { kind: "factory" }
   | { kind: "common" };
 
-export const DESTROY_USAGE = `Usage: pnpm bootstrap destroy [product <id> | previews <id> | factory | common]
+export const DESTROY_USAGE = `Usage: pnpm bootstrap destroy [product <id> | previews <id> | db <id> | factory | common]
   (no argument)          everything: every Product, the Factory and the common part (type "all")
   product <id>           one Product: Worker, KV, Neon projects, Resend domain, secrets, variables, environments (production and previews)
   previews <id>          only the previews of one Product
+  db <id>                only the databases of one Product (both Neon projects, the database URLs, the preview Neon key, the default account); to choose another region
   factory                the Factory secrets and variables
   common                 the Cloudflare secrets and the ruleset on main`;
 
@@ -31,7 +33,7 @@ export function parseScope(positionals: string[]): DestroyScope | undefined {
   if (rest.length > 0) return undefined;
   if (kind === undefined) return { kind: "all" };
   if ((kind === "factory" || kind === "common") && id === undefined) return { kind };
-  if ((kind === "product" || kind === "previews") && id !== undefined && /^[a-z][a-z0-9-]*$/.test(id)) return { kind, id };
+  if ((kind === "product" || kind === "previews" || kind === "db") && id !== undefined && /^[a-z][a-z0-9-]*$/.test(id)) return { kind, id };
   return undefined;
 }
 
@@ -104,9 +106,10 @@ export async function plan(ctx: StepContext, scope: DestroyScope): Promise<Plan>
   const [secrets, variables, environments, rulesets] = await Promise.all([github.listSecrets(), github.listVariables(), github.listEnvironments(), github.listRulesets()]);
 
   const everything = scope.kind === "all";
-  const productIds = everything ? knownProducts(variables, environments) : scope.kind === "product" || scope.kind === "previews" ? [scope.id] : [];
+  const productIds = everything ? knownProducts(variables, environments) : scope.kind === "product" || scope.kind === "previews" || scope.kind === "db" ? [scope.id] : [];
   const production = everything || scope.kind === "product";
   const previews = everything || scope.kind === "product" || scope.kind === "previews";
+  const database = scope.kind === "db";
 
   const addGithub = (text: string, run: () => Promise<void>) => result.items.push({ group: "GitHub", text, run });
   const dropSecret = (name: string) => secrets.includes(name) && addGithub(`secret ${name}`, () => github.deleteSecret(name));
@@ -124,7 +127,7 @@ export async function plan(ctx: StepContext, scope: DestroyScope): Promise<Plan>
   // reached is said, and the person logs in (or exports the key) and runs the command again.
   const services: Services = {};
   if (productIds.length > 0) {
-    services.cloudflare = await guarded(result, "Cloudflare (Workers and KV)", async () => {
+    if (!database) services.cloudflare = await guarded(result, "Cloudflare (Workers and KV)", async () => {
       const handle = await cloudflareHandle(ctx, false);
       if (!handle) result.problems.push("no Cloudflare login on this machine: Workers and KV namespaces were not looked up (run `wrangler login` or export CLOUDFLARE_API_TOKEN, then run this again).");
       return handle;
@@ -162,6 +165,7 @@ export async function plan(ctx: StepContext, scope: DestroyScope): Promise<Plan>
   const sharedPreviewLeft = parseProductList(variables[PREVIEW_PRODUCTS]).filter((id) => !productIds.includes(id));
 
   for (const id of productIds) {
+    if (database) await planDatabase(ctx, result, services, id, { secrets, variables, dropSecret, dropVariable, dropEnvironment }, environmentSecrets);
     if (production) await planProduction(ctx, result, services, id, { secrets, variables, dropSecret, dropVariable, dropEnvironment });
     if (previews) await planPreviews(ctx, result, services, id, { secrets, variables, dropSecret, dropVariable, dropEnvironment });
   }
@@ -237,17 +241,7 @@ async function planProduction(ctx: StepContext, plan: Plan, services: Services, 
 
   if (services.neon) {
     const { client: neon } = services.neon;
-    const matching = services.neon.projects.filter((p) => p.name === id);
-    if (matching.length > 1) plan.problems.push(`${matching.length} Neon projects are named ${id} (${matching.map((p) => p.id).join(", ")}): none is deleted, delete the right one by hand.`);
-    else if (matching[0]) {
-      const project = matching[0];
-      plan.items.push({
-        group: "Neon",
-        text: `PRODUCTION DATABASE: Neon project ${project.name} (${project.id}) with every branch, table and row in it`,
-        highlight: true,
-        run: () => neon.deleteProject(project.id),
-      });
-    }
+    planProductionProject(plan, services.neon.projects, neon, id, repo.variables);
   }
 
   const product = services.resend ? await productIdentity(ctx, id) : undefined;
@@ -267,11 +261,66 @@ async function planProduction(ctx: StepContext, plan: Plan, services: Services, 
   repo.dropEnvironment(productionEnvironment(id));
   for (const name of [...secretNames, password]) repo.dropSecret(name);
   repo.dropVariable(email);
+  repo.dropVariable(databaseVariables(id).neonProject);
+  repo.dropVariable(databaseVariables(id).region);
+}
+
+/** The production Neon project: the recorded id when there is one, else the name (names are not unique: duplicates are left alone). */
+function planProductionProject(plan: Plan, projects: NeonProject[], neon: NeonClient, id: string, variables: Record<string, string>): void {
+  const recorded = variables[databaseVariables(id).neonProject];
+  const matching = recorded ? projects.filter((p) => p.id === recorded) : projects.filter((p) => p.name === id);
+  if (matching.length > 1) plan.problems.push(`${matching.length} Neon projects are named ${id} (${matching.map((p) => p.id).join(", ")}): none is deleted, delete the right one by hand.`);
+  else if (matching[0]) {
+    const project = matching[0];
+    plan.items.push({
+      group: "Neon",
+      text: `PRODUCTION DATABASE: Neon project ${project.name} (${project.id}) with every branch, table and row in it`,
+      highlight: true,
+      run: () => neon.deleteProject(project.id),
+    });
+  }
+}
+
+/**
+ * `destroy db <id>`: only what lives in the Product's databases. The Worker, the environments, the deploy lists and the
+ * `main` ruleset stay. The secrets are dropped from the environments they live in without dropping the environment.
+ * The chosen region (`<ID>_REGION`) stays: the next `bootstrap product` makes the new databases there (or asks again with `--redo region`).
+ */
+async function planDatabase(ctx: StepContext, plan: Plan, services: Services, id: string, repo: RepoState, environmentSecrets: Map<string, string[]>): Promise<void> {
+  if (services.neon) {
+    planProductionProject(plan, services.neon.projects, services.neon.client, id, repo.variables);
+    await planPreviewProject(plan, services.neon, id, repo.variables);
+  }
+  const production = productionSecrets(id);
+  const names = previewNames(id);
+  const { password, email } = accountNames(id);
+  const places: { environment: string; secret: string }[] = [
+    ...[production.databaseUrl, production.databaseUrlPooled, password].map((secret) => ({ environment: productionEnvironment(id), secret })),
+    { environment: previewEnvironment(id), secret: names.neonKey },
+  ];
+  for (const secret of [production.databaseUrl, production.databaseUrlPooled, password, names.neonKey]) {
+    if (repo.secrets.includes(secret)) repo.dropSecret(secret);
+  }
+  for (const { environment, secret } of places) {
+    if ((environmentSecrets.get(environment) ?? []).includes(secret)) {
+      plan.items.push({ group: "GitHub", text: `secret ${secret} in environment ${environment}`, run: () => ctx.github.deleteSecret(secret, { environment }) });
+    }
+  }
+  for (const name of [email, databaseVariables(id).neonProject, names.neonProject]) repo.dropVariable(name);
+}
+
+async function planPreviewProject(plan: Plan, neon: { client: NeonClient; projects: NeonProject[] }, id: string, variables: Record<string, string>): Promise<void> {
+  const recordedProject = variables[previewNames(id).neonProject];
+  const matching = recordedProject ? neon.projects.filter((p) => p.id === recordedProject) : neon.projects.filter((p) => p.name === previewProjectName(id));
+  if (matching.length > 1) plan.problems.push(`${matching.length} Neon projects are named ${previewProjectName(id)}: none is deleted, delete the right one by hand.`);
+  else if (matching[0]) {
+    const project = matching[0];
+    plan.items.push({ group: "Neon", text: `Neon project ${project.name} (${project.id}) with the branches of every pull request`, run: () => neon.client.deleteProject(project.id) });
+  }
 }
 
 async function planPreviews(_ctx: StepContext, plan: Plan, services: Services, id: string, repo: RepoState): Promise<void> {
   const names = previewNames(id);
-  const recordedProject = repo.variables[names.neonProject];
   const recordedKv = repo.variables[names.kv];
   const { client, accountId } = services.cloudflare ?? {};
   if (client && accountId) {
@@ -279,13 +328,7 @@ async function planPreviews(_ctx: StepContext, plan: Plan, services: Services, i
     if (kv) plan.items.push({ group: "Cloudflare", text: `KV namespace ${kv.title} (${kv.id})`, run: () => client.deleteKvNamespace(accountId, kv.id) });
   }
   if (services.neon) {
-    const { client: neon, projects } = services.neon;
-    const matching = recordedProject ? projects.filter((p) => p.id === recordedProject) : projects.filter((p) => p.name === previewProjectName(id));
-    if (matching.length > 1) plan.problems.push(`${matching.length} Neon projects are named ${previewProjectName(id)}: none is deleted, delete the right one by hand.`);
-    else if (matching[0]) {
-      const project = matching[0];
-      plan.items.push({ group: "Neon", text: `Neon project ${project.name} (${project.id}) with the branches of every pull request`, run: () => neon.deleteProject(project.id) });
-    }
+    await planPreviewProject(plan, services.neon, id, repo.variables);
   }
   repo.dropEnvironment(previewEnvironment(id));
   repo.dropSecret(names.neonKey);

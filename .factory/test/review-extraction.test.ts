@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
+import { reviewExtraction } from "../src/review-output.ts";
 import { checkout, commitFile, tempDir, world, type WorldOptions } from "./helpers.ts";
 
 let edits = 0;
@@ -11,7 +12,8 @@ const develop: AgentStep = async ({ cwd }) => {
   return { usage: { inputTokens: 10_000, outputTokens: 1_000 } };
 };
 
-const block = (summary: string) => `<review>${JSON.stringify({ summary, inline: [] })}</review>`;
+const block = (summary: string, criteria: object[] = [{ id: 1, met: true, proof: "`greet.test.ts` › greets" }]) =>
+  `<review>${JSON.stringify({ summary, inline: [], criteria })}</review>`;
 const usage = { inputTokens: 2_000, outputTokens: 200 };
 
 async function setup(review: AgentStep) {
@@ -75,6 +77,38 @@ describe("Review block extraction", () => {
       "development:ok",
       "review:timeout",
     ]);
+    expect(reviewCalls(w)[0]!.resumes).toHaveLength(1);
+  });
+});
+
+describe("Review block criteria numbers", () => {
+  const verdict = (id: number) => ({ id, met: true, proof: "a test" });
+  const valid = (count: number, ids: number[]) => reviewExtraction(count).valid(block("ok", ids.map(verdict)));
+
+  it("accepts exactly one verdict for each number, in any order", () => {
+    expect(valid(3, [1, 2, 3])).toBe(true);
+    expect(valid(3, [3, 1, 2])).toBe(true);
+  });
+
+  it("refuses a missing, a repeated and a nonexistent number", () => {
+    expect(valid(3, [1, 3])).toBe(false);
+    expect(valid(3, [1, 2, 2, 3])).toBe(false);
+    expect(valid(2, [1, 2, 3])).toBe(false);
+    expect(valid(1, [0, 1])).toBe(false);
+  });
+
+  it("refuses a verdict with no number", () => {
+    expect(reviewExtraction(1).valid(block("ok", [{ met: true, proof: "a test" }]))).toBe(false);
+  });
+
+  it("asks for one verdict per number, up to the issue's last", () => {
+    expect(reviewExtraction(4).ask).toContain("from 1 to 4");
+  });
+
+  it("resumes the session when a number is missing, and takes the corrected block", async () => {
+    const { w, result } = await setup(() => ({ output: block("first", []), usage, resumes: [{ output: block("fixed"), usage }] }));
+
+    expect(result.review.summary).toBe("fixed");
     expect(reviewCalls(w)[0]!.resumes).toHaveLength(1);
   });
 });
