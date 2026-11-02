@@ -161,4 +161,13 @@ describe("pnpm bootstrap destroy db", () => {
     expect(w.accounts.databases.get(url)?.migrated).toBe(true);
     expect(w.accounts.databases.get(url)?.users.has("admin@example.com")).toBe(true);
   });
+
+  it("finds a database made before the ids were recorded by its name", async () => {
+    const w = await built();
+    for (const name of ["EXAMPLE_NEON_PROJECT_ID", "EXAMPLE_PREVIEW_NEON_PROJECT_ID"]) w.github.variables.delete(name);
+    w.prompter.script("destroy-confirm", "example");
+
+    expect((await w.run("destroy", "db", "example")).code).toBe(0);
+    expect(w.neon.projects).toEqual([]);
+  });
 });
