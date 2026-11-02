@@ -165,6 +165,7 @@ function UserMenu({ signOut }: { signOut: { isPending: boolean; mutate: () => vo
           </DropdownMenuItem>
           {(nav.data?.accountPage ?? []).map((entry) => (
             <DropdownMenuItem key={entry.to} render={<Link to={entry.to} />}>
+              <span aria-hidden className="size-4 shrink-0" />
               {entry.label}
             </DropdownMenuItem>
           ))}
