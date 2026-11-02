@@ -30,14 +30,14 @@ const invitation = (email: string, invitedBy: { userId: string; name: string } |
 type Invitation = ReturnType<typeof invitation>;
 
 /** The Company page's API, with the pending Invitations in a list the test controls. */
-function companyApi(pending: Invitation[], { role = "owner", t = messagesFor("en") } = {}) {
+function companyApi(pending: Invitation[], { role = "owner" } = {}) {
   const requests: { method: string; path: string; body?: unknown }[] = [];
   const company = { ...acme, role };
   return {
     requests,
     handlers: [
       getMeHandler(ana),
-      getNavHandler({ entries: [{ label: t.account.nav, to: "/account", icon: "UserRound" }], companyPage: [], accountPage: [] }),
+      getNavHandler({ entries: [], companyPage: [], accountPage: [] }),
       listCompaniesHandler({ items: [company], nextCursor: null }),
       getCompanyHandler(company),
       listMembersHandler({ items: [{ userId: ana.id, name: ana.name, email: ana.email, role, suspended: false }], nextCursor: null }),
@@ -110,7 +110,7 @@ test("the role list never offers owner", async ({ worker }) => {
 
 test("a refused Invitation is shown translated by its code", async ({ worker }) => {
   const t = messagesFor("pt-BR");
-  worker.use(...companyApi([], { t }).handlers);
+  worker.use(...companyApi([]).handlers);
   worker.use(
     createInvitationHandler(() =>
       createInvitationHandlerResponse409({

@@ -37,7 +37,7 @@ test(
     await evidence("home");
 
     await page.getByRole("button", { name: t.nav.userMenu }).click();
-    await page.getByRole("button", { name: t.auth.signOut }).click();
+    await page.getByRole("menuitem", { name: t.auth.signOut }).click();
 
     await expect(page.getByRole("heading", { name: t.auth.signIn.title })).toBeVisible();
     await expect(page.getByRole("status")).toHaveText(t.auth.signIn.signedOut);
