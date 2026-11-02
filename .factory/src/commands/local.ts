@@ -8,6 +8,7 @@ import { CLAUDE_AUTH, pick } from "../env.ts";
 import { Git } from "../git.ts";
 import { configVariables, issueBranch } from "../config.ts";
 import { IN_BUNDLE, IN_TRACKER, type ContainerRunner } from "../local/container.ts";
+import { GitleaksScanner } from "../adapters/gitleaks/gitleaks-scanner.ts";
 import type { Agent } from "../seams/agent.ts";
 import type { Verify } from "../seams/verify.ts";
 import { claim, type ClaimResult } from "./claim.ts";
@@ -32,7 +33,7 @@ export type LocalResult =
   | { triage: ApplyRun; workExitCode: number }
   | (PublishResult & { branch: string; evidence: string; workExitCode: number });
 
-type BaseContext = Omit<CommandContext, "tracker" | "codeHost" | "agent" | "verify">;
+type BaseContext = Omit<CommandContext, "tracker" | "codeHost" | "agent" | "verify" | "scanner">;
 
 /**
  * `pnpm factory local N`: the issue flow of the forge, run on this machine
@@ -64,6 +65,7 @@ export async function local(base: BaseContext, number: number, options: LocalOpt
       codeHost: new LocalCodeHost({ remote: repo, from: publishRepo, files: tracker.files, config }),
       agent: unavailable<Agent>("Agent"),
       verify: unavailable<Verify>("Verify"),
+      scanner: new GitleaksScanner(),
     };
 
     const exploring = (await tracker.issue(number)).labels.includes(config.labels.agentExplore);

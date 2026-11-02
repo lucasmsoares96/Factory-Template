@@ -2,6 +2,7 @@ import type { FactoryConfig } from "./config.ts";
 import type { CriterionVerdict, FactoryResult, StageRecord } from "./result.ts";
 import { messages, type Language } from "./messages.ts";
 import type { Usage } from "./seams/agent.ts";
+import type { SecretFinding } from "./seams/secret-scanner.ts";
 import { continueMarker, stageName } from "./session-limit.ts";
 
 /**
@@ -111,6 +112,9 @@ function duration(ms: number): string {
   return minutes > 0 ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
 }
 
+/** The file with the rules and exceptions of the secret scan. */
+export const SECRET_SCAN_CONFIG = ".gitleaks.toml";
+
 export type EscalationReason = NonNullable<FactoryResult["reason"]>;
 
 export const ESCALATION_MARKER = "<!-- factory:escalation -->";
@@ -125,6 +129,10 @@ export interface EscalationReport {
   /** The open pull request a PR round (pr-feedback, update-branch) continues; absent in the issue flow. */
   round?: { number: number; url: string } | null;
   runUrl: string | null;
+  /** What the secret scan found (places and rules, never values): nothing was pushed and the result is not quoted. */
+  secrets?: SecretFinding[];
+  /** The secret scan held the run (findings, or it did not run): no pull request, and the reason is not "no commits". */
+  held?: boolean;
 }
 
 /** The verdicts the final Review gave, for the pull request: each criterion checked when met, with its proof. Empty without verdicts. */
@@ -155,6 +163,7 @@ export function escalationComment(report: EscalationReport, config: FactoryConfi
   // A failed session is no verdict on the work: the retry of an issue run continues from its commits.
   const kept = result?.session && result.head && result.flow === "issue" ? result.head : null;
   const lines = [ESCALATION_MARKER, ...(kept ? [continueMarker(kept)] : []), m.escalationTitle(report.reason, headline(report, config))];
+  if (report.secrets) lines.push("", m.secretsFound(), ...report.secrets.map((f) => m.secretFinding(f.source, f.line, f.rule)), "", m.secretsNext(SECRET_SCAN_CONFIG));
   if (result?.question) lines.push("", m.question(result.question));
   const unmet = unmetCriteria(result);
   if (unmet.length > 0) lines.push("", m.criteriaUnmet(), ...unmet.map((v) => `- ${verdictText(v)}`));
@@ -171,7 +180,7 @@ export function escalationComment(report: EscalationReport, config: FactoryConfi
   const { round } = report;
   if (round) lines.push(m.roundPullRequest(round.number));
   else if (report.pr) lines.push(m.draftPullRequest(report.pr.number));
-  else lines.push(m.noPullRequest());
+  else lines.push(report.held ? m.noPullRequestHeld() : m.noPullRequest());
   if (report.runUrl) lines.push(m.workflowRun(report.runUrl));
   // A round keeps its ready PR: re-adding ready-for-agent would close it and start over from the base branch.
   if (round) lines.push("", m.retryRound(round.number, config.labels.inProgress, config.labels.readyForHuman));
@@ -188,6 +197,7 @@ function headline(report: EscalationReport, config: FactoryConfig): string {
     case "time":
       return m.headlineTime(config.timeouts.total);
     case "needs-human":
+      if (report.secrets) return m.headlineSecrets();
       // No question from a Stage: the run stopped on the Review's verdicts.
       return !report.result?.question && unmetCriteria(report.result).length > 0 ? m.headlineCriteriaUnmet() : m.headlineNeedsHuman();
     case "infra":
