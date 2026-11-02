@@ -17,6 +17,9 @@ export const en = {
   nav: {
     label: "Main",
     home: "Home",
+    sidebar: "Sidebar",
+    toggle: "Toggle the sidebar",
+    userMenu: "User menu",
   },
   account: {
     nav: "Account",
