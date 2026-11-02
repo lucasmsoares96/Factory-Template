@@ -463,6 +463,8 @@ export class FakeNeon {
   readonly orgIdsSeen: (string | undefined)[] = [];
   /** The next `login()` fails (the person closed the browser). */
   failLogin = false;
+  /** `listApiKeys` fails, as it does when Neon is down after the projects were listed. */
+  failKeyList = false;
   validKeys = new Set<string>(["neon-full"]);
   /** Project ids whose delete must fail. */
   readonly failDeletes = new Set<string>();
@@ -511,6 +513,7 @@ export class FakeNeon {
       },
       listApiKeys: async () => {
         authed();
+        if (this.failKeyList) throw new Error("neonctl api-keys failed: ERROR: Neon is down");
         return this.apiKeys.map(({ id, name, projectId }) => ({ id, name, projectId }));
       },
       revokeApiKey: async (keyId) => {
