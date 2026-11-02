@@ -140,42 +140,42 @@ function UserMenu({ signOut }: { signOut: { isPending: boolean; mutate: () => vo
   const { isMobile } = useSidebar();
 
   return (
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          render={
-            <SidebarMenuButton
-              size="lg"
-              aria-label={t.nav.userMenu}
-              tooltip={me.data?.name}
-              className="data-open:bg-sidebar-accent data-open:text-sidebar-accent-foreground"
-            />
-          }
-        >
-          <UserSummary name={me.data?.name} email={me.data?.email} testIds />
-          <ChevronsUpDown className="ml-auto size-4" />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent className="w-56 min-w-56" side={isMobile ? "bottom" : "right"} align="end" sideOffset={4}>
-          <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
-            <UserSummary name={me.data?.name} email={me.data?.email} />
-          </div>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem render={<Link to="/account" />}>
-            <UserRound />
-            {t.account.nav}
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <SidebarMenuButton
+            size="lg"
+            aria-label={t.nav.userMenu}
+            tooltip={me.data?.name}
+            className="data-open:bg-sidebar-accent data-open:text-sidebar-accent-foreground"
+          />
+        }
+      >
+        <UserSummary name={me.data?.name} email={me.data?.email} testIds />
+        <ChevronsUpDown className="ml-auto size-4" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent className="w-56 min-w-56" side={isMobile ? "bottom" : "right"} align="end" sideOffset={4}>
+        <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
+          <UserSummary name={me.data?.name} email={me.data?.email} />
+        </div>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem render={<Link to="/account" />}>
+          <UserRound />
+          {t.account.nav}
+        </DropdownMenuItem>
+        {(nav.data?.accountPage ?? []).map((entry) => (
+          <DropdownMenuItem key={entry.to} render={<Link to={entry.to} />}>
+            <span aria-hidden className="size-4 shrink-0" />
+            {entry.label}
           </DropdownMenuItem>
-          {(nav.data?.accountPage ?? []).map((entry) => (
-            <DropdownMenuItem key={entry.to} render={<Link to={entry.to} />}>
-              <span aria-hidden className="size-4 shrink-0" />
-              {entry.label}
-            </DropdownMenuItem>
-          ))}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem disabled={signOut.isPending} onClick={() => signOut.mutate()}>
-            <LogOut />
-            {t.auth.signOut}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+        ))}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem disabled={signOut.isPending} onClick={() => signOut.mutate()}>
+          <LogOut />
+          {t.auth.signOut}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
