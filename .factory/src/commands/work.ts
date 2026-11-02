@@ -502,10 +502,15 @@ function resolveCriteria(review: ReviewOutput, texts: string[]): ReviewOutput {
   return { ...review, criteria };
 }
 
+/** Markers a model writes in an empty `<needs-human>` tag; `-` and other bare punctuation reduce to "". */
+const NOT_A_QUESTION = new Set(["none", "n/a", "na", "nothing", "no", "null"]);
+
 /** The question of a Development session that ends with `<needs-human>…</needs-human>`. */
 function needsHuman(output: string): string | null {
   const question = [...output.matchAll(/<needs-human>([\s\S]*?)<\/needs-human>/g)].at(-1)?.[1]?.trim();
-  return question ? question : null;
+  if (!question) return null;
+  const bare = question.replace(/^[\s\p{P}\p{S}]+|[\s\p{P}\p{S}]+$/gu, "").toLowerCase();
+  return bare === "" || NOT_A_QUESTION.has(bare) ? null : question;
 }
 
 /** One review for the PR: the summary of every attempt, the inline findings of all of them. */
