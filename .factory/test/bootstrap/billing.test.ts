@@ -374,7 +374,7 @@ describe("pnpm bootstrap billing", () => {
 
 describe("pnpm bootstrap billing: the accounts that already exist", () => {
   const PASSWORD = "pw-1";
-  const DATABASE = `postgresql://neondb_owner:${PASSWORD}@ep-proj-1.eu-central-1.aws.neon.tech/neondb?sslmode=require`;
+  const DATABASE = `postgresql://neondb_owner:${PASSWORD}@ep-proj-1.eu-central-1.aws.neon.tech/neondb?sslmode=verify-full&channel_binding=require`;
 
   /** A Product with its production database already holding `accounts`; the plans are Pro (3 Seats), Team (10) and per Seat (from 11). */
   function worldWithAccounts(accounts: Parameters<ReturnType<typeof billingWorld>["accounts"]["seedAccounts"]>[1], extra: Record<string, string | boolean | string[]> = {}, env: Record<string, string | undefined> = ENV) {
