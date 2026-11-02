@@ -35,6 +35,8 @@ export interface BootstrapDeps {
   token: (token: string) => TokenClient;
   /** Reads `apps/<id>/product.config.ts`. */
   product: (id: string) => Promise<ProductIdentity>;
+  /** Creates `apps/<id>/` from the template (what `pnpm new-product` does), for `bootstrap product <id>` on an id with no folder. */
+  createProduct: (input: { id: string; title: string; domain: string }) => Promise<void>;
   /** The ids of the Products in `apps/`, sorted. */
   listProducts: () => Promise<string[]>;
   /** `owner/name` of the `origin` remote of the clone, `undefined` when there is none. */
