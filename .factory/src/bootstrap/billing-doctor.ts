@@ -1,5 +1,5 @@
 import { billingNames, CI_KEY_SECRET, webhookUrl } from "./billing.ts";
-import { keyMode, type KeyMode } from "./billing-permissions.ts";
+import { keyCreationUrl, keyMode, type KeyMode } from "./billing-permissions.ts";
 import type { StripeClient, StripePlanState } from "./clients.ts";
 import { missingEntitlements } from "./entitlements.ts";
 import { secretScope } from "./domain.ts";
@@ -26,11 +26,12 @@ export async function hasBillingTrace(ctx: StepContext, productId: string, varia
 const ENV_KEYS = { sandbox: "STRIPE_SANDBOX_KEY", live: "STRIPE_LIVE_KEY" } as const;
 
 /** The key of one account when this run can have it: memory, the environment, then (when asked to) one hidden prompt that may stay empty. */
-async function keyForCheck(ctx: StepContext, mode: KeyMode, prompt: boolean): Promise<string | undefined> {
+async function keyForCheck(ctx: StepContext, productId: string, mode: KeyMode, prompt: boolean): Promise<string | undefined> {
   const kept = ctx.memory.stripeKeys?.[mode];
   if (kept) return kept;
   let key = ctx.env[ENV_KEYS[mode]] || undefined;
   if (!key && prompt && ctx.interactive) {
+    ctx.prompter.link(`Create a restricted key in the Stripe ${mode === "sandbox" ? "sandbox" : "real account"} (name and permissions are filled in; only click Create key, then copy it):`, keyCreationUrl(`${productId}-billing-${mode}`, mode));
     key = (await ctx.prompter.password({ id: `stripe-${mode}-key-check`, message: `Paste the Stripe ${mode} key to check billing (not stored; leave empty to skip)` })).trim() || undefined;
   }
   if (key) ctx.memory.stripeKeys = { ...ctx.memory.stripeKeys, [mode]: key };
@@ -61,7 +62,7 @@ export async function billingChecks(
 
   const clients: Partial<Record<KeyMode, StripeClient>> = {};
   for (const mode of ["sandbox", "live"] as const) {
-    const key = await keyForCheck(ctx, mode, prompt);
+    const key = await keyForCheck(ctx, id, mode, prompt);
     const label = `Stripe ${mode} key`;
     if (!key) {
       add("skip", label, `export ${ENV_KEYS[mode]} to check it`);
