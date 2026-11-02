@@ -1,7 +1,8 @@
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { z } from "zod";
 import { BASE_ENV, pick } from "../env.ts";
-import type { NeonClient, NeonOrg, NeonProject } from "./clients.ts";
+import { stderrReason } from "./stderr-reason.ts";
+import type { NeonApiKey, NeonClient, NeonOrg, NeonProject } from "./clients.ts";
 
 /** Runs `neonctl <args>` and returns stdout. `inherit` hands the terminal over (the browser login prints a URL). */
 export type NeonRun = (args: string[], options: { env: Record<string, string>; inherit?: boolean }) => Promise<string>;
@@ -22,8 +23,8 @@ export const runNeonctl: NeonRun = (args, { env, inherit }) =>
     }
     execFile("pnpm", [...NEONCTL, ...args], { env, maxBuffer: 16 * 1024 * 1024 }, (error, stdout, stderr) => {
       if (!error) return resolve(stdout);
-      // Only the subcommand and the tail of stderr are reported: stdout may hold a connection string.
-      reject(new Error(`neonctl ${args[0]} failed: ${stderr.trim().split("\n").slice(-3).join(" ").slice(0, 300) || error.message}`));
+      // Only the subcommand and the reason on stderr are reported: stdout may hold a connection string.
+      reject(new Error(`neonctl ${args[0]} failed: ${stderrReason(stderr) || error.message}`));
     });
   });
 
@@ -38,6 +39,8 @@ const created = z.object({ project });
 const branch = z.object({ id: z.string(), name: z.string(), default: z.boolean().optional(), primary: z.boolean().optional() });
 const branches = z.union([z.array(branch), z.object({ branches: z.array(branch) })]);
 const apiKey = z.object({ key: z.string() });
+const keyItem = z.object({ id: z.union([z.string(), z.number()]).transform(String), name: z.string(), project_id: z.string().nullish() });
+const keyList = z.union([z.array(keyItem), z.object({ api_keys: z.array(keyItem) })]);
 
 /**
  * `neonctl` driven as a child process with its default config directory, so the browser login is kept by the CLI
@@ -105,6 +108,15 @@ export class NeonCli implements NeonClient {
   async createApiKey(name: string, projectId: string): Promise<string> {
     // `--project-id` alone: the CLI looks the organization up from the project. The key is only in this return value.
     return apiKey.parse(JSON.parse(await this.call(["api-keys", "create", "--name", name, "--project-id", projectId, "-o", "json"]))).key;
+  }
+
+  async listApiKeys(orgId?: string): Promise<NeonApiKey[]> {
+    const parsed = keyList.parse(JSON.parse(await this.call(["api-keys", "list", ...orgFlag(orgId), "-o", "json"])));
+    return (Array.isArray(parsed) ? parsed : parsed.api_keys).map(({ id, name, project_id }) => ({ id, name, ...(project_id ? { projectId: project_id } : {}) }));
+  }
+
+  async revokeApiKey(keyId: string, orgId?: string): Promise<void> {
+    await this.call(["api-keys", "revoke", keyId, ...orgFlag(orgId), "-o", "json"]);
   }
 
   async defaultBranchName(projectId: string): Promise<string> {

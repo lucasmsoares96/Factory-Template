@@ -250,6 +250,13 @@ export interface NeonProject {
   region?: string;
 }
 
+export interface NeonApiKey {
+  id: string;
+  name: string;
+  /** The project a project-scoped key reaches; absent when the listing did not say. */
+  projectId?: string;
+}
+
 export interface NeonOrg {
   id: string;
   name: string;
@@ -273,6 +280,10 @@ export interface NeonClient {
    * an OAuth login (the docs say the first key comes from the Console): the caller then asks for a pasted one.
    */
   createApiKey(name: string, projectId: string): Promise<string>;
+  /** The API keys of the account, or of the organization. Their secrets are never listed. */
+  listApiKeys(orgId?: string): Promise<NeonApiKey[]>;
+  /** Revokes the key at once: whatever uses it stops working. */
+  revokeApiKey(keyId: string, orgId?: string): Promise<void>;
   /** Name of the project's default branch. */
   defaultBranchName(projectId: string): Promise<string>;
   renameBranch(projectId: string, from: string, to: string): Promise<void>;

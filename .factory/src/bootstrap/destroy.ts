@@ -4,7 +4,7 @@ import { cloudflareHandle, productionEnvironment } from "./domain.ts";
 import { FACTORY_ENABLED, FACTORY_TOKEN } from "./factory.ts";
 import { accountNames } from "./accounts.ts";
 import { DEPLOY_PRODUCTS, MAIN_RULESET, databaseVariables, USE_ENVIRONMENTS, neonHandle, neonOrgId, parseProductList, productionSecrets } from "./product.ts";
-import { PREVIEWS_ENABLED, PREVIEW_PRODUCTS, previewEnvironment, previewNames, previewProjectName } from "./previews.ts";
+import { PREVIEWS_ENABLED, PREVIEW_PRODUCTS, previewEnvironment, previewNames, previewKeysOf, previewProjectName } from "./previews.ts";
 import type { ProductIdentity, StepContext } from "./steps.ts";
 
 /**
@@ -291,7 +291,7 @@ function planProductionProject(plan: Plan, projects: NeonProject[], neon: NeonCl
 async function planDatabase(ctx: StepContext, plan: Plan, services: Services, id: string, repo: RepoState, environmentSecrets: Map<string, string[]>): Promise<void> {
   if (services.neon) {
     planProductionProject(plan, services.neon.projects, services.neon.client, id, repo.variables);
-    await planPreviewProject(plan, services.neon, id, repo.variables);
+    await planPreviewProject(plan, ctx, services.neon, id, repo.variables);
   }
   const production = productionSecrets(id);
   const names = previewNames(id);
@@ -311,17 +311,26 @@ async function planDatabase(ctx: StepContext, plan: Plan, services: Services, id
   for (const name of [email, databaseVariables(id).neonProject, names.neonProject]) repo.dropVariable(name);
 }
 
-async function planPreviewProject(plan: Plan, neon: { client: NeonClient; projects: NeonProject[] }, id: string, variables: Record<string, string>): Promise<void> {
+/** The Neon key of the Previews goes with its secret: the secret is the only thing that holds it, and Neon keeps a key alive after the project. */
+async function planPreviewKeys(plan: Plan, neon: { client: NeonClient }, ctx: StepContext, id: string, projectIds: string[]): Promise<void> {
+  const orgId = await neonOrgId(ctx, neon.client);
+  for (const key of await previewKeysOf(neon.client, orgId, id, projectIds)) {
+    plan.items.push({ group: "Neon", text: `Neon API key ${key.name} (${key.id}) of the Previews`, run: () => neon.client.revokeApiKey(key.id, orgId) });
+  }
+}
+
+async function planPreviewProject(plan: Plan, ctx: StepContext, neon: { client: NeonClient; projects: NeonProject[] }, id: string, variables: Record<string, string>): Promise<void> {
   const recordedProject = variables[previewNames(id).neonProject];
   const matching = recordedProject ? neon.projects.filter((p) => p.id === recordedProject) : neon.projects.filter((p) => p.name === previewProjectName(id));
   if (matching.length > 1) plan.problems.push(`${matching.length} Neon projects are named ${previewProjectName(id)}: none is deleted, delete the right one by hand.`);
   else if (matching[0]) {
     const project = matching[0];
+    await planPreviewKeys(plan, neon, ctx, id, [project.id]);
     plan.items.push({ group: "Neon", text: `Neon project ${project.name} (${project.id}) with the branches of every pull request`, run: () => neon.client.deleteProject(project.id) });
   }
 }
 
-async function planPreviews(_ctx: StepContext, plan: Plan, services: Services, id: string, repo: RepoState): Promise<void> {
+async function planPreviews(ctx: StepContext, plan: Plan, services: Services, id: string, repo: RepoState): Promise<void> {
   const names = previewNames(id);
   const recordedKv = repo.variables[names.kv];
   const { client, accountId } = services.cloudflare ?? {};
@@ -330,7 +339,7 @@ async function planPreviews(_ctx: StepContext, plan: Plan, services: Services, i
     if (kv) plan.items.push({ group: "Cloudflare", text: `KV namespace ${kv.title} (${kv.id})`, run: () => client.deleteKvNamespace(accountId, kv.id) });
   }
   if (services.neon) {
-    await planPreviewProject(plan, services.neon, id, repo.variables);
+    await planPreviewProject(plan, ctx, services.neon, id, repo.variables);
   }
   repo.dropEnvironment(previewEnvironment(id));
   repo.dropSecret(names.neonKey);

@@ -286,6 +286,26 @@ describe("pnpm bootstrap destroy previews <id>", () => {
     expect(w.github.secrets.has("EXAMPLE_DATABASE_URL") || w.github.environmentSecrets.get("example-production")!.has("EXAMPLE_DATABASE_URL")).toBe(true);
     expect(w.github.variables.get("DEPLOY_PRODUCTS")).toBe("example,shop");
   });
+
+  it("revokes the Neon key of the Previews of the Product and only that one", async () => {
+    const w = await built({ "destroy-confirm": "example" });
+    expect(w.neon.apiKeys.map((k) => k.name).sort()).toEqual(["example-preview-ci", "shop-preview-ci"]);
+
+    const { code, output } = await w.run("destroy", "previews", "example");
+
+    expect(code).toBe(0);
+    expect(output).toContain("Neon API key example-preview-ci");
+    expect(w.neon.apiKeys.map((k) => k.name)).toEqual(["shop-preview-ci"]);
+  });
+
+  it("destroy db revokes the key together with its secret", async () => {
+    const w = await built({ "destroy-confirm": "example" });
+
+    const { code } = await w.run("destroy", "db", "example");
+
+    expect(code).toBe(0);
+    expect(w.neon.apiKeys.map((k) => k.name)).toEqual(["shop-preview-ci"]);
+  });
 });
 
 describe("pnpm bootstrap destroy factory", () => {
