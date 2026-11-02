@@ -313,9 +313,14 @@ async function planDatabase(ctx: StepContext, plan: Plan, services: Services, id
 
 /** The Neon key of the Previews goes with its secret: the secret is the only thing that holds it, and Neon keeps a key alive after the project. */
 async function planPreviewKeys(plan: Plan, neon: { client: NeonClient }, ctx: StepContext, id: string, projectIds: string[]): Promise<void> {
-  const orgId = await neonOrgId(ctx, neon.client);
-  for (const key of await previewKeysOf(neon.client, orgId, id, projectIds)) {
-    plan.items.push({ group: "Neon", text: `Neon API key ${key.name} (${key.id}) of the Previews`, run: () => neon.client.revokeApiKey(key.id, orgId) });
+  try {
+    const orgId = await neonOrgId(ctx, neon.client);
+    for (const key of await previewKeysOf(neon.client, orgId, id, projectIds)) {
+      plan.items.push({ group: "Neon", text: `Neon API key ${key.name} (${key.id}) of the Previews`, run: () => neon.client.revokeApiKey(key.id, orgId) });
+    }
+  } catch (error) {
+    // A key left alive without its secret is the defect this fixes: nothing is deleted when the keys cannot be listed.
+    plan.blockers.push(`The Neon API keys could not be listed (${(error as Error).message}); run this again. Nothing was deleted: the key of the Previews would stay alive without its secret.`);
   }
 }
 

@@ -250,6 +250,22 @@ describe("pnpm bootstrap destroy: Neon unreachable", () => {
     expect(everywhere(w)).toEqual(secrets);
   });
 
+  it.each(["db", "previews"])("deletes nothing when the Neon keys cannot be listed (%s)", async (kind) => {
+    const w = await built({ "destroy-confirm": "example" });
+    w.neon.failKeyList = true;
+    const before = writes(w);
+    const state = left(w);
+    const secrets = everywhere(w);
+
+    const { code, output } = await w.run("destroy", kind, "example");
+
+    expect(code).toBe(1);
+    expect(output).toMatch(/Nothing was deleted/);
+    expect(writes(w)).toEqual(before);
+    expect(left(w)).toEqual(state);
+    expect(everywhere(w)).toEqual(secrets);
+  });
+
   it("signs in through the browser without NEON_API_KEY, lists the projects, then asks the confirmation", async () => {
     const w = await built({ "destroy-confirm": "nope" });
     w.deps.env = {};
