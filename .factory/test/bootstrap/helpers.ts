@@ -1,7 +1,15 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { afterEach } from "vitest";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { newProduct } from "../../../packages/skeleton/src/node/products.ts";
 import { defaultConfig, loadConfig } from "../../src/config.ts";
 import { runBootstrap, type BootstrapDeps } from "../../src/bootstrap/cli.ts";
 import type { ProductIdentity } from "../../src/bootstrap/steps.ts";
 import { FakeAccounts, FakeCloudflare, FakeGitHub, FakeTokens, FakeNeon, FakePrompter, FakeResend, FakeStripe, FakeTools, FakeWrangler } from "../../src/bootstrap/fake/fakes.ts";
+
+const productDirs: string[] = [];
+afterEach(() => productDirs.splice(0).forEach((dir) => rmSync(dir, { recursive: true, force: true })));
 
 export const TOKEN = "good-token";
 
@@ -24,6 +32,7 @@ export function world(answers: Record<string, string | boolean | string[]> = {},
   ]);
   const prompter = new FakePrompter({ "cloudflare-token": TOKEN, "workers-dev-subdomain": "my-team", "example-issue": false, "repo-confirm": true, "factory-language": "en", "merge-mode": "human", ...answers });
   const lines: string[] = [];
+  const created: { id: string; title: string; domain: string; dir: string }[] = [];
   const deps: BootstrapDeps = {
     github,
     tools,
@@ -39,6 +48,13 @@ export function world(answers: Record<string, string | boolean | string[]> = {},
       if (!found) throw new Error(`No Product at apps/${id}/product.config.ts`);
       return found;
     },
+    // The real template, rendered into a temporary directory (no install): the folder `pnpm new-product` would make.
+    createProduct: async ({ id, title, domain }) => {
+      const base = mkdtempSync(join(tmpdir(), "bootstrap-product-"));
+      productDirs.push(base);
+      created.push({ id, title, domain, dir: newProduct({ root: tmpdir(), id, title, domain, install: false, outDir: join(base, id) }).dir });
+      products.set(id, { id, title, emailFrom: `${title} <no-reply@${domain}>`, domain });
+    },
     listProducts: async () => [...products.keys()].sort(),
     origin: async () => "owner/repo",
     sleep: async () => {},
@@ -52,7 +68,7 @@ export function world(answers: Record<string, string | boolean | string[]> = {},
     const code = await runBootstrap(argv.includes("--repo") ? argv : [...argv, "--repo", "owner/repo"], deps);
     return { code, output: lines.join("\n") };
   };
-  return { github, tools, tokens, cloudflare, wrangler, resend, stripe, neon, accounts, products, prompter, lines, deps, run };
+  return { github, tools, tokens, cloudflare, wrangler, resend, stripe, neon, accounts, products, created, prompter, lines, deps, run };
 }
 
 export const staticLabelNames = Object.entries(defaultConfig.labels)
