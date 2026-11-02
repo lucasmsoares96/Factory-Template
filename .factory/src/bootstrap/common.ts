@@ -2,6 +2,7 @@ import type { Step, StepContext } from "./steps.ts";
 import { CloudflareRefused, type CloudflareClient } from "./clients.ts";
 import { labelSpecs } from "./labels.ts";
 import { variableName } from "../config.ts";
+import { mainRulesetStep } from "./product.ts";
 import { LANGUAGES, type Language } from "../messages.ts";
 
 const TOKEN_SECRET = "CLOUDFLARE_API_TOKEN";
@@ -250,4 +251,4 @@ export const language: Step = {
   },
 };
 
-export const commonSteps: Step[] = [cloudflareToken, workersDev, labels, language];
+export const commonSteps: Step[] = [cloudflareToken, workersDev, labels, language, mainRulesetStep()];

@@ -20,6 +20,85 @@ describe("pnpm bootstrap (common part)", () => {
     }
   });
 
+  it("does not duplicate an equivalent ruleset made by hand (other name and id)", async () => {
+    const w = world();
+    w.github.rulesets.push({
+      id: 25500591,
+      name: "protect main",
+      target: "branch",
+      enforcement: "active",
+      include: ["~DEFAULT_BRANCH"],
+      rules: ["deletion", "non_fast_forward", "pull_request", "required_status_checks"],
+      requiredChecks: ["verify"],
+      strict: true,
+    });
+
+    const { output } = await w.run();
+
+    expect(w.github.rulesets).toHaveLength(1);
+    expect(output).toContain("already done (protect main #25500591)");
+  });
+
+  it("creates the ruleset once and requires branches to be up to date before merging", async () => {
+    const w = world();
+
+    await w.run();
+    await w.run();
+
+    expect(w.github.rulesets.map((r) => r.name)).toEqual(["main"]);
+    expect(w.github.rulesets.map((r) => r.strict)).toEqual([true]);
+  });
+
+  it("turns on up-to-date branches in an existing ruleset instead of only reusing it", async () => {
+    const w = world();
+    w.github.rulesets.push({
+      id: 25500591,
+      name: "protect main",
+      target: "branch",
+      enforcement: "active",
+      include: ["~DEFAULT_BRANCH"],
+      rules: ["deletion", "non_fast_forward", "pull_request", "required_status_checks"],
+      requiredChecks: ["verify"],
+      strict: false,
+    });
+
+    const { code } = await w.run();
+
+    expect(code).toBe(0);
+    expect(w.github.rulesets).toEqual([expect.objectContaining({ id: 25500591, name: "protect main", strict: true })]);
+  });
+
+  it("creates the ruleset when the existing one lacks the verify check", async () => {
+    const w = world();
+    w.github.rulesets.push({ id: 1, name: "weak", target: "branch", enforcement: "active", include: ["~DEFAULT_BRANCH"], rules: ["deletion"], requiredChecks: [], strict: false });
+
+    await w.run();
+
+    expect(w.github.rulesets.map((r) => r.name)).toEqual(["weak", "main"]);
+  });
+
+  it("says so when GitHub refuses to turn on up-to-date branches in an existing ruleset", async () => {
+    const w = world();
+    w.github.rulesets.push({ id: 7, name: "protect main", target: "branch", enforcement: "active", include: ["~DEFAULT_BRANCH"], rules: ["deletion", "non_fast_forward", "pull_request", "required_status_checks"], requiredChecks: ["verify"], strict: false });
+    w.github.refuseRulesets = true;
+
+    const { output } = await w.run();
+
+    expect(output).toContain("GitHub refused to update ruleset protect main #7");
+    expect(w.github.rulesets).toHaveLength(1);
+  });
+
+  it("skips the ruleset with a message when the API refuses it", async () => {
+    const w = world();
+    w.github.refuseRulesets = true;
+
+    const { code, output } = await w.run();
+
+    expect(code).toBe(0);
+    expect(output).toContain("GitHub refused the ruleset");
+    expect(w.github.rulesets).toEqual([]);
+  });
+
   it("the token template asks for Workers and KV, and no R2 (out of scope)", () => {
     const keys = decodeURIComponent(cloudflareTokenUrl());
     expect(keys).toContain("workers_scripts");
