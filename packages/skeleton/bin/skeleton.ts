@@ -11,10 +11,16 @@ Commands:
                                  (src/gen/), TanStack Router's routeTree.gen.ts and the MCP
                                  tools (src/mcp-tools.gen.json). Without --product, for the
                                  Skeleton's own SPA and test composition (its tests use them).
-  dev [--product <dir>]          Start the Product's Worker and SPA (vite dev) on a migrated
+  dev [--product <dir>] [--stripe]
+                                 Start the Product's Worker and SPA (vite dev) on a migrated
                                  database: DATABASE_URL, or the docker compose Postgres.
                                  Emails land in the skeleton.email_outbox table, and billing
                                  runs on a fake Stripe inside the Worker (/api/fake-stripe).
+                                 With --stripe, billing runs on a real Stripe sandbox instead:
+                                 STRIPE_SECRET_KEY must be a sandbox key (sk_test_ or rk_test_;
+                                 use the Previews' sandbox, which has the Product's Plans), the
+                                 Stripe CLI forwards the webhooks to localhost:5173, and what the
+                                 Worker creates is marked "local" (Previews ignore it).
   db migrate [--product <dir>]   Apply the Skeleton's migrations, then the Product's.
   db check [--product <dir>]     Fail unless drizzle-kit check passes and a brand-new database,
                                  once migrated, matches the schema (push --explain: no_changes).
@@ -39,6 +45,7 @@ const { values, positionals } = parseArgs({
     dir: { type: "string", default: "drizzle" },
     title: { type: "string" },
     domain: { type: "string" },
+    stripe: { type: "boolean", default: false },
     "no-install": { type: "boolean", default: false },
   },
 });
@@ -136,25 +143,15 @@ async function generateCommand() {
 
 async function dev(dir: string) {
   const { spawn } = await import("node:child_process");
+  const { sandboxKey, startDev } = await import("../src/node/dev.ts");
+  const stripe = values.stripe;
+  // A refusal comes before anything starts, the database included.
+  if (stripe) sandboxKey(process.env.STRIPE_SECRET_KEY);
   const { ensurePostgres } = await import("../src/node/postgres.ts");
   const { migrateDatabase } = await import("../src/node/migrate.ts");
   const postgres = ensurePostgres({ purpose: "dev", keep: true, cwd: dir });
   await migrateDatabase({ databaseUrl: postgres.url, productMigrationsFolder: resolve(dir, "drizzle") });
-  // With `secrets` in wrangler.jsonc, the Worker reads its required secrets and
-  // overrides its vars from the environment. Emails land in the outbox table.
-  const vite = spawn("vite", ["dev"], {
-    cwd: dir,
-    stdio: "inherit",
-    env: {
-      ...process.env,
-      DATABASE_URL: postgres.url,
-      BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET ?? "local-dev-secret-never-used-in-production",
-      EMAIL_TRANSPORT: "outbox",
-      // Billing runs on a Stripe that lives in the Worker: no internet, no real key.
-      STRIPE_FAKE: "true",
-    },
-  });
-  vite.on("exit", (code) => process.exit(code ?? 0));
+  await startDev({ dir, env: process.env, databaseUrl: postgres.url, stripe, spawn, exit: (code) => process.exit(code) });
 }
 
 async function checkChain() {

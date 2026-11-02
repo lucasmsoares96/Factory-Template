@@ -179,6 +179,43 @@ test("a Preview ignores the events of another Preview and of production, and app
   expect(await plan()).toBe("Free");
 });
 
+test("the local Worker (pnpm dev --stripe) applies only the events marked local", async () => {
+  const localDb = await createEmptyDatabase();
+  await migrateDatabase({ databaseUrl: localDb.url });
+  const local = await startTestWorker({
+    databaseUrl: localDb.url,
+    vars: { STRIPE_FAKE: "true", STRIPE_WEBHOOK_SECRET: WEBHOOK_SECRET, EMAIL_TRANSPORT: "outbox", BILLING_ENVIRONMENT: "local" },
+  });
+  const localAuth = await createTestAuth({ databaseUrl: localDb.url, baseURL: local.origin });
+  try {
+    const user = await localAuth.saveUser(localAuth.createUser({ name: "Ana Souza", email: `user-${randomUUID()}@example.com`, emailVerified: true }));
+    const cookie = (await localAuth.getAuthHeaders({ userId: user.id })).get("cookie")!;
+    const opened = await local.post("/api/billing/subscribe", { plan: "prod_fake_pro" }, { cookie });
+    const checkout = new URL(((await opened.json()) as { url: string }).url).pathname;
+    await local.fetch(`${checkout}/pay`, { method: "POST", redirect: "manual" });
+    const [row] = await localDb.query<{ stripe_subscription_id: string; metadata: Record<string, string> }>(
+      `select stripe_subscription_id, (select body->'metadata' from skeleton.fake_stripe where kind = 'subscription') as metadata from skeleton.subscriptions where reference_id = '${user.id}'`,
+    );
+    expect(row?.metadata).toMatchObject({ environment: "local" });
+    const plan = async () => ((await (await local.fetch("/api/billing/plan", { headers: { cookie } })).json()) as PlanState).plan?.name;
+    const deleted = (metadata: Record<string, string>) => ({
+      type: "customer.subscription.deleted",
+      object: { id: row!.stripe_subscription_id, object: "subscription", status: "canceled", metadata, items: { data: [] } },
+    });
+
+    for (const metadata of [{ productId: "skeleton-test", environment: "pr-7" }, { productId: "skeleton-test" }] as Record<string, string>[]) {
+      await local.post("/api/fake-stripe/control/events", deleted(metadata));
+      expect(await plan()).toBe("Pro");
+    }
+    await local.post("/api/fake-stripe/control/events", deleted({ productId: "skeleton-test", environment: "local" }));
+    expect(await plan()).toBe("Free");
+  } finally {
+    await localAuth.close();
+    await local.close();
+    await localDb.drop();
+  }
+});
+
 test("production ignores an event that carries a Preview's tag", async () => {
   const { user, cookie } = await signedInUser();
   await worker.fetch(`${await openCheckout(cookie, "prod_fake_pro")}/pay`, { method: "POST", redirect: "manual" });
