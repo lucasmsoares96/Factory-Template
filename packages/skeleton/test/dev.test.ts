@@ -36,13 +36,14 @@ function harness(env: NodeJS.ProcessEnv = {}) {
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 test("without --stripe, Vite runs on the fake Stripe and ignores a key in the environment", async () => {
-  const h = harness({ STRIPE_SECRET_KEY: "sk_live_x", BILLING_ENVIRONMENT: "pr-1" });
+  const h = harness({ STRIPE_SECRET_KEY: "sk_live_x", BILLING_ENVIRONMENT: "pr-1", SKELETON_DEV_STRIPE: "true" });
   await h.run(false);
   expect(h.calls).toHaveLength(1);
   expect(h.calls[0]!.command).toBe("vite");
   expect(h.calls[0]!.env).toMatchObject({ STRIPE_FAKE: "true", DATABASE_URL: "postgres://db" });
   expect(h.calls[0]!.env).not.toHaveProperty("STRIPE_SECRET_KEY");
   expect(h.calls[0]!.env).not.toHaveProperty("BILLING_ENVIRONMENT");
+  expect(h.calls[0]!.env).not.toHaveProperty("SKELETON_DEV_STRIPE");
 });
 
 test.each([[undefined, /needs STRIPE_SECRET_KEY/], ["sk_live_abc", /live key/], ["rk_live_abc", /live key/], ["abc", /not a sandbox key/]])(

@@ -60,6 +60,7 @@ export async function startDev({ dir, env, databaseUrl, stripe, spawn, exit, log
   delete base.STRIPE_SECRET_KEY;
   delete base.STRIPE_WEBHOOK_SECRET;
   delete base.BILLING_ENVIRONMENT;
+  delete base.SKELETON_DEV_STRIPE;
 
   if (!key) {
     // Billing runs on a Stripe that lives in the Worker: no internet, no real key.
