@@ -27,19 +27,31 @@ export async function openThreads(
   return [...open, ...(await conversationRequests(seams, pr))];
 }
 
+/** Hidden tag of a round's reply in the Conversation tab: `<!-- factory:answers comment-1 review-2 -->`, the ids it answers. */
+export function answersTag(ids: string[]): string {
+  return `<!-- factory:answers ${ids.join(" ")} -->`;
+}
+
+/** The request ids a marked entry answers; empty for any other Factory comment (update-branch, Previews, a discard, a session limit). */
+function answeredIds(body: string): string[] {
+  const tag = /<!-- factory:answers ([^>]*?) -->/.exec(body);
+  return tag ? tag[1]!.split(/\s+/).filter(Boolean) : [];
+}
+
 /**
- * The Conversation tab has no threads: every writer's comment and review body after the last Factory-marked entry is
- * one round. Only writers' entries are read at all (not `github-actions[bot]`), so a stranger's text never reaches the
- * agent and a stranger's forged marker closes nothing.
+ * The Conversation tab has no threads: every writer's comment and review body is a request, open until a marked
+ * round reply cites its id (`answersTag`). The order of the comments does not matter, and no other Factory comment
+ * closes anything. Only writers' entries are read at all (not `github-actions[bot]`), so a stranger's text never
+ * reaches the agent and a stranger's forged marker closes nothing.
  */
 async function conversationRequests(seams: { tracker: Tracker; codeHost: CodeHost }, pr: number): Promise<ReviewThread[]> {
   const writers: ConversationEntry[] = [];
   for (const entry of await seams.codeHost.conversation(pr)) {
     if (entry.author !== ACTIONS_BOT && (await seams.tracker.canWrite(entry.author))) writers.push(entry);
   }
-  const lastFactory = writers.findLastIndex((e) => isMarked(e.body));
+  const answered = new Set(writers.filter((e) => isMarked(e.body)).flatMap((e) => answeredIds(e.body)));
   return writers
-    .slice(lastFactory + 1)
+    .filter((e) => !isMarked(e.body) && !answered.has(e.id))
     .map((e) => ({ id: e.id as ThreadId, path: null, conversation: true as const, author: e.author, body: e.body, replies: [] }));
 }
 
