@@ -50,6 +50,7 @@ catalog:
   # 1.7.13 is the first whose @better-auth/stripe accepts the Stripe SDK v23 (ADR 0015).
   "@better-auth/stripe": 1.7.14
   better-auth: 1.7.14
+  "@stripe/cli": 1.55.6
   stripe: 23.0.1
   # MCP: OAuth authorization server + stateless MCP handler (SDK v2)
   "@cloudflare/workers-oauth-provider": 1.2.3
@@ -125,3 +126,5 @@ allowBuilds:
   workerd: true
   # Pulled in by agents (mimetext → @babel/runtime-corejs3); its postinstall only prints a banner.
   core-js-pure: false
+  # The binary comes from the optional platform package (@stripe/cli-<os>-<arch>); the postinstall only downloads it when that is skipped.
+  "@stripe/cli": false
