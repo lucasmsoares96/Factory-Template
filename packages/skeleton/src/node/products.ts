@@ -132,14 +132,17 @@ export function newProduct({ root, id, title, domain, install = true, outDir }: 
   return { dir: target, files };
 }
 
-/** What `new-product` tells the dev to do next. */
+/** What `new-product` tells the dev to do next (the same flow as the README's "Criar um projeto novo"). */
 export function nextSteps(id: string): string {
   return [
     `Created apps/${id}/.`,
     "",
     "Next:",
+    `  pnpm bootstrap product ${id}    set up its database, secrets and default account (it keeps apps/${id}/ as it is)`,
     `  pnpm dev ${id}                  run it locally (Docker Postgres, no accounts needed)`,
-    `  pnpm bootstrap product ${id}    set up its Worker, database and domain`,
+    "  open a pull request and merge it (the Worker only exists after the first deploy)",
+    "  gh workflow run factory-deploy.yml --ref main    the first deploy",
+    `  optional: pnpm bootstrap previews ${id}, pnpm bootstrap domain ${id}, pnpm bootstrap billing ${id}`,
     "",
     `Edit apps/${id}/product.config.ts for the title, sender and texts, and add features under apps/${id}/src/features/.`,
   ].join("\n");

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, expect, test } from "vitest";
-import { listProducts, newProduct, resolveDevProduct } from "../src/node/index.ts";
+import { listProducts, newProduct, nextSteps, resolveDevProduct } from "../src/node/index.ts";
 import { skeleton } from "./support/cli.ts";
 
 // Seam 5/6: what `pnpm new-product` leaves on disk, seen from the outside.
@@ -111,4 +111,18 @@ test("the template's Product has no feature, no migration of its own and an empt
   expect(readFileSync(join(dir, "src/features/index.ts"), "utf8")).toContain("export const features: Feature[] = [];");
   expect(readdirSync(join(dir, "drizzle"))).toEqual([".gitkeep"]);
   expect(dirname(join(dir, "package.json"))).toBe(dir);
+});
+
+test("nextSteps names the same commands as the README's 'Criar um projeto novo'", () => {
+  const readme = readFileSync(join(repoRoot, "README.md"), "utf8");
+  const section = readme.split("## Criar um projeto novo")[1]?.split(/\n## /)[0] ?? "";
+  expect(section).not.toBe("");
+  const id = "notas";
+  const commands = (text: string) => new Set(text.replaceAll("<id>", id).match(/(?:pnpm (?:bootstrap \w+|dev)|gh workflow run factory-deploy\.yml --ref main)(?: \w[\w-]*)?/g)?.map((c) => c.replace(/ (?:--ref main)?$/, "")));
+  const steps = commands(nextSteps(id));
+  expect(steps.size).toBeGreaterThanOrEqual(6);
+  for (const command of steps) expect(commands(section), command).toContain(command);
+  // Both keep the order: bootstrap, dev, deploy, then the optionals.
+  const order = (text: string) => ["bootstrap product", "pnpm dev", "factory-deploy.yml", "bootstrap previews"].map((c) => text.indexOf(c));
+  for (const text of [section, nextSteps(id)]) expect(order(text)).toEqual([...order(text)].sort((a, b) => a - b));
 });

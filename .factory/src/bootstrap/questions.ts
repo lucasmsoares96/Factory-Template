@@ -38,6 +38,7 @@ export const QUESTIONS = {
   "cloudflare-account": q("common", "conditional", "CLOUDFLARE_ACCOUNT_ID", "Cloudflare account, when the credential sees more than one"),
   "workers-dev-subdomain": q("common", "required", "WORKERS_DEV_SUBDOMAIN", "workers.dev subdomain of the account; not needed once it exists"),
   "factory-language": q("common", "required", "FACTORY_LANGUAGE", "Language of the Factory's public text (en or pt-BR); not needed once the variable exists"),
+  "product-title": q("product", "conditional", "PRODUCT_TITLE", "Title of a new Product, when apps/<id>/ does not exist yet"),
   "product-domain": q("domain", "conditional", "PRODUCT_DOMAIN", "Domain of a Product whose product.config.ts has none"),
   "domain-setup": terminal("domain", "Whether to set the domain up now, at the end of all"),
   "resend-setup": terminal("domain", "Whether to set Resend up now"),

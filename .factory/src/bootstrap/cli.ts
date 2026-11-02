@@ -26,7 +26,8 @@ import { checkAdmin, checkTools } from "./preflight.ts";
 import { ToolsCli } from "./tools.ts";
 import { NeonCli } from "./neon.ts";
 import { WranglerCli } from "./wrangler.ts";
-import { describeVariables, envPrompter, MissingVariables, type Module } from "./questions.ts";
+import { describeVariables, envPrompter, MissingVariables, QUESTIONS, type Module } from "./questions.ts";
+import { assertProductId, findWorkspaceRoot, newProduct, titleFromId } from "../../../packages/skeleton/src/node/products.ts";
 import { runSteps, type BootstrapDeps, type ProductIdentity, type StepContext } from "./steps.ts";
 
 export type { BootstrapDeps } from "./steps.ts";
@@ -40,7 +41,9 @@ Commands:
   doctor                 Read-only check of secrets, variables, labels and resources; shows what is switched off.
   domain <id>            Per Product: Resend sending domain, its DNS records in Cloudflare, a restricted
                          Resend key and the Worker's Custom Domain. Skips what exists, so it is safe to rerun.
-  product <id>           Per Product, the Production module: Neon project, GitHub environment, <ID>_ secrets,
+  product <id>           Creates apps/<id>/ first when it is missing (same code as pnpm new-product; asks the title and
+                         the domain, or reads --title and --domain; writes files and the lockfile, never commits).
+                         Per Product, the Production module: Neon project, GitHub environment, <ID>_ secrets,
                          the account you choose, made straight in the production database (the smoke signs
                          in as it), the Resend domain (deferrable) and the id
                          in DEPLOY_PRODUCTS.
@@ -87,6 +90,8 @@ Options:
   --repo <owner/name>    The repository to set up. Default: the \`origin\` remote (never \`upstream\`). Every command shows
                          \`owner/name (visibility)\` and asks to confirm before its first step; without a terminal --repo is
                          required and must equal \`origin\`.
+  --title <text>         The title of a new Product (product command, when apps/<id>/ does not exist yet).
+  --domain <host>        The domain of a new Product (same).
   --redo <step>          Redo one step even if it looks done (repeatable): cloudflare-token, workers-dev, labels,
                          language (asks the language again), main-ruleset;
                          for the domain command: resend-domain, dns-records, restricted-resend-key, worker-domain;
@@ -103,11 +108,11 @@ The wizard ends by running the doctor with the credentials it already holds, so 
 every command ends with a "next: ..." line naming the command to run next (none when everything is done).
 Run \`pnpm bootstrap doctor [<id>]\` on its own whenever something looks off; it checks Cloudflare with
 wrangler's saved login (or CLOUDFLARE_API_TOKEN) and never opens a browser; with no RESEND_API_KEY it asks once, hidden and not stored.
-Only \`gh\` (logged in with \`gh auth login\`) must be installed. Nothing is written to disk, secrets included.`;
+Only \`gh\` (logged in with \`gh auth login\`) must be installed. Secrets are never written to disk; the only files written are the Product folder (and pnpm-lock.yaml) of "product <id>" for a new Product.`;
 
 /** Entry point; returns the process exit code. */
 export async function runBootstrap(argv: string[], deps: BootstrapDeps): Promise<number> {
-  const { positionals, values } = parseArgs({ args: argv, allowPositionals: true, options: { redo: { type: "string", multiple: true }, repo: { type: "string" } } });
+  const { positionals, values } = parseArgs({ args: argv, allowPositionals: true, options: { redo: { type: "string", multiple: true }, repo: { type: "string" }, title: { type: "string" }, domain: { type: "string" } } });
   const [command] = positionals;
 
   if (command === "help") {
@@ -127,7 +132,7 @@ export async function runBootstrap(argv: string[], deps: BootstrapDeps): Promise
   // Without a terminal a question is answered by its variable, never by a person.
   const run = deps.interactive === false ? { ...deps, prompter: envPrompter(deps.prompter, deps.env) } : deps;
   try {
-    return await dispatch(positionals, values.redo ?? [], run, true);
+    return await dispatch(positionals, values.redo ?? [], run, true, { title: values.title, domain: values.domain });
   } catch (error) {
     if (!(error instanceof MissingVariables)) throw error;
     deps.log(error.message);
@@ -169,7 +174,7 @@ async function printEnvironment(productId: string | undefined, deps: BootstrapDe
 
 const COMMANDS = ["destroy", "domain", "env", "billing", "all", "previews", "product", "factory", "doctor"];
 
-async function dispatch(positionals: string[], redo: string[], deps: BootstrapDeps, announce = false): Promise<number> {
+async function dispatch(positionals: string[], redo: string[], deps: BootstrapDeps, announce = false, create: NewProductAnswers = {}): Promise<number> {
   const [command, productId] = positionals;
   const values = { redo };
   const ran = announce ? positionals.filter(Boolean).join(" ") : undefined;
@@ -212,7 +217,7 @@ async function dispatch(positionals: string[], redo: string[], deps: BootstrapDe
       deps.log(`Usage: pnpm bootstrap all <id>`);
       return 1;
     }
-    return runAll(deps, productId, values.redo);
+    return runAll(deps, productId, values.redo, create);
   }
   if (command === "previews") {
     if (!productId) {
@@ -234,6 +239,8 @@ async function dispatch(positionals: string[], redo: string[], deps: BootstrapDe
       deps.log(`Usage: pnpm bootstrap product <id> [--redo <step>]`);
       return 1;
     }
+    const created = await ensureProductFolder(deps, productId, create);
+    if (created === "invalid") return 1;
     const product = await productOrAsk(deps, productId);
     if (!product) return 1;
     const memory: StepContext["memory"] = {};
@@ -241,6 +248,11 @@ async function dispatch(positionals: string[], redo: string[], deps: BootstrapDe
       await runSteps(productionSteps(product), { ...deps, memory }, values.redo);
       const code = await finish(deps, productId, memory, { production: true, previews: false }, "DEPLOY_ENABLED", ran);
       deps.log(`After the first deploy, attach the domain with: pnpm bootstrap domain ${productId} --redo worker-domain`);
+      if (created === "created") {
+        deps.log(
+          `apps/${productId}/ is not in git yet (pnpm-lock.yaml changed too): commit both and open a pull request. The Worker only exists after that pull request is merged and the first deploy runs (gh workflow run factory-deploy.yml --ref main). The wizard does not commit or push.`,
+        );
+      }
       return code;
     } finally {
       await memory.neon?.close();
@@ -289,6 +301,43 @@ async function runMigratePrices(deps: BootstrapDeps, product: ProductIdentity): 
   }
   const memory: StepContext["memory"] = {};
   return migratePrices({ ...deps, memory }, product);
+}
+
+interface NewProductAnswers {
+  title?: string;
+  domain?: string;
+}
+
+/**
+ * `product <id>` on an id with no folder: validates the id, gets the title and the domain (flags, a prompt, or the
+ * variables without a terminal, all missing ones listed at once) and creates `apps/<id>/` as `pnpm new-product` does.
+ * Does nothing, and touches nothing, when the Product exists.
+ */
+async function ensureProductFolder(deps: BootstrapDeps, productId: string, answers: NewProductAnswers): Promise<"exists" | "created" | "invalid"> {
+  if ((await deps.listProducts()).includes(productId)) return "exists";
+  try {
+    assertProductId(productId);
+  } catch (error) {
+    deps.log((error as Error).message);
+    return "invalid";
+  }
+  let { title, domain } = answers;
+  if (!deps.interactive) {
+    title ||= deps.env.PRODUCT_TITLE || undefined;
+    domain ||= deps.env.PRODUCT_DOMAIN || undefined;
+    const missing = [
+      ...(title ? [] : [{ env: "PRODUCT_TITLE", purpose: `${QUESTIONS["product-title"].purpose} (or --title)` }]),
+      ...(domain ? [] : [{ env: "PRODUCT_DOMAIN", purpose: `Domain of the new Product (or --domain)` }]),
+    ];
+    if (missing.length > 0) throw new MissingVariables(missing);
+  } else {
+    deps.prompter.note(`There is no apps/${productId}/ yet: creating it from the template, as \`pnpm new-product ${productId}\` does.`);
+    title ||= (await deps.prompter.text({ id: "product-title", message: `Title of ${productId}`, initial: titleFromId(productId) })).trim();
+    domain ||= (await deps.prompter.text({ id: "product-domain", message: `Domain of ${productId} (e.g. ${productId}.com)`, initial: `${productId}.com` })).trim();
+  }
+  await deps.createProduct({ id: productId, title: title || titleFromId(productId), domain: domain || `${productId}.com` });
+  deps.log(`Created apps/${productId}/.`);
+  return "created";
 }
 
 /** The Product's identity; an empty `domain` is asked for (for this run only). `undefined` when the Product does not exist. */
@@ -370,9 +419,9 @@ async function nextCommand(deps: BootstrapDeps, productId: string | undefined): 
 }
 
 /** `all <id>`: the common part, product, previews and factory in order, then the optional domain and billing. Stops at the first failure. */
-async function runAll(deps: BootstrapDeps, productId: string, redo: string[]): Promise<number> {
+async function runAll(deps: BootstrapDeps, productId: string, redo: string[], create: NewProductAnswers): Promise<number> {
   for (const command of [[], ["product", productId], ["previews", productId], ["factory"]]) {
-    const code = await dispatch(command, redo, deps);
+    const code = await dispatch(command, redo, deps, false, create);
     if (code !== 0) {
       await logNext(deps, productId, ["all", productId].join(" "));
       return code;
@@ -466,6 +515,9 @@ if (import.meta.main) {
       resend: (key) => new ResendApi(key),
       stripe: (key) => new StripeApi(key),
       product: loadProduct,
+      createProduct: async (input) => {
+        newProduct({ root: findWorkspaceRoot(import.meta.dirname), ...input, install: true });
+      },
       listProducts,
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
       prompter: clackPrompter,
