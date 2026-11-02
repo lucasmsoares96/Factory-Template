@@ -5,7 +5,7 @@ import { forForge } from "../forge-text.ts";
 import { Git } from "../git.ts";
 import { messages, type Language, type Messages } from "../messages.ts";
 import { isHarnessPath, isSensitivePath } from "../paths.ts";
-import { attemptLine, costFooter, escalationComment, fence, lastFailure, SECRET_SCAN_CONFIG, verdictsSection, type EscalationReason } from "../report.ts";
+import { attemptLine, costFooter, escalationComment, fence, lastFailure, SECRET_SCAN_CONFIG, verdictsSection, visualReviewSection, type EscalationReason } from "../report.ts";
 import { BUNDLE_FILE, EVIDENCE_DIR, RESULT_FILE, readResult, type CriterionVerdict, type FactoryResult } from "../result.ts";
 import { skeletonPaths } from "../scope.ts";
 import { fromTouchedSpecs, isSpecPath, shownIn, withEvidence, type TouchedSpec } from "../pull-request-evidence.ts";
@@ -399,8 +399,8 @@ function prBody(
 async function submitReview(ctx: CommandContext, pr: number, result: FactoryResult, lines: DiffLines): Promise<void> {
   await ctx.codeHost.submitReview(pr, {
     event: "COMMENT",
-    body: `${result.review.summary || messages(ctx.config.language).noFindings()}\n\n---\n${costFooter(result, ctx.config.pricing, ctx.config.language)}`,
-    comments: filterToDiff(result.review.inline, lines),
+    body: `${[result.review.summary || messages(ctx.config.language).noFindings(), visualReviewSection(result, ctx.config.language)].filter(Boolean).join("\n\n")}\n\n---\n${costFooter(result, ctx.config.pricing, ctx.config.language)}`,
+    comments: filterToDiff([...result.review.inline, ...(result.visualReview?.inline ?? [])], lines),
   });
 }
 

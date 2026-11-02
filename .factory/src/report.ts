@@ -3,6 +3,7 @@ import type { CriterionVerdict, FactoryResult, StageRecord } from "./result.ts";
 import { messages, type Language } from "./messages.ts";
 import type { Usage } from "./seams/agent.ts";
 import type { SecretFinding } from "./seams/secret-scanner.ts";
+import { exceptionLines } from "./measurements.ts";
 import { continueMarker, stageName } from "./session-limit.ts";
 
 /**
@@ -10,7 +11,7 @@ import { continueMarker, stageName } from "./session-limit.ts";
  * Escalation and the token/cost footer of the review and the Escalation.
  */
 
-const STAGE: Record<StageRecord["stage"], string> = { development: "Development", review: "Review", e2e: "E2E" };
+const STAGE: Record<StageRecord["stage"], string> = { development: "Development", "visual-review": "Visual Review", review: "Review", e2e: "E2E" };
 
 export function stageOutcome(stage: StageRecord, language: Language): string {
   const m = messages(language);
@@ -44,7 +45,7 @@ export function lastFailure(result: FactoryResult): StageRecord | null {
 
 /** `Tokens: 30,000 in / 3,000 out. Estimated cost: $0.18.` */
 export function usageLine(usage: FactoryResult["usage"], pricing: FactoryConfig["pricing"], language: Language): string {
-  const stages = [usage.development, usage.review, usage.pullRequest];
+  const stages = [usage.development, usage.visualReview, usage.review, usage.pullRequest];
   const input = stages.reduce((sum, u) => sum + u.inputTokens, 0);
   const output = stages.reduce((sum, u) => sum + u.outputTokens, 0);
   return tokensLine(input, output, pricing, language);
@@ -65,6 +66,27 @@ export function costFooter(result: FactoryResult, pricing: FactoryConfig["pricin
   const stage = result.pullRequestStage;
   const note = stage && stage.outcome !== "ok" ? m.pullRequestStageNote(stage.outcome, stage.reason ?? m.noReason()) : "";
   return usageLine(result.usage, pricing, language) + note;
+}
+
+/**
+ * The Visual Review part of the review body: its summary, then the final measurements (no finding, or the exceptions the
+ * tests declare with their reasons). Empty for a run that did not go through the Visual Review.
+ */
+export function visualReviewSection(result: FactoryResult, language: Language): string {
+  const visual = result.visualReview;
+  if (!visual) return "";
+  const m = messages(language);
+  const exceptions = exceptionLines(visual.measurements);
+  const prints = visual.measurements.length;
+  return [
+    m.visualReviewHeading(),
+    "",
+    visual.summary || m.noFindings(),
+    // A run that is not ready has no final measurements to show.
+    ...(prints === 0 ? [] : ["", m.measurementsHeading(), "", m.measurementsClean(prints), ...(exceptions.length > 0 ? ["", m.measurementsExceptions(), ...exceptions.map((e) => `- ${e}`)] : [])]),
+  ]
+    .join("\n")
+    .trim();
 }
 
 /** Job summary: one row per attempt and Stage, then the token/cost line. It is the run's page, not public text: always English. */

@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { readFile, writeFile } from "node:fs/promises";
 import { z } from "zod";
+import { measurementSchema } from "./measurements.ts";
 import { sessionFailureSchema } from "./session-limit.ts";
 
 /**
@@ -14,7 +15,7 @@ const tokens = z.number().int().nonnegative();
 export const usageSchema = z.object({ inputTokens: tokens, outputTokens: tokens });
 
 export const stageRecordSchema = z.object({
-  stage: z.enum(["development", "review", "e2e"]),
+  stage: z.enum(["development", "visual-review", "review", "e2e"]),
   outcome: z.enum(["ok", "no-commits", "failed", "timeout", "needs-human"]),
   durationMs: z.number().int().nonnegative(),
   commits: z.number().int().nonnegative().optional(),
@@ -66,6 +67,14 @@ export const reviewSchema = z.object({
   criteria: z.array(criterionVerdictSchema).default([]),
 });
 
+/** The Visual Review Stage's output for the pull request; null in a run that changed no interface file. */
+export const visualReviewSchema = z.object({
+  summary: z.string(),
+  inline: z.array(inlineCommentSchema),
+  /** The final E2E's measurements, one entry per print. */
+  measurements: z.array(measurementSchema),
+});
+
 export const evidenceSchema = z.object({
   product: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
   name: z.string().regex(/^[\w][\w.-]*\.(png|jpe?g|webp)$/),
@@ -106,9 +115,12 @@ const resultObject = z.object({
   session: sessionFailureSchema.nullable().default(null),
   attempts: z.array(z.object({ number: z.number().int().positive(), stages: z.array(stageRecordSchema) })),
   review: reviewSchema,
+  /** The Visual Review of a run whose diff changed interface files; null otherwise. `.default`: old results stay valid. */
+  visualReview: visualReviewSchema.nullable().default(null),
   threadReplies: z.array(z.object({ threadId: z.string().min(1), decision: z.enum(["address", "decline", "defer", "answer"]).default("address"), body: z.string().min(1) })),
   usage: z.object({
     development: usageSchema,
+    visualReview: usageSchema.default({ inputTokens: 0, outputTokens: 0 }),
     review: usageSchema,
     pullRequest: usageSchema.default({ inputTokens: 0, outputTokens: 0 }),
   }),
@@ -125,6 +137,8 @@ export type FactoryResult = z.infer<typeof resultSchema>;
 export type PullRequestStageRecord = z.infer<typeof pullRequestStageSchema>;
 export type StageRecord = z.infer<typeof stageRecordSchema>;
 export type ReviewOutput = z.infer<typeof reviewSchema>;
+export type { Measurement } from "./measurements.ts";
+export type VisualReviewRecord = z.infer<typeof visualReviewSchema>;
 export type CriterionVerdict = z.infer<typeof criterionVerdictSchema>;
 
 export const RESULT_FILE = "result.json";

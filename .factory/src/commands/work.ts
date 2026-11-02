@@ -4,7 +4,9 @@ import { issueBranch } from "../config.ts";
 import { criteriaItems } from "../criteria.ts";
 import { Git } from "../git.ts";
 import { messages } from "../messages.ts";
-import { CHECK_LOG_LINES, type ChecksRead, developmentPrompt, prFeedbackPrompt, pullRequestPrompt, reviewPrompt, updateBranchPrompt } from "../prompts.ts";
+import { CHECK_LOG_LINES, type ChecksRead, developmentPrompt, prFeedbackPrompt, pullRequestPrompt, reviewPrompt, updateBranchPrompt, visualReviewPrompt } from "../prompts.ts";
+import { findingLines, readMeasurements } from "../measurements.ts";
+import { parseVisualReviewOutput, visualReviewExtraction } from "../visual-review-output.ts";
 import {
   BUNDLE_FILE,
   EVIDENCE_DIR,
@@ -12,6 +14,7 @@ import {
   writeResult,
   type CriterionVerdict,
   type FactoryResult,
+  type Measurement,
   type PullRequestStageRecord,
   type ReviewOutput,
   type StageRecord,
@@ -20,7 +23,7 @@ import { ESCALATION_MARKER, fence, summaryMarkdown } from "../report.ts";
 import { isFactoryComment } from "../guard.ts";
 import { WAITING_MARKER } from "./claim.ts";
 import { parsePullRequestBody, pullRequestExtraction } from "../pull-request-output.ts";
-import { changedSkeletonPaths } from "../scope.ts";
+import { changedInterfacePaths, changedSkeletonPaths } from "../scope.ts";
 import { addedSkippedTests, skippedTestsFeedback } from "../skipped-tests.ts";
 import { parseReviewOutput, reviewExtraction } from "../review-output.ts";
 import { parseReplies, repliesExtraction, type ThreadReply } from "../replies-output.ts";
@@ -38,7 +41,9 @@ type Reason = NonNullable<FactoryResult["reason"]>;
 
 /**
  * The loop of the `work` job: attempts of Development → Review → E2E on a
- * branch built from the base branch, each Stage in a fresh session. A failed
+ * branch built from the base branch, each Stage in a fresh session. A diff that changes
+ * interface files adds E2E → Visual Review between Development and Review (the prints and
+ * their measurements exist before the Review; the final E2E still gates). A failed
  * or timed-out Stage ends the attempt and feeds the next Development; after
  * `maxAttempts`, at the global time limit or when Development needs a human,
  * the run escalates. Writes `result.json`, the branch bundle and the prints
@@ -73,11 +78,14 @@ export async function work(ctx: CommandContext, number: number | null, options: 
   // A branch that already contains the base branch has nothing to update.
   const upToDate = flow?.kind === "update-branch" && (await git.isAncestor(base, "HEAD"));
 
-  const usage = { development: zeroUsage(), review: zeroUsage(), pullRequest: zeroUsage() };
+  const usage = { development: zeroUsage(), visualReview: zeroUsage(), review: zeroUsage(), pullRequest: zeroUsage() };
   const attempts: FactoryResult["attempts"] = [];
   // The issue's criteria, numbered from 1 in the issue's order: the contract the Review answers by number.
   const texts = criteriaItems(issue.body);
   const reviews: (ReviewOutput & { attempt: number })[] = [];
+  // The Visual Reviews, and the attempt of the last one: only a Visual Review in the ready attempt is held to its measurements.
+  const visualReviews: (ReviewOutput & { attempt: number })[] = [];
+  let visualAttempt: number | null = null;
   let feedback: string | null = null;
   let lastReviewed: string | null = null;
   let ready = false;
@@ -109,7 +117,33 @@ export async function work(ctx: CommandContext, number: number | null, options: 
       return null;
     }
   };
-  const failedRecord = (stage: "development" | "review", started: number): StageRecord => ({ stage, outcome: "failed", durationMs: ctx.now() - started, failedCommand: "agent session", output: tail(ended.session?.message ?? "") });
+  const failedRecord = (stage: "development" | "visual-review" | "review", started: number): StageRecord => ({ stage, outcome: "failed", durationMs: ctx.now() - started, failedCommand: "agent session", output: tail(ended.session?.message ?? "") });
+
+  /** One E2E run (it clears the prints first, so the folder holds this run's). `time` ends the attempt loop with `reason` set. */
+  const e2eStage = async (stages: StageRecord[]): Promise<"ok" | "failed" | "time"> => {
+    const timeoutMs = budget(config.timeouts.e2e);
+    if (timeoutMs === null) {
+      reason = "time";
+      return "time";
+    }
+    const started = ctx.now();
+    await rm(join(options.repo, config.evidenceDir), { recursive: true, force: true });
+    const e2e = await verify.run({ timeoutMs });
+    const record = { stage: "e2e" as const, durationMs: ctx.now() - started };
+    if (e2e.ok) {
+      stages.push({ ...record, outcome: "ok" });
+      return "ok";
+    }
+    const output = tail(e2e.output);
+    const command = e2e.failedCommand ?? "factory:verify";
+    stages.push({ ...record, outcome: e2e.timedOut ? "timeout" : "failed", failedCommand: e2e.failedCommand, output });
+    if (outOfTime()) {
+      reason = "time";
+      return "time";
+    }
+    feedback = e2e.timedOut ? `E2E timed out after ${minutes(timeoutMs)} min running \`${command}\`:\n${output}` : `E2E failed running \`${command}\`:\n${output}`;
+    return "failed";
+  };
 
   if (upToDate) {
     ready = true;
@@ -230,9 +264,51 @@ export async function work(ctx: CommandContext, number: number | null, options: 
     }
     stages.push({ ...devRecord, outcome: "ok" });
 
+    let visual = false;
     if (!(dev.commits === 0 && onlyAnswers)) {
       // A diff that touches the Skeleton reaches every Product: the Review checks it is generic.
       const skeleton = (await changedSkeletonPaths(git, base)).length > 0;
+
+      // A diff that changes the interface: E2E (the prints and their measurements), then the Visual Review. A visual fix
+      // is code, so it comes before the Review.
+      if ((await changedInterfacePaths(git, base)).length > 0) {
+        const before = await e2eStage(stages);
+        if (before === "time") break;
+        if (before === "failed") continue;
+        timeoutMs = budget(config.timeouts.visualReview);
+        if (timeoutMs === null) {
+          reason = "time";
+          break;
+        }
+        started = ctx.now();
+        const evidencePath = join(options.repo, config.evidenceDir);
+        const visualRun = await session(
+          "visual-review",
+          visualReviewPrompt({ issue, log: await git.log(base, "HEAD"), evidenceDir: config.evidenceDir, prints: await listPrints(evidencePath), measurements: await readMeasurements(evidencePath), language: config.language }),
+          { timeoutMs, model: config.models.visualReview, extract: visualReviewExtraction },
+        );
+        if (visualRun) add(usage.visualReview, visualRun.usage);
+        if (visualRun === null) {
+          stages.push(failedRecord("visual-review", started));
+          break;
+        }
+        const visualRecord = { stage: "visual-review" as const, durationMs: ctx.now() - started, commits: visualRun.commits, usage: visualRun.usage, retries: visualRun.retries };
+        if (visualRun.timedOut) {
+          stages.push({ ...visualRecord, outcome: "timeout", output: tail(visualRun.output) });
+          if (outOfTime()) {
+            reason = "time";
+            break;
+          }
+          feedback = `The Visual Review session after the previous attempt timed out after ${minutes(timeoutMs)} min. Keep the screen changes small and focused.`;
+          continue;
+        }
+        const said = parseVisualReviewOutput(visualRun.output);
+        visualReviews.push({ attempt, ...said, criteria: [] });
+        visualAttempt = attempt;
+        visual = true;
+        stages.push({ ...visualRecord, outcome: "ok" });
+      }
+
       // Review
       timeoutMs = budget(config.timeouts.review);
       if (timeoutMs === null) {
@@ -242,7 +318,7 @@ export async function work(ctx: CommandContext, number: number | null, options: 
       started = ctx.now();
       const reviewRun = await session(
         "review",
-        reviewPrompt({ issue, log: await git.log(base, "HEAD"), since: lastReviewed, findings: reviews, skeleton, round: flow?.kind === "pr-feedback" ? round() : undefined, language: config.language }),
+        reviewPrompt({ issue, log: await git.log(base, "HEAD"), since: lastReviewed, findings: reviews, skeleton, visual, round: flow?.kind === "pr-feedback" ? round() : undefined, language: config.language }),
         { timeoutMs, model: config.models.review, extract: reviewExtraction(texts.length) },
       );
       if (reviewRun) add(usage.review, reviewRun.usage);
@@ -263,34 +339,15 @@ export async function work(ctx: CommandContext, number: number | null, options: 
       reviews.push({ attempt, ...resolveCriteria(parseReviewOutput(reviewRun.output), texts) });
       lastReviewed = await git.head();
       stages.push({ ...reviewRecord, outcome: "ok" });
-
     }
 
-    // E2E
-    timeoutMs = budget(config.timeouts.e2e);
-    if (timeoutMs === null) {
-      reason = "time";
-      break;
-    }
-    started = ctx.now();
-    await rm(join(options.repo, config.evidenceDir), { recursive: true, force: true });
-    const e2e = await verify.run({ timeoutMs });
-    const e2eRecord = { stage: "e2e" as const, durationMs: ctx.now() - started };
-    if (e2e.ok) {
-      stages.push({ ...e2eRecord, outcome: "ok" });
+    // E2E (the final one gates)
+    const finalE2e = await e2eStage(stages);
+    if (finalE2e === "ok") {
       ready = true;
       break;
     }
-    const output = tail(e2e.output);
-    const command = e2e.failedCommand ?? "factory:verify";
-    stages.push({ ...e2eRecord, outcome: e2e.timedOut ? "timeout" : "failed", failedCommand: e2e.failedCommand, output });
-    if (outOfTime()) {
-      reason = "time";
-      break;
-    }
-    feedback = e2e.timedOut
-      ? `E2E timed out after ${minutes(timeoutMs)} min running \`${command}\`:\n${output}`
-      : `E2E failed running \`${command}\`:\n${output}`;
+    if (finalE2e === "time") break;
   }
 
   await mkdir(options.out, { recursive: true });
@@ -315,6 +372,17 @@ export async function work(ctx: CommandContext, number: number | null, options: 
     ready = false;
     reason = "needs-human";
     question = messages(config.language).verdictsMissing(missing.map((n) => `${n}. ${texts[n - 1]}`));
+  }
+
+  // The final E2E's measurements, for the attempt that went through the Visual Review: a finding still there is neither fixed
+  // nor declared an exception in the test, which keeps the run from ready (the Escalation names it).
+  const visualRan = visualAttempt !== null && visualAttempt === attempts.at(-1)?.number;
+  const finalMeasurements: Measurement[] = ready && visualRan ? await readMeasurements(join(options.repo, config.evidenceDir)) : [];
+  const unresolved = findingLines(finalMeasurements);
+  if (ready && unresolved.length > 0 && flow?.kind !== "update-branch") {
+    ready = false;
+    reason = "needs-human";
+    question = messages(config.language).findingsUnresolved(unresolved);
   }
 
   const head = (await git.countCommits(base, "HEAD")) > 0 ? await git.head() : null;
@@ -342,6 +410,7 @@ export async function work(ctx: CommandContext, number: number | null, options: 
             result: runOutcome({ ready, reason, question, attempts, unmet }),
             round: flow?.kind === "pr-feedback" ? round() : undefined,
             prints: evidence.map((e) => ({ product: e.product, path: `${config.evidenceDir}/${e.product}/${e.name}` })),
+            measurements: ready && visualRan ? finalMeasurements : null,
             language: config.language,
           }),
           { timeoutMs, model: config.models.pullRequest, extract: pullRequestExtraction },
@@ -379,6 +448,7 @@ export async function work(ctx: CommandContext, number: number | null, options: 
     session: ended.session,
     attempts,
     review: combineReviews(reviews),
+    visualReview: visualReviews.length > 0 ? { summary: combineReviews(visualReviews).summary, inline: combineReviews(visualReviews).inline, measurements: finalMeasurements } : null,
     threadReplies: [...replies.values()],
     usage,
     evidence,
@@ -512,6 +582,16 @@ export async function resolveBase(git: Git, baseBranch: string): Promise<string>
   } catch {
     return await git.revParse(`origin/${baseBranch}`);
   }
+}
+
+/** The prints and measurement files (`.png`, `.json`) the E2E left, by Product, for the Visual Review's prompt. */
+async function listPrints(from: string): Promise<{ product: string; name: string }[]> {
+  const files: { product: string; name: string }[] = [];
+  const products = await readdir(from, { withFileTypes: true }).catch(() => []);
+  for (const product of products.filter((p) => p.isDirectory()).map((p) => p.name).sort()) {
+    for (const name of (await readdir(join(from, product))).filter((n) => /\.(png|json)$/.test(n)).sort()) files.push({ product, name });
+  }
+  return files;
 }
 
 /** Copies `<from>/<product>/<print>` into `<to>/<product>/<print>`, sorted by Product. */

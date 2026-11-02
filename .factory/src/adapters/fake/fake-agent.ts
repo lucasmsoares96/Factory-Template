@@ -39,6 +39,7 @@ export class FakeAgent implements Agent {
     this.steps = {
       development: [...(script.development ?? [])],
       review: [...(script.review ?? [])],
+      "visual-review": [...(script["visual-review"] ?? [])],
       "pull-request": [...(script["pull-request"] ?? [])],
       triage: [...(script.triage ?? [])],
       retro: [...(script.retro ?? [])],

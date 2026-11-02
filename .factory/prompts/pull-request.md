@@ -14,6 +14,7 @@ End your final message with the body, as Markdown inside a tag:
 
 {{RULES}}
 {{ROUND}}
+{{VISUAL}}
 {{ISSUE}}
 
 Commits on this branch:

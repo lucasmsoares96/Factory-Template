@@ -9,7 +9,7 @@ test("the Product's own spec runs and its print lands in the Product's evidence 
 
   await expect(page.getByRole("heading", { name: t.auth.signIn.title })).toBeVisible();
   await evidence("product-sign-in");
-  expect(existsSync(join(EVIDENCE_DIR, product, "product-sign-in.png"))).toBe(true);
+  expect(existsSync(join(EVIDENCE_DIR, product, "product-sign-in-1280.png"))).toBe(true);
 });
 
 test("every locale's sign-in tagline is the Product's own text, not the Skeleton's default description", () => {
