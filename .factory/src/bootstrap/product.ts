@@ -134,8 +134,14 @@ export async function chosenRegion(ctx: StepContext, productId: string): Promise
  */
 export async function ensureProject(ctx: StepContext, neon: NeonClient, productId: string, kind: "production" | "preview", name: string, purpose?: string): Promise<NeonProject> {
   const found = await findProject(ctx, neon, name, true, purpose, await recordedProjectId(ctx, productId, kind));
-  if (found && found !== "ambiguous") return found;
   const region = await chosenRegion(ctx, productId);
+  if (found && found !== "ambiguous") {
+    // A project in another region is never adopted (a project that reports no region is accepted): it would be recorded in silence.
+    if (region && found.region && found.region !== region) {
+      throw new Error(`The region of an existing database cannot change (${found.name} is in ${found.region}, chosen ${region}). Delete the databases with \`pnpm bootstrap destroy db ${productId}\`, then run this again.`);
+    }
+    return found;
+  }
   if (!region) throw new Error(`No region chosen for ${productId}: run \`pnpm bootstrap ${kind === "production" ? "product" : "previews"} ${productId}\` (the region step asks it first).`);
   let made: NeonProject;
   try {

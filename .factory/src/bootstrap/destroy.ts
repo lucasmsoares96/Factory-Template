@@ -59,6 +59,8 @@ interface Plan {
   items: Item[];
   /** What could not be looked up or deleted safely; counts as a failure. */
   problems: string[];
+  /** Why nothing may be deleted at all: a database that stays must not lose the secrets that point to it. */
+  blockers: string[];
   /** Things the person should know that are not failures. */
   notes: string[];
 }
@@ -101,7 +103,7 @@ function knownProducts(variables: Record<string, string>, environments: string[]
 
 /** Looks at the accounts and the repo and lists what the scope would delete. Nothing is changed here. */
 export async function plan(ctx: StepContext, scope: DestroyScope): Promise<Plan> {
-  const result: Plan = { items: [], problems: [], notes: [] };
+  const result: Plan = { items: [], problems: [], blockers: [], notes: [] };
   const { github } = ctx;
   const [secrets, variables, environments, rulesets] = await Promise.all([github.listSecrets(), github.listVariables(), github.listEnvironments(), github.listRulesets()]);
 
@@ -132,18 +134,18 @@ export async function plan(ctx: StepContext, scope: DestroyScope): Promise<Plan>
       if (!handle) result.problems.push("no Cloudflare login on this machine: Workers and KV namespaces were not looked up (run `wrangler login` or export CLOUDFLARE_API_TOKEN, then run this again).");
       return handle;
     });
-    const neon = await guarded(result, "Neon", async () => {
-      const client = await neonHandle(ctx, false);
-      if (!client) {
-        result.problems.push("no Neon API key known: the Neon projects were not looked up (export NEON_API_KEY, then run this again).");
-        return undefined;
-      }
-      if (!ctx.memory.neonOrg && (await client.listOrgs()).length > 1) {
-        result.problems.push("the Neon account has several organizations: the Neon projects were not looked up (a question would come before the confirmation).");
-        return undefined;
-      }
-      return { client, projects: await client.listProjects(await neonOrgId(ctx, client)) };
-    });
+    // Every scope here deletes a database: the Neon projects are looked up with the login `bootstrap product` uses
+    // (the browser when there is no key), and when they cannot be, nothing is deleted.
+    const blocked = (why: string) => result.blockers.push(`${why} Nothing was deleted: the secrets and variables of a database that stays would point nowhere.`);
+    let neon: Services["neon"];
+    try {
+      const client = await neonHandle(ctx, true);
+      if (!client) blocked("Neon could not be reached (export NEON_API_KEY or sign in with `neonctl auth`, then run this again).");
+      else if (!ctx.memory.neonOrg && (await client.listOrgs()).length > 1) blocked("The Neon account has several organizations: run `pnpm bootstrap product <id>` once to choose one, then run this again.");
+      else neon = { client, projects: await client.listProjects(await neonOrgId(ctx, client)) };
+    } catch (error) {
+      blocked(`Neon could not be looked up (${(error as Error).message}); export NEON_API_KEY or sign in with \`neonctl auth\`, then run this again.`);
+    }
     services.neon = neon;
   }
 
@@ -355,7 +357,11 @@ export async function runDestroy(positionals: string[], ctx: StepContext): Promi
     return 1;
   }
 
-  const { items, problems, notes } = await plan(ctx, scope);
+  const { items, problems, blockers, notes } = await plan(ctx, scope);
+  if (blockers.length > 0) {
+    for (const blocker of blockers) ctx.log(blocker);
+    return 1;
+  }
   if (items.length === 0 && problems.length === 0) {
     ctx.log("Nothing to delete for this scope: no resource of it was found.");
     ctx.log(KEPT);
