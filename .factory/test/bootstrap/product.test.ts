@@ -21,7 +21,7 @@ const counts = (w: ReturnType<typeof productWorld>) => [w.github.writes, w.cloud
 const everythingShown = (w: ReturnType<typeof productWorld>) => JSON.stringify([w.lines, w.prompter.notes, w.prompter.printed]);
 
 describe("pnpm bootstrap product: Production module", () => {
-  it("creates the Neon project, the environment, the <ID>_ secrets, the ruleset and the DEPLOY_PRODUCTS entry", async () => {
+  it("creates the Neon project, the environment, the <ID>_ secrets and the DEPLOY_PRODUCTS entry", async () => {
     const w = productWorld();
 
     const { code } = await w.run("product", "example");
@@ -33,7 +33,7 @@ describe("pnpm bootstrap product: Production module", () => {
     expect([...env.keys()].sort()).toEqual(["EXAMPLE_ACCOUNT_PASSWORD", "EXAMPLE_BETTER_AUTH_SECRET", "EXAMPLE_DATABASE_URL", "EXAMPLE_DATABASE_URL_POOLED"]);
     expect(env.get("EXAMPLE_DATABASE_URL")).toContain("neon.tech");
     expect(env.get("EXAMPLE_DATABASE_URL_POOLED")).toContain("-pooler");
-    expect(w.github.rulesets.map((r) => r.name)).toEqual(["main"]);
+    expect(w.github.rulesets).toEqual([]);
     expect(w.github.variables.get("DEPLOY_PRODUCTS")).toBe("example");
   });
 
@@ -113,80 +113,11 @@ describe("pnpm bootstrap product: Production module", () => {
     expect(w.github.environments.has("example-production")).toBe(true);
   });
 
-  it("does not duplicate an equivalent ruleset made by hand (other name and id)", async () => {
-    const w = productWorld();
-    w.github.rulesets.push({
-      id: 25500591,
-      name: "protect main",
-      target: "branch",
-      enforcement: "active",
-      include: ["~DEFAULT_BRANCH"],
-      rules: ["deletion", "non_fast_forward", "pull_request", "required_status_checks"],
-      requiredChecks: ["verify"],
-      strict: true,
-    });
-
-    const { output } = await w.run("product", "example");
-
-    expect(w.github.rulesets).toHaveLength(1);
-    expect(output).toContain("already done (protect main #25500591)");
-  });
-
-  it("creates the ruleset requiring branches to be up to date before merging", async () => {
+  it("does not create the ruleset in pnpm bootstrap product", async () => {
     const w = productWorld();
 
     await w.run("product", "example");
 
-    expect(w.github.rulesets.map((r) => r.strict)).toEqual([true]);
-  });
-
-  it("turns on up-to-date branches in an existing ruleset instead of only reusing it", async () => {
-    const w = productWorld();
-    w.github.rulesets.push({
-      id: 25500591,
-      name: "protect main",
-      target: "branch",
-      enforcement: "active",
-      include: ["~DEFAULT_BRANCH"],
-      rules: ["deletion", "non_fast_forward", "pull_request", "required_status_checks"],
-      requiredChecks: ["verify"],
-      strict: false,
-    });
-
-    const { code } = await w.run("product", "example");
-
-    expect(code).toBe(0);
-    expect(w.github.rulesets).toEqual([expect.objectContaining({ id: 25500591, name: "protect main", strict: true })]);
-  });
-
-  it("creates the ruleset when the existing one lacks the verify check", async () => {
-    const w = productWorld();
-    w.github.rulesets.push({ id: 1, name: "weak", target: "branch", enforcement: "active", include: ["~DEFAULT_BRANCH"], rules: ["deletion"], requiredChecks: [], strict: false });
-
-    await w.run("product", "example");
-
-    expect(w.github.rulesets.map((r) => r.name)).toEqual(["weak", "main"]);
-  });
-
-  it("says so when GitHub refuses to turn on up-to-date branches in an existing ruleset", async () => {
-    const w = productWorld();
-    w.github.rulesets.push({ id: 7, name: "protect main", target: "branch", enforcement: "active", include: ["~DEFAULT_BRANCH"], rules: ["deletion", "non_fast_forward", "pull_request", "required_status_checks"], requiredChecks: ["verify"], strict: false });
-    w.github.refuseRulesets = true;
-
-    const { output } = await w.run("product", "example");
-
-    expect(output).toContain("GitHub refused to update ruleset protect main #7");
-    expect(w.github.rulesets).toHaveLength(1);
-  });
-
-  it("skips the ruleset with a message when the API refuses it", async () => {
-    const w = productWorld();
-    w.github.refuseRulesets = true;
-
-    const { code, output } = await w.run("product", "example");
-
-    expect(code).toBe(0);
-    expect(output).toContain("GitHub refused the ruleset");
     expect(w.github.rulesets).toEqual([]);
   });
 
@@ -364,6 +295,7 @@ describe("pnpm bootstrap doctor <id>: Production section", () => {
 
   it("is read-only and passes after the module ran", async () => {
     const w = productWorld();
+    await w.run();
     await w.run("product", "example");
     w.deps.interactive = false;
     const before = counts(w);
@@ -376,8 +308,19 @@ describe("pnpm bootstrap doctor <id>: Production section", () => {
     expect(counts(w)).toEqual(before);
   });
 
+  it("tells to run pnpm bootstrap when the ruleset on the default branch is missing", async () => {
+    const w = productWorld();
+    await w.run("product", "example");
+    w.deps.interactive = false;
+
+    const { output } = await w.run("doctor", "example");
+
+    expect(output).toMatch(/off\s+Ruleset on the default branch.*pnpm bootstrap/);
+  });
+
   it("reports a ruleset on the default branch that does not require up-to-date branches", async () => {
     const w = productWorld();
+    await w.run();
     await w.run("product", "example");
     w.deps.interactive = false;
     w.github.rulesets[0]!.strict = false;

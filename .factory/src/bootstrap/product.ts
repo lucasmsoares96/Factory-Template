@@ -337,7 +337,6 @@ export function productionSteps(product: ProductIdentity): Step[] {
     authSecretStep(product),
     defaultAccountStep(product),
     ...resendSteps(product),
-    mainRulesetStep(),
     deployProductsStep(product),
   ];
 }
