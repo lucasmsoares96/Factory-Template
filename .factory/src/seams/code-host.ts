@@ -32,10 +32,12 @@ export interface Review {
   comments: InlineComment[];
 }
 
-/** A review someone submitted on a pull request: its body only (the inline comments come with `threads`). */
+/** A review someone submitted on a pull request: its body and state (the inline comments come with `threads`). */
 export interface SubmittedReview {
   author: string;
   body: string;
+  /** The forge's state of the review, upper case: `APPROVED`, `CHANGES_REQUESTED`, `COMMENTED`, `DISMISSED`. */
+  state: string;
 }
 
 /** One entry of the pull request's Conversation tab: a comment, or the body of a submitted review. */
