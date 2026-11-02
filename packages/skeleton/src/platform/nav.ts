@@ -1,6 +1,7 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import type { Messages } from "../i18n/index.ts";
 import { createRouter } from "./errors.ts";
+import { DEFAULT_NAV_ICON } from "./feature.ts";
 import type { Feature, FeatureAccountPage, FeatureCompanyPage, FeatureNav } from "./feature.ts";
 import { requireIdentity, unauthenticatedResponse } from "./identity.ts";
 
@@ -11,11 +12,18 @@ const NavEntry = z
   })
   .openapi("NavEntry");
 
+const NavItem = NavEntry.extend({
+  icon: z.string().openapi({
+    description: "The `lucide-react` icon name (PascalCase) the sidebar shows; a default when the feature declares none.",
+    example: "UserRound",
+  }),
+}).openapi("NavItem");
+
 const Nav = z
   .object({
-    entries: z.array(NavEntry).openapi({
+    entries: z.array(NavItem).openapi({
       description: "The features' `nav` entries, in mount order: the Skeleton's, then the Product's.",
-      example: [{ label: "Account", to: "/account" }],
+      example: [{ label: "Account", to: "/account", icon: "UserRound" }],
     }),
     companyPage: z.array(NavEntry).openapi({
       description:
@@ -58,7 +66,7 @@ export function navRoutes({ features, t }: { features: readonly Feature[]; t: Me
     const on = features.filter((feature) => feature.enabled?.(c.env) ?? true);
     return c.json(
       {
-        entries: on.flatMap(({ nav }) => translated(nav)),
+        entries: on.flatMap(({ nav }) => (nav ? [{ label: translate(nav.label, t), to: nav.to, icon: nav.icon ?? DEFAULT_NAV_ICON }] : [])),
         companyPage: on.flatMap(({ companyPage }) => translated(companyPage)),
         accountPage: on.flatMap(({ accountPage }) => translated(accountPage)),
       },
