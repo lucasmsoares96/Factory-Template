@@ -28,7 +28,7 @@ test("a visitor lands on sign in", { tag: "@evidence" }, async ({ page, t, evide
 ## Evidence
 
 1. Tag the test `{ tag: "@evidence" }` and call `await evidence("<name>")` once the screen shows the result being proved.
-2. The print goes to `test-results/evidence/<product>/<name>.png` (fixed by the Skeleton; the Factory collects it). Use short kebab-case names that say what the print shows.
+2. The prints go to `test-results/evidence/<product>/<name>-1280.png` and `<name>-390.png`, each with its measurements in `<name>-<width>.json` (a finding never fails the test; declare one on purpose with `evidence("<name>", { allow: [{ kind, reason }] })`) (fixed by the Skeleton; the Factory collects it). Use short kebab-case names that say what the print shows.
 3. One print per behaviour the ticket asks for. Never print a loading state or an error you did not mean to show.
 4. `pnpm --filter <id> run e2e`, then `pnpm factory:verify`. Open the PNG and check it shows what the name says.
 

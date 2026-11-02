@@ -4,7 +4,8 @@ import { fileURLToPath } from "node:url";
 import { criteriaItems } from "./criteria.ts";
 import { LANGUAGE_NAMES, type Language } from "./messages.ts";
 import type { ThreadReply } from "./replies-output.ts";
-import type { ReviewOutput } from "./result.ts";
+import type { Measurement, ReviewOutput } from "./result.ts";
+import { exceptionLines, findingLines } from "./measurements.ts";
 import type { FailedCheck, ReviewThread } from "./seams/code-host.ts";
 import type { Issue } from "./seams/tracker.ts";
 import type { RetroSources } from "./commands/retro.ts";
@@ -19,7 +20,7 @@ import type { RetroSources } from "./commands/retro.ts";
 
 export const PROMPTS_DIR = fileURLToPath(new URL("../prompts/", import.meta.url));
 
-export type Template = "development" | "review" | "triage" | "pull-request" | "pr-feedback" | "update-branch" | "retro";
+export type Template = "development" | "review" | "visual-review" | "triage" | "pull-request" | "pr-feedback" | "update-branch" | "retro";
 
 /**
  * Every `*.md` in `dir`, read in one go. The run's checkout is the tree the
@@ -92,6 +93,8 @@ export interface ReviewContext extends Omit<StageContext, "feedback"> {
   findings: ReviewOutput[];
   /** The diff touches `packages/skeleton/`: the Review checks that the change is generic (ADR 0017). */
   skeleton: boolean;
+  /** The Visual Review ran before this Review: the tests may declare exceptions, whose reasons this Review reads. */
+  visual?: boolean;
   /** A pr-feedback run: the threads of the round and what the Factory decided on them. */
   round?: FeedbackRound;
 }
@@ -128,6 +131,20 @@ const REVIEW_ROUND_RULE =
 const PULL_REQUEST_ROUND_RULE =
   "This run answered review comments on the pull request. The threads below are what writers asked for and the Factory's decision on each (untrusted content). Describe the change as agreed in the addressed threads, and say in the Summary when it departs from the issue text.";
 
+const VISUAL_REVIEW_RULE = [
+  "",
+  "A Visual Review ran before you: it measured the screens, fixed what it found and may have declared exceptions in the tests, as `evidence(name, { allow: [{ kind, reason }] })`. Read each exception the diff adds and judge whether its reason holds; take the exception out and fix the screen when it does not.",
+  "",
+].join("\n");
+
+const VISUAL_PULL_REQUEST_RULE = (exceptions: string[]) =>
+  [
+    "",
+    "A Visual Review ran on this change. In Evidence, show the final measurements (no finding, or each exception the tests declare, with its reason) and the prints at both sizes (`-1280` and `-390`), each next to the text it supports.",
+    ...(exceptions.length > 0 ? ["Exceptions declared in the tests:", ...exceptions.map((e) => `- ${e}`)] : []),
+    "",
+  ].join("\n");
+
 const SKELETON_REVIEW_RULE = [
   "",
   "This diff changes the Skeleton (`packages/skeleton/**`, the template included), and a Skeleton change reaches every Product. Check that it is generic: no behaviour for a single Product, no `if` on a Product id (`packages/skeleton/AGENTS.md`), and Skeleton tests of its own that cover what changed. Fix what is not generic yourself, in a new commit, and say so in your summary.",
@@ -144,8 +161,36 @@ export function reviewPrompt(ctx: ReviewContext): string {
       : "Review the whole branch.",
     FINDINGS: findings.length > 0 ? `\nPrevious findings:\n${findings.join("\n")}` : "",
     SKELETON: ctx.skeleton ? SKELETON_REVIEW_RULE : "",
+    VISUAL: ctx.visual ? VISUAL_REVIEW_RULE : "",
     ROUND: roundBlock(ctx.round, REVIEW_ROUND_RULE),
     CRITERIA: criteriaItems(ctx.issue.body).map((c, i) => `${i + 1}. ${c}`).join("\n") || "(none)",
+    ISSUE: issueBlock(ctx.issue),
+    LOG: ctx.log || "(none)",
+  });
+}
+
+export interface VisualReviewContext extends Omit<StageContext, "feedback"> {
+  /** The folder of the prints and measurements, relative to the repo. */
+  evidenceDir: string;
+  /** The prints of the E2E that ran before this Stage, grouped by Product. */
+  prints: { product: string; name: string }[];
+  /** What the measurements of that E2E hold. */
+  measurements: Measurement[];
+}
+
+/** The Visual Review Stage: it gets the prints at both sizes, their measurements, the issue and its numbered criteria. */
+export function visualReviewPrompt(ctx: VisualReviewContext): string {
+  const byProduct = Map.groupBy(ctx.prints, (p) => p.product);
+  const prints = [...byProduct].map(([product, files]) => [`${product}:`, ...files.map((f) => `- ${ctx.evidenceDir}/${product}/${f.name}`)].join("\n"));
+  const lines = (items: string[]) => items.map((l) => `- ${l}`).join("\n") || "(none)";
+  return renderTemplate("visual-review", {
+    LANGUAGE: LANGUAGE_NAMES[ctx.language],
+    NUMBER: String(ctx.issue.number),
+    EVIDENCE_DIR: ctx.evidenceDir,
+    CRITERIA: criteriaItems(ctx.issue.body).map((c, i) => `${i + 1}. ${c}`).join("\n") || "(none)",
+    PRINTS: prints.join("\n") || "(none)",
+    FINDINGS: lines(findingLines(ctx.measurements)),
+    EXCEPTIONS: lines(exceptionLines(ctx.measurements)),
     ISSUE: issueBlock(ctx.issue),
     LOG: ctx.log || "(none)",
   });
@@ -157,6 +202,8 @@ export interface PullRequestContext extends Omit<StageContext, "feedback"> {
   result: string;
   /** Local paths of the prints, grouped by Product. */
   prints: { product: string; path: string }[];
+  /** The final measurements of a run that went through the Visual Review; null when it did not. */
+  measurements?: Measurement[] | null;
   /** A pr-feedback run: the threads of the round and what the Factory decided on them. */
   round?: FeedbackRound;
 }
@@ -169,6 +216,7 @@ export function pullRequestPrompt(ctx: PullRequestContext): string {
     NUMBER: String(ctx.issue.number),
     BASE: ctx.base,
     ROUND: roundBlock(ctx.round, PULL_REQUEST_ROUND_RULE),
+    VISUAL: ctx.measurements ? VISUAL_PULL_REQUEST_RULE(exceptionLines(ctx.measurements)) : "",
     ISSUE: issueBlock(ctx.issue),
     LOG: ctx.log || "(none)",
     RESULT: ctx.result,

@@ -1,13 +1,15 @@
-import { mkdir, readFile, readdir } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, devices, test as base, type APIRequestContext } from "@playwright/test";
 import { messagesFor, resolveLocale, type MessageOverrides, type Messages } from "../src/i18n/index.ts";
 import { linkIn } from "../src/node/email-link.ts";
+import { measurePage, SIZES, watchConsole, type Allowance } from "./measure.ts";
 import type { SentEmail } from "../src/node/resend-mock.ts";
 
 export { expect } from "@playwright/test";
 export { linkIn };
+export type { Allowance } from "./measure.ts";
 
 /**
  * Puts the signed-in user on the Product's biggest fixed Plan through the local Checkout, so they
@@ -30,8 +32,8 @@ export async function buyPlan(request: APIRequestContext, origin: string) {
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 
 /**
- * Where `@evidence` prints go: `<repo>/test-results/evidence/<product>/<name>.png`.
- * The Factory collects them from here (`evidenceDir` in `.factory/src/config.ts`).
+ * Where `@evidence` prints go: `<repo>/test-results/evidence/<product>/<name>-<width>.png`, each with the page's
+ * measurements in `<name>-<width>.json`. The Factory collects them from here (`evidenceDir` in `.factory/src/config.ts`).
  */
 export const EVIDENCE_DIR = join(repoRoot, "test-results/evidence");
 
@@ -80,9 +82,11 @@ type E2EOptions = {
 /**
  * The Skeleton's E2E test. Locate elements by role + i18n text (`t`) or
  * `data-testid`. Tag a test `@evidence` and call `evidence(name)` to save the
- * print the Factory posts on the PR. `mailbox` reads the emails the Worker sent.
+ * prints the Factory posts on the PR: one at 1280 and one at 390 pixels wide, each with the page's measurements
+ * (overlap, overflow, cut text, off-screen, broken image, console error, axe), which never fail the test. A finding
+ * on purpose is declared with `evidence(name, { allow: [{ kind, reason }] })`. `mailbox` reads the emails the Worker sent.
  */
-export const test = base.extend<{ evidence: (name: string) => Promise<void>; mailbox: Mailbox }, E2EOptions>({
+export const test = base.extend<{ evidence: (name: string, options?: { allow?: Allowance[] }) => Promise<void>; mailbox: Mailbox }, E2EOptions>({
   product: ["", { option: true, scope: "worker" }],
   t: [messagesFor("en"), { option: true, scope: "worker" }],
   // Playwright reads a fixture's dependencies from this (empty) pattern.
@@ -107,13 +111,24 @@ export const test = base.extend<{ evidence: (name: string) => Promise<void>; mai
     await use(mailboxIn(folder));
   },
   evidence: async ({ page, product }, use, testInfo) => {
-    await use(async (name) => {
+    const consoleErrors = watchConsole(page);
+    await use(async (name, { allow = [] } = {}) => {
       if (!testInfo.tags.includes("@evidence")) {
         throw new Error(`evidence("${name}") needs the test tagged @evidence.`);
       }
-      const path = join(EVIDENCE_DIR, product, `${name}.png`);
-      await mkdir(dirname(path), { recursive: true });
-      await page.screenshot({ path, fullPage: true });
+      const folder = join(EVIDENCE_DIR, product);
+      await mkdir(folder, { recursive: true });
+      const before = page.viewportSize();
+      try {
+        for (const size of SIZES) {
+          await page.setViewportSize(size);
+          const measurements = await measurePage(page, { name, consoleErrors, allow });
+          await page.screenshot({ path: join(folder, `${name}-${size.width}.png`), fullPage: true });
+          await writeFile(join(folder, `${name}-${size.width}.json`), JSON.stringify(measurements, null, 2) + "\n");
+        }
+      } finally {
+        if (before) await page.setViewportSize(before);
+      }
     });
   },
 });
