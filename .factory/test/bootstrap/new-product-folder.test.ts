@@ -6,7 +6,7 @@ import { TOKEN, world } from "./helpers.ts";
 
 // Seam 1: `pnpm bootstrap product <id>` against the fake clients; the folder is rendered into a temporary directory.
 const ACCOUNT = { "resend-setup": "skip", "default-account-email": "a@example.com", "default-account-password": "admin password 123", "default-account-password-confirm": "admin password 123" };
-const ENV = { CLOUDFLARE_API_TOKEN: TOKEN, CLOUDFLARE_ACCOUNT_ID: "acc-1", DEFAULT_ACCOUNT_EMAIL: "a@example.com", DEFAULT_ACCOUNT_PASSWORD: "admin password 123" };
+const ENV = { CLOUDFLARE_API_TOKEN: TOKEN, CLOUDFLARE_ACCOUNT_ID: "acc-1", NEON_REGION: "aws-sa-east-1", DEFAULT_ACCOUNT_EMAIL: "a@example.com", DEFAULT_ACCOUNT_PASSWORD: "admin password 123" };
 
 function ready(w: ReturnType<typeof world>) {
   w.github.secrets.set("CLOUDFLARE_API_TOKEN", TOKEN);
