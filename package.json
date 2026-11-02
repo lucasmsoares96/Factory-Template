@@ -21,6 +21,7 @@
     "bootstrap": "node .factory/src/bootstrap/cli.ts"
   },
   "devDependencies": {
+    "@shadcn/lint": "catalog:",
     "@types/node": "catalog:",
     "@workspace/skeleton": "workspace:*",
     "oxlint": "catalog:",
