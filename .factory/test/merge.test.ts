@@ -3,7 +3,7 @@ import { FakeCodeHost } from "../src/adapters/fake/fake-code-host.ts";
 import { HARNESS_PATHS, SENSITIVE_PATHS } from "../src/paths.ts";
 import type { PrCheck } from "../src/seams/code-host.ts";
 import { FACTORY_MARKER } from "../src/marker.ts";
-import { lastJson, unmarked, world, type WorldOptions } from "./helpers.ts";
+import { HUMAN, OWNER, lastJson, unmarked, world, type WorldOptions } from "./helpers.ts";
 
 // Seam 1: `pnpm factory merge`, the Merge Mode's decision, against the fake code host. It takes nothing from the event:
 // every open Factory pull request is read from the forge.
@@ -442,5 +442,55 @@ describe("factory merge: the Merge Mode's decision", () => {
 
     await expect(run(w)).rejects.toThrow(/FACTORY_MERGE_MODE/);
     expect(w.codeHost.writes).toEqual([]);
+  });
+});
+
+describe("factory merge: the conversation condition", () => {
+  const request = { id: "9" as never, path: "a.ts", author: HUMAN, body: "Please rename this.", replies: [] };
+  const held = (w: ReturnType<typeof mergeWorld>) => expect(decision(w)).toEqual({ pr: 101, merged: false, reason: "conditions", unmet: ["conversation"] });
+
+  it("does not merge while a person's request waits for the Factory, in safe and in all", async () => {
+    for (const mode of ["safe", "all"]) {
+      const w = mergeWorld({ env: { FACTORY_MERGE_MODE: mode }, pr: { threads: [request] } });
+      await run(w);
+      expect(merged(w)).toBe(false);
+      held(w);
+    }
+  });
+
+  it("merges again once the Factory has answered the request", async () => {
+    const w = mergeWorld({ pr: { threads: [{ ...request, replies: [{ author: OWNER, body: `Done.\n${FACTORY_MARKER}` }] }] } });
+    await run(w);
+    expect(merged(w)).toBe(true);
+  });
+
+  it("holds on a writer's changes requested until the same writer approves", async () => {
+    const asked = { body: "", event: "COMMENT" as const, comments: [], author: HUMAN, state: "CHANGES_REQUESTED" };
+    const w = mergeWorld({ pr: { reviews: [asked] } });
+    await run(w);
+    expect(merged(w)).toBe(false);
+    held(w);
+
+    const approved = mergeWorld({ pr: { reviews: [asked, { ...asked, state: "APPROVED" }] } });
+    await run(approved);
+    expect(merged(approved)).toBe(true);
+  });
+
+  it("ignores changes requested by someone without write access", async () => {
+    const w = mergeWorld({ pr: { reviews: [{ body: "", event: "COMMENT", comments: [], author: "stranger", state: "CHANGES_REQUESTED" }] } });
+    await run(w);
+    expect(merged(w)).toBe(true);
+  });
+
+  it("holds on an inline comment of the Factory's Review until a person replies in the thread", async () => {
+    const inline = { id: "5" as never, path: "a.ts", author: OWNER, body: `Decide this.\n${FACTORY_MARKER}`, replies: [] };
+    const w = mergeWorld({ pr: { threads: [inline] } });
+    await run(w);
+    expect(merged(w)).toBe(false);
+    held(w);
+
+    const answered = mergeWorld({ pr: { threads: [{ ...inline, replies: [{ author: HUMAN, body: "Fine as is." }, { author: OWNER, body: `Ok.\n${FACTORY_MARKER}` }] }] } });
+    await run(answered);
+    expect(merged(answered)).toBe(true);
   });
 });
