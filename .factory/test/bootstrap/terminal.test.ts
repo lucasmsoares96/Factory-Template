@@ -51,11 +51,12 @@ describe("pnpm bootstrap without a terminal", () => {
     bare.deps.interactive = false;
     const refused = await bare.run("product", "example");
     expect(refused.code).toBe(1);
+    expect(refused.output).toContain("NEON_REGION");
     expect(refused.output).toContain("DEFAULT_ACCOUNT_EMAIL");
     expect(refused.output).toContain("DEFAULT_ACCOUNT_PASSWORD");
     expect(bare.prompter.asked).toEqual([]);
 
-    const w = world({}, { CLOUDFLARE_API_TOKEN: TOKEN, CLOUDFLARE_ACCOUNT_ID: "acc-1", DEFAULT_ACCOUNT_EMAIL: "a@example.com", DEFAULT_ACCOUNT_PASSWORD: "admin password 123" });
+    const w = world({}, { CLOUDFLARE_API_TOKEN: TOKEN, CLOUDFLARE_ACCOUNT_ID: "acc-1", NEON_REGION: "aws-sa-east-1", DEFAULT_ACCOUNT_EMAIL: "a@example.com", DEFAULT_ACCOUNT_PASSWORD: "admin password 123" });
     w.deps.interactive = false;
     w.github.secrets.set("CLOUDFLARE_API_TOKEN", TOKEN);
     w.github.secrets.set("CLOUDFLARE_ACCOUNT_ID", "acc-1");

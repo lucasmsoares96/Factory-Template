@@ -31,7 +31,7 @@ export const runNeonctlSync: NeonRunSync = (args, { env }) => {
   execFileSync("pnpm", [...NEONCTL, ...args], { env, stdio: "ignore", timeout: 20_000 });
 };
 
-const project = z.object({ id: z.string(), name: z.string() });
+const project = z.object({ id: z.string(), name: z.string(), region_id: z.string().optional() });
 const orgs = z.union([z.array(z.object({ id: z.string(), name: z.string() })), z.object({ organizations: z.array(z.object({ id: z.string(), name: z.string() })) })]);
 const projects = z.union([z.array(project), z.object({ projects: z.array(project) })]);
 const created = z.object({ project });
@@ -88,13 +88,14 @@ export class NeonCli implements NeonClient {
 
   async listProjects(orgId?: string): Promise<NeonProject[]> {
     const parsed = projects.parse(JSON.parse(await this.call(["projects", "list", ...orgFlag(orgId), "-o", "json"])));
-    return (Array.isArray(parsed) ? parsed : parsed.projects).map(({ id, name }) => ({ id, name }));
+    return (Array.isArray(parsed) ? parsed : parsed.projects).map(({ id, name, region_id }) => ({ id, name, ...(region_id ? { region: region_id } : {}) }));
   }
 
-  async createProject(name: string, orgId?: string): Promise<NeonProject> {
-    // --no-secrets keeps the password out of the output we parse.
-    const made = created.parse(JSON.parse(await this.call(["projects", "create", "--name", name, ...orgFlag(orgId), "--no-secrets", "-o", "json"]))).project;
-    return { id: made.id, name: made.name };
+  async createProject(name: string, region: string, orgId?: string): Promise<NeonProject> {
+    // --no-secrets keeps the password out of the output we parse. The region is passed on as is: the CLI's own list of
+    // regions lacks aws-sa-east-1, but it does not validate the value and the API accepts it.
+    const made = created.parse(JSON.parse(await this.call(["projects", "create", "--name", name, "--region-id", region, ...orgFlag(orgId), "--no-secrets", "-o", "json"]))).project;
+    return { id: made.id, name: made.name, region: made.region_id ?? region };
   }
 
   async deleteProject(projectId: string): Promise<void> {

@@ -408,8 +408,13 @@ describe("NeonCli (fake neonctl)", () => {
 
   it("creates with --no-secrets and reads the id from the JSON", async () => {
     const { neon, calls } = cli({ projects: JSON.stringify({ project: { id: "p9", name: "shop" }, connection_uris: [] }) });
-    expect(await neon.createProject("shop", "org-1")).toEqual({ id: "p9", name: "shop" });
-    expect(calls[0]!.args).toEqual(expect.arrayContaining(["projects", "create", "--name", "shop", "--org-id", "org-1", "--no-secrets"]));
+    expect(await neon.createProject("shop", "aws-sa-east-1", "org-1")).toEqual({ id: "p9", name: "shop", region: "aws-sa-east-1" });
+    expect(calls[0]!.args).toEqual(expect.arrayContaining(["projects", "create", "--name", "shop", "--region-id", "aws-sa-east-1", "--org-id", "org-1", "--no-secrets"]));
+  });
+
+  it("keeps region_id from the list and accepts a project without it", async () => {
+    const { neon } = cli({ projects: JSON.stringify({ projects: [{ id: "a", name: "x", region_id: "aws-us-east-2" }, { id: "b", name: "y" }] }) });
+    expect(await neon.listProjects()).toEqual([{ id: "a", name: "x", region: "aws-us-east-2" }, { id: "b", name: "y" }]);
   });
 
   it("mints a key limited to one project with `api-keys create --project-id` (no --org-id), reading only `key` from the JSON", async () => {
