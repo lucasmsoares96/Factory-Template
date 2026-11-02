@@ -1,6 +1,7 @@
 import { execFile, spawn } from "node:child_process";
 import { z } from "zod";
 import { BASE_ENV, pick } from "../env.ts";
+import { stderrReason } from "./stderr-reason.ts";
 import { WranglerNotInstalled, type WranglerAuth } from "./clients.ts";
 
 /** Runs `wrangler <args>` and returns stdout. `inherit` hands the terminal over (the browser login prints a URL). */
@@ -28,8 +29,8 @@ export const runWrangler: WranglerRun = (args, { env, inherit }) =>
     execFile("pnpm", [...WRANGLER, ...args], { env, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
       if (!error) return resolve(stdout);
       if ((error as NodeJS.ErrnoException).code === "ENOENT" || wranglerMissing(stderr)) return reject(new WranglerNotInstalled());
-      // stdout may hold a token: only the subcommand and the tail of stderr are reported.
-      reject(new Error(`wrangler ${args[0]} failed: ${stderr.trim().split("\n").slice(-3).join(" ").slice(0, 300) || error.message}`));
+      // stdout may hold a token: only the subcommand and the reason on stderr are reported.
+      reject(new Error(`wrangler ${args[0]} failed: ${stderrReason(stderr) || error.message}`));
     });
   });
 

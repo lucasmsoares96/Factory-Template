@@ -75,6 +75,42 @@ describe("pnpm bootstrap product: database region", () => {
   });
 });
 
+describe("pnpm bootstrap: a same-name project in another region", () => {
+  it("is not adopted for production: refuses, points to destroy db and records nothing", async () => {
+    const w = regionWorld({ "neon-region": "aws-sa-east-1" });
+    w.neon.projects.push({ id: "proj-ohio", name: "example", region: "aws-us-east-2", orgId: "org-1", password: "x" });
+
+    await expect(w.run("product", "example")).rejects.toThrow(/example is in aws-us-east-2, chosen aws-sa-east-1[^]*pnpm bootstrap destroy db example/);
+    expect(w.neon.writes).toBe(0);
+    expect(w.neon.projects).toHaveLength(1);
+    expect(w.github.variables.has("EXAMPLE_NEON_PROJECT_ID")).toBe(false);
+  });
+
+  it("is not adopted for the Previews either", async () => {
+    const w = regionWorld({ "neon-region": "aws-sa-east-1" });
+    expect((await w.run("product", "example")).code).toBe(0);
+    w.neon.projects.push({ id: "proj-virginia", name: "example-preview", region: "aws-us-east-1", orgId: "org-1", password: "x" });
+
+    await expect(w.run("previews", "example")).rejects.toThrow(/example-preview is in aws-us-east-1[^]*pnpm bootstrap destroy db example/);
+    expect(w.github.variables.has("EXAMPLE_PREVIEW_NEON_PROJECT_ID")).toBe(false);
+  });
+
+  it("is recreated in the chosen region after destroy db with the browser login", async () => {
+    const w = regionWorld({ "neon-region": "aws-us-east-2", "destroy-confirm": "example" });
+    await w.run("product", "example");
+    await w.run("previews", "example");
+    w.deps.env = { ...ENV };
+    delete w.deps.env.NEON_API_KEY;
+
+    expect((await w.run("destroy", "db", "example")).code).toBe(0);
+    expect(w.neon.projects).toEqual([]);
+
+    w.prompter.script("neon-region", "aws-sa-east-1");
+    expect((await w.run("product", "example", "--redo", "region")).code).toBe(0);
+    expect(w.neon.projects.map((p) => [p.name, p.region])).toEqual([["example", "aws-sa-east-1"]]);
+  });
+});
+
 describe("pnpm bootstrap doctor: database region", () => {
   it("warns when the real region differs from the recorded one", async () => {
     const w = regionWorld({ "neon-region": "aws-sa-east-1" });

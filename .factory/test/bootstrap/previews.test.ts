@@ -289,6 +289,22 @@ describe("pnpm bootstrap previews: Previews module", () => {
     expect(w.neon.projects.map((p) => p.name)).toEqual(["my-app-preview"]);
   });
 
+  it("revokes an old key of the same name before it mints the new one, without asking for a paste", async () => {
+    const w = previewsWorld();
+    await w.run("previews", "example");
+    const old = w.neon.apiKeys[0]!;
+    w.github.environmentSecrets.get("example-preview")!.delete("EXAMPLE_PREVIEW_NEON_API_KEY");
+
+    const { code, output } = await w.run("previews", "example");
+
+    expect(code).toBe(0);
+    expect(output).toContain(`Revoked the old Neon key example-preview-ci (${old.id})`);
+    expect(w.neon.apiKeys).toHaveLength(1);
+    expect(w.neon.apiKeys[0]!.key).not.toBe(old.key);
+    expect(previewSecrets(w)!.get("EXAMPLE_PREVIEW_NEON_API_KEY")).toBe(w.neon.apiKeys[0]!.key);
+    expect(w.prompter.asked).not.toContain("preview-neon-key");
+  });
+
   it("--redo refreshes one step and leaves the others alone; an unknown step is named", async () => {
     const w = previewsWorld();
     await w.run("previews", "example");

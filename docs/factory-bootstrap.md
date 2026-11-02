@@ -52,7 +52,7 @@ Optional, after Production.
 - Steps:
   - `preview-environment` (`<id>-preview`, restricted like production, same `FACTORY_USE_ENVIRONMENTS` fallback).
   - `preview-neon-project` (`<id>-preview`, default branch renamed to `base`; variable `<ID>_PREVIEW_NEON_PROJECT_ID`).
-  - `preview-neon-key` (secret `<ID>_PREVIEW_NEON_API_KEY`, minted with `neonctl api-keys create --project-id` under the run's login; when Neon refuses, one pasted key, hidden, blank = skip and remembered).
+  - `preview-neon-key` (secret `<ID>_PREVIEW_NEON_API_KEY`, minted with `neonctl api-keys create --project-id` under the run's login, after revoking an old key of the same name (`<id>-preview-ci`; `destroy db|previews` revokes it too); when Neon refuses, one pasted key, hidden, blank = skip and remembered).
   - `preview-kv` (KV `<id>-preview-oauth` through the Cloudflare client; variable `<ID>_PREVIEW_OAUTH_KV_ID`).
   - `preview-account` (secret `<ID>_PREVIEW_ACCOUNT_PASSWORD`: the Default account's password in the previews, hidden and confirmed; the email is `<ID>_ACCOUNT_EMAIL`, so `bootstrap product` runs first; `--redo preview-account` replaces it; a repo that already ran this module is asked only this).
   - `preview-products` (id in `PREVIEW_PRODUCTS`).

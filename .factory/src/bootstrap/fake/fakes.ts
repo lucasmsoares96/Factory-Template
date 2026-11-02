@@ -453,15 +453,18 @@ export class FakeNeon {
   /** Regions `createProject` refuses, with the message Neon would give. */
   readonly refuseRegions = new Set<string>();
   /** The API keys `createApiKey` made, by project. */
-  readonly apiKeys: { name: string; projectId: string; key: string }[] = [];
+  readonly apiKeys: { id: string; name: string; projectId: string; key: string }[] = [];
   /** `createApiKey` is refused (the docs: the first key comes from the Console), as it may be under an OAuth login. */
   refuseApiKeys = false;
+  private keyIds = 0;
   /** Sessions opened with `forSession`, in order. */
   readonly sessions: { apiKey?: string; loggedIn: boolean; closed: number }[] = [];
   /** Every `orgId` a call carried, to prove it was passed on. */
   readonly orgIdsSeen: (string | undefined)[] = [];
   /** The next `login()` fails (the person closed the browser). */
   failLogin = false;
+  /** `listApiKeys` fails, as it does when Neon is down after the projects were listed. */
+  failKeyList = false;
   validKeys = new Set<string>(["neon-full"]);
   /** Project ids whose delete must fail. */
   readonly failDeletes = new Set<string>();
@@ -503,9 +506,21 @@ export class FakeNeon {
         if (this.refuseApiKeys) throw new Error("neonctl api-keys failed: the first API key must be created in the Console (403)");
         if (!this.projects.some((p) => p.id === projectId)) throw new Error("Neon: project not found (404).");
         this.writes++;
-        const key = `napi_${projectId}_${this.apiKeys.length + 1}`;
-        this.apiKeys.push({ name, projectId, key });
+        const key = `napi_${projectId}_${this.keyIds + 1}`;
+        if (this.apiKeys.some((k) => k.name === name)) throw new Error("neonctl api-keys failed: ERROR: choose another unique name for api key");
+        this.apiKeys.push({ id: String(++this.keyIds), name, projectId, key });
         return key;
+      },
+      listApiKeys: async () => {
+        authed();
+        if (this.failKeyList) throw new Error("neonctl api-keys failed: ERROR: Neon is down");
+        return this.apiKeys.map(({ id, name, projectId }) => ({ id, name, projectId }));
+      },
+      revokeApiKey: async (keyId) => {
+        authed();
+        this.writes++;
+        const at = this.apiKeys.findIndex((k) => k.id === keyId);
+        if (at >= 0) this.apiKeys.splice(at, 1);
       },
       defaultBranchName: async (projectId) => {
         authed();
