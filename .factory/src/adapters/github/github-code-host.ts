@@ -40,6 +40,7 @@ const reviewRow = z.object({
   id: z.number(),
   body: z.string().nullable().optional(),
   user: z.object({ login: z.string() }).nullable(),
+  state: z.string().default("COMMENTED"),
   /** Absent on a pending review, which nobody else sees yet. */
   submitted_at: z.string().nullable().optional(),
 });
@@ -225,7 +226,7 @@ export class GitHubCodeHost implements CodeHost {
 
   async reviews(pr: number): Promise<SubmittedReview[]> {
     const rows = await this.api.list(this.api.repoPath(`/pulls/${pr}/reviews`), reviewRow);
-    return rows.map((r) => ({ author: r.user?.login ?? "ghost", body: r.body ?? "" }));
+    return rows.filter((r) => r.state !== "PENDING").map((r) => ({ author: r.user?.login ?? "ghost", body: r.body ?? "", state: r.state.toUpperCase() }));
   }
 
   /**
