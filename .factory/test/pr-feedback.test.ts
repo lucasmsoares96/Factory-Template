@@ -429,16 +429,25 @@ describe("factory pr-feedback: the Conversation tab", () => {
     expect(claim).toMatchObject({ claimed: true, issue: 7 });
   });
 
-  it("a Factory-marked comment after a request closes it; a request after that comment is open again", async () => {
-    const closed = await claimReason({ main: "none", conversation: [said("comment-1", "rename it"), said("comment-2", marked("Address: renamed."), { author: OWNER })] }, HUMAN);
+  it("only a round reply that cites the request closes it, wherever it sits", async () => {
+    const answer = (ids: string) => said("comment-2", marked(`Address: renamed.\n\n<!-- factory:answers ${ids} -->`), { author: OWNER });
+    const closed = await claimReason({ main: "none", conversation: [said("comment-1", "rename it"), answer("comment-1")] }, HUMAN);
     expect(closed.claim).toEqual({ claimed: false, reason: "no-open-threads" });
 
-    const reopened = await claimReason(
-      { main: "none", conversation: [said("comment-1", "rename it"), said("comment-2", marked("Address: renamed."), { author: OWNER }), said("comment-3", "and the test too")] },
-      HUMAN,
-    );
+    const reopened = await claimReason({ main: "none", conversation: [said("comment-1", "rename it"), answer("comment-1"), said("comment-3", "and the test too")] }, HUMAN);
     expect(reopened.claim).toMatchObject({ claimed: true });
+
+    const other = await claimReason({ main: "none", conversation: [said("comment-1", "rename it"), answer("comment-9")] }, HUMAN);
+    expect(other.claim).toMatchObject({ claimed: true });
   });
+
+  it.each(["Merged `main` into the branch. verify passed.", "Preview deployed at https://pr-101.example.dev", "The round was discarded: the branch moved.", "Paused at the usage limit."])(
+    "a Factory-marked comment that answers nothing (%s) leaves the request open",
+    async (text) => {
+      const { claim } = await claimReason({ main: "none", conversation: [said("comment-1", "add a test"), said("comment-2", marked(text), { author: OWNER })] }, HUMAN);
+      expect(claim).toMatchObject({ claimed: true, issue: 7, pr: PR });
+    },
+  );
 
   it("never reads a comment by someone without write access or by github-actions[bot]", async () => {
     const conversation = [
