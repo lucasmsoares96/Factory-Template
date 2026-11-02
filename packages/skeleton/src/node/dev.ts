@@ -1,6 +1,11 @@
 // The processes behind `skeleton dev`: Vite (the Worker and the SPA), and with
 // `--stripe` the Stripe CLI forwarding a real sandbox's webhooks to localhost.
 import type { ChildProcess, spawn as nodeSpawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+// `@stripe/cli` is a dependency of the Skeleton, so its `stripe` binary resolves from here
+// (not from a Product's directory).
+const SKELETON_DIR = fileURLToPath(new URL("../..", import.meta.url));
 
 export const DEV_PORT = 5173;
 export const WEBHOOK_PATH = "/api/auth/stripe/webhook";
@@ -73,10 +78,15 @@ export async function startDev({ dir, env, databaseUrl, stripe, spawn, exit, log
     exit(code);
   };
 
+  // Ending the command (Ctrl+C, kill) ends both processes.
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    process.once(signal, () => stop(130, `${signal} received; stopping.`));
+  }
+
   const listen = spawn(
     "pnpm",
     ["exec", "stripe", "listen", "--api-key", key, "--forward-to", `localhost:${DEV_PORT}${WEBHOOK_PATH}`],
-    { cwd: dir, stdio: ["ignore", "pipe", "pipe"] },
+    { cwd: SKELETON_DIR, stdio: ["ignore", "pipe", "pipe"] },
   );
   children.push(listen);
   listen.on("exit", (code) => stop(code ?? 1, "stripe listen ended; stopping."));
