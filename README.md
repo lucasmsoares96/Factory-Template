@@ -30,3 +30,18 @@ O fluxo inteiro, em ordem (`<id>` em minúsculas, dígitos e hifens; ex.: `notas
 Quer só a pasta, sem contas nem banco? `pnpm new-product <id>`.
 
 Precisa trocar a região do banco? Ela não muda com o banco criado: rode `pnpm bootstrap destroy db <id>` (apaga só os projetos da Neon e o que depende deles, incluindo a conta padrão; não toca no Worker, nos ambientes nem na regra da `main`), depois `pnpm bootstrap product <id> --redo region` e `pnpm bootstrap previews <id>`. O e-mail e a senha da conta padrão são pedidos de novo.
+
+## Rodar na sua máquina
+
+`pnpm dev <id>` sobe o Worker e a SPA com um Postgres local. Há dois modos de cobrança:
+
+- **Stripe falsa (padrão):** `pnpm dev <id>`. A cobrança roda numa Stripe que vive dentro do Worker, sem internet nem chave.
+- **Sandbox real da Stripe:** `pnpm dev <id> --stripe`. O Checkout, o Billing Portal e os webhooks são os da Stripe de verdade. Use a sandbox dos Previews, que já tem os planos do Product (`pnpm bootstrap billing <id>`). Crie uma chave restrita nela e exporte:
+
+  ```sh
+  read -s -p "Stripe sandbox key: " STRIPE_SECRET_KEY; export STRIPE_SECRET_KEY
+  ```
+
+  Só chaves de sandbox (`sk_test_`, `rk_test_`) são aceitas; uma `sk_live_` é recusada antes de subir qualquer coisa. O comando sobe o Vite na porta 5173 e o `stripe listen` (Stripe CLI, já no catálogo; não instale nada), que encaminha os webhooks para `localhost:5173/api/auth/stripe/webhook`. O Worker roda com `BILLING_ENVIRONMENT=local`: o que ele cria fica marcado `local`, os Previews ignoram esses eventos e ele só aceita os marcados `local`. Se um dos dois processos cai, o outro cai junto.
+
+Cartões de teste: `4242 4242 4242 4242` paga, `4000 0000 0000 0002` recusa, `4000 0027 6000 3184` pede o 3D Secure, `4000 0000 0000 0341` falha ao cobrar. Para disparar um evento com o `--stripe` rodando, use `pnpm --filter @workspace/skeleton exec stripe trigger <evento> --api-key $STRIPE_SECRET_KEY` (por exemplo, `customer.subscription.trial_will_end`).

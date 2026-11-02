@@ -8,7 +8,7 @@ import { renderSpa } from "../spa/render.tsx";
 import { expect, test } from "../spa/test.ts";
 
 const ana = { id: "user-1", name: "Ana Souza", email: "ana@example.com", pendingEmail: null };
-const nav = (t = messagesFor("en")) => ({ entries: [{ label: t.account.nav, to: "/account" }], companyPage: [], accountPage: [] });
+const nav = (t = messagesFor("en")) => ({ entries: [{ label: t.account.nav, to: "/account", icon: "UserRound" }], companyPage: [], accountPage: [] });
 
 type Connection = { id: string; appName: string; createdAt: string; access: "read" | "write" };
 
@@ -42,7 +42,7 @@ test("the account page leads to Connections, which lists each agent with its dat
   await expect.element(screen.getByRole("heading", { name: t.account.connections.title })).toBeVisible();
   expect(router.state.location.pathname).toBe("/account/connections");
   const m = t.account.connections;
-  const rows = screen.getByRole("listitem");
+  const rows = screen.getByRole("main").getByRole("listitem");
   await expect.element(rows.nth(0).getByText("Claude", { exact: true })).toBeVisible();
   await expect
     .element(rows.nth(0).getByText(`${format(m.connectedOn, { date: "Oct 20, 2026" })} · ${m.write}`, { exact: true }))
@@ -58,7 +58,7 @@ test("revoking asks for confirmation first; once confirmed the agent leaves the 
   worker.use(getMeHandler(ana), getNavHandler(nav()), ...api.handlers);
   const { screen, t } = await renderSpa({ path: "/account/connections" });
 
-  const claudeRow = screen.getByRole("listitem").filter({ hasText: "Claude" });
+  const claudeRow = screen.getByRole("main").getByRole("listitem").filter({ hasText: "Claude" });
   await claudeRow.getByRole("button", { name: t.account.connections.revoke }).click();
   const confirmation = screen.getByRole("alertdialog", { name: format(t.account.connections.confirmTitle, { app: "Claude" }) });
   await expect.element(confirmation).toBeVisible();
@@ -70,8 +70,8 @@ test("revoking asks for confirmation first; once confirmed the agent leaves the 
   await screen.getByRole("alertdialog").getByRole("button", { name: t.account.connections.confirm }).click();
 
   await expect.element(screen.getByRole("status")).toHaveTextContent(format(t.account.connections.revoked, { app: "Claude" }));
-  await expect.element(screen.getByRole("listitem").filter({ hasText: "Claude" })).not.toBeInTheDocument();
-  await expect.element(screen.getByRole("listitem").filter({ hasText: "Cursor" })).toBeVisible();
+  await expect.element(screen.getByRole("main").getByRole("listitem").filter({ hasText: "Claude" })).not.toBeInTheDocument();
+  await expect.element(screen.getByRole("main").getByRole("listitem").filter({ hasText: "Cursor" })).toBeVisible();
   expect(api.revoked).toEqual(["grant-1"]);
 });
 
@@ -91,11 +91,11 @@ test("Show more reads the next page with the cursor the first one answered", asy
   const { screen, t } = await renderSpa({ path: "/account/connections" });
   const more = screen.getByRole("button", { name: t.account.connections.more });
 
-  await expect.element(screen.getByRole("listitem").filter({ hasText: "Claude" })).toBeVisible();
+  await expect.element(screen.getByRole("main").getByRole("listitem").filter({ hasText: "Claude" })).toBeVisible();
   await more.click();
 
-  await expect.element(screen.getByRole("listitem").filter({ hasText: "Cursor" })).toBeVisible();
-  await expect.element(screen.getByRole("listitem").filter({ hasText: "Claude" })).toBeVisible();
+  await expect.element(screen.getByRole("main").getByRole("listitem").filter({ hasText: "Cursor" })).toBeVisible();
+  await expect.element(screen.getByRole("main").getByRole("listitem").filter({ hasText: "Claude" })).toBeVisible();
   await expect.element(more).not.toBeInTheDocument();
   expect(cursors).toEqual([null, "page-2"]);
 });
@@ -107,5 +107,5 @@ test("without Connections, the page says there are none", async ({ worker }) => 
 
   await expect.element(screen.getByRole("heading", { name: t.account.connections.title })).toBeVisible();
   await expect.element(screen.getByText(t.account.connections.empty)).toBeVisible();
-  expect(screen.getByRole("listitem").elements()).toHaveLength(0);
+  expect(screen.getByRole("main").getByRole("listitem").elements()).toHaveLength(0);
 });

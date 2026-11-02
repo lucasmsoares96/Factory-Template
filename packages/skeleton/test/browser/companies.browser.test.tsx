@@ -26,7 +26,7 @@ const ana = { id: "user-1", name: "Ana Souza", email: "ana@example.com", pending
 const acme = { id: "company-acme", name: "Acme", role: "owner", createdAt: "2026-10-24T12:00:00.000Z" };
 const globex = { id: "company-globex", name: "Globex", role: "employee", createdAt: "2026-10-24T13:00:00.000Z" };
 const nav = (t = messagesFor("en")) => ({
-  entries: [{ label: t.account.nav, to: "/account" }],
+  entries: [{ label: t.account.nav, to: "/account", icon: "UserRound" }],
   companyPage: [{ label: "Notes", to: "/notes" }],
   accountPage: [],
 });

@@ -38,7 +38,8 @@ export default defineConfig({
             enabled: true,
             headless: true,
             provider: playwright(),
-            instances: [{ browser: "chromium" }],
+            // Desktop width: the sidebar is a panel (Sheet) below 768px.
+            instances: [{ browser: "chromium", viewport: { width: 1280, height: 800 } }],
           },
         },
       },
