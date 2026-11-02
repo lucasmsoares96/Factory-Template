@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,7 +12,10 @@ let tree: string;
 
 beforeEach(() => {
   tree = mkdtempSync(join(tmpdir(), "import-boundaries-"));
-  copyFileSync(join(repoRoot, ".oxlintrc.json"), join(tree, ".oxlintrc.json"));
+  // The throwaway tree has no node_modules, so the JS plugins (which these rules do not need) are dropped.
+  const config = JSON.parse(readFileSync(join(repoRoot, ".oxlintrc.json"), "utf8"));
+  delete config.jsPlugins;
+  writeFileSync(join(tree, ".oxlintrc.json"), JSON.stringify(config));
 });
 afterEach(() => rmSync(tree, { recursive: true, force: true }));
 
