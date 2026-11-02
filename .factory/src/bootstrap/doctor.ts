@@ -6,9 +6,9 @@ import { billingChecks, hasBillingTrace } from "./billing-doctor.ts";
 import { MERGE_MODE_VARIABLE } from "./factory.ts";
 import { NO_DNS, NO_LOGIN, deployFirstMessage, productionEnvironment, productSecretName, readDnsState, readWorkerDomainState } from "./domain.ts";
 import { hasPreviewTrace, previewEnvironment, previewNames, previewProjectName, previewSecretPresent, PREVIEW_PRODUCTS, BASE_BRANCH } from "./previews.ts";
-import { coversMain, DEPLOY_PRODUCTS, missingSecrets, neonHandle, neonOrgId, parseProductList, productionDatabaseUrl, productionSecrets, USE_ENVIRONMENTS } from "./product.ts";
+import { coversMain, databaseVariables, DEPLOY_PRODUCTS, missingSecrets, neonHandle, neonOrgId, parseProductList, productionDatabaseUrl, productionSecrets, USE_ENVIRONMENTS } from "./product.ts";
 import type { BootstrapDeps, ProductIdentity, StepContext } from "./steps.ts";
-import { WranglerNotInstalled } from "./clients.ts";
+import { WranglerNotInstalled, type NeonProject } from "./clients.ts";
 
 export type CheckStatus = "ok" | "missing" | "warn" | "off" | "skip";
 
@@ -269,13 +269,24 @@ async function previewChecks(
     return;
   }
   try {
-    const found = (await neon.listProjects(await neonOrgId(ctx, neon))).filter((p) => p.name === previewProjectName(id));
+    const recorded = variables[names.neonProject];
+    const found = (await neon.listProjects(await neonOrgId(ctx, neon))).filter((p) => (recorded ? p.id === recorded : p.name === previewProjectName(id)));
     if (found.length !== 1) return add(found.length === 0 ? "missing" : "warn", "Neon preview project", found.length === 0 ? redo : `${found.length} projects are named ${previewProjectName(id)}`);
     const branch = await neon.defaultBranchName(found[0]!.id);
     add(branch === BASE_BRANCH ? "ok" : "warn", "Neon preview project", branch === BASE_BRANCH ? found[0]!.id : `${found[0]!.id}: default branch is ${branch}, not ${BASE_BRANCH}; ${redo} with --redo preview-neon-project`);
+    regionCheck(found[0]!, id, variables, add);
   } catch (error) {
     add("warn", "Neon preview project", (error as Error).message);
   }
+}
+
+/** Warns when the real region of a project is not the one recorded in `<ID>_REGION`: a region cannot change after creation. */
+function regionCheck(project: NeonProject, id: string, variables: Record<string, string>, add: (status: CheckStatus, name: string, detail?: string) => void): void {
+  const name = databaseVariables(id).region;
+  const chosen = variables[name];
+  if (!chosen || !project.region) return;
+  if (project.region === chosen) add("ok", `Database region ${name}`, chosen);
+  else add("warn", `Database region ${name}`, `database in ${project.region}, chosen ${chosen}: the region does not change, recreate with \`pnpm bootstrap destroy db ${id}\``);
 }
 
 /**
@@ -319,8 +330,12 @@ async function productionChecks(
   else {
     try {
       const orgId = await neonOrgId(ctx, neon);
-      const found = (await neon.listProjects(orgId)).filter((p) => p.name === id);
-      if (found.length === 1) add("ok", "Neon project", found[0]!.id);
+      const recorded = variables[databaseVariables(id).neonProject];
+      const found = (await neon.listProjects(orgId)).filter((p) => (recorded ? p.id === recorded : p.name === id));
+      if (found.length === 1) {
+        add("ok", "Neon project", found[0]!.id);
+        regionCheck(found[0]!, id, variables, add);
+      }
       else if (found.length > 1) add("warn", "Neon project", `${found.length} projects are named ${id}`);
       else add("missing", "Neon project", redo);
     } catch (error) {

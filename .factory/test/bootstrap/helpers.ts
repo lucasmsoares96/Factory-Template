@@ -30,7 +30,7 @@ export function world(answers: Record<string, string | boolean | string[]> = {},
   const products = new Map<string, ProductIdentity>([
     ["example", { id: "example", title: "Example", emailFrom: "Example <no-reply@example.com>", domain: "example.com", billing: true }],
   ]);
-  const prompter = new FakePrompter({ "cloudflare-token": TOKEN, "workers-dev-subdomain": "my-team", "example-issue": false, "repo-confirm": true, "factory-language": "en", "merge-mode": "human", ...answers });
+  const prompter = new FakePrompter({ "cloudflare-token": TOKEN, "workers-dev-subdomain": "my-team", "example-issue": false, "repo-confirm": true, "factory-language": "en", "neon-region": "aws-sa-east-1", "merge-mode": "human", ...answers });
   const lines: string[] = [];
   const created: { id: string; title: string; domain: string; dir: string }[] = [];
   const deps: BootstrapDeps = {
