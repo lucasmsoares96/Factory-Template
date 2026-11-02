@@ -230,7 +230,8 @@ ADR 0016; `src/commands/merge.ts`. `FACTORY_MERGE_MODE` is `human` (the default:
   - `verify`: the `verify` job passed;
   - `preview`: no `preview-plan`, `preview deploy (<id>)` or `preview smoke (<id>)` job failed or is still going (skipped counts as passed: no preview);
   - `criteria`: the last verdicts section of the body (the one `publish` writes after the agent's text) has at least one verdict, all checked;
-  - `deploy`: the last deploy of the base branch did not fail (none yet is fine).
+  - `deploy`: the last deploy of the base branch did not fail (none yet is fine);
+  - `conversation` (holds in `all` too: it is a person's word, not a file protection): no request of a person waits for the Factory (`openThreads`, as the PR feedback flow reads it), the last verdict of no collaborator with `write`+ is "changes requested" (a later approval of theirs frees it; the owner's own review state says nothing), and every inline comment of the Factory's Review has a reply from a person with `write`+.
 - Reads go through the job token (`actions: read`, which the fine-grained `FACTORY_TOKEN` lacks). The merge is `PUT /pulls/{n}/merge` with `FACTORY_TOKEN`, pinned to the head SHA it checked (a merge commit), so the deploy of the base branch starts. Then the `auto-merged` label with the job token (a label written with `FACTORY_TOKEN` would start the PR workflow on the merged PR) and one comment in `FACTORY_LANGUAGE` naming the mode and the conditions (in `all`, the protected files it merged). A refusal of the forge is printed and changes nothing; the next run decides again.
 - Output: one JSON line, `{mode, decisions: [{pr, merged, reason, unmet, protected, detail}]}`.
 
