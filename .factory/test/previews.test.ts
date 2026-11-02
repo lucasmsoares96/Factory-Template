@@ -375,6 +375,7 @@ describe("the Neon branch of a PR", () => {
       expect(result.pooledUrl).toContain("-pooler");
       expect(result.directUrl).not.toContain("-pooler");
       expect(result.directUrl).toContain(branch.id);
+      for (const url of [result.pooledUrl, result.directUrl]) expect(url).toMatch(/\?sslmode=verify-full&channel_binding=require$/);
     }
   });
 
