@@ -18,7 +18,7 @@ The criterion is having a terminal (`deps.interactive`, stdin is a TTY); there i
 ## Layout
 
 - `pnpm bootstrap [doctor [<id>]] [domain <id>] [product <id>] [previews <id>] [factory] [billing <id>] [env [<id>]] [all <id>] [--redo <step>]`.
-- Wizard steps live in `common.ts` (the common part: `cloudflare-token`, `workers-dev`, `labels`, `language`), `product.ts` (the Production module of `bootstrap product <id>`) and `domain.ts` (per Product: `resend-domain`, `dns-records`, `restricted-resend-key`, `worker-domain`).
+- Wizard steps live in `common.ts` (the common part: `cloudflare-token`, `workers-dev`, `labels`, `language`, `main-ruleset`), `product.ts` (the Production module of `bootstrap product <id>`) and `domain.ts` (per Product: `resend-domain`, `dns-records`, `restricted-resend-key`, `worker-domain`).
   - `resendSteps(product)` is reused by `bootstrap product`. `domainSteps` adds `worker-domain` for `bootstrap domain` only: the Worker does not exist before the first deploy.
 - The steps run over client interfaces (`clients.ts`: GitHub, Cloudflare, Neon, Resend), real adapters (`cloudflare.ts`, `resend.ts`, Zod-validated; `neon.ts` drives `neonctl`) and `fake/`.
 - `previews.ts` is the Previews module (`previewSteps`). `github.ts` is the only module that calls `gh` (through `runGh`; `gh` gets `BASE_ENV` plus its own sign-in variables, `GH_AUTH_ENV`, and the proxy/CA ones, `GH_NETWORK_ENV`). `token.ts` checks the owner's token through `GitHubApi`.
@@ -35,9 +35,9 @@ The criterion is having a terminal (`deps.interactive`, stdin is a TTY); there i
 
 ## `pnpm bootstrap product <id>`: the Production module
 
-- Steps `neon-project`, `github-environment`, `database-secrets`, `auth-secret`, the four `domain` steps, `main-ruleset`, `deploy-products`; then the doctor of the Product, and only if it passes `DEPLOY_ENABLED=true`.
+- Steps `neon-project`, `github-environment`, `database-secrets`, `auth-secret`, the four `domain` steps, `deploy-products`; then the doctor of the Product, and only if it passes `DEPLOY_ENABLED=true`.
 - Secrets are `<ID>_DATABASE_URL` (direct, migrations), `<ID>_DATABASE_URL_POOLED` (the Worker), `<ID>_BETTER_AUTH_SECRET`, `<ID>_RESEND_API_KEY`, in the `<id>-production` environment (restricted to the default branch), or at repo level with `FACTORY_USE_ENVIRONMENTS=false` when GitHub refuses environments.
-- The ruleset requires branches to be up to date before merging (`strict_required_status_checks_policy: true`): a green `verify` against an old `main` does not merge.
+- The `main` ruleset (step `main-ruleset`) belongs to the common part (`pnpm bootstrap`): it protects the repository, not a Product. `bootstrap product` neither makes nor changes it; its doctor only checks it and says to run `pnpm bootstrap` when it is missing. The ruleset requires branches to be up to date before merging (`strict_required_status_checks_policy: true`): a green `verify` against an old `main` does not merge.
   - An existing ruleset that already covers the default branch (PR, no force-push, no deletion, check `verify`) is reused, never duplicated.
   - When it is not strict, `main-ruleset` turns that on in it (`requireUpToDate`: the rules are read back and written whole with only that flag changed), and the doctor reports it as `off`.
 - Neon: the wizard uses neonctl's own saved login (`neonctl auth` opens the browser only when `neonctl me` shows none, so once per machine) or `NEON_API_KEY` from the env, and passes the connection strings straight to `setSecret`; it never logs out. It makes no Neon API key for production (the deploy only needs the connection strings).
@@ -114,7 +114,7 @@ Optional, after `product`; `billing.ts`, `billing-doctor.ts`, `billing-permissio
 
 - It refuses without a TTY or with `CI` set before any listing or API call.
 - It lists what disappears (the production Neon database on a `!!` line; environments with their secrets), asks to type the id (`all`, `factory`, `common`), deletes one item at a time and reports failures while it continues (exit 1).
-- Deletes: Worker (+ Previews, Custom Domains), KVs `<id>-oauth-kv` and `<id>-preview-oauth`, Neon projects `<id>` and `<id>-preview` (never one of several with the same name), Resend domain, `<ID>_*` secrets and variables, environments, the id in `DEPLOY_PRODUCTS`/`PREVIEW_PRODUCTS` (the list, its switch and the `main` ruleset go with the last Product), `FACTORY_TOKEN`.
+- Deletes: Worker (+ Previews, Custom Domains), KVs `<id>-oauth-kv` and `<id>-preview-oauth`, Neon projects `<id>` and `<id>-preview` (never one of several with the same name), Resend domain, `<ID>_*` secrets and variables, environments, the id in `DEPLOY_PRODUCTS`/`PREVIEW_PRODUCTS` (the list and its switch go with the last Product), `FACTORY_TOKEN`. The `main` ruleset is never removed by `destroy product` or `destroy previews`; only `destroy common` and `destroy all` delete it, on a `!!` warning line.
 - Never the repo, issues, labels, accounts, DNS records or the workers.dev subdomain.
 - Credentials as everywhere else (wrangler/neonctl logins, `RESEND_API_KEY` or one optional question).
 - Delete methods of the clients are used by `destroy` only.

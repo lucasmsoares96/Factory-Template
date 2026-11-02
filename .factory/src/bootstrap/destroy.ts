@@ -24,7 +24,7 @@ export const DESTROY_USAGE = `Usage: pnpm bootstrap destroy [product <id> | prev
   product <id>           one Product: Worker, KV, Neon projects, Resend domain, secrets, variables, environments (production and previews)
   previews <id>          only the previews of one Product
   factory                the Factory secrets and variables
-  common                 the Cloudflare secrets of the common part`;
+  common                 the Cloudflare secrets and the ruleset on main`;
 
 export function parseScope(positionals: string[]): DestroyScope | undefined {
   const [kind, id, ...rest] = positionals;
@@ -166,7 +166,7 @@ export async function plan(ctx: StepContext, scope: DestroyScope): Promise<Plan>
     if (previews) await planPreviews(ctx, result, services, id, { secrets, variables, dropSecret, dropVariable, dropEnvironment });
   }
 
-  // The lists: this Product leaves them; an empty list goes with its switch, and the `main` ruleset with the last Product.
+  // The lists: this Product leaves them; an empty list goes with its switch.
   if (production && productIds.length > 0 && parseProductList(variables[DEPLOY_PRODUCTS]).some((id) => productIds.includes(id))) {
     if (sharedProductionLeft.length > 0) addGithub(`variable ${DEPLOY_PRODUCTS}: remove ${productIds.join(", ")} (keeps ${sharedProductionLeft.join(", ")})`, () => github.setVariable(DEPLOY_PRODUCTS, sharedProductionLeft.join(",")));
     else {
@@ -181,8 +181,11 @@ export async function plan(ctx: StepContext, scope: DestroyScope): Promise<Plan>
       dropVariable(PREVIEWS_ENABLED);
     }
   }
-  if (production && (everything || sharedProductionLeft.length === 0) && (everything || productIds.some((id) => parseProductList(variables[DEPLOY_PRODUCTS]).includes(id)))) {
-    for (const ruleset of rulesets.filter((r) => r.name === MAIN_RULESET.name)) addGithub(`ruleset ${ruleset.name} on the default branch`, () => github.deleteRuleset(ruleset.id));
+  // The `main` ruleset protects the repository, not a Product: only the common part (or everything) may take it down.
+  if (everything || scope.kind === "common") {
+    for (const ruleset of rulesets.filter((r) => r.name === MAIN_RULESET.name)) {
+      result.items.push({ group: "GitHub", text: `ruleset ${ruleset.name} on the default branch: the branch stays open to direct pushes without it`, highlight: true, run: () => github.deleteRuleset(ruleset.id) });
+    }
   }
 
   if (everything || scope.kind === "factory") {

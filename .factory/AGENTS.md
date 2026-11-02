@@ -52,8 +52,8 @@ Every Factory workflow is off until `FACTORY_ENABLED`. Jobs, tokens and writes o
 
 ## Commands
 
-- `pnpm bootstrap`, `pnpm bootstrap doctor`: set up (ending with the doctor, one run is enough) and check the copied repo (needs `gh` logged in; tests use the fake clients only).
-- `pnpm bootstrap product <id>`: the Production module (Neon, secrets, domain, `main` ruleset; `DEPLOY_ENABLED` once the doctor passes). After it, run the Deploy workflow once by hand: `gh workflow run factory-deploy.yml --ref main`.
+- `pnpm bootstrap`, `pnpm bootstrap doctor`: set up (the common part, including the `main` ruleset, which only `destroy common`/`destroy all` remove; ending with the doctor, one run is enough) and check the copied repo (needs `gh` logged in; tests use the fake clients only).
+- `pnpm bootstrap product <id>`: the Production module (Neon, secrets, domain; `DEPLOY_ENABLED` once the doctor passes). After it, run the Deploy workflow once by hand: `gh workflow run factory-deploy.yml --ref main`.
 - `pnpm bootstrap previews <id>`: the Previews module (optional, after Production; `PREVIEWS_ENABLED` once the doctor passes).
 - `pnpm bootstrap domain <id>`, `pnpm bootstrap doctor <id>`: a Product's domain, read from `apps/<id>/product.config.ts`.
 - `pnpm bootstrap billing <id>`: the optional billing module (Stripe keys, plans, events endpoint, and the trial of the accounts that already exist; after `product`).
