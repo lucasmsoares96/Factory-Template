@@ -215,4 +215,4 @@ export function manualClock() {
 }
 
 /** The final Review's verdicts for the one criterion of `ISSUE_BODY`: a run is ready only with a verdict for each. */
-export const ISSUE_VERDICTS = [{ criterion: "`greet()` returns a greeting.", met: true, proof: "`src/greet.test.ts` › greets the user" }];
+export const ISSUE_VERDICTS = [{ id: 1, met: true, proof: "`src/greet.test.ts` › greets the user" }];
