@@ -9,6 +9,8 @@ catalog:
   # Tooling
   "@clack/prompts": 1.8.1
   neonctl: 8.8.0
+  # 0.2.4 and 0.2.5 were published on 2026-11-02, younger than minimumReleaseAge; 0.2.3 has the same Oxlint setup.
+  "@shadcn/lint": 0.2.3
   "@types/node": 24.19.2
   oxlint: 1.88.0
   turbo: 2.11.9
