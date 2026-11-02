@@ -20,5 +20,5 @@ test("@shadcn/lint loads and suggests a class from the Skeleton's scale", () => 
   };
   const found = diagnostics.find((d) => d.code.includes("no-arbitrary-values"));
   expect(found?.message).toContain("w-[13px]");
-  expect(found?.message).toContain("Use");
+  expect(found?.message).toContain(`Use "w-3.25"`);
 });
