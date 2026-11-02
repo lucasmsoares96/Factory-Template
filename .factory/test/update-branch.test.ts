@@ -382,7 +382,7 @@ describe("factory update-branch", () => {
   });
 
   it("pushes the fix of a failing Verify even when the Review finds a criterion not met: the merge is not judged on the criteria", async () => {
-    const unmet = { criterion: "`greet()` returns a greeting.", met: false, proof: "No test proves it." };
+    const unmet = { id: 1, met: false, proof: "No test proves it." };
     const reviewUnmet: AgentStep = () => ({ output: `<review>${JSON.stringify({ summary: "Fine.", inline: [], criteria: [unmet] })}</review>` });
     const p = await updateRound("clean", {
       agent: { development: [commits()], review: [reviewUnmet] },

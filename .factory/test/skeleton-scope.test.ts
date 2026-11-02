@@ -32,7 +32,7 @@ const productOnly: AgentStep = async ({ cwd }) => {
 const reviewing = (extra: object): AgentStep => () => ({
   output: `Reviewed.\n<review>${JSON.stringify({ summary: "Looks fine.", inline: [], ...extra })}</review>`,
 });
-const verdict = (met: boolean) => ({ criterion: "`greet()` returns a greeting.", met, proof: met ? "`apps/example/e2e/home.spec.ts` › greets" : "The footer needs the Skeleton's slot." });
+const verdict = (met: boolean) => ({ id: 1, met, proof: met ? "`apps/example/e2e/home.spec.ts` › greets" : "The footer needs the Skeleton's slot." });
 const review = reviewing({ criteria: [verdict(true)] });
 
 /** A checkout whose base commit holds the Skeleton files; the commit is made once per file and copied. */

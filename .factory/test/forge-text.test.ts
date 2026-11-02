@@ -50,7 +50,7 @@ const review: AgentStep = () => ({
   output: `<review>${JSON.stringify({
     summary: "Looks fine.",
     inline: [{ path: HOME, line: 1, body: "Name the export." }],
-    criteria: [{ criterion: "`greet()` returns a greeting.", met: true, proof: "`apps/example/e2e/home.spec.ts` › greets" }],
+    criteria: [{ id: 1, criterion: "`greet()` returns a greeting.", met: true, proof: "`apps/example/e2e/home.spec.ts` › greets" }],
   })}</review>`,
 });
 const writes: AgentStep = () => ({ output: "<pull-request>## Summary\n\nAdds a footer.</pull-request>" });
@@ -124,7 +124,7 @@ describe("one cleaning for all the agent's text that goes to the forge", () => {
     const sha = "a".repeat(40);
     const result = resultSchema.parse({
       version: 1, issue: 7, branch: "factory/issue-7", base: sha, head: sha, outcome: "ready", reason: null, question: null, attempts: [],
-      review: { summary: "Fixes\n#12", inline: [], criteria: [{ criterion: "Greets.", met: true, proof: "`a.test.ts` › greets; this fixes\n#12 and\n#13" }] },
+      review: { summary: "Fixes\n#12", inline: [], criteria: [{ id: 1, criterion: "Greets.", met: true, proof: "`a.test.ts` › greets; this fixes\n#12 and\n#13" }] },
       threadReplies: [],
       usage: { development: { inputTokens: 0, outputTokens: 0 }, review: { inputTokens: 0, outputTokens: 0 } },
       evidence: [],
