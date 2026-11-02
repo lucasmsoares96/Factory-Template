@@ -111,8 +111,9 @@ test("GET /api/nav answers the account page's entry, translated, then each Produ
   // The test composition's `notes` feature declares `nav` and `companyPage`, both `{ label: "Notes", to: "/notes" }`.
   expect(await response.json()).toEqual({
     entries: [
-      { label: "Account", to: "/account" },
-      { label: "Notes", to: "/notes" },
+      { label: "Account", to: "/account", icon: "UserRound" },
+      // `notes` declares no icon: the server answers the default.
+      { label: "Notes", to: "/notes", icon: "Circle" },
     ],
     companyPage: [{ label: "Notes", to: "/notes" }],
     // Billing is in the composition but off without a Stripe key: no link to the Plan page.
