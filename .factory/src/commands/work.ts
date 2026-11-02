@@ -19,10 +19,11 @@ import {
 import { ESCALATION_MARKER, fence, summaryMarkdown } from "../report.ts";
 import { isFactoryComment } from "../guard.ts";
 import { WAITING_MARKER } from "./claim.ts";
-import { parsePullRequestBody, pullRequestExtraction } from "../pull-request-output.ts";
+import { parsePullRequestBody, pullRequestExtraction, pullRequestTexts } from "../pull-request-output.ts";
+import { describeFindings, scanTexts, withSecretScan, type StageText } from "../secret-text.ts";
 import { changedSkeletonPaths } from "../scope.ts";
 import { addedSkippedTests, skippedTestsFeedback } from "../skipped-tests.ts";
-import { parseReviewOutput, reviewExtraction } from "../review-output.ts";
+import { parseReviewOutput, reviewExtraction, reviewTexts } from "../review-output.ts";
 import { parseReplies, repliesExtraction, type ThreadReply } from "../replies-output.ts";
 import { AgentSessionError, type AgentRun, type Extraction, type Stage, type Usage } from "../seams/agent.ts";
 import { continuedHead, parseWait, SESSION_LIMIT_MARKER, sessionFailure, type SessionFailure } from "../session-limit.ts";
@@ -98,6 +99,11 @@ export async function work(ctx: CommandContext, number: number | null, options: 
   };
   const round = () => ({ threads: roundThreads, decisions: [...replies.values()] });
   const outOfTime = () => ctx.now() >= deadline;
+  /** Where the secret scan finds a secret in `texts` (never the value), as a line for a person; null when clean. */
+  const secretIn = async (texts: StageText[]): Promise<string | null> => {
+    const found = texts.length > 0 ? await scanTexts(ctx.scanner, options.repo, base, texts) : [];
+    return found.length > 0 ? messages(config.language).secretTextKept(describeFindings(found)) : null;
+  };
   /** One agent session; null when it failed, with `ended.session` set. Its commits stay on the branch. */
   const session = async (stage: Stage, prompt: string, options: { timeoutMs: number; model: string; extract?: Extraction }): Promise<AgentRun | null> => {
     try {
@@ -243,7 +249,11 @@ export async function work(ctx: CommandContext, number: number | null, options: 
       const reviewRun = await session(
         "review",
         reviewPrompt({ issue, log: await git.log(base, "HEAD"), since: lastReviewed, findings: reviews, skeleton, round: flow?.kind === "pr-feedback" ? round() : undefined, language: config.language }),
-        { timeoutMs, model: config.models.review, extract: reviewExtraction(texts.length) },
+        {
+          timeoutMs,
+          model: config.models.review,
+          extract: withSecretScan(reviewExtraction(texts.length), ctx.scanner, options.repo, base, (output) => reviewTexts(parseReviewOutput(output))),
+        },
       );
       if (reviewRun) add(usage.review, reviewRun.usage);
       if (reviewRun === null) {
@@ -260,7 +270,16 @@ export async function work(ctx: CommandContext, number: number | null, options: 
         feedback = `The Review session after the previous attempt timed out after ${minutes(timeoutMs)} min. Keep the change small and focused.`;
         continue;
       }
-      reviews.push({ attempt, ...resolveCriteria(parseReviewOutput(reviewRun.output), texts) });
+      // The session was asked to rewrite a text with a secret; one still there ends the run, and the Review is not kept.
+      const review = parseReviewOutput(reviewRun.output);
+      const held = await secretIn(reviewTexts(review));
+      if (held !== null) {
+        stages.push({ ...reviewRecord, outcome: "failed", failedCommand: "secret scan", output: held });
+        reason = "needs-human";
+        question = held;
+        break;
+      }
+      reviews.push({ attempt, ...resolveCriteria(review, texts) });
       lastReviewed = await git.head();
       stages.push({ ...reviewRecord, outcome: "ok" });
 
@@ -318,6 +337,17 @@ export async function work(ctx: CommandContext, number: number | null, options: 
   }
 
   const head = (await git.countCommits(base, "HEAD")) > 0 ? await git.head() : null;
+  // A secret in a commit or a commit message is never asked of a session again: the run escalates, and `publish` holds it.
+  let commitSecret = false;
+  if (head) {
+    const found = await ctx.scanner.scan({ repo: options.repo, base, head, texts: [{ name: "commit messages", text: await git.run("log", "--format=%B", `${base}..${head}`) }] });
+    if (found.length > 0) {
+      commitSecret = true;
+      ready = false;
+      reason = "needs-human";
+      question = messages(config.language).secretInCommits(describeFindings(found));
+    }
+  }
   if (head) await git.run("bundle", "create", "--quiet", join(options.out, BUNDLE_FILE), `refs/heads/${branch}`, `^${base}`);
   const evidence = ready ? await collectEvidence(join(options.repo, config.evidenceDir), join(options.out, EVIDENCE_DIR)) : [];
 
@@ -325,7 +355,7 @@ export async function work(ctx: CommandContext, number: number | null, options: 
   let pullRequestBody: string | null = null;
   let pullRequestStage: PullRequestStageRecord | null = null;
   // A failed session ends the run: the Pull Request Stage would meet the same failure (the same spent quota).
-  if (head && flow?.kind !== "update-branch" && !ended.session) {
+  if (head && flow?.kind !== "update-branch" && !ended.session && !commitSecret) {
     const timeoutMs = budget(config.timeouts.pullRequest);
     if (timeoutMs === null) {
       pullRequestStage = { outcome: "skipped", durationMs: 0, usage: zeroUsage(), retries: 0, reason: "no time left in the global limit" };
@@ -344,16 +374,28 @@ export async function work(ctx: CommandContext, number: number | null, options: 
             prints: evidence.map((e) => ({ product: e.product, path: `${config.evidenceDir}/${e.product}/${e.name}` })),
             language: config.language,
           }),
-          { timeoutMs, model: config.models.pullRequest, extract: pullRequestExtraction },
+          { timeoutMs, model: config.models.pullRequest, extract: withSecretScan(pullRequestExtraction, ctx.scanner, options.repo, base, pullRequestTexts) },
         );
         add(usage.pullRequest, run.usage);
-        const text = run.timedOut ? null : parsePullRequestBody(run.output);
+        let secretHeld = false;
+        let text = run.timedOut ? null : parsePullRequestBody(run.output);
+        // The body still holds a secret after the rewrites: it is dropped, never kept in result.json, and the run escalates.
+        const held = text === null ? null : await secretIn(pullRequestTexts(run.output));
+        if (held !== null) {
+          text = null;
+          secretHeld = true;
+          ready = false;
+          reason = "needs-human";
+          question = held;
+        }
         pullRequestBody = text;
         const failure = run.timedOut
           ? { outcome: "timeout" as const, reason: `timed out after ${minutes(timeoutMs)} min` }
-          : text === null
-            ? { outcome: "failed" as const, reason: `the session ended without a valid <pull-request> block after ${run.retries} ${run.retries === 1 ? "resume" : "resumes"}` }
-            : { outcome: "ok" as const };
+          : secretHeld
+            ? { outcome: "failed" as const, reason: "the body still held a secret after the rewrites" }
+            : text === null
+              ? { outcome: "failed" as const, reason: `the session ended without a valid <pull-request> block after ${run.retries} ${run.retries === 1 ? "resume" : "resumes"}` }
+              : { outcome: "ok" as const };
         stage = { ...failure, durationMs: ctx.now() - started, usage: run.usage, retries: run.retries };
       } catch (error) {
         stage = { outcome: "failed", durationMs: ctx.now() - started, usage: zeroUsage(), retries: 0, reason: (error as Error).message };

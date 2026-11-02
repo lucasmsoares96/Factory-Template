@@ -544,12 +544,14 @@ describe("factory publish: secret scan", () => {
   const happy = { agent: { development: [develop], review: [review] }, verify: [{ ok: true }] };
 
   it("pushes nothing and escalates needs-human with the place and the rule, when the scan finds a secret", async () => {
-    const scanner = new FakeSecretScanner({ findings: [{ source: "src/greet.ts", line: 1, rule: "stripe-secret-key" }] });
+    const scanner = new FakeSecretScanner({ publishOnly: true, findings: [{ source: "src/greet.ts", line: 1, rule: "stripe-secret-key" }] });
     const { w, output, factoryComments } = await pipeline({ ...happy, scanner });
 
     expect(output).toMatchObject({ outcome: "escalated", reason: "needs-human", pr: null });
     expect(w.codeHost.pushes).toEqual([]);
     expect(w.codeHost.prs).toHaveLength(0);
+    // Every session ran in `work`; `publish` (which holds the token) opened none.
+    expect(w.agent.calls.map((c) => c.stage)).toEqual(["development", "review", "pull-request"]);
     const [comment] = factoryComments();
     expect(comment).toContain("<!-- factory:escalation -->");
     expect(comment).toContain("`src/greet.ts`, line 1: rule `stripe-secret-key`");
@@ -558,7 +560,7 @@ describe("factory publish: secret scan", () => {
   });
 
   it("scans the commits from the base to the head and every text it is about to publish", async () => {
-    const scanner = new FakeSecretScanner();
+    const scanner = new FakeSecretScanner({ publishOnly: true });
     const { w, head } = await pipeline({ ...happy, scanner });
 
     expect(w.codeHost.pushes).toHaveLength(1);
@@ -574,7 +576,7 @@ describe("factory publish: secret scan", () => {
   });
 
   it("holds the run when the scanner cannot run: nothing is pushed", async () => {
-    const scanner = new FakeSecretScanner({ failure: new Error("gitleaks is not installed") });
+    const scanner = new FakeSecretScanner({ publishOnly: true, failure: new Error("gitleaks is not installed") });
     const { w, output, factoryComments } = await pipeline({ ...happy, scanner });
 
     expect(output).toMatchObject({ outcome: "escalated", reason: "infra", pr: null });
@@ -583,7 +585,7 @@ describe("factory publish: secret scan", () => {
   });
 
   it("writes the Escalation in FACTORY_LANGUAGE", async () => {
-    const scanner = new FakeSecretScanner({ findings: [{ source: "result.pullRequestBody", line: 4, rule: "github-token" }] });
+    const scanner = new FakeSecretScanner({ publishOnly: true, findings: [{ source: "result.pullRequestBody", line: 4, rule: "github-token" }] });
     const { factoryComments } = await pipeline({ ...happy, scanner, env: { FACTORY_LANGUAGE: "pt-BR" } });
 
     expect(factoryComments()[0]).toContain("`result.pullRequestBody`, linha 4: regra `github-token`");
