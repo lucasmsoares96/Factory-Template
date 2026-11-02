@@ -12,6 +12,9 @@ export const ptBR: Messages = {
   nav: {
     label: "Principal",
     home: "Início",
+    sidebar: "Barra lateral",
+    toggle: "Abrir ou fechar a barra lateral",
+    userMenu: "Menu do usuário",
   },
   account: {
     nav: "Conta",
