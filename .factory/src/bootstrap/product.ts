@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { NeonClient, NeonProject, RulesetInfo, RulesetSpec } from "./clients.ts";
 import { passwordProblem } from "../../../packages/skeleton/src/platform/password-rules.ts";
 import { accountNames } from "./accounts.ts";
+import { previewNames } from "./previews.ts";
 import { resendSteps, productionEnvironment, productSecretName, secretScope } from "./domain.ts";
 import type { ProductIdentity, Step, StepContext } from "./steps.ts";
 
@@ -21,6 +22,19 @@ export function productionSecrets(productId: string) {
     resendKey: productSecretName(productId, "RESEND_API_KEY"),
   };
 }
+
+/** The per-Product variables of the database: the chosen region and the id of the production Neon project. */
+export function databaseVariables(productId: string) {
+  return {
+    /** The Neon region of every database of the Product; fixed at creation, so changing it means `destroy db`. */
+    region: productSecretName(productId, "REGION"),
+    /** The id of the production Neon project (the previews' one is `previewNames(id).neonProject`). */
+    neonProject: productSecretName(productId, "NEON_PROJECT_ID"),
+  };
+}
+
+/** The region São Paulo, the default of the question. */
+export const DEFAULT_REGION = "aws-sa-east-1";
 
 /** `a, b c` and `a,b` both read as two ids. */
 export function parseProductList(value: string | undefined): string[] {
@@ -84,9 +98,15 @@ export async function neonOrgId(ctx: StepContext, neon: NeonClient): Promise<str
   return id;
 }
 
-/** The project named `name` in the org. Names are not unique in Neon: with duplicates the person picks (or the check cannot say). */
-export async function findProject(ctx: StepContext, neon: NeonClient, name: string, prompt: boolean, purpose = "the production database"): Promise<NeonProject | null | "ambiguous"> {
-  const found = (await neon.listProjects(await neonOrgId(ctx, neon))).filter((p) => p.name === name);
+/**
+ * The project of the org: the one with the recorded id when there is an id (`recordedId`, from the variable), else the
+ * one named `name`. Names are not unique in Neon: with duplicates the person picks (or the check cannot say). A recorded
+ * id whose project is gone is `null`: the project was deleted by hand.
+ */
+export async function findProject(ctx: StepContext, neon: NeonClient, name: string, prompt: boolean, purpose = "the production database", recordedId?: string): Promise<NeonProject | null | "ambiguous"> {
+  const all = await neon.listProjects(await neonOrgId(ctx, neon));
+  if (recordedId) return all.find((p) => p.id === recordedId) ?? null;
+  const found = all.filter((p) => p.name === name);
   if (found.length <= 1) return found[0] ?? null;
   if (!prompt) return "ambiguous";
   const id = await ctx.prompter.select({
@@ -97,12 +117,71 @@ export async function findProject(ctx: StepContext, neon: NeonClient, name: stri
   return found.find((p) => p.id === id) ?? null;
 }
 
-export async function ensureProject(ctx: StepContext, neon: NeonClient, name: string, purpose?: string): Promise<NeonProject> {
-  const found = await findProject(ctx, neon, name, true, purpose);
+/** The variable that records the id of a Product's Neon project (`production` or its `preview` one), if any. */
+export async function recordedProjectId(ctx: StepContext, productId: string, kind: "production" | "preview"): Promise<string | undefined> {
+  const variables = await ctx.github.listVariables();
+  return variables[kind === "production" ? databaseVariables(productId).neonProject : previewNames(productId).neonProject] || undefined;
+}
+
+/** The region the Product chose (`<ID>_REGION`). */
+export async function chosenRegion(ctx: StepContext, productId: string): Promise<string | undefined> {
+  return (await ctx.github.listVariables())[databaseVariables(productId).region] || undefined;
+}
+
+/**
+ * The Neon project of a Product, found by its recorded id (else by name) or made in the chosen region. A refusal from Neon
+ * (a region it does not know) is shown with how to choose another; nothing is recorded then, so no half-made project stays.
+ */
+export async function ensureProject(ctx: StepContext, neon: NeonClient, productId: string, kind: "production" | "preview", name: string, purpose?: string): Promise<NeonProject> {
+  const found = await findProject(ctx, neon, name, true, purpose, await recordedProjectId(ctx, productId, kind));
   if (found && found !== "ambiguous") return found;
-  const made = await neon.createProject(name, await neonOrgId(ctx, neon));
-  ctx.log(`  created the Neon project ${made.name}`);
+  const region = await chosenRegion(ctx, productId);
+  if (!region) throw new Error(`No region chosen for ${productId}: run \`pnpm bootstrap ${kind === "production" ? "product" : "previews"} ${productId}\` (the region step asks it first).`);
+  let made: NeonProject;
+  try {
+    made = await neon.createProject(name, region, await neonOrgId(ctx, neon));
+  } catch (error) {
+    throw new Error(`Neon refused to create ${name} in ${region}: ${(error as Error).message}\nNo project was made. Choose another region with \`pnpm bootstrap product ${productId} --redo region\` (NEON_REGION without a terminal).`);
+  }
+  ctx.log(`  created the Neon project ${made.name} in ${made.region ?? region}`);
   return made;
+}
+
+/**
+ * The question of the region, asked once per Product before any Neon project is made (production or previews). The
+ * answer is `<ID>_REGION`. A region cannot change after a project exists, so `--redo region` refuses when one does in
+ * another region and points to `destroy db`.
+ */
+export function regionStep(product: ProductIdentity): Step {
+  const { region: variable } = databaseVariables(product.id);
+  return {
+    id: "region",
+    title: `Database region (${variable})`,
+    asks: ["neon-region"],
+    async check(ctx) {
+      const chosen = await chosenRegion(ctx, product.id);
+      return { done: chosen !== undefined, detail: chosen };
+    },
+    async run(ctx) {
+      const region = (await ctx.prompter.text({ id: "neon-region", message: `Neon region of the databases of ${product.id} (it cannot change later; aws-sa-east-1 is São Paulo)`, initial: DEFAULT_REGION })).trim();
+      if (!/^[a-z][a-z0-9-]*$/.test(region)) throw new Error(`"${region}" is not a Neon region id (like aws-sa-east-1).`);
+      if (ctx.redo?.includes("region")) {
+        const neon = await neonHandle(ctx, true);
+        if (neon) {
+          const wanted = [
+            { name: product.id, id: await recordedProjectId(ctx, product.id, "production") },
+            { name: `${product.id}-preview`, id: await recordedProjectId(ctx, product.id, "preview") },
+          ];
+          const projects = await neon.listProjects(await neonOrgId(ctx, neon));
+          const elsewhere = projects.filter((p) => wanted.some((w) => (w.id ? p.id === w.id : p.name === w.name)) && p.region !== region);
+          if (elsewhere.length > 0) {
+            throw new Error(`The region of an existing database cannot change (${elsewhere.map((p) => `${p.name} is in ${p.region ?? "an unknown region"}`).join(", ")}). Delete the databases with \`pnpm bootstrap destroy db ${product.id}\`, then run this again.`);
+          }
+        }
+      }
+      await ctx.github.setVariable(variable, region);
+    },
+  };
 }
 
 /** Secret names missing from the places the deploy reads them (environment, then repo). */
@@ -110,6 +189,11 @@ export async function missingSecrets(ctx: StepContext, productId: string, names:
   const scope = await secretScope(ctx, productId);
   const have = new Set([...(await ctx.github.listSecrets(scope)), ...(scope.environment ? await ctx.github.listSecrets() : [])]);
   return names.filter((name) => !have.has(name));
+}
+
+async function recordProductionProject(ctx: StepContext, productId: string, projectId: string): Promise<void> {
+  const name = databaseVariables(productId).neonProject;
+  if ((await ctx.github.listVariables())[name] !== projectId) await ctx.github.setVariable(name, projectId);
 }
 
 export function neonProjectStep(product: ProductIdentity): Step {
@@ -124,13 +208,15 @@ export function neonProjectStep(product: ProductIdentity): Step {
         const missing = await missingSecrets(ctx, product.id, [databaseUrl, databaseUrlPooled]);
         return { done: missing.length === 0, detail: "not verified: set NEON_API_KEY to look it up" };
       }
-      const found = await findProject(ctx, neon, product.id, false);
+      const found = await findProject(ctx, neon, product.id, false, undefined, await recordedProjectId(ctx, product.id, "production"));
       if (found === "ambiguous") return { done: false, detail: "several projects have this name" };
       return { done: found !== null, detail: found?.id };
     },
     async run(ctx) {
       const neon = await neonHandle(ctx, true);
-      if (neon) await ensureProject(ctx, neon, product.id);
+      if (!neon) return;
+      const project = await ensureProject(ctx, neon, product.id, "production", product.id);
+      await recordProductionProject(ctx, product.id, project.id);
     },
   };
 }
@@ -176,7 +262,8 @@ export function databaseSecretsStep(product: ProductIdentity): Step {
     async run(ctx) {
       const neon = await neonHandle(ctx, true);
       if (!neon) return ctx.log("No Neon key: the database URLs were not stored. Export NEON_API_KEY or run again.");
-      const project = await ensureProject(ctx, neon, product.id);
+      const project = await ensureProject(ctx, neon, product.id, "production", product.id);
+      await recordProductionProject(ctx, product.id, project.id);
       const orgId = await neonOrgId(ctx, neon);
       const scope = await secretScope(ctx, product.id);
       // Each string goes from the CLI's stdout to the forge's stdin and is never held longer than this call.
@@ -197,7 +284,7 @@ export async function productionDatabaseUrl(ctx: StepContext, product: ProductId
   if (ctx.memory.databaseUrl) return ctx.memory.databaseUrl;
   const neon = await neonHandle(ctx, prompt);
   if (!neon) return undefined;
-  const found = await findProject(ctx, neon, product.id, prompt);
+  const found = await findProject(ctx, neon, product.id, prompt, undefined, await recordedProjectId(ctx, product.id, "production"));
   if (!found || found === "ambiguous") return undefined;
   ctx.memory.databaseUrl = await neon.connectionString(found.id, { pooled: false, orgId: await neonOrgId(ctx, neon) });
   return ctx.memory.databaseUrl;
@@ -331,6 +418,7 @@ export function deployProductsStep(product: ProductIdentity): Step {
  */
 export function productionSteps(product: ProductIdentity): Step[] {
   return [
+    regionStep(product),
     neonProjectStep(product),
     githubEnvironmentStep(product),
     databaseSecretsStep(product),
