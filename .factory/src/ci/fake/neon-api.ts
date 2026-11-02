@@ -72,7 +72,7 @@ export class FakeNeonProject {
       const id = url.searchParams.get("branch_id");
       if (!this.branches.some((b) => b.id === id)) return json(404, { message: "branch not found" });
       const pooled = url.searchParams.get("pooled") === "true";
-      return json(200, { uri: `postgresql://${url.searchParams.get("role_name")}:pw-${id}@ep-${id}${pooled ? "-pooler" : ""}.neon.tech/${url.searchParams.get("database_name")}?sslmode=require` });
+      return json(200, { uri: `postgresql://${url.searchParams.get("role_name")}:pw-${id}@ep-${id}${pooled ? "-pooler" : ""}.neon.tech/${url.searchParams.get("database_name")}?sslmode=require&channel_binding=require` });
     }
     return json(404, { message: `unknown route ${method} ${rest}` });
   };

@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { withVerifyFull } from "../db-url.ts";
 import type { NeonClient, NeonProject, RulesetInfo, RulesetSpec } from "./clients.ts";
 import { passwordProblem } from "../../../packages/skeleton/src/platform/password-rules.ts";
 import { accountNames } from "./accounts.ts";
@@ -274,9 +275,9 @@ export function databaseSecretsStep(product: ProductIdentity): Step {
       const scope = await secretScope(ctx, product.id);
       // Each string goes from the CLI's stdout to the forge's stdin and is never held longer than this call.
       // The direct string also stays in memory for this run only: the account steps migrate and insert through it.
-      ctx.memory.databaseUrl = await neon.connectionString(project.id, { pooled: false, orgId });
+      ctx.memory.databaseUrl = withVerifyFull(await neon.connectionString(project.id, { pooled: false, orgId }));
       await ctx.github.setSecret(databaseUrl, ctx.memory.databaseUrl, scope);
-      await ctx.github.setSecret(databaseUrlPooled, await neon.connectionString(project.id, { pooled: true, orgId }), scope);
+      await ctx.github.setSecret(databaseUrlPooled, withVerifyFull(await neon.connectionString(project.id, { pooled: true, orgId })), scope);
     },
   };
 }
@@ -292,7 +293,7 @@ export async function productionDatabaseUrl(ctx: StepContext, product: ProductId
   if (!neon) return undefined;
   const found = await findProject(ctx, neon, product.id, prompt, undefined, await recordedProjectId(ctx, product.id, "production"));
   if (!found || found === "ambiguous") return undefined;
-  ctx.memory.databaseUrl = await neon.connectionString(found.id, { pooled: false, orgId: await neonOrgId(ctx, neon) });
+  ctx.memory.databaseUrl = withVerifyFull(await neon.connectionString(found.id, { pooled: false, orgId: await neonOrgId(ctx, neon) }));
   return ctx.memory.databaseUrl;
 }
 

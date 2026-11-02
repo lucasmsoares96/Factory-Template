@@ -33,6 +33,9 @@ describe("pnpm bootstrap product: Production module", () => {
     expect([...env.keys()].sort()).toEqual(["EXAMPLE_ACCOUNT_PASSWORD", "EXAMPLE_BETTER_AUTH_SECRET", "EXAMPLE_DATABASE_URL", "EXAMPLE_DATABASE_URL_POOLED"]);
     expect(env.get("EXAMPLE_DATABASE_URL")).toContain("neon.tech");
     expect(env.get("EXAMPLE_DATABASE_URL_POOLED")).toContain("-pooler");
+    for (const name of ["EXAMPLE_DATABASE_URL", "EXAMPLE_DATABASE_URL_POOLED"]) {
+      expect(env.get(name)).toMatch(/\?sslmode=verify-full&channel_binding=require$/);
+    }
     expect(w.github.rulesets).toEqual([]);
     expect(w.github.variables.get("DEPLOY_PRODUCTS")).toBe("example");
   });
