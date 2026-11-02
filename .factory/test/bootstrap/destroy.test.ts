@@ -230,7 +230,7 @@ describe("pnpm bootstrap destroy: wrong confirmation", () => {
 });
 
 describe("pnpm bootstrap destroy: Neon unreachable", () => {
-  it.each(["db", "product", "previews"])("deletes nothing and stops before the confirmation when the Neon login fails (%s)", async (kind) => {
+  it.each(["db", "product", "previews", "all"])("deletes nothing and stops before the confirmation when the Neon login fails (%s)", async (kind) => {
     const w = await built({ "destroy-confirm": "example" });
     w.deps.env = {};
     w.neon.failLogin = true;
@@ -239,7 +239,7 @@ describe("pnpm bootstrap destroy: Neon unreachable", () => {
     const secrets = everywhere(w);
     const askedBefore = w.prompter.asked.length;
 
-    const { code, output } = await w.run("destroy", kind, "example");
+    const { code, output } = await w.run("destroy", ...(kind === "all" ? [] : [kind, "example"]));
 
     expect(code).toBe(1);
     expect(output).toMatch(/Nothing was deleted/);
