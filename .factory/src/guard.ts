@@ -26,16 +26,12 @@ export const TRIAGE_MARKER = "<!-- factory:triage -->";
 const heading = (title: string) => new RegExp(`^##\\s+${title}\\s*$`, "im");
 
 /**
- * The first criterion that only asks for the verify: its text names the command (`factory:verify`, or the CI `verify`)
- * and has no other behaviour once the command, the words around it and punctuation are taken out. The Factory always
- * runs the verify, so it is not a criterion. A criterion that names the command beside a real behaviour stays.
+ * The first criterion that names the verify (`factory:verify`, or the CI `verify`). The Factory always runs the
+ * verify, so a criterion describes a behaviour a test proves, not the command.
  */
 export function verifyCriterion(body: string): string | null {
-  const source = "`?pnpm (?:run )?factory:verify`?|`?factory:verify`?|`verify`";
-  const command = new RegExp(source, "i");
-  const commands = new RegExp(source, "gi");
-  const filler = /\b(?:the|a|an|ci|job|check|checks|pipeline|command|runs?|running|passes?|passing|passed|green|verde|ok|succeeds?|must|should|is|are|and|e|o|a|os|as|roda|rodar|passa|passar|com|sem|erros?|errors?|without|with|no|em|do|da|de|fica|ficar|fique|passe|rode)\b/gi;
-  return criteriaItems(body).find((item) => command.test(item) && item.replace(commands, "").replace(filler, "").replace(/[^\p{L}\p{N}]/gu, "") === "") ?? null;
+  const command = /`?pnpm (?:run )?factory:verify`?|`?factory:verify`?|`verify`/i;
+  return criteriaItems(body).find((item) => command.test(item)) ?? null;
 }
 
 /**
