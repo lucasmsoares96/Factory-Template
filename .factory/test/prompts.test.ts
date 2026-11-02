@@ -161,10 +161,10 @@ describe("prompt templates", () => {
   });
 
   it("asks the Review for a verdict, with its proof, on each acceptance criterion of the issue", () => {
-    expect(prompts.review).toContain("Give a verdict on each acceptance criterion of the issue");
-    expect(prompts.review).toMatch(/"criteria": \[\{"criterion": [^\]]*"met": true, "proof": /);
+    expect(prompts.review).toContain("exactly one per number");
+    expect(prompts.review).toMatch(/"criteria": \[\{"id": 1, "met": true, "proof": /);
     expect(prompts.review).not.toContain("criteriaMetWithoutSkeleton");
-    expect(prompts.review).toContain("belongs to the harness");
+    expect(prompts.review).not.toContain("belongs to the harness");
   });
 
   it("puts the issue, its comments, the branch log and the feedback in the prompt", () => {

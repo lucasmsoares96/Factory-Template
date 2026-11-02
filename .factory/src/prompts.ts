@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { criteriaItems } from "./criteria.ts";
 import { LANGUAGE_NAMES, type Language } from "./messages.ts";
 import type { ThreadReply } from "./replies-output.ts";
 import type { ReviewOutput } from "./result.ts";
@@ -144,6 +145,7 @@ export function reviewPrompt(ctx: ReviewContext): string {
     FINDINGS: findings.length > 0 ? `\nPrevious findings:\n${findings.join("\n")}` : "",
     SKELETON: ctx.skeleton ? SKELETON_REVIEW_RULE : "",
     ROUND: roundBlock(ctx.round, REVIEW_ROUND_RULE),
+    CRITERIA: criteriaItems(ctx.issue.body).map((c, i) => `${i + 1}. ${c}`).join("\n") || "(none)",
     ISSUE: issueBlock(ctx.issue),
     LOG: ctx.log || "(none)",
   });

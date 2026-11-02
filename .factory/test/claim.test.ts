@@ -187,6 +187,37 @@ describe("factory claim", () => {
     expect(w.tracker.commentsOn(7).map((c) => c.body).join("\n")).toContain("## Acceptance criteria");
   });
 
+  it.each([
+    "`pnpm factory:verify` passes.",
+    "O `verify` do CI fica verde.",
+    "The CI `verify` job is green",
+  ])("sends an issue whose criterion only asks for the verify (%s) to needs-info, with no run", async (item) => {
+    const w = world({ issues: readyIssue({ body: `## Acceptance criteria\n\n- [ ] \`greet()\` returns a greeting.\n- [ ] ${item}\n` }) });
+
+    await w.factory("claim", "7");
+
+    expect(lastJson(w.logs)).toEqual({ claimed: false, issue: 7, reason: "verify-criterion" });
+    expect(w.tracker.labelsOf(7)).toEqual(["needs-info"]);
+    expect(w.tracker.commentsOn(7).map((c) => c.body).join("\n")).toContain("pnpm factory:verify");
+    expect(w.codeHost.dispatches).toEqual([]);
+  });
+
+  it("writes the verify refusal in FACTORY_LANGUAGE", async () => {
+    const w = world({ issues: readyIssue({ body: "## Acceptance criteria\n\n- [ ] `pnpm factory:verify` passes.\n" }), env: { FACTORY_LANGUAGE: "pt-BR" } });
+
+    await w.factory("claim", "7");
+
+    expect(w.tracker.commentsOn(7).map((c) => c.body).join("\n")).toContain("sempre roda");
+  });
+
+  it("keeps an issue whose criterion names the verify beside a real behaviour", async () => {
+    const w = world({ issues: readyIssue({ body: "## Acceptance criteria\n\n- [ ] The footer shows the year, and `pnpm factory:verify` passes.\n" }) });
+
+    await w.factory("claim", "7");
+
+    expect(lastJson(w.logs)).toMatchObject({ claimed: true });
+  });
+
   it("sends an issue without seams to Triage", async () => {
     const w = world({ issues: readyIssue({ parent: null }) });
 

@@ -16,10 +16,19 @@ function section(body: string): { lines: string[]; start: number; end: number } 
   return { lines, start: heading + 1, end: next < 0 ? lines.length : next };
 }
 
+/** The text of each checkbox item of the criteria section (checked or not, without the `- [ ]`), in the issue's order. */
+export function criteriaItems(body: string): string[] {
+  const s = section(body);
+  if (!s) return [];
+  return s.lines
+    .slice(s.start, s.end)
+    .filter((line) => ITEM.test(line))
+    .map((line) => line.replace(ITEM, "").trim());
+}
+
 /** How many checkbox items the criteria section has, checked or not. */
 export function countCriteria(body: string): number {
-  const s = section(body);
-  return s ? s.lines.slice(s.start, s.end).filter((line) => ITEM.test(line)).length : 0;
+  return criteriaItems(body).length;
 }
 
 /** `body` with every `- [ ]` of the criteria section checked, and every other byte unchanged. */
