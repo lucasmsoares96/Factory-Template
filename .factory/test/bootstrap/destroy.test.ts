@@ -229,24 +229,54 @@ describe("pnpm bootstrap destroy: wrong confirmation", () => {
   });
 });
 
-describe("pnpm bootstrap destroy: no login before the confirmation", () => {
-  it.each(["", "nope"])("opens no login and asks nothing but the confirmation (typed %j), and says what it could not list", async (typed) => {
-    const w = await built({ "destroy-confirm": typed });
-    // Nothing known on this machine: no Cloudflare, Neon or Resend credential in the environment, no saved wrangler login.
+describe("pnpm bootstrap destroy: Neon unreachable", () => {
+  it.each(["db", "product", "previews", "all"])("deletes nothing and stops before the confirmation when the Neon login fails (%s)", async (kind) => {
+    const w = await built({ "destroy-confirm": "example" });
     w.deps.env = {};
-    w.wrangler.saved = undefined;
-    w.wrangler.logins = 0;
-    const neonSessions = w.neon.sessions.length;
+    w.neon.failLogin = true;
+    const before = writes(w);
+    const state = left(w);
+    const secrets = everywhere(w);
     const askedBefore = w.prompter.asked.length;
 
-    const { code, output } = await w.run("destroy", "product", "example");
+    const { code, output } = await w.run("destroy", ...(kind === "all" ? [] : [kind, "example"]));
 
     expect(code).toBe(1);
-    expect(w.wrangler.logins).toBe(0);
-    expect(w.neon.sessions.slice(neonSessions).filter((s) => s.loggedIn)).toEqual([]);
-    expect(w.prompter.asked.slice(askedBefore)).toEqual(["destroy-confirm"]);
-    expect(output).toMatch(/Not listed: no Cloudflare login/);
-    expect(output).toMatch(/Not listed: .*Neon/);
+    expect(output).toMatch(/Nothing was deleted/);
+    expect(output).toMatch(/NEON_API_KEY/);
+    expect(w.prompter.asked.slice(askedBefore)).toEqual([]);
+    expect(writes(w)).toEqual(before);
+    expect(left(w)).toEqual(state);
+    expect(everywhere(w)).toEqual(secrets);
+  });
+
+  it.each(["db", "previews"])("deletes nothing when the Neon keys cannot be listed (%s)", async (kind) => {
+    const w = await built({ "destroy-confirm": "example" });
+    w.neon.failKeyList = true;
+    const before = writes(w);
+    const state = left(w);
+    const secrets = everywhere(w);
+
+    const { code, output } = await w.run("destroy", kind, "example");
+
+    expect(code).toBe(1);
+    expect(output).toMatch(/Nothing was deleted/);
+    expect(writes(w)).toEqual(before);
+    expect(left(w)).toEqual(state);
+    expect(everywhere(w)).toEqual(secrets);
+  });
+
+  it("signs in through the browser without NEON_API_KEY, lists the projects, then asks the confirmation", async () => {
+    const w = await built({ "destroy-confirm": "nope" });
+    w.deps.env = {};
+    const sessions = w.neon.sessions.length;
+
+    const { code, output } = await w.run("destroy", "db", "example");
+
+    expect(code).toBe(1);
+    expect(w.neon.sessions.slice(sessions).filter((s) => s.loggedIn)).toHaveLength(1);
+    expect(output).toContain("Neon project example (");
+    expect(output).toContain("Neon project example-preview (");
     expect(output).toMatch(/Nothing was deleted/);
   });
 });
@@ -271,6 +301,26 @@ describe("pnpm bootstrap destroy previews <id>", () => {
     expect(w.github.variables.has("EXAMPLE_PREVIEW_OAUTH_KV_ID")).toBe(false);
     expect(w.github.secrets.has("EXAMPLE_DATABASE_URL") || w.github.environmentSecrets.get("example-production")!.has("EXAMPLE_DATABASE_URL")).toBe(true);
     expect(w.github.variables.get("DEPLOY_PRODUCTS")).toBe("example,shop");
+  });
+
+  it("revokes the Neon key of the Previews of the Product and only that one", async () => {
+    const w = await built({ "destroy-confirm": "example" });
+    expect(w.neon.apiKeys.map((k) => k.name).sort()).toEqual(["example-preview-ci", "shop-preview-ci"]);
+
+    const { code, output } = await w.run("destroy", "previews", "example");
+
+    expect(code).toBe(0);
+    expect(output).toContain("Neon API key example-preview-ci");
+    expect(w.neon.apiKeys.map((k) => k.name)).toEqual(["shop-preview-ci"]);
+  });
+
+  it("destroy db revokes the key together with its secret", async () => {
+    const w = await built({ "destroy-confirm": "example" });
+
+    const { code } = await w.run("destroy", "db", "example");
+
+    expect(code).toBe(0);
+    expect(w.neon.apiKeys.map((k) => k.name)).toEqual(["shop-preview-ci"]);
   });
 });
 

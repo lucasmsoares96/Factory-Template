@@ -1,6 +1,7 @@
 import { cloudflareHandle, productSecretName } from "./domain.ts";
 import { accountNames } from "./accounts.ts";
-import { askPassword, ensureProject, environmentStep, neonHandle, parseProductList, regionStep } from "./product.ts";
+import type { NeonApiKey, NeonClient } from "./clients.ts";
+import { askPassword, ensureProject, environmentStep, neonHandle, neonOrgId, parseProductList, regionStep } from "./product.ts";
 import type { ProductIdentity, Step, StepContext } from "./steps.ts";
 
 export const PREVIEW_PRODUCTS = "PREVIEW_PRODUCTS";
@@ -93,6 +94,17 @@ export function previewProjectStep(product: ProductIdentity): Step {
   };
 }
 
+/**
+ * The Neon keys that `<id>-preview-ci` names for this Product: found by name, and by project when the listing says which
+ * one (a key of another project with the same name is not ours). `projectIds` are the Product's preview projects.
+ */
+export async function previewKeysOf(neon: NeonClient, orgId: string | undefined, productId: string, projectIds: string[]): Promise<NeonApiKey[]> {
+  const name = previewKeyName(productId);
+  return (await neon.listApiKeys(orgId)).filter((key) => key.name === name && (!key.projectId || projectIds.includes(key.projectId)));
+}
+
+export const previewKeyName = (productId: string): string => `${productId}-preview-ci`;
+
 const NEON_CONSOLE = "https://console.neon.tech";
 
 /**
@@ -115,7 +127,13 @@ export function previewNeonKeyStep(product: ProductIdentity): Step {
       const neon = await neonHandle(ctx, true);
       if (neon) {
         try {
-          key = await neon.createApiKey(`${product.id}-preview-ci`, projectId);
+          // Neon refuses a repeated name, and an old key whose secret is gone guards nothing: revoke it, then mint the new one.
+          const orgId = await neonOrgId(ctx, neon);
+          for (const old of await previewKeysOf(neon, orgId, product.id, [projectId])) {
+            await neon.revokeApiKey(old.id, orgId);
+            ctx.log(`  Revoked the old Neon key ${old.name} (${old.id}): its secret was gone.`);
+          }
+          key = await neon.createApiKey(previewKeyName(product.id), projectId);
         } catch (error) {
           ctx.log(`  Neon would not mint the key with this login (${(error as Error).message}).`);
         }
