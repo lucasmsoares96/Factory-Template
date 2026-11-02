@@ -30,7 +30,9 @@ test(
       await expect(device.getByTestId("user-name")).toHaveText("Ana Souza");
     }
 
-    await page.getByRole("navigation", { name: t.nav.label }).getByRole("link", { name: t.account.nav }).click();
+    await page.getByRole("button", { name: t.nav.userMenu }).click();
+
+    await page.getByRole("menuitem", { name: t.account.nav }).click();
     await expect(page.getByRole("heading", { name: t.account.password.title })).toBeVisible();
 
     // A wrong current password changes nothing.
@@ -54,7 +56,7 @@ test(
     await otherDevice.close();
 
     await page.getByRole("button", { name: t.nav.userMenu }).click();
-    await page.getByRole("button", { name: t.auth.signOut }).click();
+    await page.getByRole("menuitem", { name: t.auth.signOut }).click();
     await expect(page.getByRole("heading", { name: t.auth.signIn.title })).toBeVisible();
     await page.getByLabel(t.auth.signIn.email).fill(email);
     await page.getByLabel(t.auth.signIn.password).fill(oldPassword);

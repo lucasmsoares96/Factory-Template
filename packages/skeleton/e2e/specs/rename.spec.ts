@@ -23,24 +23,25 @@ test(
     await expect(page.getByTestId("user-name")).toHaveText("Ana Souza");
 
     const navigation = page.getByRole("navigation", { name: t.nav.label });
-    await navigation.getByRole("link", { name: t.account.nav }).click();
+    await page.getByRole("button", { name: t.nav.userMenu }).click();
+    await page.getByRole("menuitem", { name: t.account.nav }).click();
     await expect(page).toHaveURL(/\/account$/);
     await expect(page.getByRole("heading", { name: t.account.title })).toBeVisible();
-    await expect(page.getByLabel(t.account.name)).toHaveValue("Ana Souza");
+    await expect(page.getByLabel(t.account.name, { exact: true })).toHaveValue("Ana Souza");
     await evidence("account");
 
-    await page.getByLabel(t.account.name).fill("   ");
+    await page.getByLabel(t.account.name, { exact: true }).fill("   ");
     await page.getByRole("button", { name: t.account.submit }).click();
     await expect(page.getByRole("alert")).toHaveText(t.errors.VALIDATION_FAILED);
     await expect(page.getByTestId("user-name")).toHaveText("Ana Souza");
 
     // A full reload would lose this marker: the new name must arrive without one.
     await page.evaluate(() => Object.assign(globalThis, { notReloaded: true }));
-    await page.getByLabel(t.account.name).fill("  Ana Lima  ");
+    await page.getByLabel(t.account.name, { exact: true }).fill("  Ana Lima  ");
     await page.getByRole("button", { name: t.account.submit }).click();
     await expect(page.getByRole("status")).toHaveText(t.account.saved);
     await expect(page.getByTestId("user-name")).toHaveText("Ana Lima");
-    await expect(page.getByLabel(t.account.name)).toHaveValue("Ana Lima");
+    await expect(page.getByLabel(t.account.name, { exact: true })).toHaveValue("Ana Lima");
     await evidence("name-changed");
 
     await navigation.getByRole("link", { name: t.nav.home }).click();

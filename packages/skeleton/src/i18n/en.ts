@@ -150,6 +150,7 @@ export const en = {
   },
   companies: {
     switcher: {
+      title: "Companies",
       label: "Company",
       choose: "Choose a Company",
       new: "New Company",

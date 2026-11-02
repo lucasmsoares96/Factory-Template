@@ -2,8 +2,13 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, Outlet, createFileRoute, redirect, useMatchRoute, useNavigate } from "@tanstack/react-router";
 import { Alert, AlertDescription } from "#ui/alert";
 import { Avatar, AvatarFallback } from "#ui/avatar";
-import { Button } from "#ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "#ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "#ui/dropdown-menu";
 import {
   Sidebar,
   SidebarContent,
@@ -18,8 +23,9 @@ import {
   SidebarProvider,
   SidebarRail,
   SidebarTrigger,
+  useSidebar,
 } from "#ui/sidebar";
-import { ChevronsUpDown, LogOut } from "lucide-react";
+import { ChevronsUpDown, LogOut, UserRound } from "lucide-react";
 import { CompanySwitcher } from "../features/companies/switcher.tsx";
 import { getMeQueryOptions, useGetMe } from "../gen/hooks/useGetMe.ts";
 import { useGetNav } from "../gen/hooks/useGetNav.ts";
@@ -48,10 +54,27 @@ export const Route = createFileRoute("/_signed-in")({
   component: SignedIn,
 });
 
+function UserSummary({ name, email, testIds }: { name?: string; email?: string; testIds?: boolean }) {
+  return (
+    <>
+      <Avatar className="size-8 rounded-lg">
+        <AvatarFallback className="rounded-lg">{name?.slice(0, 1).toUpperCase()}</AvatarFallback>
+      </Avatar>
+      <span className="grid flex-1 text-left text-sm leading-tight">
+        <span data-testid={testIds ? "user-name" : undefined} className="truncate font-medium">
+          {name}
+        </span>
+        <span data-testid={testIds ? "user-email" : undefined} className="truncate text-xs">
+          {email}
+        </span>
+      </span>
+    </>
+  );
+}
+
 function SignedIn() {
   const t = useMessages();
   const errorMessage = useErrorMessage();
-  const me = useGetMe();
   const nav = useGetNav();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -62,13 +85,12 @@ function SignedIn() {
       queryClient.clear();
     },
   });
-
   const items = [{ label: t.nav.home, to: "/", icon: "House" }, ...(nav.data?.entries ?? [])];
 
   return (
     <SidebarProvider>
       <Sidebar collapsible="icon">
-        <SidebarHeader className="group-data-[collapsible=icon]:hidden">
+        <SidebarHeader>
           <CompanySwitcher />
         </SidebarHeader>
         <SidebarContent>
@@ -87,25 +109,7 @@ function SignedIn() {
         <SidebarFooter>
           <SidebarMenu>
             <SidebarMenuItem>
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={<SidebarMenuButton size="lg" aria-label={t.nav.userMenu} tooltip={me.data?.name} />}
-                >
-                  <Avatar className="size-8 rounded-lg">
-                    <AvatarFallback className="rounded-lg">{me.data?.name?.slice(0, 1).toUpperCase()}</AvatarFallback>
-                  </Avatar>
-                  <span data-testid="user-name" className="truncate font-medium">
-                    {me.data?.name}
-                  </span>
-                  <ChevronsUpDown className="ml-auto size-4" />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent side="top" align="start" className="min-w-48">
-                  <Button variant="ghost" size="sm" disabled={signOut.isPending} onClick={() => signOut.mutate()}>
-                    <LogOut />
-                    {t.auth.signOut}
-                  </Button>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <UserMenu signOut={signOut} />
             </SidebarMenuItem>
           </SidebarMenu>
         </SidebarFooter>
@@ -126,6 +130,51 @@ function SignedIn() {
         </div>
       </SidebarInset>
     </SidebarProvider>
+  );
+}
+
+function UserMenu({ signOut }: { signOut: { isPending: boolean; mutate: () => void } }) {
+  const t = useMessages();
+  const me = useGetMe();
+  const nav = useGetNav();
+  const { isMobile } = useSidebar();
+
+  return (
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <SidebarMenuButton
+              size="lg"
+              aria-label={t.nav.userMenu}
+              tooltip={me.data?.name}
+              className="data-open:bg-sidebar-accent data-open:text-sidebar-accent-foreground"
+            />
+          }
+        >
+          <UserSummary name={me.data?.name} email={me.data?.email} testIds />
+          <ChevronsUpDown className="ml-auto size-4" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent className="w-56 min-w-56" side={isMobile ? "bottom" : "right"} align="end" sideOffset={4}>
+          <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
+            <UserSummary name={me.data?.name} email={me.data?.email} />
+          </div>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem render={<Link to="/account" />}>
+            <UserRound />
+            {t.account.nav}
+          </DropdownMenuItem>
+          {(nav.data?.accountPage ?? []).map((entry) => (
+            <DropdownMenuItem key={entry.to} render={<Link to={entry.to} />}>
+              {entry.label}
+            </DropdownMenuItem>
+          ))}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem disabled={signOut.isPending} onClick={() => signOut.mutate()}>
+            <LogOut />
+            {t.auth.signOut}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
   );
 }
 

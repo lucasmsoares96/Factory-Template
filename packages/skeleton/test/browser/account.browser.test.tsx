@@ -10,14 +10,11 @@ import { expect, test } from "../spa/test.ts";
 
 const ana = { id: "user-1", name: "Ana Souza", email: "ana@example.com", pendingEmail: null as string | null };
 
-/** The test composition's navigation: the Skeleton's account entry, then a Product feature's (`notes`), and its Company page section. */
-const nav = (t = messagesFor("en")) => ({
-  entries: [
-    { label: t.account.nav, to: "/account", icon: "UserRound" },
-    { label: "Notes", to: "/notes", icon: "Circle" },
-  ],
+/** The test composition's navigation: a Product feature's entry (`notes`) and its Company page section, and an account page link when asked. */
+const nav = (accountPage: { label: string; to: string }[] = []) => ({
+  entries: [{ label: "Notes", to: "/notes", icon: "Circle" }],
   companyPage: [{ label: "Notes", to: "/notes" }],
-  accountPage: [],
+  accountPage,
 });
 
 /** A user in no Company: the signed-in root stays home. */
@@ -41,15 +38,17 @@ function meApi() {
   };
 }
 
-test("the signed-in navigation shows home, the account page and every feature's nav entry", async ({ worker }) => {
+test("the signed-in navigation shows home and every feature's nav entry, and the user menu opens the account page", async ({ worker }) => {
   worker.use(getMeHandler(ana), getNavHandler(nav()), noCompany);
 
   const { screen, router, t } = await renderSpa();
 
   const navigation = screen.getByRole("navigation", { name: t.nav.label });
   await expect.element(navigation.getByRole("link", { name: t.nav.home })).toHaveAttribute("href", "/");
-  await expect.element(navigation.getByRole("link", { name: nav().entries[1]!.label })).toHaveAttribute("href", "/notes");
-  await navigation.getByRole("link", { name: t.account.nav }).click();
+  await expect.element(navigation.getByRole("link", { name: nav().entries[0]!.label })).toHaveAttribute("href", "/notes");
+  await expect.element(navigation.getByRole("link", { name: t.account.nav })).not.toBeInTheDocument();
+  await screen.getByRole("button", { name: t.nav.userMenu }).click();
+  await screen.getByRole("menuitem", { name: t.account.nav }).click();
   await expect.element(screen.getByRole("heading", { name: t.account.title })).toBeVisible();
   expect(router.state.location.pathname).toBe("/account");
 });
@@ -57,11 +56,11 @@ test("the signed-in navigation shows home, the account page and every feature's 
 test("the sidebar marks the current page's item active and collapses to icons with its button", async ({ worker }) => {
   worker.use(getMeHandler(ana), getNavHandler(nav()), noCompany);
 
-  const { screen, t } = await renderSpa({ path: "/account" });
+  const { screen, t } = await renderSpa();
 
   const navigation = screen.getByRole("navigation", { name: t.nav.label });
-  await expect.element(navigation.getByRole("link", { name: t.account.nav })).toHaveAttribute("data-active");
-  await expect.element(navigation.getByRole("link", { name: t.nav.home })).not.toHaveAttribute("data-active");
+  await expect.element(navigation.getByRole("link", { name: t.nav.home })).toHaveAttribute("data-active");
+  await expect.element(navigation.getByRole("link", { name: "Notes" })).not.toHaveAttribute("data-active");
   const root = document.querySelector("[data-slot=sidebar]")!;
   expect(root.getAttribute("data-state")).toBe("expanded");
   await screen.getByRole("button", { name: t.nav.toggle }).first().click();
@@ -91,7 +90,7 @@ test("an invalid name is refused with the message translated by its code, and th
   const t = messagesFor("pt-BR");
   worker.use(
     getMeHandler(ana),
-    getNavHandler(nav(t)),
+    getNavHandler(nav()),
     updateMeHandler(() => updateMeHandlerResponse400({ code: "VALIDATION_FAILED", message: "The request is invalid." })),
   );
   const { screen } = await renderSpa({ path: "/account", locale: "pt-BR" });
@@ -138,7 +137,7 @@ test("an email that belongs to another account is refused with the message trans
   const t = messagesFor("pt-BR");
   const message = "User already exists. Use another email.";
   const change = changeEmailHandler(authError(400, "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL", message));
-  worker.use(getMeHandler(ana), getNavHandler(nav(t)), change.handler);
+  worker.use(getMeHandler(ana), getNavHandler(nav()), change.handler);
   const { screen } = await renderSpa({ path: "/account", locale: "pt-BR" });
 
   await screen.getByLabelText(t.account.newEmail).fill("bruno@example.com");
@@ -170,7 +169,7 @@ test("changing the password on the account page sends the current and the new on
 
 test("a wrong current password and a new one outside the rules show the message translated by its code", async ({ worker }) => {
   const t = messagesFor("pt-BR");
-  worker.use(getMeHandler(ana), getNavHandler(nav(t)));
+  worker.use(getMeHandler(ana), getNavHandler(nav()));
   const { screen } = await renderSpa({ path: "/account", locale: "pt-BR" });
 
   for (const [code, message] of [
@@ -217,7 +216,7 @@ test("an Owner is refused with the Companies to transfer or delete first, linked
   ];
   worker.use(
     getMeHandler(ana),
-    getNavHandler(nav(t)),
+    getNavHandler(nav()),
     deleteUserHandler({ status: 409, body: { code: "OWNER_OF_COMPANIES", message: "You are the Owner.", companies } }).handler,
   );
   const { screen, router } = await renderSpa({ path: "/account", locale: "pt-BR" });
@@ -242,7 +241,7 @@ test("a Member is refused with the Companies whose Owners must remove them", asy
   const companies = [{ id: "company-1", name: "Acme" }];
   worker.use(
     getMeHandler(ana),
-    getNavHandler(nav(t)),
+    getNavHandler(nav()),
     deleteUserHandler({ status: 409, body: { code: "MEMBER_OF_COMPANIES", message: "You work there.", companies } }).handler,
   );
   const { screen, router } = await renderSpa({ path: "/account", locale: "pt-BR" });
@@ -263,7 +262,7 @@ test("an active plan is refused with the day it stays valid once canceled, not r
   const t = messagesFor("pt-BR");
   worker.use(
     getMeHandler(ana),
-    getNavHandler(nav(t)),
+    getNavHandler(nav()),
     deleteUserHandler({ status: 409, body: { code: "SUBSCRIPTION_ACTIVE", message: "Cancel first.", periodEnd: "2026-11-28T12:00:00.000Z" } }).handler,
   );
   const { screen, router } = await renderSpa({ path: "/account", locale: "pt-BR" });
@@ -283,7 +282,7 @@ test("an active plan is refused with the day it stays valid once canceled, not r
 
 test("a wrong password is refused with the message translated by its code, and the user stays", async ({ worker }) => {
   const t = messagesFor("pt-BR");
-  worker.use(getMeHandler(ana), getNavHandler(nav(t)), deleteUserHandler(authError(400, "INVALID_PASSWORD", "Invalid password")).handler);
+  worker.use(getMeHandler(ana), getNavHandler(nav()), deleteUserHandler(authError(400, "INVALID_PASSWORD", "Invalid password")).handler);
   const { screen, router } = await renderSpa({ path: "/account", locale: "pt-BR" });
   const m = t.account.delete;
 
@@ -294,4 +293,27 @@ test("a wrong password is refused with the message translated by its code, and t
   await expect.element(screen.getByRole("alert")).toHaveTextContent(t.errors.INVALID_PASSWORD);
   await expect.element(screen.getByRole("alert")).not.toHaveTextContent("Invalid password");
   expect(router.state.location.pathname).toBe("/account");
+});
+
+test("the user menu shows the name and email, then Account, the features' account links and sign out", async ({ worker }) => {
+  worker.use(getMeHandler(ana), getNavHandler(nav([{ label: "Plan", to: "/account/plan" }])), noCompany);
+
+  const { screen, t } = await renderSpa();
+
+  await screen.getByRole("button", { name: t.nav.userMenu }).click();
+  const menu = screen.getByRole("menu");
+  await expect.element(menu.getByText(ana.name)).toBeVisible();
+  await expect.element(menu.getByText(ana.email)).toBeVisible();
+  await expect.element(menu.getByRole("menuitem", { name: t.account.nav })).toHaveAttribute("href", "/account");
+  await expect.element(menu.getByRole("menuitem", { name: "Plan" })).toHaveAttribute("href", "/account/plan");
+  await expect.element(menu.getByRole("menuitem", { name: t.auth.signOut })).toBeVisible();
+});
+
+test("the user menu has no extra link without account page links", async ({ worker }) => {
+  worker.use(getMeHandler(ana), getNavHandler(nav()), noCompany);
+
+  const { screen, t } = await renderSpa();
+
+  await screen.getByRole("button", { name: t.nav.userMenu }).click();
+  await expect.element(screen.getByRole("menu").getByRole("menuitem")).toHaveLength(2);
 });
