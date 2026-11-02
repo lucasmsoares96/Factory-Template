@@ -6,6 +6,9 @@ import { CloudflareRefused } from "../../src/bootstrap/clients.ts";
 import { CloudflareApi } from "../../src/bootstrap/cloudflare.ts";
 import { ResendApi } from "../../src/bootstrap/resend.ts";
 
+const PASSWORD = "pw";
+const CONNECTION_STRING = `postgresql://u:${PASSWORD}@h/neondb`;
+
 describe("GhCli (command construction, no gh process)", () => {
   function recorder(replies: Record<string, string> = {}) {
     const calls: { args: string[]; input?: string }[] = [];
@@ -408,11 +411,11 @@ describe("NeonCli (fake neonctl)", () => {
     const { neon, calls } = cli({
       orgs: JSON.stringify([{ id: "org-1", name: "P" }]),
       projects: JSON.stringify({ projects: [{ id: "p1", name: "example" }] }),
-      "connection-string": "postgresql://u:pw@h/neondb\n",
+      "connection-string": `${CONNECTION_STRING}\n`,
     }, { loggedIn: true });
     expect(await neon.listOrgs()).toEqual([{ id: "org-1", name: "P" }]);
     expect(await neon.listProjects("org-1")).toEqual([{ id: "p1", name: "example" }]);
-    expect(await neon.connectionString("p1", { pooled: true, orgId: "org-1" })).toBe("postgresql://u:pw@h/neondb");
+    expect(await neon.connectionString("p1", { pooled: true, orgId: "org-1" })).toBe(CONNECTION_STRING);
     const [orgsCall, listCall, uriCall] = calls.map((c) => c.args.join(" "));
     expect(orgsCall).toBe("orgs list -o json");
     expect(listCall).toBe("projects list --org-id org-1 -o json");
