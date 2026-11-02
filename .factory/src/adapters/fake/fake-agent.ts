@@ -1,4 +1,4 @@
-import { MAX_EXTRACTION_RETRIES, type Agent, type AgentRun, type Extraction, type Stage, type Usage } from "../../seams/agent.ts";
+import { judge, MAX_EXTRACTION_RETRIES, type Agent, type AgentRun, type Extraction, type Stage, type Usage } from "../../seams/agent.ts";
 import { Git } from "../../git.ts";
 
 export interface AgentCall {
@@ -59,20 +59,23 @@ export class FakeAgent implements Agent {
     let output = reported.output ?? "";
     let timedOut = reported.timedOut ?? false;
     let retries = 0;
-    if (extract && !timedOut && !extract.valid(output)) {
+    const first = extract && !timedOut ? await judge(extract, output) : null;
+    if (extract && first && !first.ok) {
       const answers = [...(reported.resumes ?? [])];
       let current = output;
-      while (retries < MAX_EXTRACTION_RETRIES && !extract.valid(current) && !timedOut) {
+      let verdict: Awaited<ReturnType<typeof judge>> = first;
+      while (retries < MAX_EXTRACTION_RETRIES && !verdict.ok && !timedOut) {
         const answer = answers.shift();
         if (!answer) throw new Error(`FakeAgent: unscripted resume #${retries + 1} of ${stage} session #${this.calls.length}`);
         retries++;
-        call.resumes.push(extract.ask);
+        call.resumes.push(verdict.ask);
         usage.inputTokens += answer.usage?.inputTokens ?? 0;
         usage.outputTokens += answer.usage?.outputTokens ?? 0;
         timedOut = answer.timedOut ?? false;
         current = answer.output;
+        if (!timedOut) verdict = await judge(extract, current);
       }
-      if (!timedOut && extract.valid(current)) output = current;
+      if (!timedOut && verdict.ok) output = current;
     }
     return { commits: await git.countCommits(before, "HEAD"), output, usage, retries, timedOut };
   }

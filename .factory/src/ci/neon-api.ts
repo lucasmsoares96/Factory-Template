@@ -4,6 +4,7 @@
 // api-docs.neon.tech/reference/{createprojectbranch,listprojectbranches,getconnectionuri}; deleting is
 // `DELETE /projects/{id}/branches/{branch_id}`, which refuses the default branch and a branch with children.
 import { z } from "zod";
+import { withVerifyFull } from "../db-url.ts";
 
 type Fetch = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
@@ -102,7 +103,7 @@ export class NeonApi implements PreviewBranches {
     const query = new URLSearchParams({ branch_id: branchId, database_name: this.database, role_name: this.role, ...(options.pooled ? { pooled: "true" } : {}) });
     const { uri } = await this.call("GET", `/connection_uri?${query}`, z.object({ uri: z.string() }));
     if (!/^postgres(ql)?:\/\//.test(uri)) throw new Error("Neon did not answer a connection string.");
-    return uri;
+    return withVerifyFull(uri);
   }
 
   async ensureBase(): Promise<{ branch: Branch; recreated: boolean }> {

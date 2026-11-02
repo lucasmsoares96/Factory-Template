@@ -1,3 +1,4 @@
+import type { StageText } from "./secret-text.ts";
 import type { Extraction } from "./seams/agent.ts";
 import { reviewSchema, type ReviewOutput } from "./result.ts";
 
@@ -46,4 +47,13 @@ export function reviewExtraction(count: number): Extraction {
       `with valid JSON, an "inline" array (empty when you have no inline comments) and a "criteria" array with exactly one verdict for each number from 1 to ${count}, each number once.`,
     ].join(" "),
   };
+}
+
+/** The texts the Review publishes (summary, inline comments, proofs), as the scanner sees them. */
+export function reviewTexts(review: ReviewOutput): StageText[] {
+  return [
+    { name: "review summary", text: review.summary },
+    ...review.inline.map((c, i) => ({ name: `review inline comment ${i + 1}`, text: c.body })),
+    ...review.criteria.map((c, i) => ({ name: `review criterion proof ${i + 1}`, text: c.proof ?? "" })),
+  ].filter((t) => t.text !== "");
 }
