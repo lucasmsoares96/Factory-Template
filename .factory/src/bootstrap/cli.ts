@@ -81,7 +81,7 @@ Commands:
                          about credentials. At the end, with a terminal, it offers (default no) an example issue that the
                          Factory solves in about 15 minutes, using Claude credits; everything it creates is deleted.
   destroy [scope]        Deletes what the wizard made, after listing it (the production database is highlighted) and
-                         asking you to type the id. Scope: product <id>, previews <id>, factory, common; none = everything
+                         asking you to type the id. Scope: product <id>, previews <id>, db <id> (only the Neon projects and what depends on them), factory, common; none = everything
                          (type "all"). Needs a terminal and refuses when CI is set. Never deletes the repository, issues,
                          labels, accounts or DNS records. Agents must never run it.
   help                   Show this message.
@@ -95,7 +95,7 @@ Options:
   --redo <step>          Redo one step even if it looks done (repeatable): cloudflare-token, workers-dev, labels,
                          language (asks the language again), main-ruleset;
                          for the domain command: resend-domain, dns-records, restricted-resend-key, worker-domain;
-                         for the product command: neon-project, github-environment, database-secrets, auth-secret,
+                         for the product command: region (asks the Neon region again; refused while a database exists in another region: use destroy db), neon-project, github-environment, database-secrets, auth-secret,
                          default-account (asks again, resets the password and the secret), the four domain steps, deploy-products;
                          for the billing command: keys (makes both keys again), ci-key (asks for the CI sandbox key again), plans (asks the plans again; a changed amount becomes a new price with the old nickname and the old one is archived, new plans are added and removed ones archived, in both accounts), webhook (a new endpoint and secret),
                          existing (shows and confirms again what happens to the accounts that already exist);
