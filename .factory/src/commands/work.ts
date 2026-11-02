@@ -1,7 +1,7 @@
 import { cp, mkdir, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { issueBranch } from "../config.ts";
-import { countCriteria } from "../criteria.ts";
+import { criteriaItems } from "../criteria.ts";
 import { Git } from "../git.ts";
 import { messages } from "../messages.ts";
 import { CHECK_LOG_LINES, type ChecksRead, developmentPrompt, prFeedbackPrompt, pullRequestPrompt, reviewPrompt, updateBranchPrompt } from "../prompts.ts";
@@ -75,6 +75,8 @@ export async function work(ctx: CommandContext, number: number | null, options: 
 
   const usage = { development: zeroUsage(), review: zeroUsage(), pullRequest: zeroUsage() };
   const attempts: FactoryResult["attempts"] = [];
+  // The issue's criteria, numbered from 1 in the issue's order: the contract the Review answers by number.
+  const texts = criteriaItems(issue.body);
   const reviews: (ReviewOutput & { attempt: number })[] = [];
   let feedback: string | null = null;
   let lastReviewed: string | null = null;
@@ -241,7 +243,7 @@ export async function work(ctx: CommandContext, number: number | null, options: 
       const reviewRun = await session(
         "review",
         reviewPrompt({ issue, log: await git.log(base, "HEAD"), since: lastReviewed, findings: reviews, skeleton, round: flow?.kind === "pr-feedback" ? round() : undefined, language: config.language }),
-        { timeoutMs, model: config.models.review, extract: reviewExtraction },
+        { timeoutMs, model: config.models.review, extract: reviewExtraction(texts.length) },
       );
       if (reviewRun) add(usage.review, reviewRun.usage);
       if (reviewRun === null) {
@@ -258,7 +260,7 @@ export async function work(ctx: CommandContext, number: number | null, options: 
         feedback = `The Review session after the previous attempt timed out after ${minutes(timeoutMs)} min. Keep the change small and focused.`;
         continue;
       }
-      reviews.push({ attempt, ...parseReviewOutput(reviewRun.output) });
+      reviews.push({ attempt, ...resolveCriteria(parseReviewOutput(reviewRun.output), texts) });
       lastReviewed = await git.head();
       stages.push({ ...reviewRecord, outcome: "ok" });
 
@@ -297,15 +299,7 @@ export async function work(ctx: CommandContext, number: number | null, options: 
     question = `Development kept adding skipped or focused tests (${skippedFailure}), which prove nothing, so no acceptance criterion is shown to be met.`;
   }
   // Only the final Review judges the branch that gets published: one criterion it finds not met keeps the run from ready.
-  // The criterion that asks for the verify is the harness's: the E2E of this round decides it, not the Review session.
   const finalReview = reviews.at(-1);
-  if (finalReview) {
-    finalReview.criteria = finalReview.criteria.map((v) =>
-      VERIFY_CRITERION.test(v.criterion)
-        ? { ...v, met: ready, proof: ready ? "The E2E of this round passed `pnpm factory:verify`." : "The E2E of this round did not pass `pnpm factory:verify`." }
-        : v,
-    );
-  }
   const verdicts = finalReview?.criteria ?? [];
   const unmet = verdicts.filter((v) => !v.met);
   if (ready && unmet.length > 0 && flow?.kind !== "update-branch") {
@@ -314,12 +308,13 @@ export async function work(ctx: CommandContext, number: number | null, options: 
     ready = false;
     reason = "needs-human";
   }
-  // A Review that skipped a criterion judged nothing about it: a verdict for every checkbox, or the run is not ready.
-  const expected = countCriteria(issue.body);
-  if (ready && verdicts.length < expected && flow?.kind !== "update-branch") {
+  // A Review that skipped a criterion judged nothing about it: a verdict for every number, or the run is not ready.
+  // The extraction asked for the block again; what is still missing here is named in the Escalation.
+  const missing = finalReview ? missingCriteria(texts, finalReview.criteria) : [];
+  if (ready && missing.length > 0 && flow?.kind !== "update-branch") {
     ready = false;
     reason = "needs-human";
-    question = messages(config.language).verdictsMissing(expected - verdicts.length, expected);
+    question = messages(config.language).verdictsMissing(missing.map((n) => `${n}. ${texts[n - 1]}`));
   }
 
   const head = (await git.countCommits(base, "HEAD")) > 0 ? await git.head() : null;
@@ -446,8 +441,24 @@ function runOutcome(run: { ready: boolean; reason: Reason; question: string | nu
   return lines.join("\n");
 }
 
-/** A criterion that names the verify command (`factory:verify`, or the CI `verify`). Matched on the command, so it holds in any language. */
-const VERIFY_CRITERION = /factory:verify|`verify`/;
+/** The criteria numbers (from 1) of `texts` that `verdicts` give no valid verdict for. */
+function missingCriteria(texts: string[], verdicts: { id?: number }[]): number[] {
+  return texts.map((_, i) => i + 1).filter((n) => !verdicts.some((v) => v.id === n));
+}
+
+/**
+ * The Review's verdicts bound to the issue's criteria by number: each carries the issue's own text, the first verdict of a
+ * number wins, and a number the issue does not have is dropped.
+ */
+function resolveCriteria(review: ReviewOutput, texts: string[]): ReviewOutput {
+  const seen = new Set<number>();
+  const criteria = review.criteria.flatMap((v) => {
+    if (v.id === undefined || v.id < 1 || v.id > texts.length || seen.has(v.id)) return [];
+    seen.add(v.id);
+    return [{ ...v, criterion: texts[v.id - 1]! }];
+  });
+  return { ...review, criteria };
+}
 
 /** The question of a Development session that ends with `<needs-human>…</needs-human>`. */
 function needsHuman(output: string): string | null {

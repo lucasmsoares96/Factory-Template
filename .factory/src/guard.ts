@@ -1,5 +1,6 @@
 import { issueBranch, type FactoryConfig } from "./config.ts";
 import type { CodeHost } from "./seams/code-host.ts";
+import { criteriaItems } from "./criteria.ts";
 import { isMarked } from "./marker.ts";
 import type { Issue, LabelOrigin, Tracker } from "./seams/tracker.ts";
 
@@ -10,6 +11,7 @@ export type Refusal =
   | "parent-spec"
   | "open-pr"
   | "missing-acceptance-criteria"
+  | "verify-criterion"
   | "missing-seams"
   | "session-limit"
   | "blocked";
@@ -22,6 +24,19 @@ export type GuardDecision =
 export const TRIAGE_MARKER = "<!-- factory:triage -->";
 
 const heading = (title: string) => new RegExp(`^##\\s+${title}\\s*$`, "im");
+
+/**
+ * The first criterion that only asks for the verify: its text names the command (`factory:verify`, or the CI `verify`)
+ * and has no other behaviour once the command, the words around it and punctuation are taken out. The Factory always
+ * runs the verify, so it is not a criterion. A criterion that names the command beside a real behaviour stays.
+ */
+export function verifyCriterion(body: string): string | null {
+  const source = "`?pnpm (?:run )?factory:verify`?|`?factory:verify`?|`verify`";
+  const command = new RegExp(source, "i");
+  const commands = new RegExp(source, "gi");
+  const filler = /\b(?:the|a|an|ci|job|check|checks|pipeline|command|runs?|running|passes?|passing|passed|green|verde|ok|succeeds?|must|should|is|are|and|e|o|a|os|as|roda|rodar|passa|passar|com|sem|erros?|errors?|without|with|no|em|do|da|de|fica|ficar|fique|passe|rode)\b/gi;
+  return criteriaItems(body).find((item) => command.test(item) && item.replace(commands, "").replace(filler, "").replace(/[^\p{L}\p{N}]/gu, "") === "") ?? null;
+}
 
 /**
  * Deterministic check that the Factory may start work on an issue, read from
@@ -47,6 +62,7 @@ export async function guard(
   const pr = await codeHost.openPrFor(issueBranch(config, number));
   if (pr && !pr.draft) return refuse("open-pr");
   if (!heading("Acceptance criteria").test(issue.body)) return refuse("missing-acceptance-criteria");
+  if (verifyCriterion(issue.body) !== null) return refuse("verify-criterion");
   if (!(await hasSeams(issue, config, tracker))) return refuse("missing-seams");
   const waitingOn = (await tracker.blockers(number)).filter((b) => !b.done).map((b) => b.number);
   if (waitingOn.length > 0) return { ok: false, reason: "blocked", issue, waitingOn };
