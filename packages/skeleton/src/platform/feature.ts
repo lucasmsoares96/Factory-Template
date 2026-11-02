@@ -11,7 +11,12 @@ export type FeatureNav = {
   label: string;
   /** The SPA path the entry opens. */
   to: string;
+  /** A `lucide-react` icon name in PascalCase (`UserRound`); the sidebar shows it. Without one the entry gets `DEFAULT_NAV_ICON`. */
+  icon?: string;
 };
+
+/** The icon of a `nav` entry that declares none. */
+export const DEFAULT_NAV_ICON = "Circle";
 
 /** A section of the Company page: `GET /api/nav` serves it and the Skeleton's companies feature links to it. */
 export type FeatureCompanyPage = {
