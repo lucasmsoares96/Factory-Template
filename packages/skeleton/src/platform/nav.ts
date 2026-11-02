@@ -66,9 +66,7 @@ export function navRoutes({ features, t }: { features: readonly Feature[]; t: Me
     const on = features.filter((feature) => feature.enabled?.(c.env) ?? true);
     return c.json(
       {
-        entries: on.flatMap(({ nav }) =>
-          nav ? [{ ...translated(nav)[0]!, icon: nav.icon ?? DEFAULT_NAV_ICON }] : [],
-        ),
+        entries: on.flatMap(({ nav }) => (nav ? [{ label: translate(nav.label, t), to: nav.to, icon: nav.icon ?? DEFAULT_NAV_ICON }] : [])),
         companyPage: on.flatMap(({ companyPage }) => translated(companyPage)),
         accountPage: on.flatMap(({ accountPage }) => translated(accountPage)),
       },
