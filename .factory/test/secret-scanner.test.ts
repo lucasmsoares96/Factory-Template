@@ -1,5 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { execFile } from "node:child_process";
+import { join, relative } from "node:path";
+import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import { GITLEAKS_CONFIG, GitleaksScanner } from "../src/adapters/gitleaks/gitleaks-scanner.ts";
 import { checkout, commitFile, git, tempDir } from "./helpers.ts";
@@ -7,10 +9,29 @@ import { checkout, commitFile, git, tempDir } from "./helpers.ts";
 // The real, pinned gitleaks (installed by .factory/image/install-gitleaks.sh, part of the Factory image) against
 // fixtures. No gitleaks on PATH fails these tests: a scan that cannot run must never look like a clean one.
 // The fake keys are built here so that this file holds no key the scan itself would flag.
+const execFileAsync = promisify(execFile);
 const STRIPE_KEY = ["sk", "live", "Zq8xK2mPv4Rt7Yw1Nb5Cd9Ef"].join("_");
 const STRIPE_WEBHOOK = ["whsec", "Zq8xK2mPv4Rt7Yw1Nb5Cd9Ef"].join("_");
-const NEON_URL = "postgresql://neondb_owner:Zq8xK2mPv4Rt@ep-cool-sun-123456.eu-central-1.aws.neon.tech/neondb?sslmode=require";
+// Built from pieces at run time: this file must not hold a password the scan itself would flag.
+const neonUrl = (password: string) => `postgresql://neondb_owner:${password}@ep-cool-sun-123456.eu-central-1.aws.neon.tech/neondb?sslmode=require`;
+const NEON_URL = neonUrl(["Zq8xK2", "mPv4Rt"].join(""));
+const NEON_NPG_URL = neonUrl(["npg", "Zq8xK2mPv4Rt7Yw1"].join("_"));
+const PLACEHOLDER_URL = neonUrl("${DB_PASSWORD}");
 const LOCAL_URL = "postgres://postgres@127.0.0.1:5432/postgres";
+
+/** The paths among `files` that git ignores (`git check-ignore` exits 1 when none is). */
+async function gitIgnored(root: string, files: string[]): Promise<string[]> {
+  if (files.length === 0) return [];
+  const child = execFile("git", ["check-ignore", "--stdin", "-z"], { cwd: root, encoding: "utf8" });
+  const done = new Promise<string>((resolve, reject) => {
+    let out = "";
+    child.stdout?.on("data", (d) => (out += d));
+    child.on("error", reject);
+    child.on("close", (code) => (code === 0 || code === 1 ? resolve(out) : reject(new Error(`git check-ignore exited ${code}`))));
+  });
+  child.stdin?.end(files.join("\0"));
+  return (await done).split("\0").filter(Boolean);
+}
 
 async function branchWith(files: Record<string, string>): Promise<{ repo: string; base: string; head: string }> {
   const repo = await checkout();
@@ -34,13 +55,31 @@ describe("GitleaksScanner against the real gitleaks", () => {
   it("finds a Postgres URL with a password and lets the URL without one through", async () => {
     const { repo, base, head } = await branchWith({
       "src/db.ts": `export const url = "${NEON_URL}";\n`,
+      "src/npg.ts": `export const url = "${NEON_NPG_URL}";\n`,
+      "src/placeholder.ts": `export const url = "${PLACEHOLDER_URL}";\n`,
       "src/local.ts": `export const url = "${LOCAL_URL}";\nexport const compose = "postgres://postgres:postgres@postgres:5432/postgres";\n`,
     });
 
     const findings = await scanner.scan({ repo, base, head, texts: [] });
 
-    expect(findings.map((f) => [f.source, f.rule])).toEqual([["src/db.ts", "postgres-url-with-password"]]);
+    expect(findings.map((f) => [f.source, f.rule]).sort()).toEqual([["src/db.ts", "postgres-url-with-password"], ["src/npg.ts", "postgres-url-with-password"]]);
   });
+
+  it("finds nothing in this repository: no secret, not even a fake one, is written out in full", async () => {
+    const root = join(import.meta.dirname, "..", "..");
+    const out = join(await tempDir(), "report.json");
+
+    // The skills come from their source repository (skills-lock.json), not from this one.
+    await execFileAsync("gitleaks", ["dir", root, "--config", join(root, ".gitleaks.toml"), "--no-banner", "--exit-code", "0", "--report-format", "json", "--report-path", out, "--max-target-megabytes", "5"]);
+    const reported = (JSON.parse(await readFile(out, "utf8")) as { File: string; StartLine: number; RuleID: string }[])
+      .map((f) => ({ file: relative(root, f.File), line: f.StartLine, rule: f.RuleID }))
+      .filter((f) => !f.file.startsWith(".agents/skills/") && !f.file.includes("node_modules/"));
+    // Build and test output (gitignored) is not written by this repository either.
+    const ignored = new Set((await gitIgnored(root, reported.map((f) => f.file))));
+    const findings = reported.filter((f) => !ignored.has(f.file)).map((f) => `${f.file}:${f.line} ${f.rule}`);
+
+    expect(findings).toEqual([]);
+  }, 120_000);
 
   it("scans the texts, naming them by the label they were given", async () => {
     const { repo, base } = await branchWith({});
