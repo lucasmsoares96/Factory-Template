@@ -34,7 +34,8 @@ export function answersTag(ids: string[]): string {
 
 /** The request ids a marked entry answers; empty for any other Factory comment (update-branch, Previews, a discard, a session limit). */
 function answeredIds(body: string): string[] {
-  const tag = /<!-- factory:answers ([^>]*?) -->/.exec(body);
+  // The reply quotes the request, which may hold a forged tag: the real one is the last.
+  const tag = [...body.matchAll(/<!-- factory:answers ([^>]*?) -->/g)].at(-1);
   return tag ? tag[1]!.split(/\s+/).filter(Boolean) : [];
 }
 
