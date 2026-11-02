@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
 import { AgentSessionError, SessionLimitError } from "../src/seams/agent.ts";
 import { FakeCodeHost } from "../src/adapters/fake/fake-code-host.ts";
+import { FakeSecretScanner } from "../src/adapters/fake/fake-secret-scanner.ts";
 import type { VerifyStep } from "../src/adapters/fake/fake-verify.ts";
 import { checkout, commitFile, commitFiles, git, lastJson, OWNER, tempDir, world, type WorldOptions, ISSUE_VERDICTS } from "./helpers.ts";
 
@@ -31,7 +32,7 @@ const jobHost = () => new FakeCodeHost({ branches: {}, prs: [], self: OWNER });
  * `between` runs after work and before publish, to change forge state.
  */
 async function pipeline(
-  options: Pick<WorldOptions, "agent" | "verify" | "branches" | "prs" | "env" | "jobCodeHost" | "now"> & {
+  options: Pick<WorldOptions, "agent" | "verify" | "scanner" | "branches" | "prs" | "env" | "jobCodeHost" | "now"> & {
     between?: (w: ReturnType<typeof world>) => void | Promise<void>;
     publishArgs?: string[];
     /** PR flows do not run the issue claim: they take the lock on an issue whose PR is open. */
@@ -536,5 +537,55 @@ describe("factory publish: a run paused at the agent's usage limit", () => {
     expect(lastJson(w.logs)).toEqual({ claimed: false, issue: 7, reason: "session-limit" });
     expect(w.tracker.commentsOn(7)).toHaveLength(comments);
     expect(w.tracker.labelsOf(7).sort()).toEqual(["factory:session-limit", "ready-for-agent"]);
+  });
+});
+
+describe("factory publish: secret scan", () => {
+  const happy = { agent: { development: [develop], review: [review] }, verify: [{ ok: true }] };
+
+  it("pushes nothing and escalates needs-human with the place and the rule, when the scan finds a secret", async () => {
+    const scanner = new FakeSecretScanner({ findings: [{ source: "src/greet.ts", line: 1, rule: "stripe-secret-key" }] });
+    const { w, output, factoryComments } = await pipeline({ ...happy, scanner });
+
+    expect(output).toMatchObject({ outcome: "escalated", reason: "needs-human", pr: null });
+    expect(w.codeHost.pushes).toEqual([]);
+    expect(w.codeHost.prs).toHaveLength(0);
+    const [comment] = factoryComments();
+    expect(comment).toContain("<!-- factory:escalation -->");
+    expect(comment).toContain("`src/greet.ts`, line 1: rule `stripe-secret-key`");
+    expect(comment).toContain("the secret scan held the run");
+    await expect(w.tracker.issue(7)).resolves.toMatchObject({ labels: expect.arrayContaining(["ready-for-human"]) });
+  });
+
+  it("scans the commits from the base to the head and every text it is about to publish", async () => {
+    const scanner = new FakeSecretScanner();
+    const { w, head } = await pipeline({ ...happy, scanner });
+
+    expect(w.codeHost.pushes).toHaveLength(1);
+    const [scan] = scanner.scans;
+    expect(scan?.head).toBe(head);
+    expect(scan?.base).toMatch(/^[0-9a-f]{40}$/);
+    const names = scan?.texts.map((t) => t.name) ?? [];
+    expect(names).toContain("result.review.summary");
+    expect(names).toContain("result.review.inline[0].body");
+    expect(names).toContain("commit messages");
+    // A hash is not text.
+    expect(names).not.toContain("result.head");
+  });
+
+  it("holds the run when the scanner cannot run: nothing is pushed", async () => {
+    const scanner = new FakeSecretScanner({ failure: new Error("gitleaks is not installed") });
+    const { w, output, factoryComments } = await pipeline({ ...happy, scanner });
+
+    expect(output).toMatchObject({ outcome: "escalated", reason: "infra", pr: null });
+    expect(w.codeHost.pushes).toEqual([]);
+    expect(factoryComments()[0]).toContain("gitleaks is not installed");
+  });
+
+  it("writes the Escalation in FACTORY_LANGUAGE", async () => {
+    const scanner = new FakeSecretScanner({ findings: [{ source: "result.pullRequestBody", line: 4, rule: "github-token" }] });
+    const { factoryComments } = await pipeline({ ...happy, scanner, env: { FACTORY_LANGUAGE: "pt-BR" } });
+
+    expect(factoryComments()[0]).toContain("`result.pullRequestBody`, linha 4: regra `github-token`");
   });
 });

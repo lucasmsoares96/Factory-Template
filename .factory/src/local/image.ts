@@ -9,7 +9,7 @@ import { must, type DockerCli } from "./docker.ts";
 
 const exec = promisify(execFile);
 
-/** `.factory/image/`: the Dockerfile and setup.sh. */
+/** `.factory/image/`: the Dockerfile, setup.sh and install-gitleaks.sh. */
 export const IMAGE_DIR = fileURLToPath(new URL("../../image/", import.meta.url));
 
 export interface ImageInputs {
@@ -39,7 +39,8 @@ export async function imageInputs(repo: string, config: FactoryConfig): Promise<
     args: { NODE_VERSION: node, PNPM_VERSION: pnpm, PLAYWRIGHT_VERSION: playwright, CLAUDE_CODE_VERSION: config.claudeCode.version },
     context,
     dockerfile: await readFile(join(context, "Dockerfile"), "utf8"),
-    setup: await readFile(join(context, "setup.sh"), "utf8"),
+    // The installer of gitleaks is copied next to setup.sh: it is part of what the image is made of.
+    setup: (await readFile(join(context, "setup.sh"), "utf8")) + (await readFile(join(context, "install-gitleaks.sh"), "utf8")),
   };
 }
 

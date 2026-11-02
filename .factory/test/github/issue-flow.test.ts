@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { GitHubCodeHost } from "../../src/adapters/github/github-code-host.ts";
 import { GitHubTracker } from "../../src/adapters/github/github-tracker.ts";
 import { FakeAgent } from "../../src/adapters/fake/fake-agent.ts";
+import { FakeSecretScanner } from "../../src/adapters/fake/fake-secret-scanner.ts";
 import { FakeVerify } from "../../src/adapters/fake/fake-verify.ts";
 import { runFactory } from "../../src/cli.ts";
 import { tempDir } from "../helpers.ts";
@@ -86,6 +87,7 @@ async function run(w: ReturnType<typeof githubWorld>, argv: string[], env: Recor
       codeHost: new GitHubCodeHost({ repo: "o/r", token: "t", fetch: w.server.fetch, baseBranch: config.baseBranch, cwd: "/nowhere" }),
       agent: new FakeAgent("/nowhere", {}),
       verify: new FakeVerify("/nowhere", "ev", []),
+      scanner: new FakeSecretScanner(),
     }),
   });
   return { code, logs };

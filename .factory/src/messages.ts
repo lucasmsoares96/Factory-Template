@@ -52,6 +52,30 @@ export const catalog = {
     en: (): string => "Development needs a human decision.",
     "pt-BR": () => "O Development precisa de uma decisão humana.",
   }),
+  headlineSecrets: text({
+    en: (): string => "The secret scan found what looks like a secret in the commits or in the texts about to be published. Nothing was pushed or published.",
+    "pt-BR": () => "A verificação de segredos achou o que parece ser um segredo nos commits ou nos textos que seriam publicados. Nada foi enviado nem publicado.",
+  }),
+  secretsFound: text({
+    en: (): string => "Where the scanner found it (the value is never shown):",
+    "pt-BR": () => "Onde o scanner achou (o valor nunca é mostrado):",
+  }),
+  secretFinding: text({
+    en: (source: string, line: number, rule: string) => `- \`${source}\`, line ${line}: rule \`${rule}\``,
+    "pt-BR": (source, line, rule) => `- \`${source}\`, linha ${line}: regra \`${rule}\``,
+  }),
+  secretsNext: text({
+    en: (config: string): string => `Remove the secret and revoke it if it was real, then add the label again. A false positive is fixed in \`${config}\`, in the default branch.`,
+    "pt-BR": (config) => `Remova o segredo e revogue-o se for real, e coloque o label de novo. Um falso positivo se resolve em \`${config}\`, na branch padrão.`,
+  }),
+  secretScanFailed: text({
+    en: (detail: string) => `The secret scan did not run, so nothing was pushed or published: ${detail}`,
+    "pt-BR": (detail) => `A verificação de segredos não rodou, então nada foi enviado nem publicado: ${detail}`,
+  }),
+  noPullRequestHeld: text({
+    en: (): string => "**Pull request:** No pull request: the secret scan held the run before the push.",
+    "pt-BR": () => "**Pull request:** Nenhum pull request: a verificação de segredos segurou a execução antes do push.",
+  }),
   headlineInfra: text({
     en: (): string => "The work job left no valid result (infrastructure failure).",
     "pt-BR": () => "O job work não deixou um resultado válido (falha de infraestrutura).",

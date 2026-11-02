@@ -1,18 +1,20 @@
 import type { FactoryConfig } from "../config.ts";
 import type { Agent } from "../seams/agent.ts";
 import type { CodeHost } from "../seams/code-host.ts";
+import type { SecretScanner } from "../seams/secret-scanner.ts";
 import type { Tracker } from "../seams/tracker.ts";
 import type { Verify } from "../seams/verify.ts";
 
-/** The four seams. */
+/** The five seams. */
 export interface Adapters {
   tracker: Tracker;
   codeHost: CodeHost;
   agent: Agent;
   verify: Verify;
+  scanner: SecretScanner;
 }
 
-/** Everything a command needs: the four seams, the configuration, a clock and the outputs. */
+/** Everything a command needs: the five seams, the configuration, a clock and the outputs. */
 export interface CommandContext extends Adapters {
   config: FactoryConfig;
   log: (line: string) => void;
