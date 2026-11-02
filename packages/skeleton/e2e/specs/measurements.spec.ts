@@ -1,4 +1,6 @@
-import { expect, test } from "../index.ts";
+import { access, readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { EVIDENCE_DIR, expect, test } from "../index.ts";
 import { applyAllowances, measurePage, watchConsole, type FindingKind, type Measurements } from "../measure.ts";
 
 const PAGE = (body: string, head = "") => `<!doctype html><html lang="en"><head><title>Fixture</title>${head}</head><body style="margin:0"><main>${body}</main></body></html>`;
@@ -104,4 +106,18 @@ test.describe("the measurements of a page", () => {
 
     expect(() => applyAllowances([], [{ kind: "overlap", reason: " " }])).toThrow(/needs a reason/);
   });
+});
+
+test("evidence(name) saves the print and the measurements at 1280 and at 390, then restores the size @evidence", async ({ page, product, evidence }) => {
+  await page.setViewportSize({ width: 1000, height: 700 });
+  await page.setContent(PAGE(`<h1>Companies</h1><a href="/new">New Company</a>`));
+
+  await evidence("measurements-fixture");
+
+  for (const width of [1280, 390]) {
+    const base = join(EVIDENCE_DIR, product, `measurements-fixture-${width}`);
+    await access(`${base}.png`);
+    expect(JSON.parse(await readFile(`${base}.json`, "utf8"))).toMatchObject({ name: "measurements-fixture", width, findings: [], exceptions: [] });
+  }
+  expect(page.viewportSize()).toEqual({ width: 1000, height: 700 });
 });
