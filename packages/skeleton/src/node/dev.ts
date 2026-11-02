@@ -85,8 +85,13 @@ export async function startDev({ dir, env, databaseUrl, stripe, spawn, exit, log
 
   const listen = spawn(
     "pnpm",
-    ["exec", "stripe", "listen", "--api-key", key, "--forward-to", `localhost:${DEV_PORT}${WEBHOOK_PATH}`],
-    { cwd: SKELETON_DIR, stdio: ["ignore", "pipe", "pipe"] },
+    ["exec", "stripe", "listen", "--forward-to", `localhost:${DEV_PORT}${WEBHOOK_PATH}`],
+    {
+      cwd: SKELETON_DIR,
+      stdio: ["ignore", "pipe", "pipe"],
+      // The key goes by environment, not argv: arguments are visible to every process on the machine.
+      env: { PATH: env.PATH, HOME: env.HOME, STRIPE_API_KEY: key },
+    },
   );
   children.push(listen);
   listen.on("exit", (code) => stop(code ?? 1, "stripe listen ended; stopping."));

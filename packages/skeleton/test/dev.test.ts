@@ -55,14 +55,14 @@ test.each([[undefined, /needs STRIPE_SECRET_KEY/], ["sk_live_abc", /live key/], 
 );
 
 test("--stripe starts stripe listen, then Vite with the secret it printed", async () => {
-  const h = harness({ STRIPE_SECRET_KEY: "rk_test_abc" });
+  const h = harness({ STRIPE_SECRET_KEY: "rk_test_abc", PATH: "/bin", HOME: "/home/x", DATABASE_URL: "postgres://other" });
   const started = h.run(true);
   await tick();
   expect(h.calls).toHaveLength(1);
   expect(h.calls[0]!.cwd).not.toBe("/app");
-  expect(h.calls[0]!.args).toEqual([
-    "exec", "stripe", "listen", "--api-key", "rk_test_abc", "--forward-to", "localhost:5173/api/auth/stripe/webhook",
-  ]);
+  expect(h.calls[0]!.args).toEqual(["exec", "stripe", "listen", "--forward-to", "localhost:5173/api/auth/stripe/webhook"]);
+  expect(h.calls[0]!.args.join(" ")).not.toContain("rk_test_abc");
+  expect(h.calls[0]!.env).toEqual({ PATH: "/bin", HOME: "/home/x", STRIPE_API_KEY: "rk_test_abc" });
   h.calls[0]!.process.stderr.write("> Ready! Your webhook signing secret is whsec_abc123 (^C to quit)\n");
   await started;
   expect(h.calls).toHaveLength(2);
