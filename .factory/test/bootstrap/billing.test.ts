@@ -373,12 +373,13 @@ describe("pnpm bootstrap billing", () => {
 });
 
 describe("pnpm bootstrap billing: the accounts that already exist", () => {
-  const DATABASE = "postgresql://neondb_owner:pw-1@ep-proj-1.eu-central-1.aws.neon.tech/neondb?sslmode=require";
+  const PASSWORD = "pw-1";
+  const DATABASE = `postgresql://neondb_owner:${PASSWORD}@ep-proj-1.eu-central-1.aws.neon.tech/neondb?sslmode=require`;
 
   /** A Product with its production database already holding `accounts`; the plans are Pro (3 Seats), Team (10) and per Seat (from 11). */
   function worldWithAccounts(accounts: Parameters<ReturnType<typeof billingWorld>["accounts"]["seedAccounts"]>[1], extra: Record<string, string | boolean | string[]> = {}, env: Record<string, string | undefined> = ENV) {
     const w = billingWorld({ "billing-existing-trial": true, "billing-existing-suspend": true, ...extra }, env);
-    w.neon.projects.push({ id: "proj-1", name: "example", orgId: "org-1", password: "pw-1" });
+    w.neon.projects.push({ id: "proj-1", name: "example", orgId: "org-1", password: PASSWORD });
     w.github.variables.set("EXAMPLE_ACCOUNT_EMAIL", "admin@example.com");
     w.accounts.seedAccounts(DATABASE, accounts);
     return w;
