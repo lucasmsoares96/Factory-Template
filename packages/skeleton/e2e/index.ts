@@ -82,7 +82,7 @@ type E2EOptions = {
 /**
  * The Skeleton's E2E test. Locate elements by role + i18n text (`t`) or
  * `data-testid`. Tag a test `@evidence` and call `evidence(name)` to save the
- * prints the Factory posts on the PR: one at 1280 and one at 390 pixels wide, each with the page's measurements
+ * prints the Factory posts on the PR: one at 1280 and one at 390 pixels wide (the test's page keeps its own size; the other one comes from a second page on the same URL), each with the page's measurements
  * (overlap, overflow, cut text, off-screen, broken image, console error, axe), which never fail the test. A finding
  * on purpose is declared with `evidence(name, { allow: [{ kind, reason }] })`. `mailbox` reads the emails the Worker sent.
  */
@@ -118,19 +118,25 @@ export const test = base.extend<{ evidence: (name: string, options?: { allow?: A
       }
       const folder = join(EVIDENCE_DIR, product);
       await mkdir(folder, { recursive: true });
-      const before = page.viewportSize();
-      try {
-        for (const size of SIZES) {
-          await page.setViewportSize(size);
-          const measurements = await measurePage(page, { name, consoleErrors, allow });
-          await page.screenshot({ path: join(folder, `${name}-${size.width}.png`), fullPage: true });
+      // The test's page is never resized: it would close the menus it has open and move the layout under the test.
+      // It is printed at the size it has; any other size is printed from a second page of the same context (same
+      // session) on the same URL, which shows the screen without the state that needs a click.
+      for (const size of SIZES) {
+        const own = page.viewportSize()?.width === size.width;
+        const target = own ? page : await page.context().newPage();
+        try {
+          let errors = consoleErrors;
+          if (!own) {
+            const second = watchConsole(target);
+            await target.setViewportSize(size);
+            await target.goto(page.url(), { waitUntil: "load" });
+            errors = () => [...consoleErrors(), ...second()];
+          }
+          const measurements = await measurePage(target, { name, consoleErrors: errors, allow });
+          await target.screenshot({ path: join(folder, `${name}-${size.width}.png`), fullPage: true });
           await writeFile(join(folder, `${name}-${size.width}.json`), JSON.stringify(measurements, null, 2) + "\n");
-        }
-      } finally {
-        if (before) {
-          await page.setViewportSize(before);
-          // Let the page's resize listeners (media-query hooks) settle before the test goes on.
-          await page.evaluate("new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())))");
+        } finally {
+          if (!own) await target.close();
         }
       }
     });
