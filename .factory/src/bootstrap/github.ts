@@ -101,6 +101,18 @@ export class GhCli implements GitHubClient {
     }
   }
 
+  async environmentBranches(name: string): Promise<string[] | undefined> {
+    const base = `repos/{owner}/{repo}/environments/${encodeURIComponent(name)}`;
+    try {
+      const environment = environmentRule.parse(JSON.parse(await this.gh(["api", base])));
+      if (!environment.deployment_branch_policy?.custom_branch_policies) return undefined;
+      return branchPolicies.parse(JSON.parse(await this.gh(["api", `${base}/deployment-branch-policies`]))).branch_policies.map((p) => p.name);
+    } catch (error) {
+      if (isRefusal(error)) return undefined;
+      throw error;
+    }
+  }
+
   async upsertEnvironment(name: string, input: { branch: string }): Promise<"created" | "refused"> {
     try {
       const base = `repos/{owner}/{repo}/environments/${encodeURIComponent(name)}`;
@@ -297,6 +309,7 @@ function isRefusal(error: unknown): boolean {
 }
 
 const environments = z.object({ environments: z.array(z.object({ name: z.string() })) });
+const environmentRule = z.object({ deployment_branch_policy: z.object({ custom_branch_policies: z.boolean() }).nullish() });
 const branchPolicies = z.object({ branch_policies: z.array(z.object({ name: z.string() })) });
 const rulesetList = z.array(z.object({ id: z.number() }));
 const ruleset = z.object({
