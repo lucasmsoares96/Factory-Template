@@ -6,7 +6,7 @@ import { Git } from "../git.ts";
 import { messages } from "../messages.ts";
 import { CHECK_LOG_LINES, type ChecksRead, developmentPrompt, prFeedbackPrompt, pullRequestPrompt, reviewPrompt, updateBranchPrompt, visualReviewPrompt } from "../prompts.ts";
 import { findingLines, readMeasurements } from "../measurements.ts";
-import { parseVisualReviewOutput, visualReviewExtraction } from "../visual-review-output.ts";
+import { parseVisualReviewOutput, visualReviewExtraction, visualReviewTexts } from "../visual-review-output.ts";
 import {
   BUNDLE_FILE,
   EVIDENCE_DIR,
@@ -291,7 +291,7 @@ export async function work(ctx: CommandContext, number: number | null, options: 
         const visualRun = await session(
           "visual-review",
           visualReviewPrompt({ issue, log: await git.log(base, "HEAD"), evidenceDir: config.evidenceDir, prints: await listPrints(evidencePath), measurements: await readMeasurements(evidencePath), language: config.language }),
-          { timeoutMs, model: config.models.visualReview, extract: visualReviewExtraction },
+          { timeoutMs, model: config.models.visualReview, extract: withSecretScan(visualReviewExtraction, ctx.scanner, options.repo, base, (output) => visualReviewTexts(parseVisualReviewOutput(output))) },
         );
         if (visualRun) add(usage.visualReview, visualRun.usage);
         if (visualRun === null) {
@@ -308,7 +308,15 @@ export async function work(ctx: CommandContext, number: number | null, options: 
           feedback = `The Visual Review session after the previous attempt timed out after ${minutes(timeoutMs)} min. Keep the screen changes small and focused.`;
           continue;
         }
+        // The session was asked to rewrite a text with a secret; one still there ends the run.
         const said = parseVisualReviewOutput(visualRun.output);
+        const visualHeld = await secretIn(visualReviewTexts(said));
+        if (visualHeld !== null) {
+          stages.push({ ...visualRecord, outcome: "failed", failedCommand: "secret scan", output: visualHeld });
+          reason = "needs-human";
+          question = visualHeld;
+          break;
+        }
         visualReviews.push({ attempt, ...said, criteria: [] });
         visualAttempt = attempt;
         visual = true;
