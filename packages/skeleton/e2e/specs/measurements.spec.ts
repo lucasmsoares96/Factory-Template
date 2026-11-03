@@ -142,3 +142,20 @@ test("a menu open before evidence() is still open after it, and its items still 
   await expect(page).toHaveTitle("picked");
   expect(page.viewportSize()).toEqual({ width: 1280, height: 800 });
 });
+
+test("the second page evidence() opens for the other size has the test's session @evidence", async ({ page, product, evidence, baseURL }) => {
+  // The fixture reports a console error when the request carries no session cookie.
+  await page.context().route("**/fixture/session", (route) => {
+    const signedIn = (route.request().headers().cookie ?? "").includes("fixture_session=1");
+    return route.fulfill({ contentType: "text/html", body: PAGE(signedIn ? `<h1>Signed in</h1>` : `<h1>Signed out</h1><script>console.error("no session")</script>`) });
+  });
+  await page.context().addCookies([{ name: "fixture_session", value: "1", url: baseURL! }]);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto("/fixture/session");
+
+  await evidence("measurements-session");
+
+  const phone = JSON.parse(await readFile(join(EVIDENCE_DIR, product, "measurements-session-390.json"), "utf8")) as Measurements;
+  expect(phone.width).toBe(390);
+  expect(phone.findings).toEqual([]);
+});
