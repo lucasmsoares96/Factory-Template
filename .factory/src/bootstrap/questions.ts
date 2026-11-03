@@ -35,7 +35,6 @@ export const QUESTIONS = {
   "install-gh": terminal("common", "Install the GitHub CLI"),
   "login-gh": terminal("common", "Sign in to the GitHub CLI"),
   "cloudflare-token": q("common", "required", "CLOUDFLARE_API_TOKEN", "Cloudflare API token (stored as a secret); not needed once the secret exists"),
-  "migrate-environments-confirm": terminal("common", "Whether to delete the per-Product environments and the repo-level deploy secrets the stage environments replaced"),
   "cloudflare-account": q("common", "conditional", "CLOUDFLARE_ACCOUNT_ID", "Cloudflare account, when the credential sees more than one"),
   "workers-dev-subdomain": q("common", "required", "WORKERS_DEV_SUBDOMAIN", "workers.dev subdomain of the account; not needed once it exists"),
   "factory-language": q("common", "required", "FACTORY_LANGUAGE", "Language of the Factory's public text (en or pt-BR); not needed once the variable exists"),

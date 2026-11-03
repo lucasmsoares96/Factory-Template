@@ -133,6 +133,32 @@ describe("pnpm bootstrap doctor", () => {
     expect(output).toMatch(/ok\s+DEPLOY_ENABLED/);
   });
 
+  it("warns of a deploy secret at repo level, says to delete it, and ignores per-Product environments", async () => {
+    const w = world();
+    await w.run();
+    w.github.secrets.set("CLOUDFLARE_API_TOKEN", "x");
+    w.github.environments.set("example-production", "main");
+    w.github.environments.set("example-preview", "main");
+
+    const { output } = await w.run("doctor");
+
+    expect(output).toMatch(/warn\s+CLOUDFLARE_API_TOKEN\s+deploy secret at repo level.*gh secret delete CLOUDFLARE_API_TOKEN/);
+    expect(output).not.toContain("migrate-environments");
+    expect(output).not.toContain("example-production");
+    expect(output).not.toContain("example-preview");
+  });
+
+  it("does not warn of a repo-level deploy secret with FACTORY_USE_ENVIRONMENTS=false", async () => {
+    const w = world();
+    await w.run();
+    w.github.secrets.set("CLOUDFLARE_API_TOKEN", "x");
+    w.github.variables.set("FACTORY_USE_ENVIRONMENTS", "false");
+
+    const { output } = await w.run("doctor");
+
+    expect(output).not.toContain("deploy secret at repo level");
+  });
+
   it("warns when both Claude auths exist", async () => {
     const w = world();
     await w.run();
