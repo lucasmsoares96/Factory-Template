@@ -37,6 +37,8 @@ export interface GitHubClient {
   /** Create or update (`gh label create --force`). */
   upsertLabel(label: LabelSpec): Promise<void>;
   listEnvironments(): Promise<string[]>;
+  /** Branches the environment accepts; `undefined` when it does not exist or has no custom branch rule (any branch may deploy). */
+  environmentBranches(name: string): Promise<string[] | undefined>;
   /**
    * Creates (or updates) an environment that only the branch `branch` may deploy to. `refused` means the plan or the
    * visibility of the repo does not allow environments (the API said 403, 404 or 422); any other failure throws.

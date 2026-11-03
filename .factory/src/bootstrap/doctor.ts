@@ -7,7 +7,7 @@ import { MERGE_MODE_VARIABLE } from "./factory.ts";
 import { NO_DNS, NO_LOGIN, deployFirstMessage, productionEnvironment, productSecretName, readDnsState, showResendKeyLink, readWorkerDomainState } from "./domain.ts";
 import { hasPreviewTrace, previewEnvironment, previewNames, previewProjectName, previewSecretPresent, PREVIEW_PRODUCTS, BASE_BRANCH } from "./previews.ts";
 import { legacyLayout, MIGRATE_HINT } from "./migrate.ts";
-import { coversMain, databaseVariables, DEPLOY_PRODUCTS, missingSecrets, neonHandle, neonOrgId, parseProductList, productionDatabaseUrl, productionSecrets, USE_ENVIRONMENTS } from "./product.ts";
+import { coversMain, onlyDefaultBranch, databaseVariables, DEPLOY_PRODUCTS, missingSecrets, neonHandle, neonOrgId, parseProductList, productionDatabaseUrl, productionSecrets, USE_ENVIRONMENTS } from "./product.ts";
 import type { BootstrapDeps, ProductIdentity, StepContext } from "./steps.ts";
 import { WranglerNotInstalled, type NeonProject } from "./clients.ts";
 
@@ -266,8 +266,9 @@ async function previewChecks(
   add(listed ? "ok" : "missing", `${id} in ${PREVIEW_PRODUCTS}`, listed ? undefined : redo);
 
   const environment = previewEnvironment();
-  if ((await ctx.github.listEnvironments()).includes(environment)) add("ok", `Environment ${environment}`, "only the default branch may deploy");
+  if (await onlyDefaultBranch(ctx, environment)) add("ok", `Environment ${environment}`, "only the default branch may deploy");
   else if (variables[USE_ENVIRONMENTS] === "false") add("off", `Environment ${environment}`, "refused by the plan or visibility: the secrets are at repo level");
+  else if ((await ctx.github.listEnvironments()).includes(environment)) add("missing", `Environment ${environment}`, `${redo}: it does not accept only the default branch`);
   else add("warn", `Environment ${environment}`, redo);
 
   const neon = await neonHandle(ctx, false);
@@ -315,8 +316,9 @@ async function productionChecks(
   for (const name of [names.databaseUrl, names.databaseUrlPooled, names.authSecret]) add(missing.has(name) ? "missing" : "ok", name, missing.has(name) ? redo : undefined);
 
   const environment = productionEnvironment();
-  if ((await ctx.github.listEnvironments()).includes(environment)) add("ok", `Environment ${environment}`, "only the default branch may deploy");
+  if (await onlyDefaultBranch(ctx, environment)) add("ok", `Environment ${environment}`, "only the default branch may deploy");
   else if (variables[USE_ENVIRONMENTS] === "false") add("off", `Environment ${environment}`, "refused by the plan or visibility: the secrets are at repo level");
+  else if ((await ctx.github.listEnvironments()).includes(environment)) add("missing", `Environment ${environment}`, `${redo}: it does not accept only the default branch`);
   else add("warn", `Environment ${environment}`, redo);
 
   const listed = parseProductList(variables[DEPLOY_PRODUCTS]).includes(id);

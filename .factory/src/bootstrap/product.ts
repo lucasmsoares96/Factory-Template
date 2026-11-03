@@ -248,6 +248,12 @@ export async function ensureEnvironment(ctx: StepContext, name: string): Promise
   return false;
 }
 
+/** Whether the environment exists and accepts the default branch and nothing else (a bare environment GitHub made on its own does not). */
+export async function onlyDefaultBranch(ctx: StepContext, name: string): Promise<boolean> {
+  const branches = await ctx.github.environmentBranches(name);
+  return branches !== undefined && branches.length === 1 && branches[0] === (await ctx.github.repo()).defaultBranch;
+}
+
 /** The stage environment, one for the whole repository (shared by every Product), or the repo-level fallback. */
 export function environmentStep(input: { id: string; name: string }): Step {
   const { name } = input;
@@ -255,7 +261,7 @@ export function environmentStep(input: { id: string; name: string }): Step {
     id: input.id,
     title: `GitHub environment ${name} (only main may deploy)`,
     async check(ctx) {
-      return { done: (await ctx.github.listEnvironments()).includes(name) };
+      return { done: await onlyDefaultBranch(ctx, name) };
     },
     async run(ctx) {
       await ensureEnvironment(ctx, name);
