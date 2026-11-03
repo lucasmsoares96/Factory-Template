@@ -32,6 +32,8 @@ export type FeatureAccountPage = {
   label: string;
   /** The SPA path of the page, under the account's: `/account/plan`. */
   to: string;
+  /** A `lucide-react` icon name in PascalCase (`CreditCard`); the user menu shows it. Without one the link gets `DEFAULT_NAV_ICON`. */
+  icon?: string;
 };
 
 /** What a feature may hook into when the Skeleton's companies feature emits it. */

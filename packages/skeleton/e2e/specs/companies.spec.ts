@@ -34,15 +34,19 @@ test("a signed-in user creates a Company and enters it", { tag: "@evidence" }, a
   await evidence("company-page");
 
   // A second Company, from the switcher; the switcher then goes back to the first.
-  await page.getByRole("link", { name: t.companies.switcher.new }).click();
+  await page.getByRole("button", { name: t.companies.switcher.label, exact: true }).click();
+  await page.getByRole("menuitem", { name: t.companies.switcher.new }).click();
   await expect(page.getByRole("heading", { name: t.companies.create.title })).toBeVisible();
   await page.getByLabel(t.companies.create.name).fill("Globex");
   await page.getByRole("button", { name: t.companies.create.submit }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Globex" })).toBeVisible();
-  const switcher = page.getByRole("combobox", { name: t.companies.switcher.label });
-  await expect(switcher.getByRole("option")).toHaveText(["Acme", "Globex"]);
+  await page.getByRole("button", { name: t.companies.switcher.label, exact: true }).click();
+  await expect(page.getByRole("menuitem")).toHaveCount(3);
+  await expect(page.getByRole("menuitem", { name: "Acme", exact: true })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Globex", exact: true })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: t.companies.switcher.new, exact: true })).toBeVisible();
   await evidence("company-switcher");
-  await switcher.selectOption({ label: "Acme" });
+  await page.getByRole("menuitem", { name: "Acme" }).click();
   await expect(page).toHaveURL(acmeUrl);
   await expect(page.getByRole("heading", { level: 1, name: "Acme" })).toBeVisible();
 
@@ -73,7 +77,8 @@ test("the Owner renames and deletes a Company", { tag: "@evidence" }, async ({ p
   await page.getByRole("button", { name: t.companies.create.submit }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Acme" })).toBeVisible();
   const acmeUrl = page.url();
-  await page.getByRole("link", { name: t.companies.switcher.new }).click();
+  await page.getByRole("button", { name: t.companies.switcher.label, exact: true }).click();
+  await page.getByRole("menuitem", { name: t.companies.switcher.new }).click();
   await expect(page.getByRole("heading", { name: t.companies.create.title })).toBeVisible();
   await page.getByLabel(t.companies.create.name).fill("Globex");
   await page.getByRole("button", { name: t.companies.create.submit }).click();
@@ -86,7 +91,12 @@ test("the Owner renames and deletes a Company", { tag: "@evidence" }, async ({ p
   await expect(page.getByRole("heading", { level: 1, name: "Globex Corp" })).toBeVisible();
   await expect(page.getByRole("status")).toHaveText(settings.rename.saved);
   expect(page.url()).toBe(globexUrl);
-  await expect(page.getByRole("combobox", { name: t.companies.switcher.label }).getByRole("option")).toHaveText(["Acme", "Globex Corp"]);
+  await page.getByRole("button", { name: t.companies.switcher.label, exact: true }).click();
+  await expect(page.getByRole("menuitem")).toHaveCount(3);
+  await expect(page.getByRole("menuitem", { name: "Acme", exact: true })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Globex Corp", exact: true })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: t.companies.switcher.new, exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
   await evidence("company-renamed");
   await page.reload();
   await expect(page.getByRole("heading", { level: 1, name: "Globex Corp" })).toBeVisible();
@@ -102,7 +112,11 @@ test("the Owner renames and deletes a Company", { tag: "@evidence" }, async ({ p
   await deleteButton.click();
   await expect(page).toHaveURL(acmeUrl);
   await expect(page.getByRole("heading", { level: 1, name: "Acme" })).toBeVisible();
-  await expect(page.getByRole("combobox", { name: t.companies.switcher.label }).getByRole("option")).toHaveText(["Acme"]);
+  await page.getByRole("button", { name: t.companies.switcher.label, exact: true }).click();
+  await expect(page.getByRole("menuitem")).toHaveCount(2);
+  await expect(page.getByRole("menuitem", { name: "Acme", exact: true })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: t.companies.switcher.new, exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
 
   // The deleted Company's link finds nothing.
   await page.goto(globexUrl);
