@@ -156,7 +156,7 @@ describe("skills", () => {
   it("the evidence skill says to locate by role plus the i18n key", () => {
     const text = read(".agents/skills/skeleton-evidence-test/SKILL.md");
     expect(text).toMatch(/role plus the i18n key/);
-    expect(text).toContain("test-results/evidence/<product>/<name>.png");
+    expect(text).toContain("test-results/evidence/<product>/<name>-1280.png");
   });
 });
 

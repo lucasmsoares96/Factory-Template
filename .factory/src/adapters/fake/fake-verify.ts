@@ -4,7 +4,7 @@ import type { Verify, VerifyRun } from "../../seams/verify.ts";
 
 export interface VerifyStep extends Partial<VerifyRun> {
   /** Prints the `@evidence` tests would write, by Product. */
-  evidence?: { product: string; name: string }[];
+  evidence?: { product: string; name: string; /** The file's content; default a stand-in for a PNG. */ content?: string }[];
 }
 
 /**
@@ -30,7 +30,7 @@ export class FakeVerify implements Verify {
     for (const shot of step.evidence ?? []) {
       const dir = join(this.cwd, this.evidenceDir, shot.product);
       await mkdir(dir, { recursive: true });
-      await writeFile(join(dir, shot.name), `png:${shot.product}/${shot.name}`);
+      await writeFile(join(dir, shot.name), shot.content ?? `png:${shot.product}/${shot.name}`);
     }
     const timedOut = step.timedOut ?? false;
     return { ok: !timedOut && (step.ok ?? true), failedCommand: step.failedCommand ?? null, output: step.output ?? "", timedOut };

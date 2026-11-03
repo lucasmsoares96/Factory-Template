@@ -34,7 +34,11 @@ const STRUCTURAL_KEYS: ReadonlySet<string> = new Set([
  */
 export function forForge(result: FactoryResult): FactoryResult {
   const clean = cleaned(result) as FactoryResult;
-  return { ...clean, review: { ...clean.review, inline: clean.review.inline.filter((c) => c.body !== "") } };
+  return {
+    ...clean,
+    review: { ...clean.review, inline: clean.review.inline.filter((c) => c.body !== "") },
+    visualReview: clean.visualReview && { ...clean.visualReview, inline: clean.visualReview.inline.filter((c) => c.body !== "") },
+  };
 }
 
 function cleaned(value: unknown): unknown {
