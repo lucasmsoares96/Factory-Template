@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { labelSpecs } from "../../src/bootstrap/labels.ts";
-import { TOKEN, world } from "./helpers.ts";
+import { TOKEN, world, seedCloudflare } from "./helpers.ts";
 
 // Seam 1: every question for a service key is preceded by a link that opens its creation. Account passwords are not keys.
 const ENV = { CLOUDFLARE_API_TOKEN: TOKEN, CLOUDFLARE_ACCOUNT_ID: "acc-1" };
@@ -26,12 +26,11 @@ function keyWorld(answers: Record<string, string | boolean | string[]>, env: Rec
   const w = world({ "resend-setup": "skip", "default-account-email": "admin@example.com", "default-account-password": "admin password 123", "default-account-password-confirm": "admin password 123", "preview-account-password": "preview password 1", "preview-account-password-confirm": "preview password 1", ...answers }, env);
   w.deps.interactive = true;
   w.github.variables.set("EXAMPLE_ACCOUNT_EMAIL", "admin@example.com");
-  w.github.secrets.set("CLOUDFLARE_API_TOKEN", TOKEN);
-  w.github.secrets.set("CLOUDFLARE_ACCOUNT_ID", "acc-1");
+  seedCloudflare(w.github, TOKEN);
   w.cloudflare.subdomains.set("acc-1", "my-team");
   for (const label of labelSpecs(w.deps.config)) w.github.labels.set(label.name, label);
-  w.github.environments.set("example-production", "main");
-  w.github.environments.set("example-preview", "main");
+  w.github.environments.set("production", "main");
+  w.github.environments.set("preview", "main");
   return w;
 }
 

@@ -2,6 +2,7 @@ import { cloudflareHandle, productSecretName } from "./domain.ts";
 import { accountNames } from "./accounts.ts";
 import type { NeonApiKey, NeonClient } from "./clients.ts";
 import { askPassword, ensureProject, environmentStep, neonHandle, neonOrgId, parseProductList, regionStep } from "./product.ts";
+import { PREVIEW_ENVIRONMENT } from "./environments.ts";
 import type { ProductIdentity, Step, StepContext } from "./steps.ts";
 
 export const PREVIEW_PRODUCTS = "PREVIEW_PRODUCTS";
@@ -9,9 +10,9 @@ export const PREVIEWS_ENABLED = "PREVIEWS_ENABLED";
 /** The default branch of the preview project: the one every `preview/pr-N` branch starts from. */
 export const BASE_BRANCH = "base";
 
-/** The environment that holds a Product's preview secrets (restricted like production, with the same repo-level fallback). */
-export function previewEnvironment(productId: string): string {
-  return `${productId}-preview`;
+/** The environment that holds the preview secrets of every Product (restricted like production, with the same repo-level fallback). */
+export function previewEnvironment(): string {
+  return PREVIEW_ENVIRONMENT;
 }
 
 /**
@@ -34,17 +35,15 @@ export function previewNames(productId: string) {
 export const previewProjectName = (productId: string) => `${productId}-preview`;
 const previewKvTitle = (productId: string) => `${productId}-preview-oauth`;
 
-/** Where the preview secrets live: the `<id>-preview` environment when it exists, otherwise the repo. */
-export async function previewScope(ctx: StepContext, productId: string): Promise<{ environment?: string }> {
-  const name = previewEnvironment(productId);
+/** Where the preview secrets live: the `preview` environment when it exists, otherwise the repo. */
+export async function previewScope(ctx: StepContext): Promise<{ environment?: string }> {
+  const name = previewEnvironment();
   return (await ctx.github.listEnvironments()).includes(name) ? { environment: name } : {};
 }
 
 /** Whether a secret is where the preview deploy reads it (the environment, then the repo). */
 export async function previewSecretPresent(ctx: StepContext, productId: string, name: string): Promise<boolean> {
-  const scope = await previewScope(ctx, productId);
-  const have = new Set([...(await ctx.github.listSecrets(scope)), ...(scope.environment ? await ctx.github.listSecrets() : [])]);
-  return have.has(name);
+  return (await ctx.github.listSecrets(await previewScope(ctx))).includes(name);
 }
 
 /** Whether the repo already holds any trace of this Product's previews (so the doctor shows the section without being asked). */
@@ -56,12 +55,13 @@ export async function hasPreviewTrace(ctx: StepContext, productId: string, varia
     variables[names.kv] !== undefined ||
     secrets.includes(names.neonKey) ||
     secrets.includes(names.accountPassword) ||
-    (await ctx.github.listEnvironments()).includes(previewEnvironment(productId))
+    (await previewSecretPresent(ctx, productId, names.neonKey)) ||
+    (await previewSecretPresent(ctx, productId, names.accountPassword))
   );
 }
 
-export function previewEnvironmentStep(product: ProductIdentity): Step {
-  return environmentStep({ id: "preview-environment", name: previewEnvironment(product.id), productId: product.id });
+export function previewEnvironmentStep(): Step {
+  return environmentStep({ id: "preview-environment", name: previewEnvironment() });
 }
 
 /**
@@ -157,7 +157,7 @@ export function previewNeonKeyStep(product: ProductIdentity): Step {
           return ctx.log(`  No key given: previews stay off until ${names.neonKey} exists.`);
         }
       }
-      await ctx.github.setSecret(names.neonKey, key, await previewScope(ctx, product.id));
+      await ctx.github.setSecret(names.neonKey, key, await previewScope(ctx));
     },
   };
 }
@@ -202,7 +202,7 @@ export function previewAccountStep(product: ProductIdentity): Step {
       if (!(await ctx.github.listVariables())[email]) return ctx.log(`  ${email} is not set: run \`pnpm bootstrap product ${product.id}\` first, then this command again.`);
       if (!ctx.interactive && !ctx.env.PREVIEW_ACCOUNT_PASSWORD) return ctx.log(`  ${names.accountPassword} was not set: no terminal to ask and no PREVIEW_ACCOUNT_PASSWORD. Run this command again with a terminal or the variable.`);
       const password = await askPassword(ctx, "preview-account-password", "Password of the default account in the previews (hidden; different from production; kept only as a secret)");
-      await ctx.github.setSecret(names.accountPassword, password, await previewScope(ctx, product.id));
+      await ctx.github.setSecret(names.accountPassword, password, await previewScope(ctx));
     },
   };
 }
@@ -227,6 +227,6 @@ export function previewProductsStep(product: ProductIdentity): Step {
  * `PREVIEWS_ENABLED` is not a step: the command turns it on after the doctor of the Product's previews passes.
  */
 export function previewSteps(product: ProductIdentity): Step[] {
-  return [previewEnvironmentStep(product), regionStep(product), previewProjectStep(product), previewNeonKeyStep(product), previewKvStep(product), previewAccountStep(product), previewProductsStep(product)];
+  return [previewEnvironmentStep(), regionStep(product), previewProjectStep(product), previewNeonKeyStep(product), previewKvStep(product), previewAccountStep(product), previewProductsStep(product)];
 }
 

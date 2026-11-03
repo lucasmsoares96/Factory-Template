@@ -8,10 +8,10 @@ import type { CheckStatus } from "./doctor.ts";
 import type { ProductIdentity, StepContext } from "./steps.ts";
 
 /** Secrets of the Product's two environments and the repo: where the deploy and the previews read them. */
-async function visibleSecrets(ctx: StepContext, productId: string): Promise<Set<string>> {
+async function visibleSecrets(ctx: StepContext): Promise<Set<string>> {
   return new Set([
-    ...(await ctx.github.listSecrets(await secretScope(ctx, productId))),
-    ...(await ctx.github.listSecrets(await previewScope(ctx, productId))),
+    ...(await ctx.github.listSecrets(await secretScope(ctx))),
+    ...(await ctx.github.listSecrets(await previewScope(ctx))),
     ...(await ctx.github.listSecrets()),
   ]);
 }
@@ -19,7 +19,7 @@ async function visibleSecrets(ctx: StepContext, productId: string): Promise<Set<
 /** Whether the repo holds any trace of this Product's billing, so the doctor shows the section without being asked. */
 export async function hasBillingTrace(ctx: StepContext, productId: string, variables: Record<string, string>, secrets: string[]): Promise<boolean> {
   const names = billingNames(productId);
-  const have = new Set([...secrets, ...(await visibleSecrets(ctx, productId))]);
+  const have = new Set([...secrets, ...(await visibleSecrets(ctx))]);
   return [names.liveKey, names.sandboxKey, names.webhookSecret].some((name) => have.has(name)) || variables[names.plans] !== undefined || variables[names.synced] !== undefined;
 }
 
@@ -54,7 +54,7 @@ export async function billingChecks(
   const id = product.id;
   const names = billingNames(id);
   const redo = `run \`pnpm bootstrap billing ${id}\``;
-  const have = await visibleSecrets(ctx, id);
+  const have = await visibleSecrets(ctx);
   for (const name of [names.sandboxKey, names.liveKey, names.webhookSecret]) add(have.has(name) ? "ok" : "missing", name, have.has(name) ? undefined : redo);
   add(have.has(CI_KEY_SECRET) ? "ok" : "warn", CI_KEY_SECRET, have.has(CI_KEY_SECRET) ? undefined : `${redo} --redo ci-key (the weekly Stripe contract test has no key)`);
   add(variables[names.plans] ? "ok" : "missing", names.plans, variables[names.plans] ? undefined : redo);

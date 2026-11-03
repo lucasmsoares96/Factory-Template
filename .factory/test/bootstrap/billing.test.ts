@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { BILLING_PERMISSIONS } from "../../src/bootstrap/billing-permissions.ts";
 import { loadProduct } from "../../src/bootstrap/cli.ts";
 import { labelSpecs } from "../../src/bootstrap/labels.ts";
-import { TOKEN, world } from "./helpers.ts";
+import { TOKEN, world, seedCloudflare } from "./helpers.ts";
 
 const SANDBOX = "rk_test_sandbox1";
 const LIVE = "rk_live_real1";
@@ -25,12 +25,11 @@ const answers = (): Record<string, string | boolean | string[]> => ({
 function billingWorld(extra: Record<string, string | boolean | string[]> = {}, env: Record<string, string | undefined> = ENV) {
   const w = world({ ...answers(), ...extra }, env);
   w.deps.interactive = true;
-  w.github.secrets.set("CLOUDFLARE_API_TOKEN", TOKEN);
-  w.github.secrets.set("CLOUDFLARE_ACCOUNT_ID", "acc-1");
+  seedCloudflare(w.github, TOKEN);
   w.cloudflare.subdomains.set("acc-1", "my-team");
   for (const label of labelSpecs(w.deps.config)) w.github.labels.set(label.name, label);
-  w.github.environments.set("example-production", "main");
-  w.github.environments.set("example-preview", "main");
+  w.github.environments.set("production", "main");
+  w.github.environments.set("preview", "main");
   w.stripe.keys.add(SANDBOX).add(LIVE).add(CI);
   w.tokens.add("github_pat_owner_token", { push: true });
   return w;
@@ -51,7 +50,7 @@ function declaring(w: ReturnType<typeof billingWorld>, entitlements: string[]) {
 /** Plan order of `answers()`: free, pro, team, per-seat. */
 const entitlementAnswers = (...values: string[]) => ({ "billing-entitlement": values });
 
-const production = (w: ReturnType<typeof billingWorld>) => w.github.environmentSecrets.get("example-production")!;
+const production = (w: ReturnType<typeof billingWorld>) => w.github.environmentSecrets.get("production")!;
 const everythingShown = (w: ReturnType<typeof billingWorld>) => JSON.stringify([w.lines, w.prompter.notes, w.prompter.printed]);
 const stripeWrites = (w: ReturnType<typeof billingWorld>) => w.stripe.sandbox.writes + w.stripe.live.writes;
 
@@ -117,7 +116,7 @@ describe("pnpm bootstrap billing", () => {
     await w.run("billing", "example");
 
     expect(production(w).get("EXAMPLE_STRIPE_SECRET_KEY")).toBe(LIVE);
-    expect(w.github.environmentSecrets.get("example-preview")!.get("EXAMPLE_PREVIEW_STRIPE_SECRET_KEY")).toBe(SANDBOX);
+    expect(w.github.environmentSecrets.get("preview")!.get("EXAMPLE_PREVIEW_STRIPE_SECRET_KEY")).toBe(SANDBOX);
     expect(everythingShown(w)).not.toContain(LIVE);
     expect(everythingShown(w)).not.toContain(SANDBOX);
   });
@@ -154,7 +153,7 @@ describe("pnpm bootstrap billing", () => {
     expect(code).toBe(0);
     expect(output).toContain("That is a live key; this one must be from the sandbox");
     expect(output).toContain("The key lacks rak_webhook_write");
-    expect(w.github.environmentSecrets.get("example-preview")!.get("EXAMPLE_PREVIEW_STRIPE_SECRET_KEY")).toBe(SANDBOX);
+    expect(w.github.environmentSecrets.get("preview")!.get("EXAMPLE_PREVIEW_STRIPE_SECRET_KEY")).toBe(SANDBOX);
     expect(output).toContain("the CI sandbox must be another one");
     expect(w.github.secrets.get("STRIPE_CI_KEY")).toBe(CI);
   });
@@ -671,7 +670,7 @@ describe("pnpm bootstrap doctor: billing", () => {
   it("reports a partly set up module as missing, and skips what needs a key it does not have", async () => {
     const w = billingWorld({}, { ...ENV, STRIPE_SANDBOX_KEY: undefined, STRIPE_LIVE_KEY: undefined, STRIPE_CI_KEY: undefined });
     w.deps.interactive = false;
-    w.github.environmentSecrets.set("example-production", new Map([["EXAMPLE_STRIPE_SECRET_KEY", LIVE]]));
+    w.github.environmentSecrets.set("production", new Map([["EXAMPLE_STRIPE_SECRET_KEY", LIVE]]));
 
     const { code, output } = await w.run("doctor", "example");
 
