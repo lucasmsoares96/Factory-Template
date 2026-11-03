@@ -8,7 +8,7 @@ import { renderSpa } from "../spa/render.tsx";
 import { expect, test } from "../spa/test.ts";
 
 const ana = { id: "user-1", name: "Ana Souza", email: "ana@example.com", pendingEmail: null };
-const nav = (t = messagesFor("en")) => ({ entries: [{ label: t.account.nav, to: "/account", icon: "UserRound" }], companyPage: [], accountPage: [] });
+const nav = () => ({ entries: [], companyPage: [], accountPage: [] });
 
 type Connection = { id: string; appName: string; createdAt: string; access: "read" | "write" };
 
@@ -102,7 +102,7 @@ test("Show more reads the next page with the cursor the first one answered", asy
 
 test("without Connections, the page says there are none", async ({ worker }) => {
   const t = messagesFor("pt-BR");
-  worker.use(getMeHandler(ana), getNavHandler(nav(t)), ...connectionsApi([]).handlers);
+  worker.use(getMeHandler(ana), getNavHandler(nav()), ...connectionsApi([]).handlers);
   const { screen } = await renderSpa({ path: "/account/connections", locale: "pt-BR" });
 
   await expect.element(screen.getByRole("heading", { name: t.account.connections.title })).toBeVisible();

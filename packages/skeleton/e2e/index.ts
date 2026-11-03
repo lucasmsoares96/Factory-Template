@@ -113,7 +113,10 @@ export const test = base.extend<{ evidence: (name: string) => Promise<void>; mai
       }
       const path = join(EVIDENCE_DIR, product, `${name}.png`);
       await mkdir(dirname(path), { recursive: true });
-      await page.screenshot({ path, fullPage: true });
+      // A full-page print resizes the page, which closes an open menu (its anchor moves): with
+      // one open, print the viewport, so the test can go on using the menu.
+      const menuOpen = (await page.locator("[data-slot=dropdown-menu-content][data-open]").count()) > 0;
+      await page.screenshot({ path, fullPage: !menuOpen });
     });
   },
 });

@@ -24,7 +24,9 @@ test(
     await page.getByRole("button", { name: t.auth.signIn.submit }).click();
     await expect(page.getByTestId("user-name")).toHaveText("Ana Souza");
 
-    await page.getByRole("navigation", { name: t.nav.label }).getByRole("link", { name: t.account.nav }).click();
+    await page.getByRole("button", { name: t.nav.userMenu }).click();
+
+    await page.getByRole("menuitem", { name: t.account.nav }).click();
     await expect(page.getByTestId("current-email")).toHaveText(format(t.account.currentEmail, { email }));
 
     await page.getByLabel(t.account.newEmail).fill(newEmail);
