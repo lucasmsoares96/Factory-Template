@@ -44,6 +44,18 @@ const left = (w: World) => ({
 const everywhere = (w: World) => [...w.github.secrets.keys(), ...w.github.variables.keys(), ...w.github.environments.keys(), ...[...w.github.environmentSecrets.values()].flatMap((m) => [...m.keys()])];
 const mentions = (w: World, id: string) => everywhere(w).filter((n) => n.toUpperCase().startsWith(id.toUpperCase()));
 
+describe("pnpm bootstrap destroy: environments", () => {
+  it("drops production and preview and leaves environments named after a Product alone", async () => {
+    const w = await built({ "destroy-confirm": "all" });
+    w.github.environments.set("example-production", "main");
+    w.github.environments.set("example-preview", "main");
+
+    await w.run("destroy");
+
+    expect([...w.github.environments.keys()].sort()).toEqual(["example-preview", "example-production"]);
+  });
+});
+
 describe("pnpm bootstrap destroy: refusals", () => {
   it("refuses without a terminal before any listing or API call", async () => {
     const w = await built();

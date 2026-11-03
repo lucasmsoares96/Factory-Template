@@ -1,3 +1,4 @@
+import { readdir, readFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
@@ -25,6 +26,24 @@ describe("bootstrap CLI", () => {
 
     expect(code).toBe(1);
     expect(output).toContain("Unknown command");
+  });
+
+  it("no longer knows migrate-environments", async () => {
+    const w = world();
+
+    const { code, output } = await w.run("migrate-environments");
+
+    expect(code).toBe(1);
+    expect(output).toContain("Unknown command");
+  });
+
+  it("has no reference left to the environment migration in the bootstrap source", async () => {
+    const dir = resolve(import.meta.dirname, "../../src");
+    const files = (await readdir(dir, { recursive: true })).filter((f) => f.endsWith(".ts"));
+    for (const file of files) {
+      const text = await readFile(resolve(dir, file), "utf8");
+      for (const name of ["migrate-environments", "legacyLayout", "legacyEnvironment", "MIGRATE_HINT"]) expect(text, `${file} mentions ${name}`).not.toContain(name);
+    }
   });
 
   it("is wired to `pnpm bootstrap`", async () => {

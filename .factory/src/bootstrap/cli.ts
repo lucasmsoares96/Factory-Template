@@ -8,7 +8,6 @@ import { SkeletonAccounts } from "./accounts.ts";
 import { CloudflareApi } from "./cloudflare.ts";
 import { cloudflareDone, commonSteps } from "./common.ts";
 import { runDestroy } from "./destroy.ts";
-import { migrateEnvironments } from "./migrate.ts";
 import { declaredEntitlements } from "./entitlements.ts";
 import { doctor, formatReport, type Sections } from "./doctor.ts";
 import { GhCli } from "./github.ts";
@@ -39,10 +38,6 @@ Commands:
   (none)                 Set up the common part: Cloudflare token and account, workers.dev, labels, and the
                          language of the Factory's public text (en or pt-BR, asked once: FACTORY_LANGUAGE).
                          Looks at the current state and skips what already exists, so it is safe to rerun.
-  migrate-environments   After a repo moved to the production and preview environments (the rerun of the commands above
-                         copies what can be made again and asks the rest once): lists the per-Product environments
-                         (<id>-production, <id>-preview) and the deploy secrets at repo level, refuses while any has no copy,
-                         and deletes them after you confirm. Run it after a green deploy of the default branch.
   doctor                 Read-only check of secrets, variables, labels and resources; shows what is switched off.
   domain <id>            Per Product: Resend sending domain, its DNS records in Cloudflare, a restricted
                          Resend key and the Worker's Custom Domain. Skips what exists, so it is safe to rerun.
@@ -177,14 +172,13 @@ async function printEnvironment(productId: string | undefined, deps: BootstrapDe
   return 0;
 }
 
-const COMMANDS = ["migrate-environments", "destroy", "domain", "env", "billing", "all", "previews", "product", "factory", "doctor"];
+const COMMANDS = ["destroy", "domain", "env", "billing", "all", "previews", "product", "factory", "doctor"];
 
 async function dispatch(positionals: string[], redo: string[], deps: BootstrapDeps, announce = false, create: NewProductAnswers = {}): Promise<number> {
   const [command, productId] = positionals;
   const values = { redo };
   const ran = announce ? positionals.filter(Boolean).join(" ") : undefined;
 
-  if (command === "migrate-environments") return migrateEnvironments({ ...deps, memory: {} });
   if (command === "destroy") {
     const memory: StepContext["memory"] = {};
     try {

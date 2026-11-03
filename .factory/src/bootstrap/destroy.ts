@@ -1,7 +1,7 @@
 import { configVariables } from "../config.ts";
 import type { CloudflareClient, NeonClient, NeonProject, ResendClient } from "./clients.ts";
 import { cloudflareHandle } from "./domain.ts";
-import { legacyEnvironment, PRODUCTION_ENVIRONMENT, STAGE_ENVIRONMENTS } from "./environments.ts";
+import { PRODUCTION_ENVIRONMENT, STAGE_ENVIRONMENTS } from "./environments.ts";
 import { billingNames } from "./billing.ts";
 import { FACTORY_ENABLED, FACTORY_TOKEN } from "./factory.ts";
 import { accountNames } from "./accounts.ts";
@@ -97,10 +97,9 @@ async function productIdentity(ctx: StepContext, id: string): Promise<ProductIde
   }
 }
 
-/** The Products the repo knows: the two lists and the environments the wizard made. */
-function knownProducts(variables: Record<string, string>, environments: string[]): string[] {
-  const fromEnvs = environments.flatMap((name) => /^(.+)-(production|preview)$/.exec(name)?.[1] ?? []);
-  return [...new Set([...parseProductList(variables[DEPLOY_PRODUCTS]), ...parseProductList(variables[PREVIEW_PRODUCTS]), ...fromEnvs])].sort();
+/** The Products the repo knows: the two lists. */
+function knownProducts(variables: Record<string, string>): string[] {
+  return [...new Set([...parseProductList(variables[DEPLOY_PRODUCTS]), ...parseProductList(variables[PREVIEW_PRODUCTS])])].sort();
 }
 
 /** Looks at the accounts and the repo and lists what the scope would delete. Nothing is changed here. */
@@ -110,7 +109,7 @@ export async function plan(ctx: StepContext, scope: DestroyScope): Promise<Plan>
   const [secrets, variables, environments, rulesets] = await Promise.all([github.listSecrets(), github.listVariables(), github.listEnvironments(), github.listRulesets()]);
 
   const everything = scope.kind === "all";
-  const productIds = everything ? knownProducts(variables, environments) : scope.kind === "product" || scope.kind === "previews" || scope.kind === "db" ? [scope.id] : [];
+  const productIds = everything ? knownProducts(variables) : scope.kind === "product" || scope.kind === "previews" || scope.kind === "db" ? [scope.id] : [];
   const production = everything || scope.kind === "product";
   const previews = everything || scope.kind === "product" || scope.kind === "previews";
   const database = scope.kind === "db";
@@ -127,7 +126,7 @@ export async function plan(ctx: StepContext, scope: DestroyScope): Promise<Plan>
     const held = environmentSecrets.get(name) ?? [];
     addGithub(`environment ${name}${held.length > 0 ? `, with its secrets ${held.join(", ")}` : ""}`, () => github.deleteEnvironment(name));
   };
-  // A secret may be at repo level or in any environment (the stage ones, or a Product's of the old layout).
+  // A secret may be at repo level or in any environment (the stage ones).
   const dropSecret = (name: string) => {
     if (secrets.includes(name)) addGithub(`secret ${name}`, () => github.deleteSecret(name));
     for (const [environment, held] of environmentSecrets) {
@@ -136,7 +135,7 @@ export async function plan(ctx: StepContext, scope: DestroyScope): Promise<Plan>
   };
   // The stage environments are shared by every Product: only the common part (or everything) takes them down.
   if (everything || scope.kind === "common") {
-    for (const name of environments.filter((e) => STAGE_ENVIRONMENTS.some((stage) => stage === e) || legacyEnvironment(e))) dropEnvironment(name);
+    for (const name of environments.filter((e) => STAGE_ENVIRONMENTS.some((stage) => stage === e))) dropEnvironment(name);
   }
 
   // The accounts are listed with the credentials this machine already has (memory, environment, a saved wrangler login).
@@ -222,12 +221,10 @@ export async function plan(ctx: StepContext, scope: DestroyScope): Promise<Plan>
   return result;
 }
 
-/** Whether a Product's Resend key secret is in the `production` environment (or in its environment of the old layout). */
+/** Whether a Product's Resend key secret is in the `production` environment . */
 async function productsInEnvironments(ctx: StepContext, productIds: string[], environments: string[]): Promise<boolean> {
   for (const id of productIds) {
-    for (const environment of [PRODUCTION_ENVIRONMENT, `${id}-production`]) {
-      if (environments.includes(environment) && (await ctx.github.listSecrets({ environment })).includes(productionSecrets(id).resendKey)) return true;
-    }
+    if (environments.includes(PRODUCTION_ENVIRONMENT) && (await ctx.github.listSecrets({ environment: PRODUCTION_ENVIRONMENT })).includes(productionSecrets(id).resendKey)) return true;
   }
   return false;
 }
@@ -278,7 +275,6 @@ async function planProduction(ctx: StepContext, plan: Plan, services: Services, 
   const secretNames = Object.values(productionSecrets(id));
   const { password, email } = accountNames(id);
   const billing = billingNames(id);
-  repo.dropEnvironment(`${id}-production`); // the old layout
   for (const name of [...secretNames, password, billing.liveKey, billing.webhookSecret]) repo.dropSecret(name);
   repo.dropVariable(email);
   repo.dropVariable(databaseVariables(id).neonProject);
@@ -353,7 +349,6 @@ async function planPreviews(ctx: StepContext, plan: Plan, services: Services, id
   if (services.neon) {
     await planPreviewProject(plan, ctx, services.neon, id, repo.variables);
   }
-  repo.dropEnvironment(`${id}-preview`); // the old layout
   for (const name of [names.neonKey, names.accountPassword, billingNames(id).sandboxKey]) repo.dropSecret(name);
   repo.dropVariable(names.neonProject);
   repo.dropVariable(names.kv);
