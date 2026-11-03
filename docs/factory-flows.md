@@ -189,6 +189,8 @@ What `publish` does:
 
 `.github/workflows/factory-pr.yml`, off until `PREVIEWS_ENABLED` (set up by `pnpm bootstrap previews <id>`, see [factory-bootstrap.md](factory-bootstrap.md)). Logic in `.factory/src/ci/previews.ts`: gate, bindings check, Neon branch, preview config, URL, result, comment, `base`, cleanup.
 
+The `PR` workflow does not listen to `labeled`: a label must not start a run, and a run whose required `verify` job was skipped would count as passed. The `preview` label is handled by `factory-pr-label.yml`, which calls `factory-pr.yml` (`workflow_call`, its own concurrency group) only for that label, so its check is `preview / verify`, never the required `verify`. `publish` opens a ready PR without draft (no `markReady`), so a publication raises one `PR` run.
+
 1. `build`: PR code, no secrets; also uploads `bundle-<id>`.
 2. `preview-plan`: `previews.ts gate`: affected ∩ `PREVIEW_PRODUCTS`, author `write`+ or the event of the `preview` label put by someone with `write`+; a push removes the label.
 3. `deploy`: `main`'s checkout, the only job of this workflow with Cloudflare, Neon and Stripe sandbox preview secrets.

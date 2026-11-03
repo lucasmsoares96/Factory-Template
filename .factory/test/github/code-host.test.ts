@@ -90,6 +90,8 @@ describe("GitHubCodeHost", () => {
     expect(await h.openPrFor("factory/issue-9")).toBeNull();
     await h.openDraftPr({ branch: "factory/issue-7", base: "main", title: "Fix #7: x", body: "B" });
     expect(s.calls.at(-1)!.body).toEqual({ head: "factory/issue-7", base: "main", title: "Fix #7: x", body: marked("B"), draft: true });
+    await h.openDraftPr({ branch: "factory/issue-7", base: "main", title: "Fix #7: x", body: "B", draft: false });
+    expect(s.calls.at(-1)!.body).toMatchObject({ draft: false });
   });
 
   it("marks ready through GraphQL (REST has no endpoint), updates the body, labels and closes with a comment first", async () => {

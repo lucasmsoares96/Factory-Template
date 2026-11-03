@@ -82,8 +82,10 @@ describe("factory publish", () => {
     ]);
 
     // The PR this run opened shows `factory:working` until the run ends.
-    expect(w.codeHost.writes).toEqual(["push factory/issue-7", "openDraftPr #101", "labelPr #101 factory:working", "submitReview #101", "markReady #101", "unlabelPr #101 factory:working"]);
+    expect(w.codeHost.writes).toEqual(["push factory/issue-7", "openDraftPr #101", "labelPr #101 factory:working", "submitReview #101", "unlabelPr #101 factory:working"]);
     expect(output).toEqual({ issue: 7, outcome: "ready", pr: 101, url: "https://forge.test/pr/101" });
+    // Opened ready: no draft and no `markReady`, so the PR raises one run, not three.
+    expect(w.codeHost.pr(101).draft).toBe(false);
   });
 
   it("posts a COMMENT review without inline comments when the review has none", async () => {

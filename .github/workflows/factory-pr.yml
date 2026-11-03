@@ -7,16 +7,19 @@
 # Product's bundle; `preview-plan`, `deploy`, `smoke` and `preview-comment` run `main`'s code on fresh VMs and see
 # the PR only as that allowlisted artifact. `deploy` is the only job with the Cloudflare and Neon preview secrets;
 # `smoke` has none. A change to this file takes effect only after it is merged (`pull_request_target` runs the
-# workflow of the base branch). The `labeled` event is there for the `preview` label; it re-runs the whole check.
+# workflow of the base branch). The `preview` label is not an event of this workflow:
+# `factory-pr-label.yml` calls this one for it (`workflow_call`), so a label never starts a `verify` here, not even a
+# skipped one (a skipped required job counts as passed).
 name: PR
 
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_call:
 
-# A label event has its own group, so it never cancels the run of a push.
+# `github.workflow` is the caller's name when called, so the label run has its own group and never cancels a push's run.
 concurrency:
-  group: pr-${{ github.event.pull_request.number }}-${{ github.event.action == 'labeled' && 'label' || 'push' }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 permissions: {}

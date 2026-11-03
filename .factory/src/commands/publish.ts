@@ -359,6 +359,8 @@ async function pullRequest(
       title: `Fix #${issue.number}: ${issue.title}`,
       body,
       images: shownIn(body, input.images),
+      // The state it ends in is known now: only an Escalation stays draft, so a ready PR needs no `markReady` event.
+      draft: input.escalated !== null,
     });
     // A continued PR got `factory:working` at the claim; this one exists only now.
     await input.markWorking?.(pr.number).catch((error: Error) => ctx.log(`${config.labels.working} on PR #${pr.number} could not be put on: ${error.message}`));
