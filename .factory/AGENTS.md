@@ -59,7 +59,6 @@ Every Factory workflow is off until `FACTORY_ENABLED`. Jobs, tokens and writes o
 - `pnpm bootstrap previews <id>`: the Previews module (optional, after Production; `PREVIEWS_ENABLED` once the doctor passes).
 - `pnpm bootstrap domain <id>`, `pnpm bootstrap doctor <id>`: a Product's domain, read from `apps/<id>/product.config.ts`.
 - `pnpm bootstrap billing <id>`: the optional billing module (Stripe keys, plans, events endpoint, and the trial of the accounts that already exist; after `product`).
-- `pnpm bootstrap migrate-environments`: after a rerun copied an old repo's secrets to `production`/`preview`, deletes the per-Product environments and repo-level deploy secrets (lists, then asks).
 - `pnpm bootstrap env [<id>]` lists the variables that answer the questions (declared in `src/bootstrap/questions.ts`; without a terminal each question is answered by its variable and a missing required one fails before the first step).
 - `pnpm bootstrap all <id>` runs the common part, `product`, `previews` and `factory` in order (stopping at the first doctor that fails), asks whether to set `domain` up, and offers billing. Every command ends with a `next: ...` line from the repo's state (none when all is done).
 - `pnpm bootstrap factory`: the Factory module (labels, `FACTORY_TOKEN`, Claude auth, auto-merge, Merge Mode; `FACTORY_ENABLED` once the doctor passes), then an optional example issue.
