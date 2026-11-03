@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { labelSpecs } from "../../src/bootstrap/labels.ts";
 import type { FakeGitHub } from "../../src/bootstrap/fake/fakes.ts";
-import { world } from "./helpers.ts";
+import { world, seedCloudflare } from "./helpers.ts";
 
 // The example issue at the end of `pnpm bootstrap factory`, against the fake GitHub. The fake plays the Factory through `onPoll`.
 const PAT = "github_pat_owner_token";
@@ -11,8 +11,7 @@ function exampleWorld(answer: boolean | undefined = true, extra: Record<string, 
   w.deps.interactive = true;
   w.deps.example = { pollMs: 30_000, timeoutMs: 120_000 };
   w.tokens.add(PAT, { push: true });
-  w.github.secrets.set("CLOUDFLARE_API_TOKEN", "x");
-  w.github.secrets.set("CLOUDFLARE_ACCOUNT_ID", "acc-1");
+  seedCloudflare(w.github, "x");
   return w;
 }
 

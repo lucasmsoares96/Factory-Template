@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { labelSpecs } from "../../src/bootstrap/labels.ts";
-import { TOKEN, WRANGLER_TOKEN, world } from "./helpers.ts";
+import { TOKEN, WRANGLER_TOKEN, world, seedCloudflare } from "./helpers.ts";
 
 // Seam 8 for the Previews module: every step against the fake GitHub, Cloudflare and Neon.
 const ENV = { CLOUDFLARE_API_TOKEN: TOKEN, CLOUDFLARE_ACCOUNT_ID: "acc-1" };
@@ -9,8 +9,7 @@ function previewsWorld(answers: Record<string, string | boolean | string[]> = {}
   const w = world({ "resend-setup": "skip", "default-account-email": "admin@example.com", "default-account-password": "admin password 123", "default-account-password-confirm": "admin password 123", "preview-account-password": "preview password 1", "preview-account-password-confirm": "preview password 1", ...answers }, env);
   w.deps.interactive = true;
   w.github.variables.set("EXAMPLE_ACCOUNT_EMAIL", "admin@example.com");
-  w.github.secrets.set("CLOUDFLARE_API_TOKEN", TOKEN);
-  w.github.secrets.set("CLOUDFLARE_ACCOUNT_ID", "acc-1");
+  seedCloudflare(w.github, TOKEN);
   w.cloudflare.subdomains.set("acc-1", "my-team");
   for (const label of labelSpecs(w.deps.config)) w.github.labels.set(label.name, label);
   return w;
@@ -18,7 +17,7 @@ function previewsWorld(answers: Record<string, string | boolean | string[]> = {}
 
 const counts = (w: ReturnType<typeof previewsWorld>) => [w.github.writes, w.cloudflare.writes, w.neon.writes];
 const everythingShown = (w: ReturnType<typeof previewsWorld>) => JSON.stringify([w.lines, w.prompter.notes, w.prompter.printed]);
-const previewSecrets = (w: ReturnType<typeof previewsWorld>, environment = "example-preview") => w.github.environmentSecrets.get(environment);
+const previewSecrets = (w: ReturnType<typeof previewsWorld>, environment = "preview") => w.github.environmentSecrets.get(environment);
 
 describe("pnpm bootstrap previews: Previews module", () => {
   it("makes the preview project with default branch base, a key limited to it, the KV, the environment and the PREVIEW_PRODUCTS entry", async () => {
@@ -28,8 +27,8 @@ describe("pnpm bootstrap previews: Previews module", () => {
 
     expect(code).toBe(0);
     expect(w.neon.projects.map((p) => [p.name, p.defaultBranch])).toEqual([["example-preview", "base"]]);
-    expect(w.github.environments.get("example-preview")).toBe("main");
-    expect([...previewSecrets(w)!.keys()]).toEqual(["EXAMPLE_PREVIEW_NEON_API_KEY", "EXAMPLE_PREVIEW_ACCOUNT_PASSWORD"]);
+    expect(w.github.environments.get("preview")).toBe("main");
+    expect([...previewSecrets(w)!.keys()].filter((name) => !name.startsWith("CLOUDFLARE_"))).toEqual(["EXAMPLE_PREVIEW_NEON_API_KEY", "EXAMPLE_PREVIEW_ACCOUNT_PASSWORD"]);
     expect(w.neon.apiKeys).toHaveLength(1);
     expect(w.neon.apiKeys[0]).toMatchObject({ projectId: w.neon.projects[0]!.id, name: "example-preview-ci" });
     expect(previewSecrets(w)!.get("EXAMPLE_PREVIEW_NEON_API_KEY")).toBe(w.neon.apiKeys[0]!.key);
@@ -97,7 +96,7 @@ describe("pnpm bootstrap previews: Previews module", () => {
 
     expect(w.neon.projects.map((p) => p.name)).toEqual(["example", "example-preview"]);
     expect(w.neon.apiKeys.every((k) => k.projectId !== "proj-prod")).toBe(true);
-    expect(w.github.environmentSecrets.has("example-production")).toBe(false);
+    expect([...w.github.environmentSecrets.get("production")!.keys()].filter((name) => !name.startsWith("CLOUDFLARE_"))).toEqual([]);
   });
 
   it("opens one Neon login for the project and the key together", async () => {
@@ -258,6 +257,10 @@ describe("pnpm bootstrap previews: Previews module", () => {
 
   it("falls back to repo-level secrets and FACTORY_USE_ENVIRONMENTS=false when the API refuses environments", async () => {
     const w = previewsWorld();
+    w.github.environments.clear();
+    w.github.environmentSecrets.clear();
+    w.github.secrets.set("CLOUDFLARE_API_TOKEN", TOKEN);
+    w.github.secrets.set("CLOUDFLARE_ACCOUNT_ID", "acc-1");
     w.github.refuseEnvironments = true;
 
     const { code } = await w.run("previews", "example");
@@ -284,7 +287,7 @@ describe("pnpm bootstrap previews: Previews module", () => {
 
     await w.run("previews", "my-app");
 
-    expect([...w.github.environmentSecrets.get("my-app-preview")!.keys()]).toEqual(["MY_APP_PREVIEW_NEON_API_KEY"]);
+    expect([...w.github.environmentSecrets.get("preview")!.keys()].filter((name) => !name.startsWith("CLOUDFLARE_"))).toEqual(["MY_APP_PREVIEW_NEON_API_KEY"]);
     expect([...w.github.variables.keys()].filter((n) => n.includes("MY_APP"))).toEqual(["MY_APP_REGION", "MY_APP_PREVIEW_NEON_PROJECT_ID", "MY_APP_PREVIEW_OAUTH_KV_ID"]);
     expect(w.neon.projects.map((p) => p.name)).toEqual(["my-app-preview"]);
   });
@@ -293,7 +296,7 @@ describe("pnpm bootstrap previews: Previews module", () => {
     const w = previewsWorld();
     await w.run("previews", "example");
     const old = w.neon.apiKeys[0]!;
-    w.github.environmentSecrets.get("example-preview")!.delete("EXAMPLE_PREVIEW_NEON_API_KEY");
+    w.github.environmentSecrets.get("preview")!.delete("EXAMPLE_PREVIEW_NEON_API_KEY");
 
     const { code, output } = await w.run("previews", "example");
 
@@ -355,7 +358,7 @@ describe("doctor: the Previews section is by presence", () => {
     const { code, output } = await w.run("doctor", "example");
 
     expect(code).toBe(0);
-    for (const name of ["EXAMPLE_PREVIEW_NEON_API_KEY", "EXAMPLE_PREVIEW_NEON_PROJECT_ID", "EXAMPLE_PREVIEW_OAUTH_KV_ID", "example in PREVIEW_PRODUCTS", "Environment example-preview"]) {
+    for (const name of ["EXAMPLE_PREVIEW_NEON_API_KEY", "EXAMPLE_PREVIEW_NEON_PROJECT_ID", "EXAMPLE_PREVIEW_OAUTH_KV_ID", "example in PREVIEW_PRODUCTS", "Environment preview"]) {
       expect(output).toMatch(new RegExp(`ok\\s+${name}`));
     }
   });

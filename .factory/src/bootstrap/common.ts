@@ -2,7 +2,8 @@ import type { Step, StepContext } from "./steps.ts";
 import { CloudflareRefused, type CloudflareClient } from "./clients.ts";
 import { labelSpecs } from "./labels.ts";
 import { variableName } from "../config.ts";
-import { mainRulesetStep } from "./product.ts";
+import { ensureEnvironment, mainRulesetStep, USE_ENVIRONMENTS } from "./product.ts";
+import { STAGE_ENVIRONMENTS } from "./environments.ts";
 import { LANGUAGES, type Language } from "../messages.ts";
 
 const TOKEN_SECRET = "CLOUDFLARE_API_TOKEN";
@@ -159,31 +160,69 @@ export async function promptMainToken(ctx: StepContext, input: { message: string
   }
 }
 
+/**
+ * Where the Cloudflare token and account live: in both stage environments (`production` and `preview`, without a prefix:
+ * one token for every Product), or at repo level when GitHub refuses environments (`FACTORY_USE_ENVIRONMENTS=false`).
+ * `environment` is unset for the repo. A place that does not exist yet (the environments are made by `run`) holds nothing.
+ */
+export async function cloudflarePlaces(ctx: StepContext): Promise<{ environment?: string; secrets: string[] }[]> {
+  if ((await ctx.github.listVariables())[USE_ENVIRONMENTS] === "false") return [{ secrets: await ctx.github.listSecrets() }];
+  const existing = await ctx.github.listEnvironments();
+  return Promise.all(STAGE_ENVIRONMENTS.map(async (environment) => ({ environment, secrets: existing.includes(environment) ? await ctx.github.listSecrets({ environment }) : [] })));
+}
+
+/** Whether the token and the account are where the deploy reads them. */
+export async function cloudflareDone(ctx: StepContext): Promise<boolean> {
+  return (await cloudflarePlaces(ctx)).every((place) => place.secrets.includes(TOKEN_SECRET) && place.secrets.includes(ACCOUNT_SECRET));
+}
+
+/** The token a Product-less rerun can copy: this run's, else `CLOUDFLARE_API_TOKEN`. wrangler's saved login is not an API token to store. */
+const knownMainToken = (ctx: StepContext) => ctx.memory.mainToken ?? (ctx.env.CLOUDFLARE_API_TOKEN || undefined);
+
 export const cloudflareToken: Step = {
   id: "cloudflare-token",
-  title: `Cloudflare token and account (${TOKEN_SECRET}, ${ACCOUNT_SECRET})`,
+  title: `Cloudflare token and account (${TOKEN_SECRET}, ${ACCOUNT_SECRET}; in the production and preview environments)`,
   asks: ["cloudflare-token"],
-  // With the token secret in place the credential comes from the environment or wrangler and nothing is asked.
+  // The token is collected once. A secret cannot be read back, so a repo that still has it at repo level (the old layout)
+  // gets it copied from this run's token (`CLOUDFLARE_API_TOKEN`) or, failing that, from one question.
   async needs(ctx) {
-    return !(await ctx.github.listSecrets()).includes(TOKEN_SECRET);
+    if (knownMainToken(ctx)) return false;
+    return !(await cloudflarePlaces(ctx)).every((place) => place.secrets.includes(TOKEN_SECRET));
   },
   async check(ctx) {
-    const secrets = await ctx.github.listSecrets();
-    return { done: secrets.includes(TOKEN_SECRET) && secrets.includes(ACCOUNT_SECRET) };
+    return { done: await cloudflareDone(ctx) };
   },
   async run(ctx) {
-    // The token cannot be read back from the secret: once it exists the wizard never asks for it again (an explicit
-    // `--redo cloudflare-token` is the person asking to replace it).
-    const hasSecret = (await ctx.github.listSecrets()).includes(TOKEN_SECRET);
-    if (!hasSecret || ctx.redo?.includes("cloudflare-token")) {
-      const token = await promptMainToken(ctx, { message: "Paste the Cloudflare API token", showLink: true });
-      await ctx.github.setSecret(TOKEN_SECRET, token);
-      await ctx.github.setSecret(ACCOUNT_SECRET, await askAccountId(ctx, token));
+    const redo = ctx.redo?.includes("cloudflare-token") === true;
+    // The environments come first so the secrets land in them; when GitHub refuses, the repo is the place.
+    let made = true;
+    for (const name of STAGE_ENVIRONMENTS) made = (await ensureEnvironment(ctx, name)) && made;
+    const places = await cloudflarePlaces(ctx);
+    const lacking = (name: string) => places.filter((place) => redo || !place.secrets.includes(name));
+    const write = async (name: string, value: string) => {
+      for (const place of lacking(name)) await ctx.github.setSecret(name, value, place.environment ? { environment: place.environment } : {});
+    };
+    if (lacking(TOKEN_SECRET).length > 0) {
+      const known = redo ? ctx.memory.mainToken : knownMainToken(ctx);
+      let token = known;
+      if (token && !redo) {
+        // A token handed over by the environment is held to the same permissions as a pasted one.
+        const missing = await missingPermissions(ctx.cloudflare(token), await cloudflareAccountId(ctx, token));
+        if (missing.length > 0) throw new Error(`CLOUDFLARE_API_TOKEN is missing: ${missing.join(", ")}. Nothing was stored; create the token again from ${cloudflareTokenUrl(ctx.env.CLOUDFLARE_ACCOUNT_ID || undefined)}`);
+      }
+      if (!token) {
+        if (!made || places.some((place) => place.environment === undefined)) ctx.log("  The token goes to the repo: GitHub refused the environments.");
+        else ctx.log(`  ${TOKEN_SECRET} is not in the ${STAGE_ENVIRONMENTS.join(" and ")} environments and a secret cannot be read back from GitHub: it is asked once to be stored in both (one token for every Product).`);
+        token = await promptMainToken(ctx, { message: "Paste the Cloudflare API token", showLink: true });
+      }
+      ctx.memory.mainToken = token;
+      await write(TOKEN_SECRET, token);
+      await write(ACCOUNT_SECRET, await (ctx.memory.accountId ? Promise.resolve(ctx.memory.accountId) : askAccountId(ctx, token)));
       return;
     }
     const token = await cloudflareCredential(ctx, { login: true });
     if (!token) throw new Error("No Cloudflare login to read the account from.");
-    await ctx.github.setSecret(ACCOUNT_SECRET, await cloudflareAccountId(ctx, token));
+    await write(ACCOUNT_SECRET, await cloudflareAccountId(ctx, token));
   },
 };
 

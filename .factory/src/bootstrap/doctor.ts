@@ -1,11 +1,12 @@
 import { accountNames } from "./accounts.ts";
-import { cloudflareAccountId, cloudflareCredential, LANGUAGE_VARIABLE } from "./common.ts";
+import { cloudflareAccountId, cloudflareDone, cloudflarePlaces, cloudflareCredential, LANGUAGE_VARIABLE } from "./common.ts";
 import { labelSpecs } from "./labels.ts";
 import { closedVariables, type FactoryConfig } from "../config.ts";
 import { billingChecks, hasBillingTrace } from "./billing-doctor.ts";
 import { MERGE_MODE_VARIABLE } from "./factory.ts";
 import { NO_DNS, NO_LOGIN, deployFirstMessage, productionEnvironment, productSecretName, readDnsState, showResendKeyLink, readWorkerDomainState } from "./domain.ts";
 import { hasPreviewTrace, previewEnvironment, previewNames, previewProjectName, previewSecretPresent, PREVIEW_PRODUCTS, BASE_BRANCH } from "./previews.ts";
+import { legacyLayout, MIGRATE_HINT } from "./migrate.ts";
 import { coversMain, databaseVariables, DEPLOY_PRODUCTS, missingSecrets, neonHandle, neonOrgId, parseProductList, productionDatabaseUrl, productionSecrets, USE_ENVIRONMENTS } from "./product.ts";
 import type { BootstrapDeps, ProductIdentity, StepContext } from "./steps.ts";
 import { WranglerNotInstalled, type NeonProject } from "./clients.ts";
@@ -87,10 +88,16 @@ export async function doctor(
 
   const withCloudflare = sections.cloudflare !== false;
   if (withCloudflare) {
+    const places = await cloudflarePlaces(ctx);
     for (const name of ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]) {
-      add("Secrets", secrets.includes(name) ? "ok" : "missing", name, secrets.includes(name) ? undefined : "run `pnpm bootstrap`");
+      const lacking = places.filter((place) => !place.secrets.includes(name)).map((place) => place.environment ?? "the repo");
+      add("Secrets", lacking.length === 0 ? "ok" : "missing", name, lacking.length === 0 ? places.map((place) => place.environment ?? "repo").join(", ") : `missing from ${lacking.join(" and ")}: run \`pnpm bootstrap\``);
     }
   }
+  // The old layout: a deploy secret at repo level, or an environment per Product, is readable from a workflow on any branch.
+  const legacy = await legacyLayout(ctx);
+  for (const name of legacy.repoSecrets) add("Secrets", "warn", name, `deploy secret at repo level: a workflow on any branch can read it; to move it, ${MIGRATE_HINT}`);
+  for (const environment of legacy.environments) add("Secrets", "warn", `Environment ${environment.name}`, `per-Product environment of the old layout; the ${environment.stage} environment replaces it; to move, ${MIGRATE_HINT}`);
   const claude = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"].filter((n) => secrets.includes(n));
   if (claude.length === 2) add("Secrets", "warn", "Claude auth", "both exist: ANTHROPIC_API_KEY wins; delete one");
   else if (claude.length === 1) add("Secrets", "ok", "Claude auth", claude[0]);
@@ -137,7 +144,7 @@ export async function doctor(
     // The Factory module does not touch Cloudflare.
   } else if (!token) {
     // Secrets cannot be read back: their presence on the forge stands in for the check.
-    if (secrets.includes("CLOUDFLARE_API_TOKEN") && secrets.includes("CLOUDFLARE_ACCOUNT_ID")) add("Resources", "ok", "workers.dev", "not re-checked (no saved Cloudflare login on this machine)");
+    if (await cloudflareDone(ctx)) add("Resources", "ok", "workers.dev", "not re-checked (no saved Cloudflare login on this machine)");
     else if (notInstalled) add("Resources", "skip", "workers.dev", notInstalled.message);
     else add("Resources", "skip", "workers.dev", "run `pnpm --filter @factory/harness exec wrangler login` to check it");
   } else {
@@ -170,7 +177,7 @@ export async function doctor(
       } else {
         domainAdd("ok", "Domain", product.domain);
         const key = productSecretName(product.id, "RESEND_API_KEY");
-        const keyMissing = (await missingSecrets(ctx, product.id, [key])).length > 0;
+        const keyMissing = (await missingSecrets(ctx, [key])).length > 0;
         domainAdd(keyMissing ? "off" : "ok", key, keyMissing ? `run \`pnpm bootstrap domain ${product.id}\`` : undefined);
         if (options.prompt && deps.interactive && !memory.resendKey && !memory.resendDeferred && !deps.env.RESEND_API_KEY) {
           showResendKeyLink(ctx, product.id);
@@ -258,7 +265,7 @@ async function previewChecks(
   const listed = parseProductList(variables[PREVIEW_PRODUCTS]).includes(id);
   add(listed ? "ok" : "missing", `${id} in ${PREVIEW_PRODUCTS}`, listed ? undefined : redo);
 
-  const environment = previewEnvironment(id);
+  const environment = previewEnvironment();
   if ((await ctx.github.listEnvironments()).includes(environment)) add("ok", `Environment ${environment}`, "only the default branch may deploy");
   else if (variables[USE_ENVIRONMENTS] === "false") add("off", `Environment ${environment}`, "refused by the plan or visibility: the secrets are at repo level");
   else add("warn", `Environment ${environment}`, redo);
@@ -304,10 +311,10 @@ async function productionChecks(
   const id = product.id;
   const redo = `run \`pnpm bootstrap product ${id}\``;
   const names = productionSecrets(id);
-  const missing = new Set(await missingSecrets(ctx, id, [names.databaseUrl, names.databaseUrlPooled, names.authSecret]));
+  const missing = new Set(await missingSecrets(ctx, [names.databaseUrl, names.databaseUrlPooled, names.authSecret]));
   for (const name of [names.databaseUrl, names.databaseUrlPooled, names.authSecret]) add(missing.has(name) ? "missing" : "ok", name, missing.has(name) ? redo : undefined);
 
-  const environment = productionEnvironment(id);
+  const environment = productionEnvironment();
   if ((await ctx.github.listEnvironments()).includes(environment)) add("ok", `Environment ${environment}`, "only the default branch may deploy");
   else if (variables[USE_ENVIRONMENTS] === "false") add("off", `Environment ${environment}`, "refused by the plan or visibility: the secrets are at repo level");
   else add("warn", `Environment ${environment}`, redo);
@@ -357,7 +364,7 @@ async function accountChecks(
   redo: string,
 ): Promise<void> {
   const names = accountNames(product.id);
-  const missing = (await missingSecrets(ctx, product.id, [names.password])).length > 0;
+  const missing = (await missingSecrets(ctx, [names.password])).length > 0;
   add(missing ? "missing" : "ok", names.password, missing ? redo : undefined);
   const email = variables[names.email];
   add(email ? "ok" : "missing", names.email, email ?? redo);

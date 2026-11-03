@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { cloudflareTokenUrl, TOKEN_PERMISSIONS } from "../../src/bootstrap/common.ts";
-import { TOKEN, WRANGLER_TOKEN, staticLabelNames, world } from "./helpers.ts";
+import { TOKEN, WRANGLER_TOKEN, staticLabelNames, world, seedCloudflare } from "./helpers.ts";
+
+const stored = (w: ReturnType<typeof world>, environment: string, name: string) => w.github.environmentSecrets.get(environment)?.get(name);
+const STAGES = ["production", "preview"];
 
 describe("pnpm bootstrap (common part)", () => {
   it("sets up Cloudflare and the labels on a fresh repo", async () => {
@@ -9,9 +12,14 @@ describe("pnpm bootstrap (common part)", () => {
     const { code } = await w.run();
 
     expect(code).toBe(0);
-    expect([...w.github.secrets.keys()].sort()).toEqual(["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN"]);
-    expect(w.github.secrets.get("CLOUDFLARE_API_TOKEN")).toBe(TOKEN);
-    expect(w.github.secrets.get("CLOUDFLARE_ACCOUNT_ID")).toBe("acc-1");
+    // No deploy secret at repo level: the token and the account are in the two stage environments, without a prefix.
+    expect([...w.github.secrets.keys()]).toEqual([]);
+    for (const environment of STAGES) {
+      expect(w.github.environments.get(environment)).toBe("main");
+      expect(stored(w, environment, "CLOUDFLARE_API_TOKEN")).toBe(TOKEN);
+      expect(stored(w, environment, "CLOUDFLARE_ACCOUNT_ID")).toBe("acc-1");
+    }
+    expect(w.github.secretWrites.map((write) => write.environment).sort()).toEqual(["preview", "preview", "production", "production"]);
     expect(w.cloudflare.subdomains.get("acc-1")).toBe("my-team");
     expect([...w.github.labels.keys()].sort()).toEqual([...staticLabelNames].sort());
     for (const label of w.github.labels.values()) {
@@ -222,8 +230,8 @@ describe("pnpm bootstrap (common part)", () => {
       expect(output).toContain(`The token is missing: ${name}`);
       expect(output).toContain("Nothing was stored");
       expect(w.prompter.asked.filter((id) => id === "cloudflare-token")).toHaveLength(2);
-      expect(w.github.secrets.get("CLOUDFLARE_API_TOKEN")).toBe(TOKEN);
-      expect(JSON.stringify([w.lines, w.prompter.printed, [...w.github.secrets.values()]])).not.toContain("narrow-token");
+      expect(STAGES.map((environment) => stored(w, environment, "CLOUDFLARE_API_TOKEN"))).toEqual([TOKEN, TOKEN]);
+      expect(JSON.stringify([w.lines, w.prompter.printed, [...w.github.environmentSecrets.values()].map((m) => [...m.values()])])).not.toContain("narrow-token");
     });
 
     it("names DNS when the account has a zone but the token cannot read its records", async () => {
@@ -232,7 +240,7 @@ describe("pnpm bootstrap (common part)", () => {
       const { output } = await w.run();
 
       expect(output).toContain("The token is missing: DNS");
-      expect(w.github.secrets.get("CLOUDFLARE_API_TOKEN")).toBe(TOKEN);
+      expect(stored(w, "production", "CLOUDFLARE_API_TOKEN")).toBe(TOKEN);
     });
 
     it("names every missing permission at once", async () => {
@@ -301,13 +309,12 @@ describe("pnpm bootstrap (common part)", () => {
     await w.run();
     w.cloudflare.validTokens.add("new-token");
     const again = world({ "cloudflare-token": "new-token" });
-    again.github.secrets.set("CLOUDFLARE_API_TOKEN", TOKEN);
-    again.github.secrets.set("CLOUDFLARE_ACCOUNT_ID", "acc-1");
+    seedCloudflare(again.github, TOKEN);
     again.cloudflare.validTokens.add("new-token");
 
     await again.run("--redo", "cloudflare-token");
 
-    expect(again.github.secrets.get("CLOUDFLARE_API_TOKEN")).toBe("new-token");
+    expect(STAGES.map((environment) => stored(again, environment, "CLOUDFLARE_API_TOKEN"))).toEqual(["new-token", "new-token"]);
   });
 
   it("asks the language of the Factory's public text once, sets FACTORY_LANGUAGE, and changes it only with --redo language", async () => {
@@ -354,23 +361,84 @@ describe("pnpm bootstrap (common part)", () => {
     await missing.run();
     expect(missing.prompter.asked.filter((id) => id === "cloudflare-token")).toHaveLength(1);
 
-    // The token secret exists (it cannot be read back); only the account secret is missing: no prompt, wrangler's login is used.
+    // The token exists in both environments (it cannot be read back); only the account is missing: no prompt, wrangler's login is used.
     const present = world({}, {}, WRANGLER_TOKEN);
-    present.github.secrets.set("CLOUDFLARE_API_TOKEN", TOKEN);
+    seedCloudflare(present.github, TOKEN);
+    for (const environment of STAGES) present.github.environmentSecrets.get(environment)!.delete("CLOUDFLARE_ACCOUNT_ID");
     present.cloudflare.subdomains.set("acc-1", "my-team");
     present.github.variables.set("FACTORY_LANGUAGE", "en");
     const { code } = await present.run();
 
     expect(code).toBe(0);
     expect(present.prompter.asked).toEqual([]);
-    expect(present.github.secrets.get("CLOUDFLARE_API_TOKEN")).toBe(TOKEN);
-    expect(present.github.secrets.get("CLOUDFLARE_ACCOUNT_ID")).toBe("acc-1");
-    expect(JSON.stringify([present.lines, [...present.github.secrets.values()]])).not.toContain(WRANGLER_TOKEN);
+    for (const environment of STAGES) {
+      expect(stored(present, environment, "CLOUDFLARE_API_TOKEN")).toBe(TOKEN);
+      expect(stored(present, environment, "CLOUDFLARE_ACCOUNT_ID")).toBe("acc-1");
+    }
+    expect(JSON.stringify([present.lines, [...present.github.environmentSecrets.values()].map((m) => [...m.values()])])).not.toContain(WRANGLER_TOKEN);
+  });
+
+  describe("moving a repo of the old layout (token at repo level) to the stage environments", () => {
+    function legacy(env: Record<string, string | undefined> = {}) {
+      const w = world({}, env, WRANGLER_TOKEN);
+      w.github.secrets.set("CLOUDFLARE_API_TOKEN", TOKEN);
+      w.github.secrets.set("CLOUDFLARE_ACCOUNT_ID", "acc-1");
+      w.cloudflare.subdomains.set("acc-1", "my-team");
+      w.github.variables.set("FACTORY_LANGUAGE", "en");
+      return w;
+    }
+
+    it("copies the token from CLOUDFLARE_API_TOKEN into both environments without asking, and leaves the repo secrets for the explicit step", async () => {
+      const w = legacy({ CLOUDFLARE_API_TOKEN: TOKEN });
+
+      const { code } = await w.run();
+
+      expect(code).toBe(0);
+      expect(w.prompter.asked).toEqual([]);
+      for (const environment of STAGES) expect(stored(w, environment, "CLOUDFLARE_API_TOKEN")).toBe(TOKEN);
+      expect(w.github.secrets.has("CLOUDFLARE_API_TOKEN")).toBe(true);
+    });
+
+    it("asks the token once, saying why, when the session does not have it, and then a Product asks nothing about it", async () => {
+      const w = legacy();
+
+      const { output } = await w.run();
+
+      expect(w.prompter.asked.filter((id) => id === "cloudflare-token")).toHaveLength(1);
+      expect(output).toContain("a secret cannot be read back from GitHub");
+      for (const environment of STAGES) expect(stored(w, environment, "CLOUDFLARE_API_TOKEN")).toBe(TOKEN);
+
+      w.prompter.asked.length = 0;
+      await w.run();
+      expect(w.prompter.asked).toEqual([]);
+    });
+
+    it("writes a CLOUDFLARE_API_TOKEN missing a permission nowhere", async () => {
+      const w = legacy({ CLOUDFLARE_API_TOKEN: "narrow-token" });
+      w.cloudflare.validTokens.add("narrow-token");
+      w.cloudflare.deny("narrow-token", "kv");
+
+      await expect(w.run()).rejects.toThrow(/Workers KV Storage/);
+      expect(w.github.environmentSecrets.get("production")?.has("CLOUDFLARE_API_TOKEN") ?? false).toBe(false);
+    });
+  });
+
+  it("keeps the token and the account at repo level when GitHub refuses environments", async () => {
+    const w = world();
+    w.github.refuseEnvironments = true;
+
+    const { code } = await w.run();
+
+    expect(code).toBe(0);
+    expect(w.github.secrets.get("CLOUDFLARE_API_TOKEN")).toBe(TOKEN);
+    expect(w.github.secrets.get("CLOUDFLARE_ACCOUNT_ID")).toBe("acc-1");
+    expect(w.github.variables.get("FACTORY_USE_ENVIRONMENTS")).toBe("false");
   });
 
   it("with several accounts and no CLOUDFLARE_ACCOUNT_ID, the wrangler login never asks which: it says how to pick", async () => {
     const w = world({}, {}, WRANGLER_TOKEN);
-    w.github.secrets.set("CLOUDFLARE_API_TOKEN", TOKEN);
+    seedCloudflare(w.github, TOKEN);
+    for (const environment of STAGES) w.github.environmentSecrets.get(environment)!.delete("CLOUDFLARE_ACCOUNT_ID");
     w.cloudflare.accounts.push({ id: "acc-2", name: "Other" });
 
     await expect(w.run()).rejects.toThrow(/CLOUDFLARE_ACCOUNT_ID/);

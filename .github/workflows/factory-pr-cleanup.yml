@@ -48,7 +48,7 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
-    environment: ${{ vars.FACTORY_USE_ENVIRONMENTS != 'false' && format('{0}-preview', matrix.id) || null }}
+    environment: ${{ vars.FACTORY_USE_ENVIRONMENTS != 'false' && 'preview' || null }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { labelSpecs } from "../../src/bootstrap/labels.ts";
-import { TOKEN, world } from "./helpers.ts";
+import { TOKEN, world, seedCloudflare } from "./helpers.ts";
 
 // The database region: asked once per Product before any Neon project, recorded in <ID>_REGION, and `destroy db` to change it.
 const ENV = { CLOUDFLARE_API_TOKEN: TOKEN, CLOUDFLARE_ACCOUNT_ID: "acc-1", NEON_API_KEY: "neon-full" };
@@ -9,8 +9,7 @@ const PASSWORD = "admin password 123";
 function regionWorld(answers: Record<string, string | boolean | string[]> = {}) {
   const w = world({ "resend-setup": "skip", "default-account-email": "admin@example.com", "default-account-password": PASSWORD, "default-account-password-confirm": PASSWORD, "preview-account-password": PASSWORD, "preview-account-password-confirm": PASSWORD, ...answers }, ENV);
   w.deps.interactive = true;
-  w.github.secrets.set("CLOUDFLARE_API_TOKEN", TOKEN);
-  w.github.secrets.set("CLOUDFLARE_ACCOUNT_ID", "acc-1");
+  seedCloudflare(w.github, TOKEN);
   w.cloudflare.subdomains.set("acc-1", "my-team");
   for (const label of labelSpecs(w.deps.config)) w.github.labels.set(label.name, label);
   return w;
@@ -175,10 +174,10 @@ describe("pnpm bootstrap destroy db", () => {
 
     expect(code).toBe(0);
     expect(w.neon.projects).toEqual([]);
-    const env = w.github.environmentSecrets.get("example-production")!;
-    expect([...env.keys()]).toEqual(["EXAMPLE_BETTER_AUTH_SECRET"]);
-    expect(w.github.environments.has("example-production")).toBe(true);
-    expect(w.github.environments.has("example-preview")).toBe(true);
+    const env = w.github.environmentSecrets.get("production")!;
+    expect([...env.keys()].filter((name) => !name.startsWith("CLOUDFLARE_"))).toEqual(["EXAMPLE_BETTER_AUTH_SECRET"]);
+    expect(w.github.environments.has("production")).toBe(true);
+    expect(w.github.environments.has("preview")).toBe(true);
     expect(w.github.variables.get("DEPLOY_PRODUCTS")).toBe("example");
     expect(w.cloudflare.workers.has("example")).toBe(true);
     for (const name of ["EXAMPLE_ACCOUNT_EMAIL", "EXAMPLE_NEON_PROJECT_ID", "EXAMPLE_PREVIEW_NEON_PROJECT_ID"]) expect(w.github.variables.has(name)).toBe(false);

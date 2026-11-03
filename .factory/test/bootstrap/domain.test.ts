@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { labelSpecs } from "../../src/bootstrap/labels.ts";
-import { TOKEN, WRANGLER_TOKEN, world } from "./helpers.ts";
+import { TOKEN, WRANGLER_TOKEN, world, seedCloudflare } from "./helpers.ts";
 
 const ENV = { CLOUDFLARE_API_TOKEN: TOKEN, CLOUDFLARE_ACCOUNT_ID: "acc-1", RESEND_API_KEY: "re-full" };
 
@@ -8,8 +8,7 @@ function domainWorld(answers: Record<string, string | boolean> = {}, env: Record
   const w = world({ ...answers }, env);
   w.deps.interactive = true;
   // The common part ran before: the final doctor only fails on what is really missing.
-  w.github.secrets.set("CLOUDFLARE_API_TOKEN", TOKEN);
-  w.github.secrets.set("CLOUDFLARE_ACCOUNT_ID", "acc-1");
+  seedCloudflare(w.github, TOKEN);
   w.cloudflare.subdomains.set("acc-1", "my-team");
   for (const label of labelSpecs(w.deps.config)) w.github.labels.set(label.name, label);
   return w;
@@ -277,7 +276,7 @@ describe("pnpm bootstrap domain: restricted-resend-key", () => {
     const { output } = await w.run("domain", "example");
 
     expect(w.resend.keys).toEqual([{ name: "example", domainId: "dom-1", token: "re_restricted_1" }]);
-    expect(w.github.secrets.get("EXAMPLE_RESEND_API_KEY")).toBe("re_restricted_1");
+    expect(w.github.environmentSecrets.get("production")?.get("EXAMPLE_RESEND_API_KEY")).toBe("re_restricted_1");
     expect(JSON.stringify([output, w.prompter.notes])).not.toContain("re_restricted_1");
   });
 
@@ -287,7 +286,7 @@ describe("pnpm bootstrap domain: restricted-resend-key", () => {
 
     await w.run("domain", "my-app");
 
-    expect([...w.github.secrets.keys()]).toContain("MY_APP_RESEND_API_KEY");
+    expect([...w.github.environmentSecrets.get("production")!.keys()]).toContain("MY_APP_RESEND_API_KEY");
   });
 
   it("creates no second key when the secret exists", async () => {
@@ -306,7 +305,7 @@ describe("pnpm bootstrap domain: restricted-resend-key", () => {
     await w.run("domain", "example", "--redo", "restricted-resend-key");
 
     expect(w.resend.keys).toHaveLength(2);
-    expect(w.github.secrets.get("EXAMPLE_RESEND_API_KEY")).toBe("re_restricted_2");
+    expect(w.github.environmentSecrets.get("production")?.get("EXAMPLE_RESEND_API_KEY")).toBe("re_restricted_2");
   });
 
   it("makes no key while the Resend domain is deferred", async () => {
@@ -315,7 +314,7 @@ describe("pnpm bootstrap domain: restricted-resend-key", () => {
     await w.run("domain", "example");
 
     expect(w.resend.keys).toEqual([]);
-    expect([...w.github.secrets.keys()].filter((n) => n.endsWith("RESEND_API_KEY"))).toEqual([]);
+    expect([...w.github.environmentSecrets.get("production")!.keys()].filter((n) => n.endsWith("RESEND_API_KEY"))).toEqual([]);
   });
 });
 
@@ -386,7 +385,7 @@ describe("pnpm bootstrap doctor <id>: domain section", () => {
     w.cloudflare.zones.push({ id: "zone-1", name: "example.com" });
     w.cloudflare.workers.add("example");
     // The Production section of the same doctor is out of scope here: its required items are in place.
-    for (const name of ["EXAMPLE_DATABASE_URL", "EXAMPLE_DATABASE_URL_POOLED", "EXAMPLE_BETTER_AUTH_SECRET", "EXAMPLE_ACCOUNT_PASSWORD"]) w.github.secrets.set(name, "x");
+    for (const name of ["EXAMPLE_DATABASE_URL", "EXAMPLE_DATABASE_URL_POOLED", "EXAMPLE_BETTER_AUTH_SECRET", "EXAMPLE_ACCOUNT_PASSWORD"]) w.github.environmentSecrets.get("production")!.set(name, "x");
     w.github.variables.set("DEPLOY_PRODUCTS", "example");
     w.github.variables.set("EXAMPLE_ACCOUNT_EMAIL", "admin@example.com");
     return w;

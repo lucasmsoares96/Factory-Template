@@ -32,6 +32,10 @@ Things the base knowingly lives with. Each says what it is, how likely it bites,
 - **An update that brings workflow changes from `main` may be refused**: `FACTORY_TOKEN` has no `workflows` permission, and GitHub refuses a push that adds or changes `.github/workflows/` without it (unverified for a merge of commits already on `main`). The PR then needs a manual update.
 - **Never demonstrated live**: a Factory PR in conflict with `main` (`update-branch` is covered by tests), the update of a person's PR or a fork's comment, the cap of 9 previews, `bootstrap destroy` against real accounts, the self-hosted runner on a real VM, a session resumed to extract output with real Claude (Claude returned the block the first time; the adapter test uses a fake `claude`).
 
+## Deploy secrets
+
+- **Unverified: that a branch rule keeps an environment's secrets from a job on another branch.** `production` and `preview` are restricted to the default branch (ADR 0010) so a workflow pushed on `factory/issue-N` cannot read the Cloudflare token, but GitHub's docs (read 2026-11-03) do not state that a job of a push workflow on a non-allowed branch is refused the environment, nor any limit of environments or secrets per environment. Test it in a scratch repo (a workflow on a `factory/*` branch that uses the environment) before relying on it. Accepted cost: a Product's deploy sees the secrets of the other Products of its stage.
+
 ## Tokens
 
 - **A classic personal access token cannot be limited to one repository.** `repo` is the narrowest useful scope and reaches every repository the owner can. It was the machine-user design; it is gone (ADR 0002). The classic form also had a way to read scopes (`X-OAuth-Scopes`), which the fine-grained one lacks.

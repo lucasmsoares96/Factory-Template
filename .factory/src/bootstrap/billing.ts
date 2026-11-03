@@ -4,7 +4,7 @@ import { accountNames } from "./accounts.ts";
 import { entitlementMetadata, missingEntitlements, type EntitlementValue } from "./entitlements.ts";
 import { keyCreationUrl, keyMode, type KeyMode } from "./billing-permissions.ts";
 import { productionEnvironment, productSecretName, secretScope } from "./domain.ts";
-import { previewScope } from "./previews.ts";
+import { previewEnvironment, previewScope } from "./previews.ts";
 import type { QuestionId } from "./questions.ts";
 import { productionDatabaseUrl } from "./product.ts";
 import type { ProductIdentity, Step, StepContext } from "./steps.ts";
@@ -42,11 +42,11 @@ export const webhookUrl = (product: ProductIdentity) => `https://${product.domai
 export function billingRecorded(productId: string): string[] {
   const names = billingNames(productId);
   return [
-    `Secrets recorded (${productionEnvironment(productId)} unless noted):`,
+    `Secrets recorded (${productionEnvironment()} unless noted):`,
     `  ${CI_KEY_SECRET}  (repo level; the contract test workflow is the only one that reads it)`,
     `  ${names.liveKey}`,
     `  ${names.webhookSecret}`,
-    `  ${names.sandboxKey}  (in the ${productId}-preview environment)`,
+    `  ${names.sandboxKey}  (in the ${previewEnvironment()} environment)`,
     "Variables recorded:",
     `  ${names.plans}  the answers about the plans`,
     `  ${names.synced}  the plans are written in both accounts`,
@@ -221,16 +221,16 @@ export function keysStep(product: ProductIdentity): Step {
     title: `Stripe keys (${names.sandboxKey}, ${names.liveKey})`,
     asks: ["stripe-sandbox-key", "stripe-live-key"],
     async check(ctx) {
-      const live = (await ctx.github.listSecrets(await secretScope(ctx, product.id))).includes(names.liveKey);
-      const sandbox = (await ctx.github.listSecrets(await previewScope(ctx, product.id))).includes(names.sandboxKey);
+      const live = (await ctx.github.listSecrets(await secretScope(ctx))).includes(names.liveKey);
+      const sandbox = (await ctx.github.listSecrets(await previewScope(ctx))).includes(names.sandboxKey);
       return { done: live && sandbox };
     },
     async run(ctx) {
       const redo = ctx.redo?.includes("keys") ?? false;
-      const sandboxSet = (await ctx.github.listSecrets(await previewScope(ctx, product.id))).includes(names.sandboxKey);
-      const liveSet = (await ctx.github.listSecrets(await secretScope(ctx, product.id))).includes(names.liveKey);
-      if (redo || !sandboxSet) await ctx.github.setSecret(names.sandboxKey, await stripeKey(ctx, product, "sandbox"), await previewScope(ctx, product.id));
-      if (redo || !liveSet) await ctx.github.setSecret(names.liveKey, await stripeKey(ctx, product, "live"), await secretScope(ctx, product.id));
+      const sandboxSet = (await ctx.github.listSecrets(await previewScope(ctx))).includes(names.sandboxKey);
+      const liveSet = (await ctx.github.listSecrets(await secretScope(ctx))).includes(names.liveKey);
+      if (redo || !sandboxSet) await ctx.github.setSecret(names.sandboxKey, await stripeKey(ctx, product, "sandbox"), await previewScope(ctx));
+      if (redo || !liveSet) await ctx.github.setSecret(names.liveKey, await stripeKey(ctx, product, "live"), await secretScope(ctx));
     },
   };
 }
@@ -360,13 +360,13 @@ export function webhookStep(product: ProductIdentity): Step {
     title: `Stripe events endpoint (${webhookUrl(product)})`,
     asks: ["stripe-live-key"],
     async check(ctx) {
-      return { done: (await ctx.github.listSecrets(await secretScope(ctx, product.id))).includes(names.webhookSecret) };
+      return { done: (await ctx.github.listSecrets(await secretScope(ctx))).includes(names.webhookSecret) };
     },
     async run(ctx) {
       const stripe = ctx.stripe(await stripeKey(ctx, product, "live"));
       const old = await stripe.listWebhooks(product.id);
       const made = await stripe.createWebhook(product.id, webhookUrl(product));
-      await ctx.github.setSecret(names.webhookSecret, made.secret, await secretScope(ctx, product.id));
+      await ctx.github.setSecret(names.webhookSecret, made.secret, await secretScope(ctx));
       // Two endpoints would deliver every event twice: the ones this wizard made before go once the new secret is stored.
       for (const endpoint of old) await stripe.deleteWebhook(endpoint.id);
       ctx.log(`  created the endpoint ${webhookUrl(product)}${old.length > 0 ? ` and removed ${old.length} old one(s)` : ""}`);
