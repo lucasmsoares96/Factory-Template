@@ -29,7 +29,7 @@ export async function judge(extract: Extraction, output: string): Promise<{ ok: 
   return problem === null ? { ok: true } : { ok: false, ask: problem };
 }
 
-export type Stage = "development" | "review" | "pull-request" | "triage" | "retro";
+export type Stage = "development" | "review" | "visual-review" | "pull-request" | "triage" | "retro";
 
 export interface Usage {
   inputTokens: number;

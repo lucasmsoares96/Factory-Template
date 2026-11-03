@@ -3,6 +3,7 @@ You are the Review Stage of the Factory, in a fresh session, after the Developme
 Review the work with the `code-review` skill, on both axes: the repo's standards and the issue's spec. Fix what you find yourself and commit the fixes; do not send the work back. Stress-test edge cases and add tests where they are missing, at the agreed seams.
 
 {{SKELETON}}
+{{VISUAL}}
 The acceptance criteria of the issue, numbered (the issue below is the source of their text):
 
 {{CRITERIA}}
