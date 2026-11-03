@@ -2,7 +2,7 @@ import { createRoute, z } from "@hono/zod-openapi";
 import type { Messages } from "../i18n/index.ts";
 import { createRouter } from "./errors.ts";
 import { DEFAULT_NAV_ICON } from "./feature.ts";
-import type { Feature, FeatureAccountPage, FeatureCompanyPage, FeatureNav } from "./feature.ts";
+import type { Feature, FeatureCompanyPage } from "./feature.ts";
 import { requireIdentity, unauthenticatedResponse } from "./identity.ts";
 
 const NavEntry = z
@@ -30,9 +30,9 @@ const Nav = z
         "The features' `companyPage` sections, in mount order: `to` is under the Company's page (`/c/<companyId>` + `to`).",
       example: [{ label: "Projects", to: "/projects" }],
     }),
-    accountPage: z.array(NavEntry).openapi({
+    accountPage: z.array(NavItem).openapi({
       description: "The features' `accountPage` links, in mount order: pages under the account page (`/account` + `to`).",
-      example: [{ label: "Plan", to: "/account/plan" }],
+      example: [{ label: "Plan", to: "/account/plan", icon: "CreditCard" }],
     }),
   })
   .openapi("Nav");
@@ -60,7 +60,7 @@ const getNav = createRoute({
  * the build's texts; any other label is shown as is.
  */
 export function navRoutes({ features, t }: { features: readonly Feature[]; t: Messages }) {
-  const translated = (entry: FeatureNav | FeatureCompanyPage | FeatureAccountPage | undefined) =>
+  const translated = (entry: FeatureCompanyPage | undefined) =>
     entry ? [{ label: translate(entry.label, t), to: entry.to }] : [];
   return createRouter().openapi(getNav, (c) => {
     const on = features.filter((feature) => feature.enabled?.(c.env) ?? true);
@@ -68,7 +68,9 @@ export function navRoutes({ features, t }: { features: readonly Feature[]; t: Me
       {
         entries: on.flatMap(({ nav }) => (nav ? [{ label: translate(nav.label, t), to: nav.to, icon: nav.icon ?? DEFAULT_NAV_ICON }] : [])),
         companyPage: on.flatMap(({ companyPage }) => translated(companyPage)),
-        accountPage: on.flatMap(({ accountPage }) => translated(accountPage)),
+        accountPage: on.flatMap(({ accountPage }) =>
+          accountPage ? [{ label: translate(accountPage.label, t), to: accountPage.to, icon: accountPage.icon ?? DEFAULT_NAV_ICON }] : [],
+        ),
       },
       200,
     );
