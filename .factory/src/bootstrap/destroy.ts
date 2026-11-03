@@ -221,7 +221,7 @@ export async function plan(ctx: StepContext, scope: DestroyScope): Promise<Plan>
   return result;
 }
 
-/** Whether a Product's Resend key secret is in the `production` environment . */
+/** Whether a Product's Resend key secret is in the `production` environment. */
 async function productsInEnvironments(ctx: StepContext, productIds: string[], environments: string[]): Promise<boolean> {
   for (const id of productIds) {
     if (environments.includes(PRODUCTION_ENVIRONMENT) && (await ctx.github.listSecrets({ environment: PRODUCTION_ENVIRONMENT })).includes(productionSecrets(id).resendKey)) return true;
