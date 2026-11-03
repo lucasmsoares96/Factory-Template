@@ -93,11 +93,11 @@ export class LocalCodeHost implements CodeHost {
     await this.options.files.appendComment(pr, this.self, marked(body));
   }
 
-  async openDraftPr(input: { branch: string; base: string; title: string; body: string; images?: EvidenceImage[] }): Promise<PullRequest> {
+  async openDraftPr(input: { branch: string; base: string; title: string; body: string; images?: EvidenceImage[]; draft?: boolean }): Promise<PullRequest> {
     const number = this.issueOf(input.branch);
     if (number === null) throw new Error(`Local pull requests need a ${this.options.config.branchPrefix}N branch, got ${input.branch}`);
-    const { images = [], ...rest } = input;
-    const pr: LocalPr = { number, ...rest, body: await this.keepImages(number, rest.body, images), draft: true, state: "open", labels: [] };
+    const { images = [], draft = true, ...rest } = input;
+    const pr: LocalPr = { number, ...rest, body: await this.keepImages(number, rest.body, images), draft, state: "open", labels: [] };
     await this.write(pr);
     return this.view(pr);
   }

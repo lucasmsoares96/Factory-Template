@@ -11,6 +11,7 @@ const repo = join(import.meta.dirname, "../..");
 interface Job {
   "runs-on"?: unknown;
   container?: { image?: string };
+  name?: string;
   permissions?: Record<string, string>;
   needs?: string | string[];
   strategy?: { "fail-fast"?: boolean; matrix?: unknown };
@@ -34,7 +35,7 @@ interface Workflow {
 
 /** Reads and parses every workflow in `dir`, relative to the repository root. */
 function load(dir: string): Record<string, Workflow> {
-  const names = ["factory-image.yml", "factory-pr.yml", "factory-deploy.yml", "factory-pr-cleanup.yml", "factory-issue.yml", "factory-unblock.yml", "factory-triage.yml", "factory-pr-feedback.yml", "factory-update-branches.yml", "factory-retro.yml", "factory-skills-update.yml", "factory-resume.yml", "factory-merge.yml", "stripe-contract.yml"];
+  const names = ["factory-image.yml", "factory-pr.yml", "factory-pr-label.yml", "factory-deploy.yml", "factory-pr-cleanup.yml", "factory-issue.yml", "factory-unblock.yml", "factory-triage.yml", "factory-pr-feedback.yml", "factory-update-branches.yml", "factory-retro.yml", "factory-skills-update.yml", "factory-resume.yml", "factory-merge.yml", "stripe-contract.yml"];
   return Object.fromEntries(names.map((name) => [name, parse(readFileSync(join(repo, dir, name), "utf8")) as Workflow]));
 }
 
@@ -400,7 +401,7 @@ describe.each([[WORKFLOWS_DIR]])("PR previews in %s", (dir) => {
   });
 
   it("labels and permissions are minimal: only the label job and the comment job may write, and only pull requests", () => {
-    expect(pr.on).toMatchObject({ pull_request_target: { types: ["opened", "synchronize", "reopened", "ready_for_review", "labeled"] } });
+    expect(pr.on).toMatchObject({ pull_request_target: { types: ["opened", "synchronize", "reopened", "ready_for_review"] } });
     for (const id of PREVIEW_JOBS) {
       const writes = Object.entries(jobs[id]!.permissions ?? {}).filter(([, level]) => level === "write");
       expect(writes, id).toEqual(id === "preview-label" || id === "preview-comment" ? [["pull-requests", "write"]] : []);
@@ -412,8 +413,29 @@ describe.each([[WORKFLOWS_DIR]])("PR previews in %s", (dir) => {
     expect(JSON.stringify(label)).toContain("vars.FACTORY_LABELS_PREVIEW || 'preview'");
   });
 
-  it("a label event has its own concurrency group, so it never cancels a push's run", () => {
-    expect(String((pr as unknown as { concurrency: { group: string } }).concurrency.group)).toContain("github.event.action == 'labeled'");
+  it("a label other than `preview` starts nothing in `PR`: no `labeled` event, so no `verify` run, not even a skipped one", () => {
+    expect(JSON.stringify(pr.on)).not.toContain("labeled");
+    expect(Object.entries(workflows["factory-pr-label.yml"]!.jobs).filter(([id, job]) => id === "verify" || job.name === "verify")).toEqual([]);
+  });
+
+  it("the `preview` label calls `PR` from its own workflow, gated by the label's name, in its own concurrency group", () => {
+    const label = workflows["factory-pr-label.yml"]!;
+    expect(label.on).toEqual({ pull_request_target: { types: ["labeled"] } });
+    const job = label.jobs.preview as Job & { uses?: string; secrets?: string };
+    expect(job.uses).toBe("./.github/workflows/factory-pr.yml");
+    expect(job.if).toContain("PREVIEWS_ENABLED == 'true'");
+    expect(job.if).toContain("github.event.label.name == (vars.FACTORY_LABELS_PREVIEW || 'preview')");
+    expect(pr.on).toHaveProperty("workflow_call");
+    expect(String(pr.concurrency?.group)).toContain("github.workflow");
+  });
+
+  it("the required `verify` fails when a job it needs fails or is cancelled, and no path leaves it skipped", () => {
+    const verify = pr.jobs.verify!;
+    expect(Object.keys(pr.jobs).filter((id) => id === "verify" || pr.jobs[id]!.name === "verify")).toEqual(["verify"]);
+    expect(String(verify.if)).toContain("always()");
+    const guard = steps(verify).find((step) => step.run?.includes("exit 1"));
+    expect(String(guard?.if)).toContain("contains(needs.*.result, 'failure')");
+    expect(String(guard?.if)).toContain("contains(needs.*.result, 'cancelled')");
   });
 
   it("the comment job edits one comment through the previews script, with the token of the run", () => {
