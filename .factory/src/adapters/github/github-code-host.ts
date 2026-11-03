@@ -145,9 +145,9 @@ export class GitHubCodeHost implements CodeHost {
     await this.api.send("POST", this.api.repoPath(`/issues/${pr}/comments`), { body: marked(body) });
   }
 
-  async openDraftPr(input: { branch: string; base: string; title: string; body: string; images?: EvidenceImage[] }): Promise<PullRequest> {
+  async openDraftPr(input: { branch: string; base: string; title: string; body: string; images?: EvidenceImage[]; draft?: boolean }): Promise<PullRequest> {
     const row = await this.api.request("POST", this.api.repoPath("/pulls"), prRow, {
-      body: { head: input.branch, base: input.base, title: input.title, body: marked(input.body), draft: true },
+      body: { head: input.branch, base: input.base, title: input.title, body: marked(input.body), draft: input.draft ?? true },
     });
     if (input.images?.length) await this.updatePrBody(row!.number, input.body, input.images);
     return toPr(row!, this.options.repo);

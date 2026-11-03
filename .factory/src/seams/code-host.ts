@@ -137,7 +137,7 @@ export interface CodeHost {
    * `body` references each of `images` as `![alt](<image.path>)`: the adapter uploads the print, replaces that
    * reference with its URL and writes the body.
    */
-  openDraftPr(input: { branch: string; base: string; title: string; body: string; images?: EvidenceImage[] }): Promise<PullRequest>;
+  openDraftPr(input: { branch: string; base: string; title: string; body: string; images?: EvidenceImage[]; draft?: boolean }): Promise<PullRequest>;
   /** Replaces the body of the pull request, with its images as in `openDraftPr`. */
   updatePrBody(pr: number, body: string, images?: EvidenceImage[]): Promise<void>;
   markReady(pr: number): Promise<void>;

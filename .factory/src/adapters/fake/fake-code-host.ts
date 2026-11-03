@@ -123,12 +123,12 @@ export class FakeCodeHost implements CodeHost {
     this.writes.push(`commentPr #${pr}`);
   }
 
-  async openDraftPr(input: { branch: string; base: string; title: string; body: string; images?: EvidenceImage[] }): Promise<PullRequest> {
+  async openDraftPr(input: { branch: string; base: string; title: string; body: string; images?: EvidenceImage[]; draft?: boolean }): Promise<PullRequest> {
     const headSha = this.branches.get(input.branch);
     if (!headSha) throw new Error(`FakeCodeHost: branch ${input.branch} was never pushed`);
     const number = Math.max(100, ...this.prs.map((p) => p.number)) + 1;
-    const { images = [], ...rest } = input;
-    const pr = fakePr({ number, headSha, draft: true, ...rest, body: withUrls(marked(rest.body), number, images), images: structuredClone(images) });
+    const { images = [], draft = true, ...rest } = input;
+    const pr = fakePr({ number, headSha, draft, ...rest, body: withUrls(marked(rest.body), number, images), images: structuredClone(images) });
     this.prs.push(pr);
     this.writes.push(`openDraftPr #${number}`);
     return { ...pr };

@@ -1,0 +1,22 @@
+# The `preview` label re-runs the PR check for the Previews. It lives apart from `PR` (`factory-pr.yml`) so that no
+# other label (`harness-change`, `factory:working`, ...) starts a run there: a run that skipped the required `verify`
+# job would count as passed. This workflow has no job called `verify`; the call below runs the `verify` of the called
+# workflow, whose check is named `preview / verify`, never the one `main` requires. Like `PR`, it runs `main`'s workflow.
+name: PR preview
+
+on:
+  pull_request_target:
+    types: [labeled]
+
+permissions: {}
+
+jobs:
+  preview:
+    if: vars.PREVIEWS_ENABLED == 'true' && github.event.label.name == (vars.FACTORY_LABELS_PREVIEW || 'preview')
+    uses: ./.github/workflows/factory-pr.yml
+    # The most the called jobs ask for.
+    permissions:
+      contents: read
+      packages: write
+      pull-requests: write
+    secrets: inherit
