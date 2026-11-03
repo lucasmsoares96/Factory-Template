@@ -41,6 +41,33 @@ describe("pnpm bootstrap previews: Previews module", () => {
     expect(output).toMatch(/Previews \(example\)/);
   });
 
+  describe("environment branch rule", () => {
+    it("restricts a bare preview environment to the default branch before any secret lands in it", async () => {
+      const w = previewsWorld();
+      w.github.environments.set("preview", null);
+
+      const { code } = await w.run("previews", "example");
+
+      expect(code).toBe(0);
+      expect(w.github.environments.get("preview")).toBe("main");
+      const first = w.github.calls.findIndex((c) => c === "environment:preview");
+      const firstSecret = w.github.calls.findIndex((c) => c.endsWith("@preview"));
+      expect(first).toBeGreaterThanOrEqual(0);
+      expect(first).toBeLessThan(firstSecret);
+    });
+
+    it("leaves an environment already restricted to the default branch alone on a rerun", async () => {
+      const w = previewsWorld();
+      await w.run("previews", "example");
+      const before = w.github.calls.length;
+
+      const { code } = await w.run("previews", "example");
+
+      expect(code).toBe(0);
+      expect(w.github.calls.slice(before).filter((c) => c.startsWith("environment:"))).toEqual([]);
+    });
+  });
+
   describe("preview-account", () => {
 
     it("asks the password once (hidden, confirmed), stores it as the preview environment's secret and shows it nowhere", async () => {

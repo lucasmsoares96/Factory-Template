@@ -81,6 +81,23 @@ describe("GhCli: environments and rulesets (command construction)", () => {
     ]);
   });
 
+  it("reads the branches of an environment without writing: none for a bare one, the policy names for a custom rule", async () => {
+    const calls: string[][] = [];
+    const bare = new GhCli(async (args) => {
+      calls.push(args);
+      return JSON.stringify({ name: "preview", deployment_branch_policy: null });
+    });
+    expect(await bare.environmentBranches("preview")).toBeUndefined();
+    const custom = new GhCli(async (args) => {
+      calls.push(args);
+      return args.length === 2 && args[1]!.endsWith("/deployment-branch-policies")
+        ? JSON.stringify({ branch_policies: [{ name: "main" }] })
+        : JSON.stringify({ deployment_branch_policy: { protected_branches: false, custom_branch_policies: true } });
+    });
+    expect(await custom.environmentBranches("preview")).toEqual(["main"]);
+    expect(calls.every((c) => !c.includes("-X"))).toBe(true);
+  });
+
   it("reports a refusal (403, 404 or 422) instead of throwing, and rethrows anything else", async () => {
     const refusing = new GhCli(async () => {
       throw new Error("gh api failed: gh: Upgrade to GitHub Pro (HTTP 403)");
