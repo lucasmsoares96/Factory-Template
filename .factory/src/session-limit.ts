@@ -14,7 +14,7 @@ import type { CodeHost } from "./seams/code-host.ts";
 const HOUR = 3_600_000;
 
 export const sessionFailureSchema = z.object({
-  stage: z.enum(["development", "review", "pull-request", "triage", "retro"]),
+  stage: z.enum(["development", "review", "visual-review", "pull-request", "triage", "retro"]),
   /** The session's error, as the agent adapter reported it. */
   message: z.string(),
   /** Null for any failure but the usage limit. */
@@ -173,7 +173,7 @@ export function sessionLimitComment(input: { wait: Wait; failure: SessionFailure
   return lines.join("\n");
 }
 
-const STAGE_NAMES: Record<SessionFailure["stage"], string> = { development: "Development", review: "Review", "pull-request": "Pull Request Stage", triage: "Triage", retro: "Retro" };
+const STAGE_NAMES: Record<SessionFailure["stage"], string> = { development: "Development", review: "Review", "visual-review": "Visual Review", "pull-request": "Pull Request Stage", triage: "Triage", retro: "Retro" };
 
 export function stageName(stage: SessionFailure["stage"]): string {
   return STAGE_NAMES[stage];

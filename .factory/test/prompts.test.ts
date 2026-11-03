@@ -12,6 +12,7 @@ import {
   snapshotPrompts,
   triagePrompt,
   updateBranchPrompt,
+  visualReviewPrompt,
 } from "../src/prompts.ts";
 import type { ThreadId } from "../src/seams/code-host.ts";
 import type { Issue } from "../src/seams/tracker.ts";
@@ -35,6 +36,22 @@ const language = "pt-BR";
 const prompts = {
   development: developmentPrompt({ issue, log: "abc1234 feat: greet #7", feedback: "E2E failed running `pnpm factory:verify`.", language }),
   review: reviewPrompt({ issue, log: "abc1234 feat: greet #7", since: null, findings: [], skeleton: false, language }),
+  "visual-review": visualReviewPrompt({
+    issue,
+    log: "abc1234 feat: greet #7",
+    evidenceDir: "test-results/evidence",
+    prints: [
+      { product: "example", name: "home-1280.png" },
+      { product: "example", name: "home-1280.json" },
+      { product: "example", name: "home-390.png" },
+      { product: "example", name: "home-390.json" },
+    ],
+    measurements: [
+      { product: "example", name: "home-1280", width: 1280, findings: [{ kind: "overlap", message: "Two elements cross.", elements: [{ role: "link", name: "New Company" }, { role: "heading", name: "Account" }] }], exceptions: [] },
+      { product: "example", name: "home-390", width: 390, findings: [], exceptions: [{ kind: "clipped-text", message: "Cut.", reason: "Ellipsis on purpose." }] },
+    ],
+    language,
+  }),
   triage: triagePrompt({ issues: [issue], language }),
   "pr-feedback": prFeedbackPrompt({
     issue,
@@ -64,7 +81,7 @@ const prompts = {
 describe("prompt templates", () => {
   it("has one English template per agent Stage in .factory/prompts/", async () => {
     const files = (await readdir(PROMPTS_DIR)).filter((f) => f.endsWith(".md")).sort();
-    expect(files).toEqual(["development.md", "pr-feedback.md", "pull-request.md", "retro.md", "review.md", "rules.md", "triage.md", "update-branch.md"]);
+    expect(files).toEqual(["development.md", "pr-feedback.md", "pull-request.md", "retro.md", "review.md", "rules.md", "triage.md", "update-branch.md", "visual-review.md"]);
   });
 
   it.each(Object.entries(prompts))("%s fills every placeholder and repeats the hard rules", (_, prompt) => {
@@ -174,6 +191,31 @@ describe("prompt templates", () => {
     expect(prompts.review).toMatch(/"criteria": \[\{"id": 1, "met": true, "proof": /);
     expect(prompts.review).not.toContain("criteriaMetWithoutSkeleton");
     expect(prompts.review).not.toContain("belongs to the harness");
+  });
+
+  it("gives the Visual Review the prints at both sizes, their measurements, the issue and its numbered criteria", () => {
+    const prompt = prompts["visual-review"];
+    for (const print of ["home-1280.png", "home-1280.json", "home-390.png", "home-390.json"]) expect(prompt).toContain(`test-results/evidence/example/${print}`);
+    expect(prompt).toContain('overlap: Two elements cross. [link "New Company", heading "Account"]');
+    expect(prompt).toContain("Ellipsis on purpose.");
+    expect(prompt).toContain("1. `greet()` returns a greeting.");
+    expect(prompt).toContain("Greet the user");
+    expect(prompt).toContain("<visual-review>");
+    expect(prompt).toContain("comes after you");
+  });
+
+  it("tells the Review to read the exceptions the Visual Review declared only when it ran", () => {
+    const ran = reviewPrompt({ issue, log: "", since: null, findings: [], skeleton: false, visual: true, language });
+    expect(ran).toContain("A Visual Review ran before you");
+    expect(prompts.review).not.toContain("A Visual Review ran before you");
+  });
+
+  it("tells the Pull Request Stage to show the final measurements and both sizes only after a Visual Review", () => {
+    const base: Parameters<typeof pullRequestPrompt>[0] = { issue, base: "main", log: "", result: "E2E passed on attempt 1.", prints: [], language };
+    const ran = pullRequestPrompt({ ...base, measurements: [{ product: "example", name: "home-390", width: 390, findings: [], exceptions: [{ kind: "clipped-text", message: "Cut.", reason: "Ellipsis on purpose." }] }] });
+    expect(ran).toContain("A Visual Review ran on this change");
+    expect(ran).toContain("Ellipsis on purpose.");
+    expect(pullRequestPrompt(base)).not.toContain("A Visual Review ran");
   });
 
   it("puts the issue, its comments, the branch log and the feedback in the prompt", () => {
