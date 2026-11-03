@@ -6,9 +6,9 @@ import { billingChecks, hasBillingTrace } from "./billing-doctor.ts";
 import { MERGE_MODE_VARIABLE } from "./factory.ts";
 import { NO_DNS, NO_LOGIN, deployFirstMessage, productionEnvironment, productSecretName, readDnsState, showResendKeyLink, readWorkerDomainState } from "./domain.ts";
 import { hasPreviewTrace, previewEnvironment, previewNames, previewProjectName, previewSecretPresent, PREVIEW_PRODUCTS, BASE_BRANCH } from "./previews.ts";
-import { legacyLayout, MIGRATE_HINT } from "./migrate.ts";
 import { coversMain, onlyDefaultBranch, databaseVariables, DEPLOY_PRODUCTS, missingSecrets, neonHandle, neonOrgId, parseProductList, productionDatabaseUrl, productionSecrets, USE_ENVIRONMENTS } from "./product.ts";
 import type { BootstrapDeps, ProductIdentity, StepContext } from "./steps.ts";
+import { REPO_SECRETS } from "./environments.ts";
 import { WranglerNotInstalled, type NeonProject } from "./clients.ts";
 
 export type CheckStatus = "ok" | "missing" | "warn" | "off" | "skip";
@@ -94,10 +94,12 @@ export async function doctor(
       add("Secrets", lacking.length === 0 ? "ok" : "missing", name, lacking.length === 0 ? places.map((place) => place.environment ?? "repo").join(", ") : `missing from ${lacking.join(" and ")}: run \`pnpm bootstrap\``);
     }
   }
-  // The old layout: a deploy secret at repo level, or an environment per Product, is readable from a workflow on any branch.
-  const legacy = await legacyLayout(ctx);
-  for (const name of legacy.repoSecrets) add("Secrets", "warn", name, `deploy secret at repo level: a workflow on any branch can read it; to move it, ${MIGRATE_HINT}`);
-  for (const environment of legacy.environments) add("Secrets", "warn", `Environment ${environment.name}`, `per-Product environment of the old layout; the ${environment.stage} environment replaces it; to move, ${MIGRATE_HINT}`);
+  // A deploy secret at repo level is readable from a workflow on any branch; the stage environments are not.
+  if (variables[USE_ENVIRONMENTS] !== "false") {
+    for (const name of secrets.filter((n) => !REPO_SECRETS.includes(n)).sort()) {
+      add("Secrets", "warn", name, `deploy secret at repo level: a workflow on any branch can read it; check that it is in the stage environment, then delete the repo one with \`gh secret delete ${name}\``);
+    }
+  }
   const claude = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"].filter((n) => secrets.includes(n));
   if (claude.length === 2) add("Secrets", "warn", "Claude auth", "both exist: ANTHROPIC_API_KEY wins; delete one");
   else if (claude.length === 1) add("Secrets", "ok", "Claude auth", claude[0]);
