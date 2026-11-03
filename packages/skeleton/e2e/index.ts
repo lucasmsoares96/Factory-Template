@@ -130,7 +130,7 @@ export const test = base.extend<{ evidence: (name: string, options?: { allow?: A
         if (before) {
           await page.setViewportSize(before);
           // Let the page's resize listeners (media-query hooks) settle before the test goes on.
-          await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+          await page.evaluate("new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())))");
         }
       }
     });
