@@ -56,6 +56,19 @@ describe("pnpm bootstrap previews: Previews module", () => {
       expect(first).toBeLessThan(firstSecret);
     });
 
+    it("restricts a bare production environment to the default branch before the product secrets land in it", async () => {
+      const w = previewsWorld();
+      w.github.environments.set("production", null);
+
+      expect((await w.run("product", "example")).code).toBe(0);
+
+      expect(w.github.environments.get("production")).toBe("main");
+      const rule = w.github.calls.findIndex((c) => c === "environment:production");
+      const firstSecret = w.github.calls.findIndex((c) => c.endsWith("@production"));
+      expect(rule).toBeGreaterThanOrEqual(0);
+      expect(rule).toBeLessThan(firstSecret);
+    });
+
     it("leaves an environment already restricted to the default branch alone on a rerun", async () => {
       const w = previewsWorld();
       await w.run("previews", "example");

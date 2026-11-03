@@ -248,6 +248,13 @@ async function resumeSweepCheck(ctx: StepContext, add: (status: CheckStatus, nam
  * The Previews section of `doctor <id>`, by presence (nothing is read from Neon or Cloudflare without a session already in
  * this run). Required: the key, the project id, the KV id and the id in `PREVIEW_PRODUCTS`; the rest is informative.
  */
+/** What to do about an environment that exists but does not accept only the default branch. Bootstrap only adds, so extra branches are removed by hand. */
+async function branchRuleAdvice(ctx: StepContext, environment: string, redo: string): Promise<string> {
+  const branches = await ctx.github.environmentBranches(environment);
+  if (branches === undefined) return `${redo}: it has no branch rule`;
+  return `${redo} to add the default branch, then remove by hand the other allowed branches: ${branches.join(", ")}`;
+}
+
 async function previewChecks(
   ctx: StepContext,
   product: ProductIdentity,
@@ -268,7 +275,7 @@ async function previewChecks(
   const environment = previewEnvironment();
   if (await onlyDefaultBranch(ctx, environment)) add("ok", `Environment ${environment}`, "only the default branch may deploy");
   else if (variables[USE_ENVIRONMENTS] === "false") add("off", `Environment ${environment}`, "refused by the plan or visibility: the secrets are at repo level");
-  else if ((await ctx.github.listEnvironments()).includes(environment)) add("missing", `Environment ${environment}`, `${redo}: it does not accept only the default branch`);
+  else if ((await ctx.github.listEnvironments()).includes(environment)) add("missing", `Environment ${environment}`, await branchRuleAdvice(ctx, environment, redo));
   else add("warn", `Environment ${environment}`, redo);
 
   const neon = await neonHandle(ctx, false);
@@ -318,7 +325,7 @@ async function productionChecks(
   const environment = productionEnvironment();
   if (await onlyDefaultBranch(ctx, environment)) add("ok", `Environment ${environment}`, "only the default branch may deploy");
   else if (variables[USE_ENVIRONMENTS] === "false") add("off", `Environment ${environment}`, "refused by the plan or visibility: the secrets are at repo level");
-  else if ((await ctx.github.listEnvironments()).includes(environment)) add("missing", `Environment ${environment}`, `${redo}: it does not accept only the default branch`);
+  else if ((await ctx.github.listEnvironments()).includes(environment)) add("missing", `Environment ${environment}`, await branchRuleAdvice(ctx, environment, redo));
   else add("warn", `Environment ${environment}`, redo);
 
   const listed = parseProductList(variables[DEPLOY_PRODUCTS]).includes(id);
