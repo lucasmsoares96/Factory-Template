@@ -127,7 +127,11 @@ export const test = base.extend<{ evidence: (name: string, options?: { allow?: A
           await writeFile(join(folder, `${name}-${size.width}.json`), JSON.stringify(measurements, null, 2) + "\n");
         }
       } finally {
-        if (before) await page.setViewportSize(before);
+        if (before) {
+          await page.setViewportSize(before);
+          // Let the page's resize listeners (media-query hooks) settle before the test goes on.
+          await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+        }
       }
     });
   },
