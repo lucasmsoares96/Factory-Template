@@ -74,3 +74,11 @@ export function world(answers: Record<string, string | boolean | string[]> = {},
 export const staticLabelNames = Object.entries(defaultConfig.labels)
   .filter(([key]) => key !== "productPrefix")
   .map(([, name]) => name);
+
+/** A repo whose common part is done: the Cloudflare token and account in the `production` and `preview` environments (no prefix, one token for every Product). */
+export function seedCloudflare(github: FakeGitHub, token = TOKEN, account = "acc-1"): void {
+  for (const environment of ["production", "preview"]) {
+    github.environments.set(environment, "main");
+    github.environmentSecrets.set(environment, new Map([["CLOUDFLARE_API_TOKEN", token], ["CLOUDFLARE_ACCOUNT_ID", account]]));
+  }
+}

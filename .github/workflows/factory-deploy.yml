@@ -123,8 +123,8 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-    # The environment of the Product when environments exist; otherwise the secrets are at repo level.
-    environment: ${{ vars.FACTORY_USE_ENVIRONMENTS != 'false' && format('{0}-production', matrix.id) || null }}
+    # The `production` environment (one for the repo, only `main` may deploy to it) when environments exist; otherwise the secrets are at repo level.
+    environment: ${{ vars.FACTORY_USE_ENVIRONMENTS != 'false' && 'production' || null }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
@@ -219,7 +219,7 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
-    environment: ${{ vars.FACTORY_USE_ENVIRONMENTS != 'false' && format('{0}-preview', matrix.id) || null }}
+    environment: ${{ vars.FACTORY_USE_ENVIRONMENTS != 'false' && 'preview' || null }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.previews) }}
@@ -295,8 +295,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-    # The environment that holds the secret (when environments exist; otherwise it is at repo level).
-    environment: ${{ vars.FACTORY_USE_ENVIRONMENTS != 'false' && format('{0}-production', matrix.id) || null }}
+    # The `production` environment, which holds the secret (when environments exist; otherwise it is at repo level).
+    environment: ${{ vars.FACTORY_USE_ENVIRONMENTS != 'false' && 'production' || null }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}

@@ -191,10 +191,13 @@ export function regionStep(product: ProductIdentity): Step {
   };
 }
 
-/** Secret names missing from the places the deploy reads them (environment, then repo). */
-export async function missingSecrets(ctx: StepContext, productId: string, names: string[]): Promise<string[]> {
-  const scope = await secretScope(ctx, productId);
-  const have = new Set([...(await ctx.github.listSecrets(scope)), ...(scope.environment ? await ctx.github.listSecrets() : [])]);
+/**
+ * Secret names missing from the place the deploy reads them: the `production` environment, or the repo when there is
+ * none. A copy left at repo level does not count while the environment exists: the deploy job would still work, but the
+ * secret would be readable from any branch.
+ */
+export async function missingSecrets(ctx: StepContext, names: string[]): Promise<string[]> {
+  const have = new Set(await ctx.github.listSecrets(await secretScope(ctx)));
   return names.filter((name) => !have.has(name));
 }
 
@@ -212,7 +215,7 @@ export function neonProjectStep(product: ProductIdentity): Step {
       const neon = await neonHandle(ctx, false);
       if (!neon) {
         // Without a session the project cannot be looked up and secrets cannot be read back: their presence stands in for it.
-        const missing = await missingSecrets(ctx, product.id, [databaseUrl, databaseUrlPooled]);
+        const missing = await missingSecrets(ctx, [databaseUrl, databaseUrlPooled]);
         return { done: missing.length === 0, detail: "not verified: set NEON_API_KEY to look it up" };
       }
       const found = await findProject(ctx, neon, product.id, false, undefined, await recordedProjectId(ctx, product.id, "production"));
@@ -229,12 +232,25 @@ export function neonProjectStep(product: ProductIdentity): Step {
 }
 
 /**
- * A GitHub environment only the default branch may deploy to, or, when the API refuses (the plan or visibility of the
- * repo), the repo-level fallback: `FACTORY_USE_ENVIRONMENTS=false`. One variable for the production and the preview
+ * Makes the environment `name` (only the default branch may deploy to it). `false` when the API refuses (the plan or
+ * visibility of the repo): the repo-level fallback, `FACTORY_USE_ENVIRONMENTS=false`. One variable for both stage
  * environments: either both exist or the secrets of both are at repo level.
  */
-export function environmentStep(input: { id: string; name: string; productId: string }): Step {
-  const { name, productId } = input;
+export async function ensureEnvironment(ctx: StepContext, name: string): Promise<boolean> {
+  const { defaultBranch } = await ctx.github.repo();
+  if ((await ctx.github.upsertEnvironment(name, { branch: defaultBranch })) === "created") {
+    // A rerun after an upgrade brings the environments back: the secrets in the repo keep working meanwhile.
+    if ((await ctx.github.listVariables())[USE_ENVIRONMENTS] === "false") await ctx.github.setVariable(USE_ENVIRONMENTS, "true");
+    return true;
+  }
+  if ((await ctx.github.listVariables())[USE_ENVIRONMENTS] !== "false") await ctx.github.setVariable(USE_ENVIRONMENTS, "false");
+  ctx.log(`  GitHub refused the environment (the plan or visibility of the repo): the deploy secrets stay at repo level and ${USE_ENVIRONMENTS}=false. Run this step again after upgrading.`);
+  return false;
+}
+
+/** The stage environment, one for the whole repository (shared by every Product), or the repo-level fallback. */
+export function environmentStep(input: { id: string; name: string }): Step {
+  const { name } = input;
   return {
     id: input.id,
     title: `GitHub environment ${name} (only main may deploy)`,
@@ -242,20 +258,13 @@ export function environmentStep(input: { id: string; name: string; productId: st
       return { done: (await ctx.github.listEnvironments()).includes(name) };
     },
     async run(ctx) {
-      const { defaultBranch } = await ctx.github.repo();
-      if ((await ctx.github.upsertEnvironment(name, { branch: defaultBranch })) === "created") {
-        // A rerun after an upgrade brings the environments back: the secrets in the repo keep working meanwhile.
-        if ((await ctx.github.listVariables())[USE_ENVIRONMENTS] === "false") await ctx.github.setVariable(USE_ENVIRONMENTS, "true");
-        return;
-      }
-      if ((await ctx.github.listVariables())[USE_ENVIRONMENTS] !== "false") await ctx.github.setVariable(USE_ENVIRONMENTS, "false");
-      ctx.log(`  GitHub refused the environment (the plan or visibility of the repo): the secrets of ${productId} stay at repo level and ${USE_ENVIRONMENTS}=false. Run this step again after upgrading.`);
+      await ensureEnvironment(ctx, name);
     },
   };
 }
 
-export function githubEnvironmentStep(product: ProductIdentity): Step {
-  return environmentStep({ id: "github-environment", name: productionEnvironment(product.id), productId: product.id });
+export function githubEnvironmentStep(): Step {
+  return environmentStep({ id: "github-environment", name: productionEnvironment() });
 }
 
 export function databaseSecretsStep(product: ProductIdentity): Step {
@@ -264,7 +273,7 @@ export function databaseSecretsStep(product: ProductIdentity): Step {
     id: "database-secrets",
     title: `Database URLs (${databaseUrl}, ${databaseUrlPooled})`,
     async check(ctx) {
-      return { done: (await missingSecrets(ctx, product.id, [databaseUrl, databaseUrlPooled])).length === 0 };
+      return { done: (await missingSecrets(ctx, [databaseUrl, databaseUrlPooled])).length === 0 };
     },
     async run(ctx) {
       const neon = await neonHandle(ctx, true);
@@ -272,7 +281,7 @@ export function databaseSecretsStep(product: ProductIdentity): Step {
       const project = await ensureProject(ctx, neon, product.id, "production", product.id);
       await recordProductionProject(ctx, product.id, project.id);
       const orgId = await neonOrgId(ctx, neon);
-      const scope = await secretScope(ctx, product.id);
+      const scope = await secretScope(ctx);
       // Each string goes from the CLI's stdout to the forge's stdin and is never held longer than this call.
       // The direct string also stays in memory for this run only: the account steps migrate and insert through it.
       ctx.memory.databaseUrl = withVerifyFull(await neon.connectionString(project.id, { pooled: false, orgId }));
@@ -338,7 +347,7 @@ export function defaultAccountStep(product: ProductIdentity): Step {
     asks: ["default-account-email", "default-account-password", "default-account-password-confirm"],
     async check(ctx) {
       const email = (await ctx.github.listVariables())[emailName];
-      if (!email || (await missingSecrets(ctx, product.id, [passwordName])).length > 0) return { done: false };
+      if (!email || (await missingSecrets(ctx, [passwordName])).length > 0) return { done: false };
       // Presence stands in (secrets cannot be read back). The database confirms it only when this run already has a
       // Neon session, a key or the URL: the check never logs in, so a rerun with nothing to do never opens the browser.
       const url = await productionDatabaseUrl(ctx, product, false);
@@ -358,7 +367,7 @@ export function defaultAccountStep(product: ProductIdentity): Step {
         const result = await createAccount(ctx, url, product, { email, name: email.split("@")[0]!, password });
         ctx.log(result === "created" ? `  created ${email}` : `  reset the password of ${email}`);
       }
-      await ctx.github.setSecret(passwordName, password, await secretScope(ctx, product.id));
+      await ctx.github.setSecret(passwordName, password, await secretScope(ctx));
       await ctx.github.setVariable(emailName, email);
     },
   };
@@ -370,11 +379,11 @@ export function authSecretStep(product: ProductIdentity): Step {
     id: "auth-secret",
     title: `Better Auth secret (${authSecret})`,
     async check(ctx) {
-      return { done: (await missingSecrets(ctx, product.id, [authSecret])).length === 0 };
+      return { done: (await missingSecrets(ctx, [authSecret])).length === 0 };
     },
     async run(ctx) {
       // Secrets cannot be read back, so a redo makes a new one and every session signed with the old one ends.
-      await ctx.github.setSecret(authSecret, randomBytes(32).toString("base64url"), await secretScope(ctx, product.id));
+      await ctx.github.setSecret(authSecret, randomBytes(32).toString("base64url"), await secretScope(ctx));
     },
   };
 }
@@ -427,7 +436,7 @@ export function productionSteps(product: ProductIdentity): Step[] {
   return [
     regionStep(product),
     neonProjectStep(product),
-    githubEnvironmentStep(product),
+    githubEnvironmentStep(),
     databaseSecretsStep(product),
     authSecretStep(product),
     defaultAccountStep(product),
