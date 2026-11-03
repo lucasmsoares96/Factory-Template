@@ -28,7 +28,8 @@ test(
     const acmeUrl = page.url();
 
     // While Owner, the deletion is refused and names the Company, linked to its page.
-    await page.getByRole("navigation", { name: t.nav.label }).getByRole("link", { name: t.account.nav }).click();
+    await page.getByRole("button", { name: t.nav.userMenu }).click();
+    await page.getByRole("menuitem", { name: t.account.nav }).click();
     await expect(page.getByRole("heading", { name: remove.title })).toBeVisible();
     await page.getByRole("button", { name: remove.start }).click();
     await page.getByLabel(remove.password).fill(password);
@@ -46,7 +47,8 @@ test(
     await expect(page.getByTestId("no-company")).toHaveText(t.home.noCompany);
 
     // A wrong password changes nothing.
-    await page.getByRole("navigation", { name: t.nav.label }).getByRole("link", { name: t.account.nav }).click();
+    await page.getByRole("button", { name: t.nav.userMenu }).click();
+    await page.getByRole("menuitem", { name: t.account.nav }).click();
     await page.getByRole("button", { name: remove.start }).click();
     await page.getByLabel(remove.password).fill("not my password");
     await page.getByRole("button", { name: remove.submit }).click();

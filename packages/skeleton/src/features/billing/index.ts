@@ -88,7 +88,7 @@ export function billing<const Name extends string>({ entitlements }: { entitleme
         return 1;
       }
     },
-    accountPage: { label: "billing.nav", to: "/account/plan" },
+    accountPage: { label: "billing.nav", to: "/account/plan", icon: "CreditCard" },
     enabled: billingEnabled,
   });
   return { ...feature, entitlement: (c, name) => entitlementFor(c, entitlements, name) };
