@@ -12,6 +12,7 @@ export const defaultConfig = {
   models: {
     development: "claude-sonnet-5-5",
     review: "claude-sonnet-5-5",
+    visualReview: "claude-sonnet-5-5",
     triage: "claude-haiku-5-5",
     pullRequest: "claude-haiku-5-5",
     retro: "claude-sonnet-5-5",
@@ -20,6 +21,7 @@ export const defaultConfig = {
   timeouts: {
     development: 60,
     review: 30,
+    visualReview: 30,
     e2e: 20,
     pullRequest: 15,
     triage: 30,
@@ -68,7 +70,7 @@ export const defaultConfig = {
    * confirmation) and sets `FACTORY_MERGE_MODE`; the `FACTORY_TOKEN` cannot change a variable.
    */
   mergeMode: "human",
-  /** Attempts of Development → Review → E2E before Escalation. */
+  /** Attempts of Development → (E2E → Visual Review) → Review → E2E before Escalation. */
   maxAttempts: 5,
   /** Open previews per Product before "preview skipped: limit reached". */
   previewLimit: 9,
@@ -158,8 +160,8 @@ const nonEmpty = z.string().min(1);
 const flag = z.union([z.boolean(), z.enum(["true", "false"]).transform((v) => v === "true")]);
 
 export const configSchema = z.object({
-  models: z.object({ development: nonEmpty, review: nonEmpty, triage: nonEmpty, pullRequest: nonEmpty, retro: nonEmpty }),
-  timeouts: z.object({ development: positiveInt, review: positiveInt, e2e: positiveInt, pullRequest: positiveInt, triage: positiveInt, retro: positiveInt, total: positiveInt }),
+  models: z.object({ development: nonEmpty, review: nonEmpty, visualReview: nonEmpty, triage: nonEmpty, pullRequest: nonEmpty, retro: nonEmpty }),
+  timeouts: z.object({ development: positiveInt, review: positiveInt, visualReview: positiveInt, e2e: positiveInt, pullRequest: positiveInt, triage: positiveInt, retro: positiveInt, total: positiveInt }),
   pricing: z.object({ inputPerMTok: z.coerce.number().nonnegative(), outputPerMTok: z.coerce.number().nonnegative() }),
   claudeCode: z.object({ version: z.string().regex(/^\d+\.\d+\.\d+$/) }),
   image: z.object({ name: z.string() }),

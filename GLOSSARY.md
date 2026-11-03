@@ -27,7 +27,7 @@ The application base shared by every Product in a repository, the package `packa
 _Avoid_: Boilerplate, base app
 
 **Stage**:
-One step of the factory's work on an issue: Development, Review, E2E, or Pull Request. A failing E2E stage sends the work back to Development; Review fixes what it finds itself and never sends the work back. The Pull Request Stage runs once at the end, changes no code, and writes the pull request's description, Merge Danger included; always say "Pull Request Stage", since "pull request" alone means the pull request itself.
+One step of the factory's work on an issue: Development, Visual Review, Review, E2E, or Pull Request. A failing E2E stage sends the work back to Development; Visual Review (only when the diff changes interface files, after an E2E that measures the prints at 1280 and 390 pixels) and Review fix what it finds itself and never sends the work back. The Pull Request Stage runs once at the end, changes no code, and writes the pull request's description, Merge Danger included; always say "Pull Request Stage", since "pull request" alone means the pull request itself.
 _Avoid_: Phase, step, write-up
 
 **Triage**:

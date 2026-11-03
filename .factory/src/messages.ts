@@ -116,6 +116,17 @@ export const catalog = {
     en: (missing: string[]): string => `The final Review gave no verdict for these acceptance criteria, so they are not shown to be met:\n${missing.map((c) => `- ${c}`).join("\n")}`,
     "pt-BR": (missing) => `A Review final não deu veredito para estes critérios de aceitação, então não estão provados como atendidos:\n${missing.map((c) => `- ${c}`).join("\n")}`,
   }),
+  findingsUnresolved: text({
+    en: (findings: string[]): string => `The Visual Review left these measured findings neither fixed nor declared an exception in the test, so the screen is not shown to be right:\n${findings.map((f) => `- ${f}`).join("\n")}`,
+    "pt-BR": (findings) => `O Visual Review deixou estes achados medidos sem correção e sem exceção declarada no teste, então a tela não está provada como correta:\n${findings.map((f) => `- ${f}`).join("\n")}`,
+  }),
+  visualReviewHeading: text({ en: (): string => "## Visual Review", "pt-BR": () => "## Visual Review" }),
+  measurementsHeading: text({ en: (): string => "**Final measurements**", "pt-BR": () => "**Medições finais**" }),
+  measurementsClean: text({
+    en: (prints: number): string => `No finding in ${prints} ${prints === 1 ? "print" : "prints"} (1280 and 390 pixels wide).`,
+    "pt-BR": (prints) => `Nenhum achado em ${prints} ${prints === 1 ? "print" : "prints"} (1280 e 390 pixels de largura).`,
+  }),
+  measurementsExceptions: text({ en: (): string => "Exceptions declared in the tests:", "pt-BR": () => "Exceções declaradas nos testes:" }),
   criteriaUnmet: text({ en: (): string => "**Criteria not met**", "pt-BR": () => "**Critérios não atendidos**" }),
   question: text({ en: (question: string) => `**Question:** ${question}`, "pt-BR": (question) => `**Pergunta:** ${question}` }),
   attempts: text({ en: (): string => "**Attempts**", "pt-BR": () => "**Tentativas**" }),
