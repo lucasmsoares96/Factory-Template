@@ -88,7 +88,11 @@ test(
     await expect(navigation.getByRole("link", { name: t.account.nav })).toHaveCount(0);
     await page.getByRole("button", { name: t.nav.userMenu }).click();
     await expect(page.locator("[data-slot=dropdown-menu-content][data-open]")).toHaveCSS("opacity", "1");
-    await expect(page.locator("[role=menuitem][href=\"/account/plan\"]")).toBeVisible();
+    // The features' account links (the Plan, where billing is on) come from the navigation itself.
+    const nav = (await (await page.request.get("/api/nav")).json()) as { accountPage: { to: string }[] };
+    for (const { to } of nav.accountPage) {
+      await expect(page.locator(`[role=menuitem][href="${to}"]`)).toBeVisible();
+    }
     await expect(page.getByRole("menuitem", { name: t.auth.signOut })).toBeVisible();
     await evidence("sidebar-user-menu");
     await page.getByRole("menuitem", { name: t.account.nav }).click();
