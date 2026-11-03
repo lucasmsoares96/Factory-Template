@@ -35,7 +35,7 @@ test("signing out ends the session and lands on the sign-in screen", async ({ wo
   const { screen, router, t } = await renderSpa();
 
   await screen.getByRole("button", { name: t.nav.userMenu }).click();
-  await screen.getByRole("button", { name: t.auth.signOut }).click();
+  await screen.getByRole("menuitem", { name: t.auth.signOut }).click();
 
   await expect.element(screen.getByRole("heading", { name: t.auth.signIn.title })).toBeVisible();
   await expect.element(screen.getByRole("status")).toHaveTextContent(t.auth.signIn.signedOut);

@@ -358,7 +358,7 @@ test("without a Stripe key (or the fake) no billing route answers and the accoun
   const nav = (await (await withoutKey.fetch("/api/nav", { headers: { cookie } })).json()) as { accountPage: unknown[] };
   expect(nav.accountPage).toEqual([]);
   const withKey = (await (await worker.fetch("/api/nav", { headers: { cookie } })).json()) as { accountPage: unknown[] };
-  expect(withKey.accountPage).toEqual([{ label: "Plan", to: "/account/plan" }]);
+  expect(withKey.accountPage).toEqual([{ label: "Plan", to: "/account/plan", icon: "CreditCard" }]);
 });
 
 test("reading the Plan is an MCP tool; subscribing and opening Checkout are not", async () => {

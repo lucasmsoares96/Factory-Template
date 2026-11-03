@@ -10,7 +10,7 @@ import { connectionsApi } from "./connections.ts";
  * Better Auth's routes (`/api/auth/change-password`, `/api/auth/change-email`,
  * `/api/auth/delete-user`; their rules are in `platform/auth-options.ts`), which
  * stay out of the MCP. `createApp()` mounts it in every Product, before the
- * Product's features; its nav label is a message path the Worker translates.
+ * Product's features; the sidebar's user menu links to it.
  */
 export const account = defineFeature({
   id: "account",
@@ -18,5 +18,4 @@ export const account = defineFeature({
     app.route("/", accountApi);
     app.route("/", connectionsApi);
   },
-  nav: { label: "account.nav", to: "/account", icon: "UserRound" },
 });

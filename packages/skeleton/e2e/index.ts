@@ -133,7 +133,9 @@ export const test = base.extend<{ evidence: (name: string, options?: { allow?: A
             errors = () => [...consoleErrors(), ...second()];
           }
           const measurements = await measurePage(target, { name, consoleErrors: errors, allow });
-          await target.screenshot({ path: join(folder, `${name}-${size.width}.png`), fullPage: true });
+          // A full-page print resizes the page, which closes an open menu (its anchor moves): with one open, print the viewport.
+          const menuOpen = (await target.locator("[data-slot=dropdown-menu-content][data-open]").count()) > 0;
+          await target.screenshot({ path: join(folder, `${name}-${size.width}.png`), fullPage: !menuOpen });
           await writeFile(join(folder, `${name}-${size.width}.json`), JSON.stringify(measurements, null, 2) + "\n");
         } finally {
           if (!own) await target.close();

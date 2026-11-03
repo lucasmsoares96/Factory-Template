@@ -145,6 +145,7 @@ export const ptBR: Messages = {
   },
   companies: {
     switcher: {
+      title: "Companies",
       label: "Company",
       choose: "Escolha uma Company",
       new: "Nova Company",
