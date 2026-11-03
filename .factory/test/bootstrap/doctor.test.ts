@@ -67,6 +67,17 @@ describe("pnpm bootstrap doctor", () => {
     expect(output).toMatch(/missing\s+Environment production.*pnpm bootstrap product/);
   });
 
+  it("tells to remove by hand the extra branch an environment allows, since bootstrap only adds", async () => {
+    const w = world({ "resend-setup": "skip", "default-account-email": "admin@example.com", "default-account-password": "admin password 123", "default-account-password-confirm": "admin password 123" });
+    w.deps.interactive = true;
+    await w.run("product", "example");
+    w.github.environments.set("production", ["main", "factory/issue-1"]);
+
+    const { output } = await w.run("doctor", "example");
+
+    expect(output).toMatch(/missing\s+Environment production.*remove by hand.*factory\/issue-1/);
+  });
+
   it("shows the language of the Factory's public text, and that it is unset", async () => {
     const w = world({ "factory-language": "pt-BR" });
     expect((await w.run("doctor")).output).toMatch(/ok\s+FACTORY_LANGUAGE.*not set: the Factory writes in en; `pnpm bootstrap` asks it/);
