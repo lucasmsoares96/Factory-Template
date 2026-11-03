@@ -41,8 +41,10 @@ export class FakeGitHub implements GitHubClient {
   readonly environmentSecrets = new Map<string, Map<string, string>>();
   readonly variables = new Map<string, string>();
   readonly labels = new Map<string, LabelSpec>();
-  /** Environment name -> the branch it is restricted to. */
-  readonly environments = new Map<string, string>();
+  /** Environment name -> the branch (or branches) it is restricted to; `null` is an environment with no branch rule. */
+  readonly environments = new Map<string, string | string[] | null>();
+  /** Environment rules and secrets written, in call order (`environment:NAME`, `secret:NAME@ENV`). */
+  readonly calls: string[] = [];
   readonly rulesets: RulesetInfo[] = [];
   /** Everything a secret was ever set to, by name: lets a test prove a value was never printed or written elsewhere. */
   readonly secretWrites: { name: string; environment?: string }[] = [];
@@ -208,6 +210,7 @@ export class FakeGitHub implements GitHubClient {
   }
   async setSecret(name: string, value: string, options: { environment?: string } = {}): Promise<void> {
     this.writes++;
+    this.calls.push(`secret:${name}@${options.environment ?? "repo"}`);
     this.secretWrites.push({ name, ...(options.environment ? { environment: options.environment } : {}) });
     this.scope(options.environment).set(name, value);
   }
@@ -228,10 +231,16 @@ export class FakeGitHub implements GitHubClient {
   async listEnvironments(): Promise<string[]> {
     return [...this.environments.keys()];
   }
+  async environmentBranches(name: string): Promise<string[] | undefined> {
+    const rule = this.environments.get(name);
+    return rule === undefined || rule === null ? undefined : Array.isArray(rule) ? [...rule] : [rule];
+  }
   async upsertEnvironment(name: string, input: { branch: string }): Promise<"created" | "refused"> {
     if (this.refuseEnvironments) return "refused";
     this.writes++;
-    this.environments.set(name, input.branch);
+    this.calls.push(`environment:${name}`);
+    const current = this.environments.get(name);
+    this.environments.set(name, Array.isArray(current) ? [...new Set([...current, input.branch])] : input.branch);
     return "created";
   }
   async listRulesets(): Promise<RulesetInfo[]> {
