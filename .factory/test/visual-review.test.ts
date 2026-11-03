@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AgentStep } from "../src/adapters/fake/fake-agent.ts";
+import { FakeSecretScanner } from "../src/adapters/fake/fake-secret-scanner.ts";
 import { interfacePaths } from "../src/scope.ts";
 import { checkout, commitFile, ISSUE_VERDICTS, lastJson, tempDir, unmarked, world, type WorldOptions } from "./helpers.ts";
 
@@ -31,13 +32,14 @@ const fixes: AgentStep = async ({ cwd }) => {
 const review: AgentStep = () => ({ output: `<review>${JSON.stringify({ summary: "Reviewed.", inline: [], criteria: ISSUE_VERDICTS })}</review>` });
 const writes: AgentStep = () => ({ output: "<pull-request>## Summary\n\nDone.\n\n## Merge Danger\n\n**Door:** two-way</pull-request>" });
 
-async function run(options: { development: AgentStep; visualReview?: AgentStep[]; verify: WorldOptions["verify"]; env?: Record<string, string> }) {
+async function run(options: { development: AgentStep; visualReview?: AgentStep[]; verify: WorldOptions["verify"]; env?: Record<string, string>; scanner?: FakeSecretScanner }) {
   const repo = await checkout();
   const out = await tempDir("factory-out-");
   const w = world({
     repo,
     agent: { development: [options.development], "visual-review": options.visualReview ?? [], review: [review], "pull-request": [writes] },
     verify: options.verify,
+    ...(options.scanner ? { scanner: options.scanner } : {}),
     env: { FACTORY_MAX_ATTEMPTS: "1", ...options.env },
   });
   await w.tracker.swapLabel(7, "ready-for-agent", "in-progress");
@@ -150,5 +152,41 @@ describe("factory work: the Visual Review", () => {
 
     const call = w.agent.calls.find((c) => c.stage === "visual-review")!;
     expect([call.model, call.timeoutMs]).toEqual(["claude-opus-5-5", 12 * 60_000]);
+  });
+});
+
+// The fake scanner treats this marker as the secret, so no test file holds anything that looks like one.
+const LEAK = "LEAKY-VALUE";
+const leakScanner = () => new FakeSecretScanner({ respond: ({ texts }) => texts.filter((t) => t.text.includes(LEAK)).map((t) => ({ source: t.name, line: 2, rule: "fake-rule" })) });
+const block = (summary: string, inline: object[] = []) => `<visual-review>${JSON.stringify({ summary, inline })}</visual-review>`;
+
+describe("factory work: the secret scan of the Visual Review", () => {
+  it("resumes the session with the place and the rule, never the value, and goes on with the clean block", async () => {
+    const { w, result } = await run({
+      development: developUi,
+      visualReview: [() => ({ output: block(`has ${LEAK}`), resumes: [{ output: block("clean summary") }] })],
+      verify: [{ ok: true, evidence: prints() }, { ok: true, evidence: prints() }],
+      scanner: leakScanner(),
+    });
+
+    const [call] = w.agent.calls.filter((c) => c.stage === "visual-review");
+    expect(call!.resumes[0]).toContain("`visual review summary` line 2 (rule `fake-rule`)");
+    expect(call!.resumes[0]).not.toContain(LEAK);
+    expect(result).toMatchObject({ outcome: "ready", visualReview: { summary: "clean summary" } });
+  });
+
+  it("escalates when an inline comment is still dirty after the retries, and keeps the value out of the result", async () => {
+    const dirty = { output: block("fine", [{ path: "apps/example/src/client/home.tsx", line: 1, body: `dirty ${LEAK}` }]) };
+    const { w, result } = await run({
+      development: developUi,
+      visualReview: [() => ({ ...dirty, resumes: [dirty, dirty] })],
+      verify: [{ ok: true, evidence: prints() }],
+      scanner: leakScanner(),
+    });
+
+    expect(result).toMatchObject({ outcome: "escalated", reason: "needs-human" });
+    expect(result.question).toContain("`visual review inline comment 1` line 2");
+    expect(JSON.stringify(result)).not.toContain(LEAK);
+    expect(w.agent.calls.some((c) => c.stage === "review")).toBe(false);
   });
 });

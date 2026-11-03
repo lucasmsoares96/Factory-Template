@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Extraction } from "./seams/agent.ts";
 import { inlineCommentSchema } from "./result.ts";
+import type { StageText } from "./secret-text.ts";
 
 /**
  * The Visual Review session ends its final message with
@@ -23,6 +24,14 @@ function findBlock(output: string): VisualReviewOutput | null {
 
 export function parseVisualReviewOutput(output: string): VisualReviewOutput {
   return findBlock(output) ?? { summary: output.trim(), inline: [] };
+}
+
+/** The texts the Visual Review publishes (summary and inline comments), as the scanner sees them. */
+export function visualReviewTexts(review: VisualReviewOutput): StageText[] {
+  return [
+    { name: "visual review summary", text: review.summary },
+    ...review.inline.map((c, i) => ({ name: `visual review inline comment ${i + 1}`, text: c.body })),
+  ].filter((t) => t.text !== "");
 }
 
 export const visualReviewExtraction: Extraction = {
