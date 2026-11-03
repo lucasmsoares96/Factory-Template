@@ -11,7 +11,7 @@ import { expect, test } from "../spa/test.ts";
 const ana = { id: "user-1", name: "Ana Souza", email: "ana@example.com", pendingEmail: null as string | null };
 
 /** The test composition's navigation: a Product feature's entry (`notes`) and its Company page section, and an account page link when asked. */
-const nav = (accountPage: { label: string; to: string }[] = []) => ({
+const nav = (accountPage: { label: string; to: string; icon: string }[] = []) => ({
   entries: [{ label: "Notes", to: "/notes", icon: "Circle" }],
   companyPage: [{ label: "Notes", to: "/notes" }],
   accountPage,
@@ -51,6 +51,22 @@ test("the signed-in navigation shows home and every feature's nav entry, and the
   await screen.getByRole("menuitem", { name: t.account.nav }).click();
   await expect.element(screen.getByRole("heading", { name: t.account.title })).toBeVisible();
   expect(router.state.location.pathname).toBe("/account");
+});
+
+test("every item of the user menu has an icon, the account page links included", async ({ worker }) => {
+  worker.use(
+    getMeHandler(ana),
+    getNavHandler(nav([{ label: "Plan", to: "/account/plan", icon: "CreditCard" }, { label: "Extras", to: "/account/extras", icon: "Circle" }])),
+    noCompany,
+  );
+
+  const { screen, t } = await renderSpa();
+
+  await screen.getByRole("button", { name: t.nav.userMenu }).click();
+  await expect.element(screen.getByRole("menuitem", { name: "Plan" })).toBeVisible();
+  const items = document.querySelectorAll("[data-slot=dropdown-menu-content] [role=menuitem]");
+  expect(items).toHaveLength(4);
+  for (const item of items) expect(item.querySelector("svg"), item.textContent ?? "").not.toBeNull();
 });
 
 test("the sidebar marks the current page's item active and collapses to icons with its button", async ({ worker }) => {
@@ -296,7 +312,7 @@ test("a wrong password is refused with the message translated by its code, and t
 });
 
 test("the user menu shows the name and email, then Account, the features' account links and sign out", async ({ worker }) => {
-  worker.use(getMeHandler(ana), getNavHandler(nav([{ label: "Plan", to: "/account/plan" }])), noCompany);
+  worker.use(getMeHandler(ana), getNavHandler(nav([{ label: "Plan", to: "/account/plan", icon: "CreditCard" }])), noCompany);
 
   const { screen, t } = await renderSpa();
 

@@ -163,12 +163,15 @@ function UserMenu({ signOut }: { signOut: { isPending: boolean; mutate: () => vo
           <UserRound />
           {t.account.nav}
         </DropdownMenuItem>
-        {(nav.data?.accountPage ?? []).map((entry) => (
-          <DropdownMenuItem key={entry.to} render={<Link to={entry.to} />}>
-            <span aria-hidden className="size-4 shrink-0" />
-            {entry.label}
-          </DropdownMenuItem>
-        ))}
+        {(nav.data?.accountPage ?? []).map((entry) => {
+          const Icon = navIcon(entry.icon);
+          return (
+            <DropdownMenuItem key={entry.to} render={<Link to={entry.to} />}>
+              <Icon />
+              {entry.label}
+            </DropdownMenuItem>
+          );
+        })}
         <DropdownMenuSeparator />
         <DropdownMenuItem disabled={signOut.isPending} onClick={() => signOut.mutate()}>
           <LogOut />
