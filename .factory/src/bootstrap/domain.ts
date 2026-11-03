@@ -1,6 +1,7 @@
 import { CloudflareRefused } from "./clients.ts";
 import type { CloudflareClient, CloudflareDnsRecord, CloudflareZone, ResendClient, ResendDnsRecord, ResendDomain } from "./clients.ts";
 import { cloudflareAccountId, cloudflareCredential } from "./common.ts";
+import { PRODUCTION_ENVIRONMENT } from "./environments.ts";
 import type { ProductIdentity, Step, StepContext } from "./steps.ts";
 
 /** `<ID>_NAME`: the prefix every per-Product secret carries, e.g. `my-app` + `RESEND_API_KEY` = `MY_APP_RESEND_API_KEY`. */
@@ -8,18 +9,18 @@ export function productSecretName(productId: string, name: string): string {
   return `${productId.toUpperCase().replace(/-/g, "_")}_${name}`;
 }
 
-/** The environment that holds a Product's production secrets. */
-export function productionEnvironment(productId: string): string {
-  return `${productId}-production`;
+/** The environment that holds the production secrets of every Product (one for the repo, only the default branch deploys to it). */
+export function productionEnvironment(): string {
+  return PRODUCTION_ENVIRONMENT;
 }
 
 /**
- * Where a Product's production secrets live: in its `<id>-production` environment when that exists, otherwise
- * (the plan refused environments, or none was made yet) in the repo. A job with an environment also sees repo secrets,
- * so the workflow reads the same names either way.
+ * Where the production secrets live: in the `production` environment when that exists, otherwise (the plan refused
+ * environments, or none was made yet) in the repo. The names carry the Product's `<ID>_` prefix, so one environment
+ * holds them all.
  */
-export async function secretScope(ctx: StepContext, productId: string): Promise<{ environment?: string }> {
-  const name = productionEnvironment(productId);
+export async function secretScope(ctx: StepContext): Promise<{ environment?: string }> {
+  const name = productionEnvironment();
   return (await ctx.github.listEnvironments()).includes(name) ? { environment: name } : {};
 }
 
@@ -80,7 +81,7 @@ export async function cloudflareHandle(
 
 /** The restricted key secret is only made once the Resend domain exists: its presence on the forge stands in when no Resend key is at hand. */
 async function resendProvenByKeySecret(ctx: StepContext, product: ProductIdentity): Promise<boolean> {
-  return (await ctx.github.listSecrets(await secretScope(ctx, product.id))).includes(productSecretName(product.id, "RESEND_API_KEY"));
+  return (await ctx.github.listSecrets(await secretScope(ctx))).includes(productSecretName(product.id, "RESEND_API_KEY"));
 }
 
 export function resendDomainStep(product: ProductIdentity): Step {
@@ -249,7 +250,7 @@ export function restrictedKeyStep(product: ProductIdentity): Step {
     title: `Resend key restricted to the domain (${secret})`,
     async check(ctx) {
       if (ctx.memory.resendDeferred) return { done: true, detail: "Resend domain deferred" };
-      return { done: (await ctx.github.listSecrets(await secretScope(ctx, product.id))).includes(secret) };
+      return { done: (await ctx.github.listSecrets(await secretScope(ctx))).includes(secret) };
     },
     async run(ctx) {
       const resend = await resendClient(ctx, true, product.id);
@@ -259,7 +260,7 @@ export function restrictedKeyStep(product: ProductIdentity): Step {
         return;
       }
       // Secrets cannot be read back, so a redo makes a new key; the old one stays until deleted in the Resend dashboard.
-      await ctx.github.setSecret(secret, await resend.createRestrictedKey({ name: product.id, domainId: domain.id }), await secretScope(ctx, product.id));
+      await ctx.github.setSecret(secret, await resend.createRestrictedKey({ name: product.id, domainId: domain.id }), await secretScope(ctx));
     },
   };
 }

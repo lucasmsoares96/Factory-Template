@@ -197,7 +197,7 @@ describe.each([[WORKFLOWS_DIR]])("deploy workflow in %s", (dir) => {
     const job = jobs["preview-base"]!;
     expect(job.if).toContain("vars.PREVIEWS_ENABLED == 'true'");
     expect(job.needs).toEqual(["plan", "build"]);
-    expect(String(job.environment)).toContain("-preview");
+    expect(String(job.environment)).toContain("'preview'");
     expect(job.container).toBeUndefined();
     expect(job.permissions).toEqual({ contents: "read" });
     const script = runs(job).join("\n");
@@ -233,12 +233,12 @@ describe.each([[WORKFLOWS_DIR]])("deploy workflow in %s", (dir) => {
     expect(checkout?.with).toMatchObject({ ref: "${{ github.sha }}", "persist-credentials": false });
   });
 
-  it("`deploy` uses the Product's environment unless FACTORY_USE_ENVIRONMENTS is false", () => {
+  it("`deploy` uses the `production` environment unless FACTORY_USE_ENVIRONMENTS is false", () => {
     expect(String(jobs.deploy!.environment)).toContain("vars.FACTORY_USE_ENVIRONMENTS != 'false'");
-    expect(String(jobs.deploy!.environment)).toContain("-production");
+    expect(String(jobs.deploy!.environment)).toContain("'production'");
   });
 
-  it("`smoke` holds only the account's password, in the Product's environment, and waits for the deploy", () => {
+  it("`smoke` holds only the account's password, in the `production` environment, and waits for the deploy", () => {
     const text = textOf(jobs.smoke!);
     // Every `secrets` reference of the job: exactly one, the `<ID>_ACCOUNT_PASSWORD` (the email is a variable).
     expect(text.match(/secrets\[[^\]]*\]|secrets\.\w+/g)).toEqual(["secrets[format('{0}ACCOUNT_PASSWORD', matrix.prefix)]"]);
@@ -369,7 +369,7 @@ describe.each([[WORKFLOWS_DIR]])("PR previews in %s", (dir) => {
     expect(order).toEqual([...order].sort((a, b) => a - b));
     expect(job.env?.CLOUDFLARE_API_BASE_URL).toBe("https://api.cloudflare.com/client/v4");
     expect(String(job.environment)).toContain("vars.FACTORY_USE_ENVIRONMENTS != 'false'");
-    expect(String(job.environment)).toContain("-preview");
+    expect(String(job.environment)).toContain("'preview'");
   });
 
   it("`deploy` runs the preview with `main`'s config path and wrangler, from the package that depends on it, named for the PR from the event", () => {
@@ -1294,6 +1294,20 @@ describe("Factory merge workflow (Merge Mode)", () => {
     ]);
     const runners = allJobs.filter(({ job }) => runs(job).some((r) => /pnpm factory merge\b/.test(r))).map(({ file }) => file);
     expect(runners).toEqual(["factory-merge.yml"]);
+  });
+
+  // Secrets that are not deploy secrets: the Factory's own tokens and the CI-only Stripe sandbox key stay at repo level.
+  const NOT_DEPLOY = new Set(["FACTORY_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "STRIPE_CI_KEY", "GITHUB_TOKEN"]);
+
+  it("every job that reads a deploy secret declares the `production` or `preview` environment, never one per Product", () => {
+    const readers = allJobs.filter(({ job }) => (textOf(job).match(/secrets\[[^\]]*\]|secrets\.\w+/g) ?? []).some((ref) => !NOT_DEPLOY.has(/^secrets\.(\w+)$/.exec(ref)?.[1] ?? "")));
+    expect(readers.map(({ file, id }) => `${file} ${id}`).sort()).toEqual(["factory-deploy.yml deploy", "factory-deploy.yml preview-base", "factory-deploy.yml smoke", "factory-pr-cleanup.yml cleanup", "factory-pr.yml deploy"]);
+    for (const { file, id, job } of readers) {
+      expect(String(job.environment), `${file} ${id}`).toMatch(/^\$\{\{ vars\.FACTORY_USE_ENVIRONMENTS != 'false' && '(production|preview)' \|\| null \}\}$/);
+    }
+    for (const { file, id, job } of allJobs.filter(({ job }) => job.environment !== undefined)) {
+      expect(String(job.environment), `${file} ${id}`).not.toContain("matrix");
+    }
   });
 
   it("every workflow file is checked here", () => {

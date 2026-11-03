@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { labelSpecs } from "../../src/bootstrap/labels.ts";
-import { world } from "./helpers.ts";
+import { world, seedCloudflare } from "./helpers.ts";
 import { FakeGitHubServer } from "../github/fake-github.ts";
 
 // Seam 8 for the Factory module: `pnpm bootstrap factory` against the fake GitHub and the fake token of the owner.
@@ -10,8 +10,7 @@ function factoryWorld(answers: Record<string, string | boolean | string[]> = {},
   const w = world({ "factory-token": PAT, "merge-mode": "human", ...answers }, env);
   w.deps.interactive = true;
   w.tokens.add(PAT, { push: true });
-  w.github.secrets.set("CLOUDFLARE_API_TOKEN", "x");
-  w.github.secrets.set("CLOUDFLARE_ACCOUNT_ID", "acc-1");
+  seedCloudflare(w.github, "x");
   return w;
 }
 

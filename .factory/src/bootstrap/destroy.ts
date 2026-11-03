@@ -1,10 +1,12 @@
 import { configVariables } from "../config.ts";
 import type { CloudflareClient, NeonClient, NeonProject, ResendClient } from "./clients.ts";
-import { cloudflareHandle, productionEnvironment } from "./domain.ts";
+import { cloudflareHandle } from "./domain.ts";
+import { legacyEnvironment, PRODUCTION_ENVIRONMENT, STAGE_ENVIRONMENTS } from "./environments.ts";
+import { billingNames } from "./billing.ts";
 import { FACTORY_ENABLED, FACTORY_TOKEN } from "./factory.ts";
 import { accountNames } from "./accounts.ts";
 import { DEPLOY_PRODUCTS, MAIN_RULESET, databaseVariables, USE_ENVIRONMENTS, neonHandle, neonOrgId, parseProductList, productionSecrets } from "./product.ts";
-import { PREVIEWS_ENABLED, PREVIEW_PRODUCTS, previewEnvironment, previewNames, previewKeysOf, previewProjectName } from "./previews.ts";
+import { PREVIEWS_ENABLED, PREVIEW_PRODUCTS, previewNames, previewKeysOf, previewProjectName } from "./previews.ts";
 import type { ProductIdentity, StepContext } from "./steps.ts";
 
 /**
@@ -114,15 +116,28 @@ export async function plan(ctx: StepContext, scope: DestroyScope): Promise<Plan>
   const database = scope.kind === "db";
 
   const addGithub = (text: string, run: () => Promise<void>) => result.items.push({ group: "GitHub", text, run });
-  const dropSecret = (name: string) => secrets.includes(name) && addGithub(`secret ${name}`, () => github.deleteSecret(name));
   const dropVariable = (name: string) => name in variables && addGithub(`variable ${name}`, () => github.deleteVariable(name));
   const environmentSecrets = new Map<string, string[]>();
   for (const name of environments) environmentSecrets.set(name, await github.listSecrets({ environment: name }).catch(() => []));
+  // An environment that goes whole takes its secrets with it: they are not listed one by one.
+  const droppedEnvironments = new Set<string>();
   const dropEnvironment = (name: string) => {
-    if (!environments.includes(name)) return;
+    if (!environments.includes(name) || droppedEnvironments.has(name)) return;
+    droppedEnvironments.add(name);
     const held = environmentSecrets.get(name) ?? [];
     addGithub(`environment ${name}${held.length > 0 ? `, with its secrets ${held.join(", ")}` : ""}`, () => github.deleteEnvironment(name));
   };
+  // A secret may be at repo level or in any environment (the stage ones, or a Product's of the old layout).
+  const dropSecret = (name: string) => {
+    if (secrets.includes(name)) addGithub(`secret ${name}`, () => github.deleteSecret(name));
+    for (const [environment, held] of environmentSecrets) {
+      if (held.includes(name) && !droppedEnvironments.has(environment)) addGithub(`secret ${name} in environment ${environment}`, () => github.deleteSecret(name, { environment }));
+    }
+  };
+  // The stage environments are shared by every Product: only the common part (or everything) takes them down.
+  if (everything || scope.kind === "common") {
+    for (const name of environments.filter((e) => STAGE_ENVIRONMENTS.some((stage) => stage === e) || legacyEnvironment(e))) dropEnvironment(name);
+  }
 
   // The accounts are listed with the credentials this machine already has (memory, environment, a saved wrangler login).
   // A login or a question before the person has seen the list and typed the id would be a surprise: what cannot be
@@ -167,7 +182,7 @@ export async function plan(ctx: StepContext, scope: DestroyScope): Promise<Plan>
   const sharedPreviewLeft = parseProductList(variables[PREVIEW_PRODUCTS]).filter((id) => !productIds.includes(id));
 
   for (const id of productIds) {
-    if (database) await planDatabase(ctx, result, services, id, { secrets, variables, dropSecret, dropVariable, dropEnvironment }, environmentSecrets);
+    if (database) await planDatabase(ctx, result, services, id, { secrets, variables, dropSecret, dropVariable, dropEnvironment });
     if (production) await planProduction(ctx, result, services, id, { secrets, variables, dropSecret, dropVariable, dropEnvironment });
     if (previews) await planPreviews(ctx, result, services, id, { secrets, variables, dropSecret, dropVariable, dropEnvironment });
   }
@@ -199,7 +214,7 @@ export async function plan(ctx: StepContext, scope: DestroyScope): Promise<Plan>
     for (const name of new Set([FACTORY_ENABLED, ...configVariables()])) dropVariable(name);
   }
   if (everything || scope.kind === "common") {
-    for (const name of ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]) dropSecret(name);
+    for (const name of ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]) dropSecret(name); // repo level and the stage environments
     dropVariable(USE_ENVIRONMENTS);
   }
 
@@ -207,10 +222,12 @@ export async function plan(ctx: StepContext, scope: DestroyScope): Promise<Plan>
   return result;
 }
 
-/** Whether a Product's production environment holds its Resend key secret. */
+/** Whether a Product's Resend key secret is in the `production` environment (or in its environment of the old layout). */
 async function productsInEnvironments(ctx: StepContext, productIds: string[], environments: string[]): Promise<boolean> {
   for (const id of productIds) {
-    if (environments.includes(productionEnvironment(id)) && (await ctx.github.listSecrets({ environment: productionEnvironment(id) })).includes(productionSecrets(id).resendKey)) return true;
+    for (const environment of [PRODUCTION_ENVIRONMENT, `${id}-production`]) {
+      if (environments.includes(environment) && (await ctx.github.listSecrets({ environment })).includes(productionSecrets(id).resendKey)) return true;
+    }
   }
   return false;
 }
@@ -260,8 +277,9 @@ async function planProduction(ctx: StepContext, plan: Plan, services: Services, 
 
   const secretNames = Object.values(productionSecrets(id));
   const { password, email } = accountNames(id);
-  repo.dropEnvironment(productionEnvironment(id));
-  for (const name of [...secretNames, password]) repo.dropSecret(name);
+  const billing = billingNames(id);
+  repo.dropEnvironment(`${id}-production`); // the old layout
+  for (const name of [...secretNames, password, billing.liveKey, billing.webhookSecret]) repo.dropSecret(name);
   repo.dropVariable(email);
   repo.dropVariable(databaseVariables(id).neonProject);
   repo.dropVariable(databaseVariables(id).region);
@@ -288,7 +306,7 @@ function planProductionProject(plan: Plan, projects: NeonProject[], neon: NeonCl
  * `main` ruleset stay. The secrets are dropped from the environments they live in without dropping the environment.
  * The chosen region (`<ID>_REGION`) stays: the next `bootstrap product` makes the new databases there (or asks again with `--redo region`).
  */
-async function planDatabase(ctx: StepContext, plan: Plan, services: Services, id: string, repo: RepoState, environmentSecrets: Map<string, string[]>): Promise<void> {
+async function planDatabase(ctx: StepContext, plan: Plan, services: Services, id: string, repo: RepoState): Promise<void> {
   if (services.neon) {
     planProductionProject(plan, services.neon.projects, services.neon.client, id, repo.variables);
     await planPreviewProject(plan, ctx, services.neon, id, repo.variables);
@@ -296,18 +314,7 @@ async function planDatabase(ctx: StepContext, plan: Plan, services: Services, id
   const production = productionSecrets(id);
   const names = previewNames(id);
   const { password, email } = accountNames(id);
-  const places: { environment: string; secret: string }[] = [
-    ...[production.databaseUrl, production.databaseUrlPooled, password].map((secret) => ({ environment: productionEnvironment(id), secret })),
-    { environment: previewEnvironment(id), secret: names.neonKey },
-  ];
-  for (const secret of [production.databaseUrl, production.databaseUrlPooled, password, names.neonKey]) {
-    if (repo.secrets.includes(secret)) repo.dropSecret(secret);
-  }
-  for (const { environment, secret } of places) {
-    if ((environmentSecrets.get(environment) ?? []).includes(secret)) {
-      plan.items.push({ group: "GitHub", text: `secret ${secret} in environment ${environment}`, run: () => ctx.github.deleteSecret(secret, { environment }) });
-    }
-  }
+  for (const secret of [production.databaseUrl, production.databaseUrlPooled, password, names.neonKey]) repo.dropSecret(secret);
   for (const name of [email, databaseVariables(id).neonProject, names.neonProject]) repo.dropVariable(name);
 }
 
@@ -346,9 +353,8 @@ async function planPreviews(ctx: StepContext, plan: Plan, services: Services, id
   if (services.neon) {
     await planPreviewProject(plan, ctx, services.neon, id, repo.variables);
   }
-  repo.dropEnvironment(previewEnvironment(id));
-  repo.dropSecret(names.neonKey);
-  repo.dropSecret(names.accountPassword);
+  repo.dropEnvironment(`${id}-preview`); // the old layout
+  for (const name of [names.neonKey, names.accountPassword, billingNames(id).sandboxKey]) repo.dropSecret(name);
   repo.dropVariable(names.neonProject);
   repo.dropVariable(names.kv);
 }

@@ -268,8 +268,8 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-    # The environment of the Product's previews when environments exist; otherwise the secrets are at repo level.
-    environment: ${{ vars.FACTORY_USE_ENVIRONMENTS != 'false' && format('{0}-preview', matrix.id) || null }}
+    # The `preview` environment (one for the repo, only `main` may deploy to it; this workflow runs `main`'s code) when environments exist; otherwise the secrets are at repo level.
+    environment: ${{ vars.FACTORY_USE_ENVIRONMENTS != 'false' && 'preview' || null }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.preview-plan.outputs.matrix) }}

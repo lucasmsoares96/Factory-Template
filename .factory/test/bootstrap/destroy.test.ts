@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { labelSpecs } from "../../src/bootstrap/labels.ts";
-import { TOKEN, WRANGLER_TOKEN, world } from "./helpers.ts";
+import { TOKEN, WRANGLER_TOKEN, world, seedCloudflare } from "./helpers.ts";
 
 // Seam 8 for `destroy`: everything runs against the fake clients. A world is built by the real wizard commands, so the
 // names `destroy` removes are the names the wizard made, not names this file invented.
@@ -11,8 +11,7 @@ const PASSWORD = "admin password 123";
 async function built(answers: Record<string, string | boolean | string[]> = {}, env: Record<string, string | undefined> = ENV) {
   const w = world({ "resend-setup": "skip", "default-account-email": "admin@example.com", "default-account-password": PASSWORD, "default-account-password-confirm": PASSWORD, "preview-account-password": PASSWORD, "preview-account-password-confirm": PASSWORD, "factory-token": PAT, ...answers }, env);
   w.deps.interactive = true;
-  w.github.secrets.set("CLOUDFLARE_API_TOKEN", TOKEN);
-  w.github.secrets.set("CLOUDFLARE_ACCOUNT_ID", "acc-1");
+  seedCloudflare(w.github, TOKEN);
   w.cloudflare.subdomains.set("acc-1", "my-team");
   for (const label of labelSpecs(w.deps.config)) w.github.labels.set(label.name, label);
   w.tokens.add(PAT, { push: true });
@@ -115,10 +114,12 @@ describe("pnpm bootstrap destroy product <id>", () => {
     expect(w.prompter.asked.filter((id) => id === "destroy-confirm")).toHaveLength(1);
     const production = atPrompt.split("\n").find((l) => /PRODUCTION DATABASE/.test(l))!;
     expect(production).toContain("example");
-    for (const wanted of ["Worker example", "example-oauth-kv", "example-preview-oauth", "example-preview", "example-production", "EXAMPLE_DATABASE_URL", "example.com"]) {
+    for (const wanted of ["Worker example", "example-oauth-kv", "example-preview-oauth", "example-preview", "secret EXAMPLE_DATABASE_URL in environment production", "EXAMPLE_PREVIEW_NEON_API_KEY in environment preview", "example.com"]) {
       expect(atPrompt).toContain(wanted);
     }
-    expect(atPrompt).not.toMatch(/shop-production|SHOP_DATABASE_URL/);
+    expect(atPrompt).not.toMatch(/SHOP_/);
+    // The stage environments are shared by every Product: a Product's destroy never lists them.
+    expect(atPrompt).not.toMatch(/- environment /);
   });
 
   it("removes that Product everywhere and keeps the other Product, the common part, the Factory, the repo, labels and accounts", async () => {
@@ -141,7 +142,10 @@ describe("pnpm bootstrap destroy product <id>", () => {
     expect(w.github.variables.get("PREVIEW_PRODUCTS")).toBe("shop");
     expect(w.github.variables.get("DEPLOY_ENABLED")).toBe("true");
     expect(w.github.rulesets.map((r) => r.name)).toEqual(["main"]);
-    expect(w.github.secrets.has("CLOUDFLARE_API_TOKEN")).toBe(true);
+    // The shared environments stay, with the token and the other Product's secrets.
+    for (const environment of ["production", "preview"]) expect(w.github.environmentSecrets.get(environment)!.get("CLOUDFLARE_API_TOKEN")).toBe(TOKEN);
+    expect(w.github.environmentSecrets.get("production")!.has("SHOP_DATABASE_URL")).toBe(true);
+    expect(w.github.environmentSecrets.get("preview")!.has("SHOP_PREVIEW_NEON_API_KEY")).toBe(true);
     expect(w.github.secrets.has("FACTORY_TOKEN")).toBe(true);
     expect([...w.github.labels.keys()]).toEqual(labels);
   });
@@ -190,8 +194,8 @@ describe("pnpm bootstrap destroy product <id>", () => {
 
   it("falls back to repo-level secrets when the Product has no environment", async () => {
     const w = await built({ "destroy-confirm": "example" });
-    w.github.environments.delete("example-production");
-    w.github.environments.delete("example-preview");
+    w.github.environments.delete("production");
+    w.github.environments.delete("preview");
     w.github.environmentSecrets.clear();
     for (const name of ["EXAMPLE_DATABASE_URL", "EXAMPLE_DATABASE_URL_POOLED", "EXAMPLE_BETTER_AUTH_SECRET", "EXAMPLE_ACCOUNT_PASSWORD", "EXAMPLE_RESEND_API_KEY", "EXAMPLE_PREVIEW_NEON_API_KEY", "EXAMPLE_PREVIEW_ACCOUNT_PASSWORD"]) w.github.secrets.set(name, "x");
 
@@ -294,12 +298,14 @@ describe("pnpm bootstrap destroy previews <id>", () => {
       kvs: ["example-oauth-kv", "shop-oauth-kv", "shop-preview-oauth"],
       domains: ["example.com", "shop.test"],
     });
-    expect(w.github.environments.has("example-preview")).toBe(false);
-    expect(w.github.environments.has("example-production")).toBe(true);
+    expect(w.github.environments.has("preview")).toBe(true);
+    expect(w.github.environments.has("production")).toBe(true);
+    expect([...w.github.environmentSecrets.get("preview")!.keys()].filter((name) => name.startsWith("EXAMPLE_"))).toEqual([]);
+    expect(w.github.environmentSecrets.get("preview")!.has("SHOP_PREVIEW_NEON_API_KEY")).toBe(true);
     expect(w.github.variables.get("PREVIEW_PRODUCTS")).toBe("shop");
     expect(w.github.variables.has("EXAMPLE_PREVIEW_NEON_PROJECT_ID")).toBe(false);
     expect(w.github.variables.has("EXAMPLE_PREVIEW_OAUTH_KV_ID")).toBe(false);
-    expect(w.github.secrets.has("EXAMPLE_DATABASE_URL") || w.github.environmentSecrets.get("example-production")!.has("EXAMPLE_DATABASE_URL")).toBe(true);
+    expect(w.github.secrets.has("EXAMPLE_DATABASE_URL") || w.github.environmentSecrets.get("production")!.has("EXAMPLE_DATABASE_URL")).toBe(true);
     expect(w.github.variables.get("DEPLOY_PRODUCTS")).toBe("example,shop");
   });
 
@@ -333,7 +339,7 @@ describe("pnpm bootstrap destroy factory", () => {
     expect(code).toBe(0);
     for (const name of ["FACTORY_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]) expect(w.github.secrets.has(name)).toBe(false);
     for (const name of ["FACTORY_ENABLED"]) expect(w.github.variables.has(name)).toBe(false);
-    expect(w.github.secrets.has("CLOUDFLARE_API_TOKEN")).toBe(true);
+    expect(w.github.environmentSecrets.get("production")!.has("CLOUDFLARE_API_TOKEN")).toBe(true);
     expect(w.github.variables.get("DEPLOY_PRODUCTS")).toBe("example,shop");
     expect([...w.github.labels.keys()].length).toBeGreaterThan(0);
     expect(left(w).projects).toHaveLength(4);
@@ -391,7 +397,7 @@ describe("pnpm bootstrap destroy: credentials and partial failures", () => {
     const w = await built({ "destroy-confirm": "example" }, { CLOUDFLARE_API_TOKEN: TOKEN, CLOUDFLARE_ACCOUNT_ID: "acc-1", NEON_API_KEY: "neon-full" });
     // Resend was deferred when this world was built; a domain made by hand and its key secret exist anyway.
     w.resend.domains.push({ id: "dom-x", name: "example.com", status: "verified", records: [] });
-    w.github.environmentSecrets.get("example-production")!.set("EXAMPLE_RESEND_API_KEY", "re_restricted");
+    w.github.environmentSecrets.get("production")!.set("EXAMPLE_RESEND_API_KEY", "re_restricted");
     const asked = w.prompter.asked.length;
 
     const { code, output } = await w.run("destroy", "product", "example");
@@ -407,7 +413,7 @@ describe("pnpm bootstrap destroy: credentials and partial failures", () => {
     const production = w.neon.projects.find((p) => p.name === "example")!;
     w.neon.failDeletes.add(production.id);
     w.cloudflare.failDeletes.add("worker:example");
-    w.github.failDeletes.add("environment:example-production");
+    w.github.failDeletes.add("secret:EXAMPLE_DATABASE_URL");
 
     const { code, output } = await w.run("destroy", "product", "example");
 
@@ -415,13 +421,13 @@ describe("pnpm bootstrap destroy: credentials and partial failures", () => {
     expect(output).toMatch(/failed/i);
     expect(output).toContain(production.id);
     expect(output).toMatch(/worker example/i);
-    expect(output).toContain("example-production");
+    expect(output).toContain("EXAMPLE_DATABASE_URL");
     expect(left(w).projects).toEqual(["example", "shop", "shop-preview"]);
     expect(left(w).workers).toEqual(["example", "shop"]);
     // Everything else still went.
     expect(left(w).kvs).toEqual(["shop-oauth-kv", "shop-preview-oauth"]);
     expect(left(w).domains).toEqual(["shop.test"]);
-    expect(w.github.environments.has("example-preview")).toBe(false);
+    expect(w.github.environmentSecrets.get("preview")!.has("EXAMPLE_PREVIEW_NEON_API_KEY")).toBe(false);
     expect(w.github.variables.get("DEPLOY_PRODUCTS")).toBe("shop");
   });
 

@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { labelSpecs } from "../../src/bootstrap/labels.ts";
 import { QUESTIONS } from "../../src/bootstrap/questions.ts";
-import { TOKEN, world } from "./helpers.ts";
+import { TOKEN, world, seedCloudflare } from "./helpers.ts";
 
 // Seam 8 for the run without a terminal: the CLI against the fake clients, the environment standing in for the person.
 const COMMON_ENV = { CLOUDFLARE_API_TOKEN: TOKEN, WORKERS_DEV_SUBDOMAIN: "my-team", FACTORY_LANGUAGE: "en" };
@@ -41,7 +41,8 @@ describe("pnpm bootstrap without a terminal", () => {
     const { code } = await w.run();
 
     expect(code).toBe(0);
-    expect(w.github.secrets.get("CLOUDFLARE_API_TOKEN")).toBe(TOKEN);
+    expect(w.github.environmentSecrets.get("production")?.get("CLOUDFLARE_API_TOKEN")).toBe(TOKEN);
+    expect(w.github.environmentSecrets.get("preview")?.get("CLOUDFLARE_API_TOKEN")).toBe(TOKEN);
     expect(w.github.variables.get("FACTORY_LANGUAGE")).toBe("en");
     expect(w.prompter.asked).toEqual([]);
   });
@@ -58,13 +59,12 @@ describe("pnpm bootstrap without a terminal", () => {
 
     const w = world({}, { CLOUDFLARE_API_TOKEN: TOKEN, CLOUDFLARE_ACCOUNT_ID: "acc-1", NEON_REGION: "aws-sa-east-1", DEFAULT_ACCOUNT_EMAIL: "a@example.com", DEFAULT_ACCOUNT_PASSWORD: "admin password 123" });
     w.deps.interactive = false;
-    w.github.secrets.set("CLOUDFLARE_API_TOKEN", TOKEN);
-    w.github.secrets.set("CLOUDFLARE_ACCOUNT_ID", "acc-1");
+    seedCloudflare(w.github, TOKEN);
     w.cloudflare.subdomains.set("acc-1", "my-team");
     for (const label of labelSpecs(w.deps.config)) w.github.labels.set(label.name, label);
     const { code } = await w.run("product", "example");
     expect(code).toBe(0);
-    expect(w.github.environmentSecrets.get("example-production")?.get("EXAMPLE_ACCOUNT_PASSWORD")).toBe("admin password 123");
+    expect(w.github.environmentSecrets.get("production")?.get("EXAMPLE_ACCOUNT_PASSWORD")).toBe("admin password 123");
     expect(w.prompter.asked).toEqual([]);
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { labelSpecs } from "../../src/bootstrap/labels.ts";
-import { TOKEN, world } from "./helpers.ts";
+import { TOKEN, world, seedCloudflare } from "./helpers.ts";
 
 const ENV = { CLOUDFLARE_API_TOKEN: TOKEN, CLOUDFLARE_ACCOUNT_ID: "acc-1" };
 
@@ -10,11 +10,19 @@ const PASSWORD = "admin password 123";
 function productWorld(answers: Record<string, string | boolean | string[]> = {}, env: Record<string, string | undefined> = ENV) {
   const w = world({ "resend-setup": "skip", "default-account-email": ADMIN, "default-account-password": PASSWORD, "default-account-password-confirm": PASSWORD, ...answers }, env);
   w.deps.interactive = true;
-  w.github.secrets.set("CLOUDFLARE_API_TOKEN", TOKEN);
-  w.github.secrets.set("CLOUDFLARE_ACCOUNT_ID", "acc-1");
+  seedCloudflare(w.github, TOKEN);
   w.cloudflare.subdomains.set("acc-1", "my-team");
   for (const label of labelSpecs(w.deps.config)) w.github.labels.set(label.name, label);
   return w;
+}
+
+/** A repo whose plan refuses environments: the token and account are at repo level, none exists. */
+function withoutEnvironments(w: ReturnType<typeof productWorld>) {
+  w.github.environments.clear();
+  w.github.environmentSecrets.clear();
+  w.github.secrets.set("CLOUDFLARE_API_TOKEN", TOKEN);
+  w.github.secrets.set("CLOUDFLARE_ACCOUNT_ID", "acc-1");
+  w.github.refuseEnvironments = true;
 }
 
 const counts = (w: ReturnType<typeof productWorld>) => [w.github.writes, w.cloudflare.writes, w.resend.writes, w.neon.writes, w.accounts.writes];
@@ -28,9 +36,10 @@ describe("pnpm bootstrap product: Production module", () => {
 
     expect(code).toBe(0);
     expect(w.neon.projects.map((p) => p.name)).toEqual(["example"]);
-    expect(w.github.environments.get("example-production")).toBe("main");
-    const env = w.github.environmentSecrets.get("example-production")!;
-    expect([...env.keys()].sort()).toEqual(["EXAMPLE_ACCOUNT_PASSWORD", "EXAMPLE_BETTER_AUTH_SECRET", "EXAMPLE_DATABASE_URL", "EXAMPLE_DATABASE_URL_POOLED"]);
+    expect(w.github.environments.get("production")).toBe("main");
+    const env = w.github.environmentSecrets.get("production")!;
+    expect([...env.keys()].sort()).toEqual(["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN", "EXAMPLE_ACCOUNT_PASSWORD", "EXAMPLE_BETTER_AUTH_SECRET", "EXAMPLE_DATABASE_URL", "EXAMPLE_DATABASE_URL_POOLED"]);
+    expect([...w.github.secrets.keys()]).toEqual([]);
     expect(env.get("EXAMPLE_DATABASE_URL")).toContain("neon.tech");
     expect(env.get("EXAMPLE_DATABASE_URL_POOLED")).toContain("-pooler");
     for (const name of ["EXAMPLE_DATABASE_URL", "EXAMPLE_DATABASE_URL_POOLED"]) {
@@ -46,7 +55,7 @@ describe("pnpm bootstrap product: Production module", () => {
 
     await w.run("product", "my-app");
 
-    const names = [...(w.github.environmentSecrets.get("my-app-production")?.keys() ?? []), ...w.github.secrets.keys()].filter((n) => n.includes("MY_APP"));
+    const names = [...(w.github.environmentSecrets.get("production")?.keys() ?? []), ...w.github.secrets.keys()].filter((n) => n.includes("MY_APP"));
     expect(names.length).toBeGreaterThan(0);
     expect(names.every((n) => n.startsWith("MY_APP_"))).toBe(true);
   });
@@ -71,19 +80,19 @@ describe("pnpm bootstrap product: Production module", () => {
     await w.run("product", "example");
 
     expect(w.neon.projects).toHaveLength(1);
-    expect(w.github.environmentSecrets.get("example-production")?.get("EXAMPLE_DATABASE_URL")).toContain("proj-existing");
+    expect(w.github.environmentSecrets.get("production")?.get("EXAMPLE_DATABASE_URL")).toContain("proj-existing");
   });
 
   it("--redo refreshes one step and leaves the others alone", async () => {
     const w = productWorld();
     await w.run("product", "example");
-    const secret = w.github.environmentSecrets.get("example-production")!.get("EXAMPLE_BETTER_AUTH_SECRET");
+    const secret = w.github.environmentSecrets.get("production")!.get("EXAMPLE_BETTER_AUTH_SECRET");
     const projects = w.neon.writes;
 
     const { output } = await w.run("product", "example", "--redo", "auth-secret");
 
     expect(output).toContain("Better Auth secret (EXAMPLE_BETTER_AUTH_SECRET): redoing");
-    expect(w.github.environmentSecrets.get("example-production")!.get("EXAMPLE_BETTER_AUTH_SECRET")).not.toBe(secret);
+    expect(w.github.environmentSecrets.get("production")!.get("EXAMPLE_BETTER_AUTH_SECRET")).not.toBe(secret);
     expect(w.neon.writes).toBe(projects);
     const unknown = await w.run("product", "example", "--redo", "nope").catch((e: Error) => e.message);
     expect(String(unknown)).toContain("Unknown step");
@@ -91,7 +100,7 @@ describe("pnpm bootstrap product: Production module", () => {
 
   it("falls back to repo-level secrets and FACTORY_USE_ENVIRONMENTS=false when the API refuses environments", async () => {
     const w = productWorld();
-    w.github.refuseEnvironments = true;
+    withoutEnvironments(w);
 
     const { code } = await w.run("product", "example");
 
@@ -106,14 +115,14 @@ describe("pnpm bootstrap product: Production module", () => {
 
   it("a rerun after the plan allows environments flips FACTORY_USE_ENVIRONMENTS back", async () => {
     const w = productWorld();
-    w.github.refuseEnvironments = true;
+    withoutEnvironments(w);
     await w.run("product", "example");
     w.github.refuseEnvironments = false;
 
     await w.run("product", "example", "--redo", "github-environment");
 
     expect(w.github.variables.get("FACTORY_USE_ENVIRONMENTS")).toBe("true");
-    expect(w.github.environments.has("example-production")).toBe(true);
+    expect(w.github.environments.has("production")).toBe(true);
   });
 
   it("does not create the ruleset in pnpm bootstrap product", async () => {
@@ -192,7 +201,7 @@ describe("pnpm bootstrap product: Production module", () => {
     expect(w.neon.sessions.map((s) => s.closed)).toEqual([1]);
 
     const later = productWorld();
-    later.github.upsertEnvironment = async () => {
+    later.github.setSecret = async () => {
       throw new Error("boom");
     };
     await expect(later.run("product", "example")).rejects.toThrow("boom");
@@ -216,7 +225,7 @@ describe("pnpm bootstrap product: Production module", () => {
     await w.run("product", "example");
 
     expect(everythingShown(w)).not.toMatch(/postgresql:|pw-1/);
-    const stored = [...w.github.environmentSecrets.get("example-production")!.values()].filter((v) => v.startsWith("postgresql://"));
+    const stored = [...w.github.environmentSecrets.get("production")!.values()].filter((v) => v.startsWith("postgresql://"));
     expect(stored).toHaveLength(2);
   });
 
@@ -238,13 +247,13 @@ describe("pnpm bootstrap product: Production module", () => {
     await w.run("product", "example");
 
     expect(w.neon.projects).toHaveLength(2);
-    expect(w.github.environmentSecrets.get("example-production")?.get("EXAMPLE_DATABASE_URL")).toContain("proj-b");
+    expect(w.github.environmentSecrets.get("production")?.get("EXAMPLE_DATABASE_URL")).toContain("proj-b");
   });
 
   it("makes no project-scoped Neon key for production", async () => {
     const w = productWorld();
     await w.run("product", "example");
-    expect([...w.github.secrets.keys(), ...(w.github.environmentSecrets.get("example-production")?.keys() ?? [])].filter((n) => /NEON/.test(n))).toEqual([]);
+    expect([...w.github.secrets.keys(), ...(w.github.environmentSecrets.get("production")?.keys() ?? [])].filter((n) => /NEON/.test(n))).toEqual([]);
   });
 
   it("offers the Resend domain steps and can defer them", async () => {
@@ -257,7 +266,7 @@ describe("pnpm bootstrap product: Production module", () => {
     expect(w.resend.domains).toEqual([]);
     expect(w.prompter.asked).toContain("resend-setup");
     expect(w.prompter.asked).not.toContain("resend-key");
-    expect(w.github.environmentSecrets.get("example-production")?.has("EXAMPLE_RESEND_API_KEY")).toBe(false);
+    expect(w.github.environmentSecrets.get("production")?.has("EXAMPLE_RESEND_API_KEY")).toBe(false);
   });
 
   it("with every optional answer skipped: one Resend decision, no Resend key, no Cloudflare token, no worker-domain, doctor green", async () => {
@@ -280,7 +289,7 @@ describe("pnpm bootstrap product: Production module", () => {
 
     await w.run("product", "example");
 
-    expect(w.github.environmentSecrets.get("example-production")?.get("EXAMPLE_RESEND_API_KEY")).toMatch(/^re_restricted_/);
+    expect(w.github.environmentSecrets.get("production")?.get("EXAMPLE_RESEND_API_KEY")).toMatch(/^re_restricted_/);
     expect(w.github.secrets.has("EXAMPLE_RESEND_API_KEY")).toBe(false);
   });
 });
@@ -335,14 +344,14 @@ describe("pnpm bootstrap doctor <id>: Production section", () => {
 
   it("shows the environment as off, not missing, after the fallback", async () => {
     const w = productWorld();
-    w.github.refuseEnvironments = true;
+    withoutEnvironments(w);
     await w.run("product", "example");
     w.deps.interactive = false;
 
     const { code, output } = await w.run("doctor", "example");
 
     expect(code).toBe(0);
-    expect(output).toMatch(/off\s+Environment example-production/);
+    expect(output).toMatch(/off\s+Environment production/);
   });
 });
 
@@ -351,7 +360,7 @@ describe("pnpm bootstrap product: the account in the production database", () =>
   const SECRET = "EXAMPLE_ACCOUNT_PASSWORD";
   const url = (w: ReturnType<typeof productWorld>) => [...w.accounts.databases.keys()][0]!;
   const users = (w: ReturnType<typeof productWorld>) => w.accounts.databases.get(url(w))!.users;
-  const secrets = (w: ReturnType<typeof productWorld>) => w.github.environmentSecrets.get("example-production")!;
+  const secrets = (w: ReturnType<typeof productWorld>) => w.github.environmentSecrets.get("production")!;
   /** Everything outside the database itself and the one secret: logs, prompts, the forge, the variables. */
   const outsideTheDatabase = (w: ReturnType<typeof productWorld>) =>
     JSON.stringify([
@@ -543,7 +552,7 @@ describe("pnpm bootstrap product: one Neon login at most, only for Neon work", (
     const w = productWorld({ "resend-key": "" });
     await w.run("product", "example");
     w.github.variables.delete("EXAMPLE_ACCOUNT_EMAIL");
-    w.github.environmentSecrets.get("example-production")!.delete("EXAMPLE_ACCOUNT_PASSWORD");
+    w.github.environmentSecrets.get("production")!.delete("EXAMPLE_ACCOUNT_PASSWORD");
     const before = logins(w);
 
     const { code } = await w.run("product", "example");
