@@ -28,7 +28,7 @@ The shared package every Product builds on: a Hono + OpenAPI Worker, Better Auth
 
 - `test/*.test.ts` drive the Worker over HTTP against Postgres with the outbound `fetch` mocked. Do not mock the database.
 - `test/browser/` renders screens with the generated MSW handlers.
-- `e2e/specs/` use Playwright; mark screenshots with `@evidence`. Locate elements by role plus the i18n key. `evidence(name)` prints at 1280 and 390 pixels wide (`<name>-<width>.png`) and measures the page beside each (`e2e/measure.ts`: overlap, width overflow, cut text, off-screen element, broken image, console error, axe `serious`/`critical`) into `<name>-<width>.json`; it never fails the test. A finding on purpose is declared with `evidence(name, { allow: [{ kind, reason }] })`. `e2e/specs/measurements.spec.ts` holds one fixture page per defect.
+- `e2e/specs/` use Playwright; mark screenshots with `@evidence`. Locate elements by role plus the i18n key. `evidence(name)` prints at 1280 and 390 pixels wide (`<name>-<width>.png`; the test's page is never resized, so an open menu stays open: the size it is not at comes from a second page of the same context on the same URL, without click-made state; to print a menu at 390, resize the page to 390 before `evidence()`) and measures the page beside each (`e2e/measure.ts`: overlap, width overflow, cut text, off-screen element, broken image, console error, axe `serious`/`critical`) into `<name>-<width>.json`; it never fails the test. A finding on purpose is declared with `evidence(name, { allow: [{ kind, reason }] })`. `e2e/specs/measurements.spec.ts` holds one fixture page per defect.
 - Run `pnpm --filter @workspace/skeleton test` or the root `pnpm factory:verify`.
 
 ## Skills

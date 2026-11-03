@@ -108,9 +108,12 @@ test.describe("the measurements of a page", () => {
   });
 });
 
-test("evidence(name) saves the print and the measurements at 1280 and at 390, then restores the size @evidence", async ({ page, product, evidence }) => {
+test("evidence(name) saves the print and the measurements at 1280 and at 390, and leaves the test's page as it was @evidence", async ({ page, product, evidence }) => {
   await page.setViewportSize({ width: 1000, height: 700 });
-  await page.setContent(PAGE(`<h1>Companies</h1><a href="/new">New Company</a>`));
+  await page.context().route("**/fixture/plain", (route) =>
+    route.fulfill({ contentType: "text/html", body: PAGE(`<h1>Companies</h1><a href="/new">New Company</a>`) }),
+  );
+  await page.goto("/fixture/plain");
 
   await evidence("measurements-fixture");
 
@@ -120,4 +123,22 @@ test("evidence(name) saves the print and the measurements at 1280 and at 390, th
     expect(JSON.parse(await readFile(`${base}.json`, "utf8"))).toMatchObject({ name: "measurements-fixture", width, findings: [], exceptions: [] });
   }
   expect(page.viewportSize()).toEqual({ width: 1000, height: 700 });
+});
+
+test("a menu open before evidence() is still open after it, and its items still click @evidence", async ({ page, evidence }) => {
+  const body = `<button id="trigger" aria-haspopup="menu" onclick="document.getElementById('menu').hidden = false">Company</button>
+    <div id="menu" role="menu" hidden><button role="menuitem" onclick="document.title = 'picked'">Acme</button></div>
+    <script>addEventListener("resize", () => { document.getElementById("menu").hidden = true; });</script>`;
+  await page.context().route("**/fixture/menu", (route) => route.fulfill({ contentType: "text/html", body: PAGE(body) }));
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto("/fixture/menu");
+  await page.getByRole("button", { name: "Company" }).click();
+  await expect(page.getByRole("menu")).toBeVisible();
+
+  await evidence("measurements-menu");
+
+  await expect(page.getByRole("menu")).toBeVisible();
+  await page.getByRole("menuitem", { name: "Acme" }).click();
+  await expect(page).toHaveTitle("picked");
+  expect(page.viewportSize()).toEqual({ width: 1280, height: 800 });
 });
