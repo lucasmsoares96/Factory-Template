@@ -311,17 +311,54 @@ describe("pnpm bootstrap factory: Factory module", () => {
     expect(output).toMatch(/ANTHROPIC_API_KEY.*not stored/s);
   });
 
-  it("without any Claude auth it says how to get one, asks nothing more, and leaves FACTORY_ENABLED off", async () => {
-    const w = factoryWorld();
+  it("without any Claude auth it says to run claude setup-token, asks for its token once and stores it", async () => {
+    const w = factoryWorld({ "claude-token": "  sk-ant-oat-pasted  " });
+
+    const { code } = await w.run("factory");
+
+    expect(code).toBe(0);
+    expect(shown(w)).toContain("claude setup-token");
+    expect(w.prompter.printed).toContain("https://code.claude.com/docs/en/authentication#generate-a-long-lived-token");
+    expect(credentialPrompts(w)).toEqual(["factory-token", "claude-token"]);
+    expect(w.github.secrets.get("CLAUDE_CODE_OAUTH_TOKEN")).toBe("sk-ant-oat-pasted");
+    expect(w.github.secrets.has("ANTHROPIC_API_KEY")).toBe(false);
+    expect(w.github.variables.get("FACTORY_ENABLED")).toBe("true");
+    expect(shown(w)).not.toContain("sk-ant-oat-pasted");
+  });
+
+  it("an empty Claude token stores nothing and leaves FACTORY_ENABLED off", async () => {
+    const w = factoryWorld({ "claude-token": "" });
 
     const { code, output } = await w.run("factory");
 
     expect(code).toBe(1);
-    expect(output).toContain("claude setup-token");
-    expect(output).toMatch(/missing\s+Claude auth/);
+    expect(output).toContain("No Claude auth stored");
+    expect(output).toMatch(/missing\s+Claude auth\s+run `pnpm bootstrap factory` and paste the token from `claude setup-token`/);
     expect(w.github.variables.has("FACTORY_ENABLED")).toBe(false);
-    expect(output).toContain("FACTORY_ENABLED stays off");
+  });
+
+  it("ANTHROPIC_API_KEY in the environment skips the Claude prompt", async () => {
+    const w = factoryWorld({}, { ANTHROPIC_API_KEY: "sk-ant-api-x" });
+
+    await w.run("factory");
+
     expect(credentialPrompts(w)).toEqual(["factory-token"]);
+    expect(w.github.secrets.get("ANTHROPIC_API_KEY")).toBe("sk-ant-api-x");
+  });
+
+  it("without a terminal, a missing Claude auth is named before any step, and ANTHROPIC_API_KEY answers it", async () => {
+    const missing = factoryWorld({}, { FACTORY_TOKEN: PAT });
+    missing.deps.interactive = false;
+    const { code, output } = await missing.run("factory");
+    expect(code).toBe(1);
+    expect(output).toContain("CLAUDE_CODE_OAUTH_TOKEN");
+    expect(missing.github.secrets.size).toBe(0);
+    expect(missing.prompter.asked).toEqual([]);
+
+    const key = factoryWorld({}, { FACTORY_TOKEN: PAT, ANTHROPIC_API_KEY: "sk-ant-api-x" });
+    key.deps.interactive = false;
+    expect((await key.run("factory")).code).toBe(0);
+    expect(key.github.secrets.get("ANTHROPIC_API_KEY")).toBe("sk-ant-api-x");
   });
 
   it("--redo factory-token replaces the token", async () => {

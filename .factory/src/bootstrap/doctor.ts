@@ -232,7 +232,7 @@ async function factoryChecks(
   const claude = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"].filter((name) => secrets.includes(name));
   if (claude.length === 2) add("warn", "Claude auth", "both exist: ANTHROPIC_API_KEY wins; delete one");
   else if (claude.length === 1) add("ok", "Claude auth", claude[0]);
-  else add("missing", "Claude auth", "export CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`) or ANTHROPIC_API_KEY and " + redo);
+  else add("missing", "Claude auth", redo + " and paste the token from `claude setup-token`");
 }
 
 /** The resume sweep runs every 30 minutes and is meant to be on only while an item is paused. Nothing is shown for a repo without it. */

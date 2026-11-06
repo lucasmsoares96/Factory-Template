@@ -86,6 +86,7 @@ describe("bootstrap factory: the optional example issue", () => {
   it("does not ask when the doctor failed", async () => {
     const w = exampleWorld(undefined);
     w.deps.env.CLAUDE_CODE_OAUTH_TOKEN = undefined;
+    w.prompter.script("claude-token", "");
 
     const { code } = await w.run("factory");
 

@@ -9,7 +9,7 @@ const PAT = "github_pat_owner_token";
 const PASSWORD = "admin password 123";
 
 async function built(answers: Record<string, string | boolean | string[]> = {}, env: Record<string, string | undefined> = ENV) {
-  const w = world({ "resend-setup": "skip", "default-account-email": "admin@example.com", "default-account-password": PASSWORD, "default-account-password-confirm": PASSWORD, "preview-account-password": PASSWORD, "preview-account-password-confirm": PASSWORD, "factory-token": PAT, ...answers }, env);
+  const w = world({ "resend-setup": "skip", "default-account-email": "admin@example.com", "default-account-password": PASSWORD, "default-account-password-confirm": PASSWORD, "preview-account-password": PASSWORD, "preview-account-password-confirm": PASSWORD, "factory-token": PAT, "claude-token": "sk-ant-oat-x", ...answers }, env);
   w.deps.interactive = true;
   seedCloudflare(w.github, TOKEN);
   w.cloudflare.subdomains.set("acc-1", "my-team");
