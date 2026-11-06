@@ -6,6 +6,7 @@ export const FACTORY_TOKEN = "FACTORY_TOKEN";
 export const FACTORY_ENABLED = "FACTORY_ENABLED";
 export const CLAUDE_OAUTH = "CLAUDE_CODE_OAUTH_TOKEN";
 export const CLAUDE_KEY = "ANTHROPIC_API_KEY";
+const CLAUDE_TOKEN_DOCS = "https://code.claude.com/docs/en/authentication#generate-a-long-lived-token";
 
 const ATTEMPTS = 3;
 
@@ -76,10 +77,16 @@ export const factoryToken: Step = {
   },
 };
 
-/** Claude's auth is taken from the environment or an existing secret, never asked: a pasted token would be a second prompt. */
+/**
+ * Claude's auth: `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` from the environment, else one hidden prompt for the
+ * token `claude setup-token` prints, stored as `CLAUDE_CODE_OAUTH_TOKEN`. An existing secret skips the step. The docs
+ * (code.claude.com/docs/en/authentication, read 2026-11-06) give no token format, so the pasted value is not checked.
+ */
 export const claudeAuth: Step = {
   id: "claude-auth",
   title: `Claude auth (${CLAUDE_OAUTH} or ${CLAUDE_KEY})`,
+  // Without a terminal, ANTHROPIC_API_KEY answers it as well as the OAuth token does.
+  asks: async (ctx) => (ctx.env[CLAUDE_KEY] ? [] : ["claude-token"]),
   async check(ctx) {
     const secrets = await ctx.github.listSecrets();
     const have = [CLAUDE_OAUTH, CLAUDE_KEY].filter((name) => secrets.includes(name));
@@ -98,10 +105,14 @@ export const claudeAuth: Step = {
       await ctx.github.setSecret(CLAUDE_KEY, key);
       return;
     }
-    ctx.log(
-      `No Claude auth yet. Run \`claude setup-token\` (a Claude subscription; recommended) and export the result as ${CLAUDE_OAUTH}, ` +
-        `or export ${CLAUDE_KEY}, then run \`pnpm bootstrap factory\` again. The value goes straight to the repo secret.`,
-    );
+    ctx.log(`The Factory runs Claude Code with your Claude subscription. In another terminal, run \`claude setup-token\`: it opens the browser and prints a token valid for one year.`);
+    ctx.prompter.link("How the token works:", CLAUDE_TOKEN_DOCS);
+    const token = (await ctx.prompter.password({ id: "claude-token", message: "Paste the token from `claude setup-token`" })).trim();
+    if (!token) {
+      ctx.log(`No Claude auth stored. Run \`pnpm bootstrap factory\` again and paste the token (or export ${CLAUDE_KEY} to use an API key instead).`);
+      return;
+    }
+    await ctx.github.setSecret(CLAUDE_OAUTH, token);
   },
 };
 

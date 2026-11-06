@@ -72,9 +72,9 @@ Commands:
                          to set the domain up (optional) and, if the Product lists the billing Feature, billing. Stops
                          at the first module whose doctor fails; run it again after fixing what the doctor lists.
   factory                The Factory module (after the common part): your own fine-grained token, limited to this
-                         repository (the one thing asked, once, hidden; a pre-filled link is printed, and it goes straight
-                         to the FACTORY_TOKEN secret), and Claude's auth taken from CLAUDE_CODE_OAUTH_TOKEN or
-                         ANTHROPIC_API_KEY in the environment (or an existing secret), and the Merge Mode
+                         repository (asked once, hidden; a pre-filled link is printed, and it goes straight to the
+                         FACTORY_TOKEN secret), Claude's auth (the token \`claude setup-token\` prints, asked once,
+                         hidden, unless CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY or the secret exists), and the Merge Mode
                          (FACTORY_MERGE_MODE: human, the default, safe, or all behind a typed confirmation; asked
                          once, human without a terminal unless FACTORY_MERGE_MODE is in the environment).
                          Turns FACTORY_ENABLED on once the doctor passes. A rerun with the secrets in place asks nothing

@@ -72,6 +72,7 @@ export const QUESTIONS = {
   "billing-existing-suspend": terminal("billing", "Whether to turn billing on knowing that people of the existing accounts will be suspended"),
   "billing-existing-trial": terminal("billing", "Whether to start the trials of the existing accounts now"),
   "factory-token": q("factory", "required", "FACTORY_TOKEN", "Fine-grained token limited to this repository (stored as a secret); not needed once the secret exists"),
+  "claude-token": q("factory", "required", "CLAUDE_CODE_OAUTH_TOKEN", "Claude's OAuth token from `claude setup-token` (stored as a secret); not needed once Claude's auth secret exists or with ANTHROPIC_API_KEY set"),
   "merge-mode": q("factory", "optional", "FACTORY_MERGE_MODE", "Merge Mode (human, safe or all)", { default: "human" }),
   "merge-mode-confirm": terminal("factory", "Typed confirmation of the Merge Mode all"),
   "example-issue": terminal("factory", "Whether to run the example issue"),
@@ -86,8 +87,7 @@ export type QuestionId = keyof typeof QUESTIONS;
 const READS: { module: Module; env: string; purpose: string }[] = [
   { module: "product", env: "NEON_API_KEY", purpose: "Neon API key; without it neonctl signs in through the browser" },
   { module: "previews", env: "NEON_API_KEY", purpose: "Neon API key; without it neonctl signs in through the browser" },
-  { module: "factory", env: "CLAUDE_CODE_OAUTH_TOKEN", purpose: "Claude's OAuth token (or ANTHROPIC_API_KEY, or an existing secret)" },
-  { module: "factory", env: "ANTHROPIC_API_KEY", purpose: "Claude's API key, when there is no OAuth token" },
+  { module: "factory", env: "ANTHROPIC_API_KEY", purpose: "Claude's API key, instead of the OAuth token" },
 ];
 
 /** What `pnpm bootstrap env` prints for some modules: each variable once, with its purpose and whether it is required. */
