@@ -113,7 +113,7 @@ describe("skills", () => {
   const MATT = [
     "tdd", "code-review", "triage", "implement", "diagnosing-bugs", "codebase-design", "domain-modeling", "grilling", "wayfinder",
     "research", "prototype", "to-spec", "to-tickets", "setup-matt-pocock-skills", "wizard", "pr", "writing-for-agents", "handoff",
-    "git-guardrails-claude-code", "retro",
+    "git-guardrails-claude-code", "retro", "ask-matt",
   ];
   const VENDOR = ["playwright-cli", "workers-best-practices"];
   const OWN = ["skeleton-add-endpoint", "skeleton-add-migration", "skeleton-add-feature", "skeleton-evidence-test"];
