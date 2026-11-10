@@ -115,12 +115,13 @@ A walkthrough of the Factory from a person's side: how to plan work, write an is
 
 ### 1. Plan with the skills
 
-The skills in `.agents/skills/` turn an idea into issues the Factory can take. Run them in Claude Code as slash commands (`/grilling`, `/to-spec`, ...). Most come from [Matt Pocock's skills](https://github.com/mattpocock/skills).
+The skills in `.agents/skills/` turn an idea into issues the Factory can take. Run them in Claude Code as slash commands (`/wayfinder`, `/to-spec`, ...). Most come from [Matt Pocock's skills](https://github.com/mattpocock/skills).
 
 | Skill | Use it to |
 | --- | --- |
-| `/grilling` | Stress-test a plan: it asks you questions until the plan holds. |
-| `/wayfinder` | Plan work too big for one session. It builds a map issue (`wayfinder:map`) with decision tickets as sub-issues and resolves them one at a time. The tickets carry `wayfinder:research`, `wayfinder:prototype`, `wayfinder:grilling` or `wayfinder:task`. |
+| `/ask-matt` | Ask which skill or flow fits your situation. It routes over Matt Pocock's skills. |
+| `/wayfinder` | Plan any effort, small or large. It builds a map issue (`wayfinder:map`) with decision tickets as sub-issues and resolves them one at a time. The tickets carry `wayfinder:research`, `wayfinder:prototype`, `wayfinder:grilling` or `wayfinder:task`. A small effort gets a small map. |
+| `/grilling` | The interview itself: it asks you questions until the plan holds. `/wayfinder` runs it for every `wayfinder:grilling` ticket. Call it directly only for a quick question that should leave nothing on the tracker. |
 | `/research` | Answer a question from primary sources and save the findings as Markdown in the repo. |
 | `/prototype` | Build a throwaway prototype to answer a design question. |
 | `/domain-modeling` | Sharpen the terms in `GLOSSARY.md` or record an ADR in `docs/adr/`. |
@@ -131,7 +132,9 @@ The skills in `.agents/skills/` turn an idea into issues the Factory can take. R
 | `/handoff` | Compact the session into a document another agent can pick up. |
 | `/retro` | Run a retrospective over an Escalation or a PR the Merge Gate stopped. |
 
-The usual path is `/grilling` (or `/wayfinder` for big efforts), then `/to-spec`, then `/to-tickets`. The Factory never works on the spec itself: once a spec has sub-issues, it is skipped. `/to-spec` labels the spec `ready-for-agent`; remove that label, or the Factory moves the spec to `needs-info` because it has no acceptance criteria.
+`/ask-matt` also recommends skills that are not installed here (`/grill-with-docs`, `/grill-me`, `/implement-spec`, `/improve-codebase-architecture`, `/to-questionnaire`, `/wait-what`, `/teach`). Add one with `npx skills@1.7.2 add mattpocock/skills --skill <name>`, then move it from `.claude/skills/` to `.agents/skills/` and link it back, as the other skills are.
+
+This repo starts every effort with `/wayfinder`, even a small one. The map keeps each decision in an issue, where later sessions and the Factory can read it. Matt's own guidance in `/ask-matt` saves `/wayfinder` for large, foggy efforts and starts smaller ones with a grilling session; here, a small effort just gets a smaller map. When the map is clear, run `/to-spec`, then `/to-tickets`. The Factory never works on the spec itself: once a spec has sub-issues, it is skipped. `/to-spec` labels the spec `ready-for-agent`; remove that label, or the Factory moves the spec to `needs-info` because it has no acceptance criteria.
 
 ### 2. Write an issue the Factory accepts
 
